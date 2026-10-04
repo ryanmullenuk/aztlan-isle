@@ -366,6 +366,73 @@ export function stylisedMaterialDouble(): THREE.MeshStandardMaterial {
   return sharedDouble;
 }
 
+let fire: THREE.ShaderMaterial | null = null;
+/**
+ * Living flames: a little see-through (a brighter, denser core seen face-on, soft translucent
+ * edges and tip), white-gold at the base through orange to a deep red-orange tip, gently
+ * swaying and licking, each flame on its own rhythm (from where it stands). Needs the aH
+ * attribute of flameGeometry. Bright enough to bloom.
+ */
+export function fireMaterial(): THREE.ShaderMaterial {
+  if (!fire) {
+    fire = new THREE.ShaderMaterial({
+      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uTime: { value: 0 } }]),
+      vertexShader: /* glsl */ `
+        #include <common>
+        #include <fog_pars_vertex>
+        attribute float aH;
+        uniform float uTime;
+        varying float vH;
+        varying vec3 vNw;
+        varying vec3 vVw;
+        void main() {
+          vec3 transformed = position;
+          float ph = modelMatrix[3][0] * 1.7 + modelMatrix[3][2] * 2.3;
+          float h = aH;
+          // Gentle sway, strongest at the tip, from a few slow overlapping waves.
+          float sx = sin(uTime * 2.4 + ph) * 0.55 + sin(uTime * 4.3 + ph * 1.9) * 0.3 + sin(uTime * 7.7 + ph * 0.7) * 0.15;
+          float sz = cos(uTime * 2.1 + ph * 1.3) * 0.5 + sin(uTime * 5.1 + ph * 0.4) * 0.3 + cos(uTime * 8.3 + ph * 2.1) * 0.12;
+          float k = h * h * position.y;
+          transformed.x += sx * k * 0.15;
+          transformed.z += sz * k * 0.13;
+          // Small licks rippling up the flame.
+          transformed.xz *= 1.0 + sin(uTime * 6.5 - h * 7.0 + ph) * 0.06 * h;
+          vec4 wp = modelMatrix * vec4(transformed, 1.0);
+          vNw = normalize(mat3(modelMatrix) * normal);
+          vVw = normalize(cameraPosition - wp.xyz);
+          vH = h;
+          vec4 mvPosition = viewMatrix * wp;
+          gl_Position = projectionMatrix * mvPosition;
+          #include <fog_vertex>
+        }`,
+      fragmentShader: /* glsl */ `
+        #include <common>
+        #include <fog_pars_fragment>
+        varying float vH;
+        varying vec3 vNw;
+        varying vec3 vVw;
+        void main() {
+          float facing = abs(dot(normalize(vNw), normalize(vVw)));
+          vec3 base = vec3(2.1, 0.86, 0.13), mid = vec3(1.95, 0.46, 0.05), tip = vec3(1.35, 0.19, 0.02);
+          vec3 c = mix(base, mid, smoothstep(0.0, 0.4, vH));
+          c = mix(c, tip, smoothstep(0.4, 1.0, vH));
+          // The heart of the flame (seen face-on) burns a little hotter and yellower.
+          c = mix(c * 0.72, c * 1.03 + vec3(0.16, 0.1, 0.0) * (1.0 - vH), pow(facing, 1.6));
+          float a = (0.22 + 0.58 * pow(facing, 0.9)) * (1.0 - 0.65 * smoothstep(0.5, 1.0, vH));
+          gl_FragColor = vec4(c, a);
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+          #include <fog_fragment>
+        }`,
+      transparent: true,
+      depthWrite: false,
+      fog: true,
+    });
+    fire.uniforms.uTime = FX.uTime;
+  }
+  return fire;
+}
+
 let glow: THREE.MeshBasicMaterial | null = null;
 /** Emissive flame / torch material (bright enough to bloom). */
 export function flameMaterial(): THREE.MeshBasicMaterial {
@@ -488,7 +555,8 @@ export function peopleSkinnedMaterial(bones: THREE.DataTexture, map: THREE.Textu
         attribute vec3 iLook;
         varying float vHairK;
         varying float vHairTone;
-        varying float vBeardK;`)
+        varying float vBeardK;
+        varying float vRobe;`)
       .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
         mat4 skinM = skinMatrix();
         objectNormal = normalize(mat3(skinM) * objectNormal);`)
@@ -499,14 +567,17 @@ export function peopleSkinnedMaterial(bones: THREE.DataTexture, map: THREE.Textu
         if (vBeardK > 0.5) transformed = mix(transformed, vec3(0.0, 1.6, 0.0), 0.12);
         transformed = (skinM * vec4(transformed, 1.0)).xyz;
         vHairK = aHair * iLook.x * (1.0 - vBeardK);
-        vHairTone = iLook.y;`);
+        // A white robe (the Healing Centre's healer) is flagged by a hair tone above 1.5.
+        vRobe = step(1.5, iLook.y);
+        vHairTone = iLook.y - 2.0 * vRobe;`);
     // Elders: the hair is redrawn grey (women) or white (men), keeping the texture's facet shading.
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
         uniform vec2 uSkinUv;
         varying float vHairK;
         varying float vHairTone;
-        varying float vBeardK;`)
+        varying float vBeardK;
+        varying float vRobe;`)
       .replace('#include <map_fragment>', `#include <map_fragment>
         if (vHairK > 0.01) {
           float hl = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
@@ -515,7 +586,17 @@ export function peopleSkinnedMaterial(bones: THREE.DataTexture, map: THREE.Textu
         }
         #ifdef USE_MAP
           if (vBeardK > 0.5) diffuseColor.rgb = texture2D(map, uSkinUv).rgb;
-        #endif`);
+        #endif
+        // Dressed all in white: the red and gold cloth (sash, bands, trim) is repainted a warm
+        // white; skin (a much higher green-to-red ratio than red cloth, more blue than gold) and
+        // hair are left as they are.
+        if (vRobe > 0.5) {
+          vec3 dc = diffuseColor.rgb;
+          float gr = dc.g / max(dc.r, 1e-3), br = dc.b / max(dc.r, 1e-3);
+          bool red = dc.r > 0.12 && gr < 0.22;
+          bool gold = dc.r > 0.16 && gr > 0.42 && br < 0.16;
+          if (red || gold) diffuseColor.rgb = vec3(0.86, 0.84, 0.8);
+        }`);
   };
   mat.customProgramCacheKey = () => 'people-skinned';
   const depth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
