@@ -131,6 +131,12 @@ export interface Islander {
   stuck: number;
   /** How badly they've been held up lately (each stuck spell adds one; good walking wears it off). */
   jam?: number;
+  /** Progress along the current path: the waypoint reached, the closest they've come to it, and seconds without getting closer. */
+  progIdx?: number;
+  progD?: number;
+  noProg?: number;
+  /** Squeezing past people blocking the way (not pushed back by them meanwhile). */
+  slipping?: boolean;
   lastCell: number;
   /** Assigned by the player (plant id to work first). */
   focusPlant: number;
