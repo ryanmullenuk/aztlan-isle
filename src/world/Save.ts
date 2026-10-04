@@ -114,7 +114,7 @@ export function serialize(g: Game): SaveData {
     milestones: [...g.milestones],
     stats: { ...g.stats },
     weather: { state: g.powers?.state ?? 'clear' },
-    volcano: g.volcano?.save(),
+    ...(g.volcano ? { volcano: g.volcano.save() } : {}),
     world: { layer: toB64(layerU), sandy: q8(w.sandy), forest: q8(w.forest), rocky: q8(w.rocky), wear: q8(w.wear), path: toB64(w.path), bridge: toB64(w.bridge), canal: toB64(w.canal) },
     plants: toB64(plants),
     layout: 1,
