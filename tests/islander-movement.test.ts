@@ -99,3 +99,35 @@ test('someone shut inside a building footprint walks out to open ground, then on
   assert.equal(world.occ[world.cellIndexAt(person.x, person.z)], 0, 'out of the footprint');
   assert.ok(person.x > 3, `walked on toward the goal (x ${person.x.toFixed(2)})`);
 });
+
+test('a walker squeezes past someone standing still in a one-cell gap between buildings', () => {
+  const { colony, world } = setup();
+  // Two buildings leave a single open cell row at z = 0.5 between x = -3 and x = 4.
+  for (let x = -3; x <= 4; x++) for (const z of [-0.5, 1.5, -1.5, 2.5]) world.occ[world.cellIndexAt(x + 0.5, z)] = 9;
+  // A priest at prayer stands in the gap and holds their place.
+  const priest = colony.spawn('f', 1.5, 0.5);
+  priest.anim = 'pray';
+  priest.think = 1e9;
+  const walker = colony.spawn('m', -2.5, 0.5);
+  (colony as any).setTask(walker, 'wander', -1, 6.5, 0.5);
+  walker.task!.timer = 99;
+  for (let k = 0; k < 30 * 25; k++) {
+    colony.update(1 / 30);
+    priest.anim = 'pray'; priest.x = 1.5; priest.z = 0.5;
+  }
+  assert.ok(walker.x > 5, `got through the gap (x ${walker.x.toFixed(2)})`);
+});
+
+test('in a packed crowd everyone keeps getting somewhere: none shuffles in place for long', () => {
+  const { colony } = setup();
+  const people: Islander[] = [];
+  // Twenty people bunched on one spot, half heading east and half west through the others.
+  for (let k = 0; k < 20; k++) {
+    const p = colony.spawn(k % 2 ? 'm' : 'f', 0.1 * (k % 5), 0.1 * Math.floor(k / 5));
+    (colony as any).setTask(p, 'wander', -1, k % 2 ? 9 : -9, (k % 5) - 2);
+    p.task!.timer = 99;
+    people.push(p);
+  }
+  for (let k = 0; k < 30 * 20; k++) colony.update(1 / 30);
+  for (const p of people) assert.ok(Math.abs(p.x) > 6, `person ${p.id} still in the knot at ${p.x.toFixed(2)}, ${p.z.toFixed(2)}`);
+});

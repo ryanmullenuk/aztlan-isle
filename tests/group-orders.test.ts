@@ -27,7 +27,7 @@ test('group gathering reserves separate resources and starts each order immediat
   for (const kind of ['broadleaf','rock']) {
     const plants = Array.from({length:3},(_,id)=>({id,kind,x:id*2,z:0,reservedBy:-1,amount:10}));
     const available = (p:any) => p.reservedBy < 0;
-    const veg = {plants,isChoppable:(p:any)=>p.kind==='broadleaf'&&available(p),isMineable:(p:any)=>p.kind==='rock'&&available(p),hasFruit:()=>false,
+    const veg = {plants,isChoppable:(p:any)=>p.kind==='broadleaf'&&available(p),isMineable:(p:any)=>p.kind==='rock'&&available(p),hasFruit:()=>false,isLog:()=>false,
       findNearest:(x:number,z:number,r:number,predicate:(p:any)=>boolean)=>plants.filter(predicate).sort((a,b)=>Math.abs(a.x-x)-Math.abs(b.x-x))[0]??null};
     const colony = new Colony({} as any,veg as any,{space:()=>100} as any,{nearestStore:()=>({id:1})} as any,{} as any,{} as any,()=>0.5);
     const people = [person(1),person(2),person(3)];
