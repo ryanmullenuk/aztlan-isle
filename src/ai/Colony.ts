@@ -6,7 +6,7 @@ import { Building, BuildingSystem } from '../buildings/Buildings';
 import { HALL, HEAL } from '../buildings/models';
 import { Economy } from '../economy/Economy';
 import { Condition, Islander, Role, Task, makeIslander } from '../entities/Islander';
-import { Plant, PlantState, Vegetation } from '../vegetation/Vegetation';
+import { Plant, PlantState, TREE_FALL, Vegetation } from '../vegetation/Vegetation';
 import { GameTime } from '../world/Time';
 import { World } from '../world/World';
 import { escortSurfaceY } from '../entities/livestockTravel';
@@ -123,6 +123,7 @@ export class Colony {
     isl.pathPending = true;
     isl.path = null;
     isl.pathIdx = 0;
+    isl.progD = undefined;
     this.queue = this.queue.filter((q) => q.isl !== isl);
     this.queue.push({ isl, x, z, opts });
   }
@@ -130,6 +131,7 @@ export class Colony {
   /** Drives walking for the current task. Returns 'arrived', 'walking' or 'failed'. */
   private travel(isl: Islander, dt: number, x: number, z: number, opts: PathOptions = {}, run = false): 'arrived' | 'walking' | 'failed' {
     const t = isl.task!;
+    isl.slipping = false;
     if (Math.hypot(isl.x - x, isl.z - z) < 0.35 + (opts.goalRadius ?? 0) * 0.9 && !isl.pathPending && (!isl.path || isl.pathIdx >= isl.path.length)) {
       isl.path = null;
       return 'arrived';
@@ -170,22 +172,44 @@ export class Colony {
       return next >= 0 && this.pf.walkable(next, opts.allowBuilding, opts.allowWater)
         && Math.abs((opts.allowWater ? escortSurfaceY(this.world, nx, nz, 0.48) : this.world.groundY(nx, nz)) - isl.y) < 0.65;
     });
+    // Boxed in by people (a knot round the fire or a store door, where nobody has a clear way, or
+    // only sidesteps that never get anywhere): slip past them at a shuffle rather than freezing.
+    const forward = d > 0.001 ? (velocity.x * dx + velocity.z * dz) / d : speed;
+    if (forward < speed * 0.25 && (isl.noProg ?? 0) > 1.5 && d > 0.001) {
+      const vx = (dx / d) * speed * 0.6, vz = (dz / d) * speed * 0.6;
+      const nx = isl.x + vx * 0.3, nz = isl.z + vz * 0.3, next = this.world.cellIndexAt(nx, nz);
+      if (next >= 0 && this.pf.walkable(next, opts.allowBuilding, opts.allowWater)
+        && Math.abs((opts.allowWater ? escortSurfaceY(this.world, nx, nz, 0.48) : this.world.groundY(nx, nz)) - isl.y) < 0.65) {
+        velocity.x = vx; velocity.z = vz;
+        isl.slipping = true;
+      }
+    }
     const actualSpeed = Math.hypot(velocity.x, velocity.z);
     isl.stuck = actualSpeed < speed * 0.1 ? isl.stuck + dt : 0;
-    // Steady walking wears off being held up.
-    if (actualSpeed > speed * 0.5) isl.jam = Math.max(0, (isl.jam ?? 0) - dt * 0.1);
+    // Held up is measured by progress, not motion: sidestepping back and forth in a crowd, or
+    // circling a corner, counts as held up just like standing still.
+    if (isl.progIdx !== isl.pathIdx || isl.progD === undefined || d < isl.progD - 0.3) {
+      isl.progIdx = isl.pathIdx;
+      isl.progD = d;
+      isl.noProg = 0;
+      // Steady progress wears off being held up.
+      isl.jam = Math.max(0, (isl.jam ?? 0) - 0.1);
+    } else isl.noProg = (isl.noProg ?? 0) + dt;
     // Held up: first find the way again (terrain or buildings may have changed), then a way
-    // round the knot of people in the way, and if even that fails, give up and do something else
-    // (so jams clear instead of everyone queueing into them).
-    if (isl.stuck > 4) {
-      isl.stuck = 0;
+    // round the knot of people in the way. If even that fails: near enough counts as there (a
+    // place in the circle round the fire); otherwise give up and do something else.
+    if (isl.noProg > 5) {
+      isl.noProg = 0;
+      isl.progD = undefined;
       isl.jam = (isl.jam ?? 0) + 1;
       if (isl.jam >= 3) {
         isl.jam = 0;
         isl.path = null;
+        if (Math.hypot(isl.x - x, isl.z - z) < 2.5 + (opts.goalRadius ?? 0)) return 'arrived';
         return 'failed';
       }
       this.requestPath(isl, x, z, isl.jam >= 2 ? { ...opts, avoid: this.crowdCells(isl) } : opts);
+      return 'walking';
     }
     const aligned = actualSpeed > 0 && (velocity.x * dx + velocity.z * dz) / (actualSpeed * (d || 1)) > 0.99;
     if (d < 0.05 || (aligned && d <= actualSpeed * dt)) {
@@ -294,6 +318,9 @@ export class Colony {
     this.releaseTask(isl);
     isl.stuck = 0;
     isl.jam = 0;
+    isl.noProg = 0;
+    isl.progD = undefined;
+    isl.slipping = false;
     isl.task = { kind, stage: 0, target, timer: 0, x, z, res };
     isl.path = null;
     isl.pathPending = false;
@@ -301,6 +328,7 @@ export class Colony {
 
   /** Release any reservations held by the current task. */
   private releaseTask(isl: Islander): void {
+    isl.slipping = false;
     const t = isl.task;
     if (!t) return;
     if (t.kind === 'chop' || t.kind === 'mine' || t.kind === 'gather') {
@@ -333,7 +361,7 @@ export class Colony {
     for (const person of people) {
       if (person.child || person.hidden || person.sleeping || person.warrior || person.condition !== 'well') continue;
       const target = plant ? this.veg.findNearest(plant.x, plant.z, 40, q => this.okPlant(q) &&
-        (plant.kind === 'rock' ? this.veg.isMineable(q) : plant.kind === 'apple' || plant.kind === 'banana' ? this.veg.hasFruit(q) : this.veg.isChoppable(q))) : null;
+        (plant.kind === 'rock' ? this.veg.isMineable(q) : plant.kind === 'apple' || plant.kind === 'banana' ? this.veg.hasFruit(q) : this.veg.isChoppable(q) || this.veg.isLog(q))) : null;
       this.assign(person, building, target ?? plant);
       if (!person.manualRole) continue;
       if (plant && !this.okPlant(plant)) person.focusPlant = -1;
@@ -744,7 +772,10 @@ export class Colony {
 
   private startChop(isl: Islander): boolean {
     if (!this.bld.nearestStore(isl.x, isl.z, false) || this.eco.space('wood') < 1) return false;
-    const p = this.veg.findNearest(isl.x, isl.z, 40, (q) => q.marked && this.veg.isChoppable(q) && this.okPlant(q)) ?? this.veg.findNearest(isl.x, isl.z, 40, (q) => this.veg.isChoppable(q) && this.okPlant(q));
+    // Finish cutting up fallen trees before felling more.
+    const p = this.veg.findNearest(isl.x, isl.z, 40, (q) => this.veg.isLog(q) && this.okPlant(q))
+      ?? this.veg.findNearest(isl.x, isl.z, 40, (q) => q.marked && this.veg.isChoppable(q) && this.okPlant(q))
+      ?? this.veg.findNearest(isl.x, isl.z, 40, (q) => this.veg.isChoppable(q) && this.okPlant(q));
     if (!p) return false;
     p.reservedBy = isl.id;
     this.setTask(isl, 'chop', p.id, p.x, p.z);
@@ -863,8 +894,10 @@ export class Colony {
       case 'woodcutter': {
         if (!store(false) || this.eco.space('wood') < 1) return false;
         const focus = isl.focusPlant >= 0 ? this.veg.plants[isl.focusPlant] : null;
-        let p = focus && this.okPlant(focus) && this.veg.isChoppable(focus) ? focus : null;
+        let p = focus && this.okPlant(focus) && (this.veg.isChoppable(focus) || this.veg.isLog(focus)) ? focus : null;
         isl.focusPlant = -1;
+        // Finish cutting up fallen trees before felling more.
+        p = p ?? this.veg.findNearest(fromX, fromZ, 40, (q) => this.veg.isLog(q) && this.okPlant(q));
         p = p ?? this.veg.findNearest(fromX, fromZ, 40, (q) => q.marked && this.veg.isChoppable(q) && this.okPlant(q));
         p = p ?? this.veg.findNearest(fromX, fromZ, 40, (q) => q.kind === 'broadleaf' && this.veg.isChoppable(q) && this.okPlant(q));
         p = p ?? this.veg.findNearest(fromX, fromZ, 40, (q) => this.veg.isChoppable(q) && this.okPlant(q));
@@ -1094,17 +1127,35 @@ export class Colony {
       case 'mine':
       case 'gather': {
         const p = this.veg.plants[t.target];
-        const valid = t.kind === 'chop' ? p.state === PlantState.Alive : t.kind === 'mine' ? p.state === PlantState.Alive && p.amount > 0 : p.fruit >= 1;
+        // A woodcutter fells a standing tree, or cuts a load from one lying where it fell.
+        const log = t.kind === 'chop' && p.state === PlantState.Stump;
+        const valid = t.kind === 'chop' ? p.state === PlantState.Alive || (log && (t.stage === 3 || this.veg.hasLog(p))) : t.kind === 'mine' ? p.state === PlantState.Alive && p.amount > 0 : p.fruit >= 1;
         if (!valid) return this.releaseTask(isl);
         isl.tool = t.kind === 'chop' ? 'axe' : t.kind === 'mine' ? 'pick' : 'none';
+        const spot = log && t.stage < 3 ? this.veg.logSpot(p) : p;
+        if (t.stage === 3) {
+          // Stand back and watch it come down, then cut the first load from it.
+          isl.anim = 'idle';
+          this.faceTo(isl, p.x - isl.x, p.z - isl.z, dt);
+          t.timer -= dt;
+          if (t.timer > 0) return;
+          const n = this.veg.takeWood(p, ISLANDER.carryAmount);
+          p.reservedBy = -1;
+          this.releaseTask(isl);
+          if (n > 0) {
+            isl.carry = { kind: 'log', res: 'wood', n };
+            this.deliver(isl);
+          }
+          return;
+        }
         if (t.stage < 2) {
-          const r = this.travel(isl, dt, p.x, p.z, { goalRadius: 1 });
+          const r = this.travel(isl, dt, spot.x, spot.z, { goalRadius: 1 });
           if (r === 'failed') return this.fail(isl);
           if (r !== 'arrived') return;
           t.stage = 2;
-          t.timer = t.kind === 'chop' ? ISLANDER.chopSeconds : t.kind === 'mine' ? ISLANDER.mineSeconds : ISLANDER.harvestSeconds;
+          t.timer = t.kind === 'chop' ? ISLANDER.chopSeconds * (log ? 0.45 : 1) : t.kind === 'mine' ? ISLANDER.mineSeconds : ISLANDER.harvestSeconds;
         }
-        this.faceTo(isl, p.x - isl.x, p.z - isl.z, dt);
+        this.faceTo(isl, spot.x - isl.x, spot.z - isl.z, dt);
         isl.anim = t.kind === 'chop' ? 'chop' : t.kind === 'mine' ? 'mine' : 'harvest';
         isl.reachHigh = p.kind === 'banana' || (p.kind === 'apple' && p.variant === 1);
         const before = t.timer;
@@ -1113,9 +1164,15 @@ export class Colony {
         if (t.kind !== 'gather' && Math.floor(before * 1.4) !== Math.floor(t.timer * 1.4)) this.hooks.sfx?.(t.kind === 'chop' ? 'chop' : 'mine', isl.x, isl.z);
         if (t.timer > 0) return;
         let n = 0;
-        if (t.kind === 'chop') {
-          n = this.veg.chop(p);
+        if (t.kind === 'chop' && p.state === PlantState.Alive) {
+          // Timber! It topples away from the axe; the woodcutter waits for it to land.
+          this.veg.fell(p, isl.x, isl.z);
           this.hooks.sfx?.('treefall', p.x, p.z);
+          t.stage = 3;
+          t.timer = TREE_FALL.dur + 0.4;
+          return;
+        } else if (t.kind === 'chop') {
+          n = this.veg.takeWood(p, ISLANDER.carryAmount);
           isl.carry = { kind: 'log', res: 'wood', n };
         } else if (t.kind === 'mine') {
           n = this.veg.mine(p, ISLANDER.carryAmount);
@@ -2345,7 +2402,7 @@ export class Colony {
     const size = (i: Islander) => ISLANDER.personalSpace * (i.child ? 0.75 : 1) * 0.5;
     const k = Math.min(1, dt * 8);
     for (const a of this.list) {
-      if (a.hidden || a.sleeping || !free(a)) continue;
+      if (a.hidden || a.sleeping || a.slipping || !free(a)) continue;
       const ra = size(a);
       let px = 0, pz = 0;
       this.grid.query(a.x, a.z, ISLANDER.personalSpace, (b, d2) => {
