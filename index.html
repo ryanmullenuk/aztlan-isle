@@ -34,6 +34,10 @@
       @media (prefers-reduced-motion: reduce) { #studio-splash { transition: none; } }
     </style>
     <script>
+      // Inside the iOS app (Capacitor injects its bridge before the page runs): no browser-only hints.
+      if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) document.documentElement.classList.add('native-app');
+    </script>
+    <script>
       // Each release replaces the game files, so a cached copy of this page (browsers keep it for a
       // while, home-screen apps longer) can point at files that no longer exist. If one fails to
       // load, or the game hasn't started after a while, fetch the page afresh once rather than hang

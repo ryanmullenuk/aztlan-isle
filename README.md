@@ -45,6 +45,22 @@ Import the repository in Vercel. `vercel.json` sets the Vite build. From your ma
 npx vercel --prod
 ```
 
+### iOS app (App Store)
+
+The `ios/` folder is an Xcode project (Capacitor 8) that bundles the built game inside a native iPhone and iPad app, so it plays offline, full screen, with no status bar or home indicator over the island. App ID `games.redhead.aztlanisle`, name Aztlan Isle, iOS 15 and later.
+
+```bash
+npm run ios
+```
+
+This builds the game, copies it into the Xcode project and opens Xcode. Run it again after any change to the game, before each upload. In Xcode:
+
+1. Select the **App** target → **Signing & Capabilities**, and choose your Apple Developer team. Change the bundle identifier there if you want a different one; it must match the app you create in App Store Connect.
+2. Bump the version under **General** (Version for releases; Build must go up for every upload).
+3. Choose **Any iOS Device (arm64)** as the destination, then **Product → Archive**, and in the Organizer **Distribute App → App Store Connect → Upload**.
+
+The app collects no data (a privacy manifest says so, and App Store Connect's privacy answers are "Data Not Collected"), uses no non-exempt encryption, and saves the island on the device. The icon is `ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png`.
+
 ## Controls
 
 | | Desktop | Touch |
