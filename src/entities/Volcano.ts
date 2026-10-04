@@ -148,6 +148,91 @@ function texturedRock(material: THREE.MeshStandardMaterial): THREE.MeshStandardM
   return material;
 }
 
+/** Vertices across each molten flow, rolling lobes on the flows, lip lobes, fountain bombs, smoke puffs. */
+const LAVA_ACROSS = 9, BLOBS = 30, SPILL = 4, BOMBS = 44, SMOKE = 54;
+/** Height of the crater lake when quiet, and brimming at the breach. */
+const LAKE_LOW = 8.8, LAKE_FULL = 9.42;
+
+/**
+ * A strip draped down one lava channel: `across` vertices side to side (row by row downhill, so a
+ * draw range fills it from the top), `halfWidth(f)` in radians, raised by `lift(s)` across it.
+ */
+function channelRibbon(branch: number, reach: number, across: number,
+  halfWidth: (f: number) => number, lift: (s: number) => number): THREE.BufferGeometry {
+  const positions: number[] = [], indices: number[] = [];
+  for (let n = 0; n <= 64; n++) {
+    const f = n / 64 * reach, angle = volcanoChannel(f, branch), width = halfWidth(f);
+    for (let j = 0; j < across; j++) {
+      const s = across === 1 ? 0 : j / (across - 1) * 2 - 1;
+      const point = volcanoSurface(f, angle + width * s);
+      positions.push(point.x, point.y + lift(s), point.z);
+      if (n < 64 && j < across - 1) {
+        const a = n * across + j, b = a + across;
+        indices.push(a, a + 1, b, a + 1, b + 1, b);
+      }
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices); geometry.computeVertexNormals();
+  return geometry;
+}
+
+/** Small deterministic generator for textures (keeps the game's random stream untouched). */
+function lcg(seed: number): () => number {
+  let x = seed >>> 0;
+  return () => ((x = (Math.imul(x, 1664525) + 1013904223) >>> 0) / 4294967296);
+}
+
+/**
+ * A soft cauliflower puff: overlapping round lobes with a ragged edge, lit from above (its
+ * underside shaded), so overlapping sprites read as a rolling, volumetric cloud.
+ */
+function smokeTexture(variant: number): THREE.DataTexture {
+  const S = 96, rand = lcg(7919 + variant * 104729);
+  const lobes = Array.from({ length: 9 }, (_, i) => {
+    const a = rand() * Math.PI * 2, d = i === 0 ? 0 : 0.18 + rand() * 0.28;
+    return { x: Math.cos(a) * d, y: Math.sin(a) * d * 0.8, r: 0.26 + rand() * 0.2 };
+  });
+  const pixels = new Uint8Array(S * S * 4);
+  for (let py = 0; py < S; py++) for (let px = 0; px < S; px++) {
+    const x = (px + 0.5) / S * 2 - 1, y = (py + 0.5) / S * 2 - 1;
+    let density = 0, top = 0;
+    for (const l of lobes) {
+      const d = Math.hypot(x - l.x, y - l.y) / l.r;
+      const w = Math.max(0, 1 - d * d);
+      density += w * w;
+      // How far up this lobe the pixel sits: lobe tops catch the light.
+      top += w * w * ((y - l.y) / l.r);
+    }
+    const grain = 0.82 + 0.18 * Math.sin(x * 23 + Math.sin(y * 17) * 2) * Math.sin(y * 19 + x * 7);
+    const alpha = Math.min(1, density * 1.25) * grain * Math.max(0, 1 - Math.hypot(x, y) ** 6);
+    const light = density > 0 ? top / density : 0;
+    const shade = Math.max(0.5, Math.min(1, 0.78 + light * 0.3 + y * 0.08));
+    const i = (py * S + px) * 4;
+    pixels[i] = pixels[i + 1] = pixels[i + 2] = Math.round(shade * 255);
+    pixels[i + 3] = Math.round(Math.max(0, alpha) * 255);
+  }
+  const texture = new THREE.DataTexture(pixels, S, S);
+  texture.magFilter = THREE.LinearFilter; texture.minFilter = THREE.LinearFilter;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+/** A soft radial glow for the light the crater throws up into its smoke. */
+function glowTexture(): THREE.DataTexture {
+  const S = 64, pixels = new Uint8Array(S * S * 4);
+  for (let py = 0; py < S; py++) for (let px = 0; px < S; px++) {
+    const d = Math.hypot((px + 0.5) / S * 2 - 1, (py + 0.5) / S * 2 - 1);
+    const i = (py * S + px) * 4;
+    pixels[i] = pixels[i + 1] = pixels[i + 2] = 255;
+    pixels[i + 3] = Math.round(Math.max(0, 1 - d) ** 2.2 * 255);
+  }
+  const texture = new THREE.DataTexture(pixels, S, S);
+  texture.magFilter = THREE.LinearFilter; texture.needsUpdate = true;
+  return texture;
+}
+
 export class Volcano {
   readonly group = new THREE.Group();
   readonly state: VolcanoCycle;
@@ -164,9 +249,14 @@ export class Volcano {
   private bubbles: THREE.Mesh[] = [];
   private craterLight = new THREE.PointLight(0xff6a12, 0, 16, 2);
   private flowBlobs!: THREE.InstancedMesh;
+  private bombs!: THREE.InstancedMesh;
+  private craterGlow!: THREE.Sprite;
+  private lavaFrame = { value: new THREE.Matrix4() };
   private blobTransform = new THREE.Object3D();
   private blobUp = new THREE.Vector3(0, 1, 0);
   private readonly glow = new THREE.MeshStandardMaterial({ color: 0xff6b13, emissive: 0xff3800, emissiveIntensity: 2.7, roughness: 0.7 });
+  /** 0 at night … 1 in daylight: the smoke is unlit, so it darkens with the sky (its glow from below does not). */
+  daylight = 1;
   notify: (message: string) => void = () => {};
 
   constructor(w: World, saved?: VolcanoSave) {
@@ -296,89 +386,95 @@ export class Volcano {
       }
     }
     leaves.castShadow = true; leaves.receiveShadow = true; this.group.add(leaves);
-    // Dark cooling crust breaks the molten surface into moving orange fissures.
+    // Dark cooling crust breaks the molten surface into glowing plates and seams that creep
+    // downhill; it thickens away from the vent. Sampled in the mountain's own frame (not each
+    // mesh's), so the lake, flows and every rounded lobe share one continuous surface.
+    const frame = this.lavaFrame;
+    frame.value.compose(this.group.position, this.group.quaternion, this.group.scale).invert();
     this.glow.onBeforeCompile = shader => {
       shader.uniforms.uLavaTime = this.lavaTime;
       shader.uniforms.uLavaHeat = this.lavaHeat;
-      shader.vertexShader = 'varying vec3 vLavaPosition;\n' + shader.vertexShader;
-      shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>',
-        '#include <begin_vertex>\nvLavaPosition = position;');
+      shader.uniforms.uLavaFrame = frame;
+      shader.vertexShader = 'varying vec3 vLavaPosition; uniform mat4 uLavaFrame;\n' + shader.vertexShader;
+      shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', `
+        #include <begin_vertex>
+        vec4 lavaPoint = vec4(transformed, 1.0);
+        #ifdef USE_INSTANCING
+          lavaPoint = instanceMatrix * lavaPoint;
+        #endif
+        vLavaPosition = (uLavaFrame * modelMatrix * lavaPoint).xyz;`);
       shader.fragmentShader = 'varying vec3 vLavaPosition; uniform float uLavaTime; uniform float uLavaHeat;\n' + SURFACE_NOISE + shader.fragmentShader;
       shader.fragmentShader = shader.fragmentShader.replace('#include <emissivemap_fragment>', `
         #include <emissivemap_fragment>
-        // Radial advection travels from the crater towards the foot of each slope.
-        float radius = length(vLavaPosition.xz - vec2(0.38, 0.0));
-        vec3 flow = vec3(radius * 1.8 - uLavaTime * 0.30,
-          atan(vLavaPosition.z, vLavaPosition.x - 0.38) * 3.0, vLavaPosition.y * 0.14);
-        vec3 warp = vec3(surfaceNoise(flow * 0.7), surfaceNoise(flow * 0.6 + 17.2), 0.0);
-        float blobs = surfaceNoise(flow + warp * 1.8);
-        float molten = smoothstep(0.24, 0.69, blobs) * uLavaHeat;
-        diffuseColor.rgb = mix(vec3(0.07, 0.022, 0.008), vec3(1.0, 0.27, 0.025), molten);
-        totalEmissiveRadiance *= (0.20 + 0.80 * molten) * uLavaHeat;
+        vec3 lp = vLavaPosition;
+        float radius = length(lp.xz - vec2(0.38, 0.0));
+        // Pattern advected outward from the vent, as if the whole flow were sliding downhill.
+        vec2 outward = (lp.xz - vec2(0.38, 0.0)) / max(radius, 0.8);
+        vec3 q = vec3(lp.x - outward.x * uLavaTime * 0.28, lp.y * 0.55 + uLavaTime * 0.04, lp.z - outward.y * uLavaTime * 0.28) * 1.6;
+        vec3 warp = vec3(surfaceNoise(q * 0.7), surfaceNoise(q * 0.7 + 17.2), surfaceNoise(q * 0.7 + 31.7));
+        float plates = surfaceNoise(q + warp * 1.7) * 0.68 + surfaceNoise(q * 2.9 + warp) * 0.32;
+        // The lake carries a skin of floating crust; it thickens down the flows.
+        float cool = 0.22 + 0.78 * smoothstep(2.0, 10.0, radius);
+        float molten = smoothstep(0.3 + 0.12 * cool, 0.6 + 0.08 * cool, plates);
+        float seams = 1.0 - smoothstep(0.0, 0.05, abs(plates - (0.32 + 0.12 * cool)));
+        float heat = max(molten, seams * 0.75) * uLavaHeat;
+        // Rounded lobes glow strongest face-on and darken towards their edges.
+        float facing = abs(dot(normalize(normal), normalize(vViewPosition)));
+        vec3 hot = mix(vec3(0.5, 0.08, 0.015), vec3(0.62, 0.2, 0.04), molten * (1.0 - 0.6 * cool));
+        diffuseColor.rgb = mix(vec3(0.055, 0.03, 0.022), hot, heat);
+        totalEmissiveRadiance = mix(vec3(0.95, 0.12, 0.012), vec3(1.25, 0.3, 0.035), molten * (1.0 - 0.5 * cool))
+          * heat * uLavaHeat * (0.55 + 0.45 * facing);
       `);
     };
+    this.glow.customProgramCacheKey = () => 'volcano-lava-2';
     this.lava = new THREE.Group(); this.lava.name = 'Active lava'; this.group.add(this.lava);
     this.pool = new THREE.Mesh(new THREE.CircleGeometry(2.5, 48).rotateX(-Math.PI / 2), this.glow);
-    // Lake sits well below the broken rim.
+    // The lake wells up from deep in the crater until it brims at the breached lip.
     this.pool.scale.set(1.1, 1, 0.88);
     this.pool.position.set(0.38, 8.8, 0); this.lava.add(this.pool);
-    const bubbleGeo = new THREE.IcosahedronGeometry(0.22, 1);
+    const bubbleGeo = new THREE.IcosahedronGeometry(0.22, 2);
     for (let i = 0; i < 9; i++) {
       const b = new THREE.Mesh(bubbleGeo, this.glow); this.bubbles.push(b); this.lava.add(b);
     }
     for (let k = 0; k < 3; k++) {
-      const positions: number[] = [], indices: number[] = [];
-      for (let n = 0; n <= 64; n++) {
-        const f = n / 64 * (k === 1 ? 0.60 : 1);
-        const angle = volcanoChannel(f, k);
-        const width = (0.24 + 0.10 * Math.sin(f * 7) ** 2) / (3.3 + 6.0 * f ** 1.48);
-        for (const side of [-1, 1]) {
-          const point = volcanoSurface(f, angle + width * side);
-          point.y += 0.11;
-          positions.push(point.x, point.y, point.z);
-        }
-        if (n < 64) { const a = n * 2; indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
-      }
-      const geometry = new THREE.BufferGeometry();
-      geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-      geometry.setIndex(indices); geometry.computeVertexNormals();
+      const reach = k === 1 ? 0.60 : 1;
+      // Molten flows are raised and rounded across their width, spreading a little downhill.
+      const flow = channelRibbon(k, reach, LAVA_ACROSS,
+        f => (0.26 + 0.12 * f + 0.08 * Math.sin(f * 7) ** 2) / (3.3 + 6.0 * f ** 1.48),
+        s => 0.04 + 0.2 * Math.sqrt(Math.max(0, 1 - s * s)));
       // Cooled basalt beds remain visible throughout dormancy.
-      const bedGeometry = geometry.clone();
-      const bedPositions = bedGeometry.getAttribute('position');
-      for (let n = 0; n <= 64; n++) {
-        const f = n / 64 * (k === 1 ? 0.60 : 1), angle = volcanoChannel(f, k);
-        const width = 0.5 / (3.3 + 6.0 * f ** 1.48);
-        for (let side = 0; side < 2; side++) {
-          const p = volcanoSurface(f, angle + (side * 2 - 1) * width);
-          bedPositions.setXYZ(n * 2 + side, p.x, p.y + 0.055, p.z);
-        }
-      }
-      bedGeometry.computeVertexNormals();
-      const bed = new THREE.Mesh(bedGeometry, new THREE.MeshStandardMaterial({ color: 0x282824, roughness: 1 }));
+      const bed = new THREE.Mesh(channelRibbon(k, reach, 2, f => 0.5 / (3.3 + 6.0 * f ** 1.48), () => 0.055),
+        new THREE.MeshStandardMaterial({ color: 0x282824, roughness: 1 }));
       bed.name = 'Cooled lava channel'; bed.receiveShadow = true; this.group.add(bed);
-      const stream = new THREE.Mesh(geometry, this.glow);
+      const stream = new THREE.Mesh(flow, this.glow);
       this.streams.push(stream); this.lava.add(stream);
     }
-    this.flowBlobs = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 10, 6), this.glow, 24);
+    // Rounded molten lobes: rolling down the flows, pushing at each flow's front and brimming
+    // over the breached lip; and glowing bombs thrown up from the lake while it erupts.
+    this.flowBlobs = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 2), this.glow, BLOBS + 3 + SPILL);
     this.flowBlobs.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.flowBlobs.frustumCulled = false;
     this.flowBlobs.name = 'Downhill molten lobes'; this.lava.add(this.flowBlobs);
-    // Soft particles overlap into a billowing plume, fading before they respawn.
-    const pixels = new Uint8Array(64 * 64 * 4);
-    for (let py = 0; py < 64; py++) for (let px = 0; px < 64; px++) {
-      const dx = (px - 31.5) / 31.5, dy = (py - 31.5) / 31.5;
-      const d = Math.sqrt(dx * dx + dy * dy);
-      const alpha = Math.max(0, 1 - d) ** 1.6;
-      const i = (py * 64 + px) * 4;
-      pixels[i] = pixels[i + 1] = pixels[i + 2] = 255;
-      pixels[i + 3] = Math.round(alpha * 255);
-    }
-    const smokeMap = new THREE.DataTexture(pixels, 64, 64);
-    smokeMap.needsUpdate = true;
-    for (let i = 0; i < 28; i++) {
+    this.bombs = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), this.glow, BOMBS);
+    this.bombs.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.bombs.frustumCulled = false;
+    this.bombs.name = 'Lava fountain'; this.lava.add(this.bombs);
+    // The lake's glow lights the underside of the plume.
+    this.craterGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glowTexture(), color: 0xff7a26, transparent: true, opacity: 0, depthWrite: false,
+      blending: THREE.AdditiveBlending, fog: true,
+    }));
+    this.craterGlow.renderOrder = 17;
+    this.craterGlow.name = 'Crater glow'; this.craterGlow.position.set(0.38, 10.6, 0);
+    this.craterGlow.scale.set(9 / 1.5, 7 / 2.15, 1); this.lava.add(this.craterGlow);
+    // Billowing puffs (three shaded variants) overlap into a rising, wind-bent column.
+    const puffs = [0, 1, 2].map(smokeTexture);
+    for (let i = 0; i < SMOKE; i++) {
       const m = new THREE.Sprite(new THREE.SpriteMaterial({
-        map: smokeMap, color: 0x777675, transparent: true, opacity: 0, depthWrite: false, fog: true,
+        map: puffs[i % 3], color: 0x777675, transparent: true, opacity: 0, depthWrite: false, fog: true,
       }));
+      // After the sea, which writes depth and would otherwise cut the plume off at the horizon.
+      m.renderOrder = 17;
       m.name = 'Volcanic smoke';
       this.smoke.push(m); this.group.add(m);
     }
@@ -401,47 +497,103 @@ export class Volcano {
     const phase = this.state.phase, t = this.age;
     const cooling = phase === 'cooling' ? Math.min(1, this.state.remaining / 25) : 0;
     const strength = phase === 'erupting' ? 1 : this.state.coolingHot ? cooling : 0;
+    // Seconds into the eruption (the lake wells up, then the flows advance downhill).
+    const since = phase === 'erupting' ? 65 - this.state.remaining : 65;
     this.lava.visible = strength > 0;
-    this.craterLight.intensity = strength * (32 + Math.sin(t * 2.7) * 4);
+    this.craterLight.intensity = strength * (24 + Math.sin(t * 2.7) * 3 + Math.sin(t * 7.3) * 1.5);
     this.lavaTime.value = t; this.lavaHeat.value = strength;
-    this.glow.emissiveIntensity = strength * (2.4 + Math.sin(t * 4) * 0.3);
-    this.glow.color.setRGB(0.12 + strength * 0.88, 0.035 + strength * 0.3, 0.015);
-    this.pool.position.y = 8.8 + Math.sin(t * 1.7) * 0.07 * strength;
+    const lake = LAKE_LOW + (LAKE_FULL - LAKE_LOW) * (phase === 'erupting' ? Math.min(1, since / 6) : cooling);
+    this.pool.position.y = lake + Math.sin(t * 1.7) * 0.04 * strength;
+    const widen = 1 + (lake - LAKE_LOW) * 0.16;
+    this.pool.scale.set(1.1 * widen, 1, 0.88 * widen);
     this.bubbles.forEach((b, i) => {
-      const a = i * 2.4, r = 0.5 + (i % 3) * 0.5;
-      b.position.set(0.38 + Math.cos(a) * r, 8.76 + Math.max(0, Math.sin(t * 2.5 + i)) * 0.35 * strength, Math.sin(a) * r);
-      b.scale.setScalar(0.6 + Math.max(0, Math.sin(t * 2.5 + i)) * 0.65);
+      const a = i * 2.4, r = 0.4 + (i % 3) * 0.55, swell = Math.max(0, Math.sin(t * 2.3 + i * 1.7));
+      b.position.set(0.38 + Math.cos(a) * r, lake - 0.05 + swell * 0.16 * strength, Math.sin(a) * r);
+      b.scale.set(0.7 + swell * 0.8, (0.7 + swell * 0.8) * 0.75, 0.7 + swell * 0.8);
     });
+    const fronts = [0, 1, 2].map(i => phase === 'erupting' ? Math.max(0, Math.min(1, (since - 4 - i * 5) / 24)) : 1);
     this.streams.forEach((m, i) => {
-      // Fill each ribbon downhill as the overflow begins.
-      const progress = phase === 'erupting' ? Math.max(0, Math.min(1, (65 - this.state.remaining - i * 5) / 22)) : 1;
-      m.geometry.setDrawRange(0, Math.floor(progress * 64) * 6);
-      m.visible = progress > 0 && (i === 0 || strength > 0.3);
+      // Fill each flow downhill as the overflow begins.
+      m.geometry.setDrawRange(0, Math.floor(fronts[i] * 64) * (LAVA_ACROSS - 1) * 6);
+      m.visible = fronts[i] > 0 && (i === 0 || strength > 0.3);
     });
-    if (strength > 0) for (let i = 0; i < 24; i++) {
-      const branch = i % 3;
-      const f = ((t * (0.021 + (i % 5) * 0.0017) + i * 0.381966) % 1) * (branch === 1 ? 0.60 : 1);
+    const blob = this.blobTransform;
+    const place = (index: number, f: number, branch: number, size: number, flat: number, lift: number) => {
       const angle = volcanoChannel(f, branch);
       const point = volcanoSurface(f, angle);
-      const tangent = volcanoSurface(f, angle + 0.001).sub(point);
+      const across = volcanoSurface(f, angle + 0.001).sub(point);
       const downhill = volcanoSurface(Math.min(1, f + 0.001), angle).sub(point);
-      const normal = tangent.cross(downhill).normalize();
-      this.blobTransform.position.copy(point).addScaledVector(normal, 0.11);
-      this.blobTransform.quaternion.setFromUnitVectors(this.blobUp, normal);
-      const front = phase === 'erupting' ? Math.max(0, Math.min(1, (65 - this.state.remaining - branch * 5) / 22)) : 1;
-      const size = f < front ? Math.sin(Math.PI * f) * (0.22 + (i % 4) * 0.04) * strength : 0;
-      this.blobTransform.scale.set(size, size * 0.48, size * 1.5);
-      this.blobTransform.updateMatrix(); this.flowBlobs.setMatrixAt(i, this.blobTransform.matrix);
+      const normal = across.clone().cross(downhill).normalize();
+      blob.position.copy(point).addScaledVector(normal, lift * size + 0.08);
+      // Long axis down the slope, short axis out of it: a rounded, slumping tongue.
+      const z = downhill.normalize(), y = normal, x = y.clone().cross(z).normalize();
+      blob.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z));
+      blob.scale.set(size, size * flat, size * 1.45);
+      blob.updateMatrix(); this.flowBlobs.setMatrixAt(index, blob.matrix);
+    };
+    if (strength > 0) {
+      for (let i = 0; i < BLOBS; i++) {
+        const branch = i % 3, reach = branch === 1 ? 0.60 : 1;
+        // Viscous: lobes slow as they cool on the way down.
+        const run = (t * (0.018 + (i % 5) * 0.0016) + i * 0.381966) % 1;
+        const f = (1 - (1 - run) ** 1.35) * reach;
+        const size = f < fronts[branch] * reach ? (0.16 + (i % 4) * 0.035 + 0.1 * f) * Math.min(1, f * 12) * strength : 0;
+        place(i, f, branch, size, 0.72, 0.35);
+      }
+      // A bulging snout at the head of each flow; a broad spreading toe once it reaches the foot.
+      for (let k = 0; k < 3; k++) {
+        const reach = k === 1 ? 0.60 : 1, f = Math.max(0.02, fronts[k] * reach - 0.006);
+        const pulse = 1 + Math.sin(t * 1.3 + k * 2) * 0.05;
+        place(BLOBS + k, f, k, fronts[k] > 0 ? (fronts[k] < 1 ? 0.42 : 0.5) * pulse * strength : 0, 0.62, 0.2);
+      }
+      // Lava brimming over the breached lip, rolling down into the flows.
+      for (let k = 0; k < SPILL; k++) {
+        const f = 0.004 + k * 0.016, swell = 1 + Math.sin(t * 2.1 - k * 0.9) * 0.08;
+        const brim = phase === 'erupting' ? Math.min(1, Math.max(0, (since - 3) / 3)) : strength;
+        place(BLOBS + 3 + k, f, 0, (0.5 - k * 0.05) * swell * brim, 0.55, 0.25);
+      }
+      this.flowBlobs.instanceMatrix.needsUpdate = true;
+      // Fountain: molten bombs flung up from the lake in bursts, arcing out and falling back.
+      const fountain = phase === 'erupting' ? Math.min(1, since / 4) * (0.55 + 0.45 * Math.max(0, Math.sin(t * 0.8))) : 0;
+      for (let i = 0; i < BOMBS; i++) {
+        const period = 1.5 + (i % 7) * 0.17, u = ((t / period + i * 0.618034) % 1), s = u * period;
+        const a = i * 2.39996, up = 4.2 + (i % 5) * 0.75 + (i % 3) * 0.4, out = 0.35 + (i % 4) * 0.32;
+        const y = lake + up * s - 4.6 * s * s;
+        const size = i / BOMBS < fountain && y > lake ? (0.07 + (i % 3) * 0.035) * (1 - u * 0.4) : 0;
+        blob.position.set(0.38 + Math.cos(a) * out * s, y, Math.sin(a) * out * s);
+        blob.quaternion.identity();
+        // Stretched along their flight while fast, rounding off at the top of the arc.
+        const speed = Math.abs(up - 9.2 * s);
+        blob.scale.set(size, size * (1 + speed * 0.09), size);
+        blob.updateMatrix(); this.bombs.setMatrixAt(i, blob.matrix);
+      }
+      this.bombs.instanceMatrix.needsUpdate = true;
     }
-    this.flowBlobs.instanceMatrix.needsUpdate = strength > 0;
+    const glowMat = this.craterGlow.material as THREE.SpriteMaterial;
+    glowMat.opacity = strength * (0.3 + Math.sin(t * 2.7) * 0.04);
+    // Smoke: a thin pale plume while it threatens; a dense, dark ash column, lit orange from below,
+    // while it erupts. Puffs rise fast from the vent, slow, swell and drift downwind.
+    const erupting = phase === 'erupting';
+    const amount = this.state.active ? (erupting ? 1 : 0.7) : cooling * 0.5;
     this.smoke.forEach((m, i) => {
-      const f = ((t * 0.045 + i / 28) % 1);
-      m.position.set(0.38 + f * f * 6 + Math.sin(i * 2.4 + t * 0.2) * f * 0.9, 9.1 + f * 15, Math.cos(i * 3 + t * 0.14) * f * 1.7);
-      m.scale.set(1.3 + f * 6, 1.5 + f * 5, 1);
+      const life = 15 + (i % 5) * 1.6;
+      const f = ((t / life + i / SMOKE) % 1);
+      const rise = 1 - (1 - f) ** 1.7;
+      const swirl = i * 2.39996 + t * 0.15;
+      const spread = 0.5 + f * 3.2;
+      const drift = f * f * 9;
+      const size = (erupting ? 4 : 2.6) + f * (erupting ? 17 : 11) + (i % 4) * 0.8;
+      m.position.set(0.38 + drift + Math.cos(swirl) * spread, 9.6 + rise * (erupting ? 17 : 13), Math.sin(swirl) * spread * 1.2 + f * f * 2.5);
+      // Undo the mountain's uneven scale so puffs stay round.
+      m.scale.set(size / 1.5, size / 2.15, 1);
       const material = m.material as THREE.SpriteMaterial;
-      material.opacity = (this.state.active ? (phase === 'erupting' ? 0.8 : 0.5) : cooling * 0.4) * Math.sin(Math.PI * f);
-      material.color.setRGB(0.47 + strength * (1 - f) * 0.24, 0.46 + strength * (1 - f) * 0.07, 0.45);
-      material.rotation = Math.sin(t * 0.1 + i) * 0.5;
+      const fade = Math.min(1, f / 0.06) * (1 - f) ** 1.3;
+      material.opacity = amount * fade * (erupting ? 0.95 : 0.8) * (i % 2 || !this.state.active || erupting ? 1 : 0.6);
+      const ember = strength * Math.max(0, 1 - f * 3.2);
+      const grey = erupting ? 0.2 + f * 0.2 : 0.46 + f * 0.16;
+      const lit = grey * (0.25 + 0.75 * this.daylight);
+      material.color.setRGB(lit + ember * 0.55, lit * 0.97 + ember * 0.18, lit * 0.95 + ember * 0.02);
+      material.rotation = Math.sin(i * 1.7) * 0.3 + f * (i % 2 ? 0.25 : -0.25);
       m.visible = material.opacity > 0.01;
     });
   }

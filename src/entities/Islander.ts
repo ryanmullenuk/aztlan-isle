@@ -105,6 +105,8 @@ export interface Islander {
   cloth: number;
   cloth2: number;
   headdress: number;
+  /** Scenery figures drawn like villagers but not part of the village (the Healing Centre's healer). */
+  npc?: 'healer';
   jewel: boolean;
   warrior: 'jaguar' | 'eagle' | null;
   /** Day of the last evening spent at a bonfire. */
@@ -127,6 +129,8 @@ export interface Islander {
   lastMeal?: ResourceKey;
   /** For stuck detection. */
   stuck: number;
+  /** How badly they've been held up lately (each stuck spell adds one; good walking wears it off). */
+  jam?: number;
   lastCell: number;
   /** Assigned by the player (plant id to work first). */
   focusPlant: number;

@@ -705,10 +705,11 @@ export class IslanderRig {
     set.accent.setXYZ(i, this.accent.r, this.accent.g, this.accent.b);
     // Elders: grey hair for women, white hair and beard for men (linear tones). Boys: no beard.
     const elder = isElder(isl);
-    set.look.setXYZ(i, elder ? 1 : 0, isl.gender === 'f' ? 0.46 : 0.7, isl.child && isl.gender === 'm' ? 1 : 0);
+    // (A hair tone above 1.5 also flags the healer's white robe for the shader.)
+    set.look.setXYZ(i, elder ? 1 : 0, (isl.gender === 'f' ? 0.46 : 0.7) + (isl.npc === 'healer' ? 2 : 0), isl.child && isl.gender === 'm' ? 1 : 0);
     set.n = i + 1;
     // Headdress: warriors wear jaguar or eagle helms, priests the grand feather fan.
-    const hd = isl.warrior ? isl.warrior : isl.role === 'priest' && !isl.child ? 'hd_fan' : null;
+    const hd = isl.warrior ? isl.warrior : isl.npc === 'healer' ? 'hd_plume' : isl.role === 'priest' && !isl.child ? 'hd_fan' : null;
     if (hd) {
       const fit = set.model.hat;
       M.out.multiplyMatrices(M.base, W[BI.head]).multiply(this.rot(this.tmp, 0, fit.y, fit.z, 0, 0, 0, 'XYZ', fit.s));
