@@ -1,4 +1,4 @@
-import { idleForGroup } from './ai/GroupSelection';
+import { idleForGroup, IdleGroupTap } from './ai/GroupSelection';
 import { Volcano, VOLCANO_COST, VOLCANO_HAPPINESS } from './entities/Volcano';
 import { Explore } from './render/Explore';
 import * as THREE from 'three';
@@ -176,7 +176,7 @@ export class Game {
   explorer?: Explore;
   selectedIslander = -1;
   readonly selectedIslanders = new Set<number>();
-  private lastPersonTap = { id: -1, time: 0, x: 0, y: 0 };
+  private groupTap = new IdleGroupTap();
   selectedBuilding = -1;
   /** Selected land animal (index into wildlife.animals.list), or -1. */
   selectedAnimal = -1;
@@ -1139,24 +1139,23 @@ export class Game {
     const isl = this.colony.pick(this.rig.camera, x, y, rect);
     const current = this.selectedIslander >= 0 ? this.colony.byId(this.selectedIslander) : undefined;
     if (isl) {
-      const now = performance.now(), last = this.lastPersonTap;
-      const double = last.id === isl.id && now - last.time < 400 && Math.hypot(x - last.x, y - last.y) < 28;
-      this.lastPersonTap = { id: isl.id, time: double ? 0 : now, x, y };
+      const point = new THREE.Vector3(), idleIds: number[] = [];
+      for (const person of this.colony.list) {
+        if (!idleForGroup(person)) continue;
+        point.set(person.x, person.y + 0.5, person.z).project(this.rig.camera);
+        if (Math.abs(point.x) <= 1 && Math.abs(point.y) <= 1 && point.z >= -1 && point.z <= 1) idleIds.push(person.id);
+      }
+      if (idleForGroup(isl) && !idleIds.includes(isl.id)) idleIds.push(isl.id);
+      const group = this.groupTap.tap(isl.id, performance.now(), x, y, idleIds);
       this.select({ islander: isl.id });
-      if (double && idleForGroup(isl)) {
-        const point = new THREE.Vector3();
-        for (const person of this.colony.list) {
-          if (!idleForGroup(person)) continue;
-          point.set(person.x, person.y + 0.5, person.z).project(this.rig.camera);
-          if (Math.abs(point.x) <= 1 && Math.abs(point.y) <= 1 && point.z >= -1 && point.z <= 1) this.selectedIslanders.add(person.id);
-        }
-        this.selectedIslanders.add(isl.id);
-        this.ui.toast(`${this.selectedIslanders.size} idle islanders selected. Tap a tree, rock or workplace to assign them.`);
+      if (group) {
+        for (const id of group) if (this.colony.byId(id)) this.selectedIslanders.add(id);
+        this.ui.toast(`${this.selectedIslanders.size} islanders selected. Choose Collect wood or Collect stone, or tap a resource.`);
       }
       this.audio?.sfx('select', isl.x, isl.z);
       return;
     }
-    this.lastPersonTap.id = -1;
+    this.groupTap.clear();
     // Animals: with an islander selected, send them after it; otherwise select it.
     const animal = this.wildlife.animals.pick(this.rig.camera, x, y, rect);
     if (animal && animal.pen < 0 && !animal.heldBy) {
@@ -1232,6 +1231,17 @@ export class Game {
       return;
     }
     this.select(null);
+  }
+
+  collectWithSelectedGroup(resource: 'wood' | 'stone'): void {
+    const people = [...this.selectedIslanders].map(id => this.colony.byId(id)).filter((i): i is Islander => !!i);
+    if (!people.length) return;
+    const x = people.reduce((sum, i) => sum + i.x, 0) / people.length;
+    const z = people.reduce((sum, i) => sum + i.z, 0) / people.length;
+    const plant = this.veg.findNearest(x, z, 60, p => resource === 'wood' ? this.veg.isChoppable(p) : this.veg.isMineable(p));
+    if (!plant) { this.ui.toast(`No available ${resource === 'wood' ? 'trees' : 'stone'} nearby.`, 'warn'); return; }
+    const count = this.colony.assignGroup(people, null, plant);
+    this.ui.toast(count ? `${count} islanders collecting ${resource}.` : 'No available workers or storage space.', count ? 'info' : 'warn');
   }
 
   /** Player order: capture / hunt an animal (optionally with a chosen islander). */

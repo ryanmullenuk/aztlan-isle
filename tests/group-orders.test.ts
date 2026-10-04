@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { idleForGroup, needsSelfCare } from '../src/ai/GroupSelection';
+import { idleForGroup, needsSelfCare, IdleGroupTap } from '../src/ai/GroupSelection';
 import { Colony } from '../src/ai/Colony';
 import { makeIslander } from '../src/entities/Islander';
 const person = (id = 1) => makeIslander(id, `Person ${id}`, 'm', 0, 0, () => 0.5);
@@ -36,4 +36,20 @@ test('group gathering reserves separate resources and starts each order immediat
     assert.ok(people.every(i=>i.manualRole&&i.task?.kind===(kind==='rock'?'mine':'chop')));
     assert.deepEqual(plants.map(p=>p.reservedBy),[1,2,3]);
   }
+});
+
+ test('double tap retains idle group when automatic jobs start between taps', () => {
+  const tap = new IdleGroupTap();
+  assert.equal(tap.tap(1, 1000, 100, 100, [1,2,3]), null);
+  assert.deepEqual(tap.tap(1, 1480, 104, 100, []), [1,2,3]);
+  assert.equal(tap.tap(1, 1600, 104, 100, []), null);
+});
+test('unrelated clicks, drags and slow taps do not select a group', () => {
+  const tap = new IdleGroupTap();
+  tap.tap(1, 1000, 100, 100, [1,2]);
+  assert.equal(tap.tap(2, 1100, 100, 100, [1,2]), null);
+  assert.equal(tap.tap(2, 1200, 150, 100, [1,2]), null);
+  assert.equal(tap.tap(2, 2000, 150, 100, [1,2]), null);
+  tap.clear();
+  assert.equal(tap.tap(2, 2100, 150, 100, [1,2]), null);
 });

@@ -970,6 +970,7 @@ export class UI {
       html = `<div class="card-head"><span>${people.length} islanders selected</span></div>
         <p class="muted small">Tap a tree to collect wood, a rock to collect stone, or a workplace to assign the group.</p>
         <p class="muted small">Islanders manage food and rest automatically when not called to work.</p>
+        <div class="actions"><button class="btn small" data-a="group-wood">Collect wood</button><button class="btn small" data-a="group-stone">Collect stone</button></div>
         <div class="actions"><button class="btn small" data-a="group-auto">Return to automatic jobs</button></div>`;
     } else if (isl) {
       const home = isl.home >= 0 ? g.buildings.byId(isl.home) : undefined;
@@ -1166,6 +1167,10 @@ export class UI {
   private infoAction(a: string, islId: number | undefined, b: Building | undefined, animalId?: number): void {
     const g = this.game;
     g.audio?.sfx('click');
+    if (a === 'group-wood' || a === 'group-stone') {
+      g.collectWithSelectedGroup(a === 'group-wood' ? 'wood' : 'stone');
+      return;
+    }
     if (a === 'group-auto') {
       for (const id of g.selectedIslanders) {
         const person = g.colony.byId(id);
