@@ -39,6 +39,8 @@ export class Breeze {
         color: this.rng.pick([0x88834b, 0xa28a50, 0x6e8044, 0xb49a60]),
         roughness: 1, side: THREE.DoubleSide, transparent: true, opacity: 0,
         depthWrite: false,
+        // Thin and two-sided: one pass is enough (and one shader, not a back/front pair).
+        forceSinglePass: true,
       });
       const mesh = new THREE.Mesh(geometry, material);
       mesh.visible = false;
