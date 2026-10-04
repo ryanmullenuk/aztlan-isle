@@ -11,7 +11,11 @@ export function avoidCrowd(a: Islander, dx: number, dz: number, speed: number, g
   grid.query(a.x, a.z, 2.6, b => {
     if (b !== a && !b.hidden && Math.abs(a.y - b.y) < 0.5) nearby.push(b);
   });
-  for (const angle of [0, 0.65, -0.65, 1.15, -1.15]) {
+  // A blocked walker needs room to step fully sideways or retreat, rather than
+  // testing only forward directions forever against the same neighbours.
+  const angles = [0, 0.65, -0.65, 1.15, -1.15];
+  if (a.stuck > 0.75) angles.push(Math.PI / 2, -Math.PI / 2, 2.2, -2.2, Math.PI);
+  for (const angle of angles) {
     const vx = (fx * Math.cos(angle) + fz * Math.sin(angle)) * speed;
     const vz = (fz * Math.cos(angle) - fx * Math.sin(angle)) * speed;
     if (![0.12, 0.3].every(t => canStep(a.x + vx * Math.min(t, length / speed), a.z + vz * Math.min(t, length / speed)))) continue;

@@ -168,6 +168,12 @@ export class Colony {
         && Math.abs((opts.allowWater ? escortSurfaceY(this.world, nx, nz, 0.48) : this.world.groundY(nx, nz)) - isl.y) < 0.65;
     });
     const actualSpeed = Math.hypot(velocity.x, velocity.z);
+    isl.stuck = actualSpeed < speed * 0.1 ? isl.stuck + dt : 0;
+    // Replan a route blocked by changed terrain/buildings; keep the task and cargo.
+    if (isl.stuck > 4) {
+      isl.stuck = 0;
+      this.requestPath(isl, x, z, opts);
+    }
     const aligned = actualSpeed > 0 && (velocity.x * dx + velocity.z * dz) / (actualSpeed * (d || 1)) > 0.99;
     if (d < 0.05 || (aligned && d <= actualSpeed * dt)) {
       isl.x = wp.x; isl.z = wp.z; isl.pathIdx++;
@@ -218,6 +224,7 @@ export class Colony {
 
   private setTask(isl: Islander, kind: Task['kind'], target: number, x: number, z: number, res?: ResourceKey): void {
     this.releaseTask(isl);
+    isl.stuck = 0;
     isl.task = { kind, stage: 0, target, timer: 0, x, z, res };
     isl.path = null;
     isl.pathPending = false;
@@ -2218,7 +2225,10 @@ export class Colony {
         }
       } else {
         // Unassigned workers look after their needs; explicit orders retain priority.
-        if (!this.eco.godMode && needsSelfCare(isl, this.time.isNight, this.eco.food)) {
+        const wantsCare = !this.eco.godMode && needsSelfCare(isl, this.time.isNight, this.eco.food);
+        const canEat = !wantsCare || isl.hunger >= ISLANDER.eatThreshold || this.eco.food < 1 ||
+          !!this.bld.nearestStore(isl.x, isl.z, true);
+        if (wantsCare && needsSelfCare(isl, this.time.isNight, this.eco.food, canEat)) {
           this.releaseTask(isl);
           this.think(isl);
         } else this.runTask(isl, dt);
@@ -2242,7 +2252,8 @@ export class Colony {
    */
   private separate(dt: number): void {
     const W = this.world;
-    const free = (i: Islander) => i.anim === 'walk' || i.anim === 'run' || i.anim === 'carry' || (i.anim === 'idle' && !i.task);
+    const free = (i: Islander) => i.anim === 'walk' || i.anim === 'run' || i.anim === 'carry' ||
+      (i.anim === 'idle' && (!i.task || (!i.pathPending && !!i.path && i.pathIdx < i.path.length)));
     const size = (i: Islander) => ISLANDER.personalSpace * (i.child ? 0.75 : 1) * 0.5;
     const k = Math.min(1, dt * 8);
     for (const a of this.list) {
