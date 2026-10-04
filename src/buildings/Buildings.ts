@@ -664,7 +664,9 @@ export class BuildingSystem {
   private setTorches(b: Building, points: THREE.Vector3[]): void {
     for (const t of b.torches) {
       b.group.remove(t.flame);
-      if (t.flame.geometry !== this.flameGeo) t.flame.geometry.dispose();
+      t.flame.traverse(o => {
+        if (o instanceof THREE.Mesh && o.geometry !== this.flameGeo) o.geometry.dispose();
+      });
     }
     b.torches = [];
     for (const p of points) {
