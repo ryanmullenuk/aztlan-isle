@@ -511,6 +511,17 @@ export class Garden {
         }
         this.sfx?.('treepop', t.x, t.z);
       }
+      // A felled tree's crown hits the ground: dust and a shower of leaves.
+      for (const l of this.veg.takeLanded()) {
+        for (let k = 0; k < 14; k++) {
+          const a = this.rng.range(0, Math.PI * 2), sp = this.rng.range(0.8, 2);
+          this.dust.spawn(l.x + Math.cos(a) * 0.6 * l.r, l.y + 0.1, l.z + Math.sin(a) * 0.6 * l.r, Math.cos(a) * sp, this.rng.range(0.3, 0.9), Math.sin(a) * sp, this.rng.range(0.6, 1.1), 0.2, 0.35);
+        }
+        for (let k = 0; k < 16; k++) {
+          const a = this.rng.range(0, Math.PI * 2), sp = this.rng.range(0.5, 1.6);
+          this.flecks.spawn(l.x + Math.cos(a) * 0.8 * l.r, l.y + 0.5, l.z + Math.sin(a) * 0.8 * l.r, Math.cos(a) * sp, this.rng.range(1, 2.2), Math.sin(a) * sp, this.rng.range(1, 1.8), 0.05, 0);
+        }
+      }
     }
     for (const p of [...this.moving]) {
       const before = p.t;

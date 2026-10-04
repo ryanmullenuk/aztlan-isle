@@ -89,10 +89,27 @@ const _s = new THREE.Vector3();
 const _p = new THREE.Vector3();
 const _e = new THREE.Euler();
 const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
+const _axis = new THREE.Vector3();
+const _qFall = new THREE.Quaternion();
 
 const TREE_KINDS: PlantKind[] = ['palm', 'broadleaf', 'banana'];
 /** Seconds a dug-up tree takes to shrink away. */
 const TREE_SINK = 0.45;
+/**
+ * A felled tree: seconds to topple (speeding up as it goes, like a real fall), how far over it
+ * ends (radians; resting on its branches, not quite flat), and seconds to sink into the ground
+ * once the last of its wood has been carried off.
+ */
+export const TREE_FALL = { dur: 1.7, angle: 1.42, sink: 3.5 };
+/** A tree lying where it fell: seconds since it began to fall, its direction, and seconds into sinking (-1 until then). */
+interface Felled { t: number; dir: number; sink: number }
+
+/** How far over a felled tree is `t` seconds after it starts to fall: a hinged fall, a bounce on landing. */
+export function fallAngle(t: number): number {
+  if (t < TREE_FALL.dur) return TREE_FALL.angle * (t / TREE_FALL.dur) ** 2;
+  const b = t - TREE_FALL.dur;
+  return TREE_FALL.angle - 0.1 * Math.exp(-b * 4.5) * Math.abs(Math.sin(b * 10));
+}
 
 /**
  * All plants and rocks: generated from the seed, rendered as instanced meshes split into
@@ -125,6 +142,10 @@ export class Vegetation {
   private popping = new Map<number, number>();
   /** Planted trees being dug up: seconds into shrinking away. */
   private sinking = new Map<number, number>();
+  /** Felled trees lying on the ground until their wood is all carried away. */
+  private felled = new Map<number, Felled>();
+  /** Where felled trees have just hit the ground since last asked (for a puff of dust and leaves). */
+  private landed: { x: number; y: number; z: number; r: number }[] = [];
   private plantRng = new RNG(977);
 
   constructor(private world: World, preset: PresetName) {
@@ -590,6 +611,29 @@ export class Vegetation {
       this.touch(p);
       this.boundsOf(p);
     }
+    for (const [id, f] of this.felled) {
+      const p = this.plants[id];
+      // Cleared away (built over, or grown back by a power): the log goes with it.
+      if (p.state !== PlantState.Stump) {
+        this.felled.delete(id);
+        this.touch(p);
+        continue;
+      }
+      const moving = f.t < TREE_FALL.dur + 1 || f.sink >= 0;
+      if (f.t < TREE_FALL.dur && f.t + dt >= TREE_FALL.dur) {
+        const reach = (p.kind === 'broadleaf' ? 2.6 : 2.4) * p.scale;
+        this.landed.push({ x: p.x + Math.sin(f.dir) * reach, y: p.y, z: p.z + Math.cos(f.dir) * reach, r: p.scale });
+      }
+      f.t += dt;
+      if (f.sink >= 0) {
+        f.sink += dt;
+        if (f.sink >= TREE_FALL.sink) this.felled.delete(id);
+      }
+      if (moving) {
+        this.touch(p);
+        this.boundsOf(p);
+      }
+    }
     for (const [id, t] of this.popping) {
       const p = this.plants[id];
       const t1 = t + dt;
@@ -722,6 +766,8 @@ export class Vegetation {
     const isFruit = key.startsWith('fruit_');
     let s = p.scale;
     if (p.state === PlantState.Gone) return out.copy(ZERO);
+    const felled = !isStump && !isFruit && p.state === PlantState.Stump ? this.felled.get(p.id) : undefined;
+    if (felled) return this.felledMatrix(p, felled, out);
     if (isStump) {
       if (p.state !== PlantState.Stump) return out.copy(ZERO);
     } else {
@@ -754,6 +800,26 @@ export class Vegetation {
       if (u <= 0.001) return out.copy(ZERO);
       _s.multiplyScalar(u * u);
     }
+    return out.compose(_p, _q, _s);
+  }
+
+  /** A felled tree, toppling away from its stump (or lying there, or sinking into the ground). */
+  private felledMatrix(p: Plant, f: Felled, out: THREE.Matrix4): THREE.Matrix4 {
+    const angle = fallAngle(f.t);
+    // Tipping over toward `dir`: about the level axis across that direction.
+    _axis.set(Math.cos(f.dir), 0, -Math.sin(f.dir));
+    _qFall.setFromAxisAngle(_axis, angle);
+    _e.set(0, p.rot, 0);
+    _q.setFromEuler(_e).premultiply(_qFall);
+    let s = p.scale, y = p.y + 0.2 * p.scale * Math.sin(angle);
+    if (f.sink >= 0) {
+      const k = Math.min(1, f.sink / TREE_FALL.sink);
+      y -= k * k * 1.6 * p.scale;
+      s *= 1 - 0.35 * k;
+      if (k >= 1) return out.copy(ZERO);
+    }
+    _p.set(p.x, y, p.z);
+    _s.set(s, s, s);
     return out.compose(_p, _q, _s);
   }
 
@@ -928,15 +994,93 @@ export class Vegetation {
     return (p.kind === 'apple' || p.kind === 'banana') && p.state === PlantState.Alive && p.fruit >= 1 && p.reservedBy < 0;
   }
 
-  /** Fell a tree. Returns wood gained. */
-  chop(p: Plant): number {
+  /**
+   * Fell a tree: it topples away from the woodcutter standing at (fromX, fromZ) and lies there,
+   * leaving its stump, until its wood has been carried off. Returns the wood in it.
+   */
+  fell(p: Plant, fromX: number, fromZ: number): number {
     if (p.state !== PlantState.Alive) return 0;
-    const wood = p.kind === 'broadleaf' ? VEG.woodPerBroadleaf : VEG.woodPerPalm;
+    const wood = Math.max(1, Math.round((p.kind === 'broadleaf' ? VEG.woodPerBroadleaf : VEG.woodPerPalm) * p.scale));
     p.state = PlantState.Stump;
     p.timer = VEG.stumpToSaplingSeconds * (0.7 + Math.random() * 0.6);
     p.marked = false;
+    p.amount = wood;
+    // Away from the axe, a little off true (each tree its own way).
+    const wobble = (Math.sin(p.id * 91.7) * 0.5) * 0.6;
+    const dir = (Math.abs(p.x - fromX) + Math.abs(p.z - fromZ) > 0.01 ? Math.atan2(p.x - fromX, p.z - fromZ) : p.rot) + wobble;
+    this.felled.set(p.id, { t: 0, dir, sink: -1 });
     this.touch(p);
-    return Math.round(wood * p.scale);
+    this.boundsOf(p);
+    return wood;
+  }
+
+  /** Fell a tree and take all its wood at once (it sinks away straight after landing). */
+  chop(p: Plant): number {
+    const wood = this.fell(p, p.x - Math.sin(p.rot), p.z - Math.cos(p.rot));
+    if (wood > 0) this.takeWood(p, wood);
+    return wood;
+  }
+
+  /** Felled trees that have hit the ground since last called (where the crown landed). */
+  takeLanded(): { x: number; y: number; z: number; r: number }[] {
+    const out = this.landed;
+    this.landed = [];
+    return out;
+  }
+
+  /** A felled tree lying on the ground with wood still in it, free for someone to work on. */
+  isLog(p: Plant): boolean {
+    return this.hasLog(p) && p.reservedBy < 0;
+  }
+
+  /** A felled tree that has landed and still has wood in it (whoever has claimed it). */
+  hasLog(p: Plant): boolean {
+    const f = this.felled.get(p.id);
+    return !!f && f.sink < 0 && f.t >= TREE_FALL.dur && p.state === PlantState.Stump && p.amount > 0;
+  }
+
+  /** Still falling (or lying, or sinking): for anything that waits on the fall. */
+  felledInfo(p: Plant): { t: number; dir: number; sink: number } | undefined {
+    return this.felled.get(p.id);
+  }
+
+  /** Where to stand to cut up a fallen tree: beside its trunk, a little way out from the stump. */
+  logSpot(p: Plant): { x: number; z: number } {
+    const f = this.felled.get(p.id);
+    if (!f) return { x: p.x, z: p.z };
+    const d = (p.kind === 'broadleaf' ? 1.5 : 1.2) * p.scale;
+    return { x: p.x + Math.sin(f.dir) * d, z: p.z + Math.cos(f.dir) * d };
+  }
+
+  /** Cut a load of wood from a fallen tree. When the last is taken it sinks into the ground. */
+  takeWood(p: Plant, max: number): number {
+    const f = this.felled.get(p.id);
+    const n = Math.min(max, Math.ceil(p.amount));
+    if (n <= 0) return 0;
+    p.amount -= n;
+    if (p.amount <= 0) {
+      p.amount = 0;
+      if (f && f.sink < 0) f.sink = 0;
+    }
+    this.touch(p);
+    return n;
+  }
+
+  /** Fallen trees from a save: [plant id, direction (hundredths)] pairs, already lying there. */
+  restoreLogs(data: number[]): void {
+    for (let i = 0; i + 1 < data.length; i += 2) {
+      const p = this.plants[data[i]];
+      if (!p || p.state !== PlantState.Stump || !(p.amount > 0)) continue;
+      this.felled.set(p.id, { t: TREE_FALL.dur + 5, dir: data[i + 1] / 100, sink: -1 });
+      this.touch(p);
+    }
+  }
+
+  /** Fallen trees still holding wood, for saving: [plant id, direction (hundredths)] each. */
+  serializeLogs(): number[] {
+    const out: number[] = [];
+    for (const [id, f] of this.felled) if (f.sink < 0 && this.plants[id].amount > 0) out.push(id, Math.round(f.dir * 100));
+    return out;
   }
 
   /** Pick fruit. Returns fruit gained. */
@@ -1032,10 +1176,13 @@ export class Vegetation {
       this.growAcc = 0;
       for (const p of this.plants) {
         if (p.state === PlantState.Stump) {
+          // A sapling only comes up once the fallen trunk has been cleared away.
+          if (this.felled.has(p.id)) continue;
           p.timer -= step;
           if (p.timer <= 0) {
             p.state = PlantState.Sapling;
             p.growth = 0;
+            p.amount = p.kind === 'broadleaf' ? VEG.woodPerBroadleaf : p.kind === 'palm' ? VEG.woodPerPalm : p.amount;
             this.touch(p);
           }
         } else if (p.state === PlantState.Sapling) {
