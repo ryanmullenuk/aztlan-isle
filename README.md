@@ -57,6 +57,8 @@ npx vercel --prod
 | Toolbar | 1–9 | Tap the slots |
 | Other | Double-click the compass to reset the view, R rotates a building, Space pauses, Esc cancels, H opens help, M mutes, F follows the selected islander | |
 
+On desktop the eye and islander-view buttons sit at the end of the toolbar row; on a phone they stack in the side column.
+
 Select an islander, then click a building, tree, rock or fruit bush to give them that job. Tap an animal to see what it is doing and send a hunter after it (or, with an islander selected, tap the animal to send them).
 
 ## Features
@@ -80,6 +82,9 @@ Select an islander, then click a building, tree, rock or fruit bush to give them
 - A 10-minute day/night cycle where golden hour lasts longest; the light hands over smoothly to a bright silvery moon with a glitter path on the sea, and village torches light up with real point lights.
 - The sun and moon show in the sky wherever the view looks up far enough (free-roam, or a low tilt). The sun is a bright disc in a warm glow that turns orange, swells and sinks into the sea as it sets. At night a pale full moon rides high in a cool halo. Both fade behind storm cloud.
 - On a clear night the sky fills with stars (brighter ones tinted blue-white or amber, twinkling) and the Milky Way arches across it, a soft band with a brighter core and dark dust lanes. They fade out at dawn and behind cloud.
+- Fires and torches burn with living flames: translucent teardrop tongues, hot gold at the root and deep orange at the tips, that sway and flicker gently, each on its own rhythm, while random embers drift up and wink out. The village fire is a cluster of leaning tongues round a bright core.
+- Ordinary rain is light and fine: a sparse scatter of short, faint streaks falling gently. In a storm it pours, with dense, long streaks slanting hard in the wind. A second layer of rain follows the camera so it's there close up as well as from above.
+- The volcano on the second island smokes for five minutes (a pale plume rising and bending downwind), then erupts. The crater lake wells up and brims over the breached lip; rounded, glowing lobes of lava roll and slump down three channels under a skin of dark crust that cracks and drifts as it flows, each flow pushing a bulging snout ahead of it. Molten bombs fountain from the lake, and a dense column of dark ash billows up, lit orange from below (and glowing at night). Afterwards the flows cool and crust over, leaving dark basalt beds. Tap it while it is active to calm it for 50 Belief.
 
 **Vegetation**
 - A tree catalogue: palms (straight, leaning, curved), eight broadleaf varieties (round, tall and narrow, spreading, jungle giants, vine-hung, pink blossom) and orange fruit trees, plus ferns, flowering bushes, apple bushes and banana trees, all with a wind-sway shader.
@@ -100,6 +105,8 @@ Select an islander, then click a building, tree, rock or fruit bush to give them
 - Islanders decide for themselves when their own job has nothing to do: they pick fruit, spear fish from the shore, cut wood or quarry stone, whichever the tribe needs most.
 - Walking and running swing the hips and drop them on the stepping side, with the shoulders counter-rotating.
 - A* pathfinding that climbs terraces and prefers worn paths.
+- Nobody stands about by day: a villager whose own job has nothing to do helps raise the nearest building site (until you give them something else).
+- A villager who gets stuck walks out of anything they're trapped in and plans a new route round the crowd; one who stays stuck gives up that errand and finds another.
 - A couple in any hut or home may have one child (one per house); children play around the village and never work. Up to 100 adults live on the island. About one adult in five has the elder look (grey hair; white hair and beard on the men); nobody ages. Islanders have Nahuatl-style names.
 
 **Buildings**
@@ -121,6 +128,7 @@ Select an islander, then click a building, tree, rock or fruit bush to give them
 - Now and then someone falls sick (adults and children alike), and jaguars and alligators maul people. The sick and the mauled stop working and walk to the nearest Healing Centre, where they lie on a bed (or are cared for indoors when the beds are full); with no Healing Centre they rest at home.
 - Untreated, they die after an hour of game time, with a warning ten minutes before. The Healing Centre's card lists its patients, how long each has left and a Cure button: 50 food for sickness, 100 for a mauling. Cured islanders get up and go back to work. Tuning lives in `HEALTH` in `config.ts`.
 - In god mode (the island named GODMODE) nobody dies and curing is free.
+- Each Healing Centre has its own healer, dressed all in white with a feathered headdress, who walks between the beds and the hall door, tends each bedside a while and sometimes raises their arms in blessing. The healer is scenery: not a villager, and never counted among your islanders.
 
 **Defence**
 - Jaguars keep dens deep in the jungle and stalk the village now and then; alligators lie in wait in the swamps. Dogs and warriors drive jaguars off.
@@ -220,7 +228,7 @@ All tuning values live in `src/config.ts`.
 - Shared online world: multiplayer tribes on one island via WebSockets, with an authoritative server and delta sync of terrain edits and buildings.
 - A rival AI tribe that expands, trades and raids, giving warriors a purpose.
 - Weather events: tropical storms that damage buildings, droughts and floods on the rivers.
-- A volcano on the highlands: rumbles, ash, lava flows that reshape the terrain, and fertile soil afterwards.
+- Volcano: lava flows that reshape the terrain, and fertile soil afterwards.
 - Trade canoes between islets, more building upgrades, festivals and seasonal events.
 
 ### Share a saved island
