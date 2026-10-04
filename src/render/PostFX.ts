@@ -221,6 +221,9 @@ export class PostFX {
   dofStrength = RENDER.dof.strength;
   private pixel = false;
   private preset: PresetName = 'high';
+  private width = 0;
+  private height = 0;
+  private pixelRatio = 0;
 
   constructor(private renderer: THREE.WebGLRenderer, scene: THREE.Scene, private camera: THREE.PerspectiveCamera) {
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
@@ -276,8 +279,15 @@ export class PostFX {
   }
 
   setSize(w: number, h: number): void {
-    this.composer.setSize(w, h);
     const pr = this.renderer.getPixelRatio();
+    if (w === this.width && h === this.height && pr === this.pixelRatio) return;
+    // EffectComposer keeps its own pixel ratio. It must follow quality changes,
+    // otherwise lowering quality leaves every post-processing pass at the old resolution.
+    if (pr !== this.pixelRatio) this.composer.setPixelRatio(pr);
+    this.composer.setSize(w, h);
+    this.width = w;
+    this.height = h;
+    this.pixelRatio = pr;
     this.fxaa.material.uniforms['resolution'].value.set(1 / (w * pr), 1 / (h * pr));
   }
 

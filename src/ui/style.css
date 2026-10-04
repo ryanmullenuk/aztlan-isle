@@ -65,6 +65,15 @@ html, body {
 }
 #hud > * { pointer-events: auto; }
 
+#restart-screen {
+  position: fixed; inset: 0; z-index: 20000;
+  min-height: 100dvh; background: #007d83; color: #ffe08a;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 16px; padding: 24px; text-align: center;
+}
+#restart-screen h1, #restart-screen p { margin: 0; }
+#restart-screen a { color: inherit; font-size: 14px; margin-top: 24px; }
+
 /* Colour the entire launch surface, including any iOS area outside the visual viewport. */
 html.splash-open, html.splash-open body { background: #007d83; }
 html.brand-open, html.brand-open body { background: #000; }

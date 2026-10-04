@@ -63,6 +63,7 @@ import { SwampView } from './water/Swamp';
 import { SEA_SURFACE } from './water/Water';
 import type { Islander } from './entities/Islander';
 import { viewportSize } from './render/AppViewport';
+import { showRestart } from './ui/Restart';
 
 const _pathP = new THREE.Vector3();
 
@@ -858,7 +859,9 @@ export class Game {
       onError(new Error('The graphics context was lost. Try again to reload your island.'));
     });
     this.renderer.setAnimationLoop(() => {
-      if (this.stopped) return;
+      // One preview frame is enough behind the opaque splash. Do not keep
+      // simulating/drawing the entire island at 60 Hz while waiting for PLAY.
+      if (this.stopped || (ready && !this.playing)) return;
       try {
         if (this.frame() && !ready) { ready = true; onReady(); }
       } catch (error) {
@@ -878,10 +881,19 @@ export class Game {
     this.clock.dispose();
   }
 
-  private releaseForReload(): void {
-    this.stop();
-    this.renderer.dispose();
-    this.renderer.forceContextLoss();
+  private reloadIsland(): void {
+    const url = `${location.pathname}?r=${Date.now().toString(36)}`;
+    showRestart(url);
+    // The browser releases this page's GPU resources when it navigates. Forcing
+    // context loss here clears the canvas before the replacement page is ready.
+    this.noSave = true;
+    this.stopped = true;
+    try {
+      this.renderer.setAnimationLoop(null);
+    } catch (error) {
+      console.warn('Could not stop the old render loop during restart', error);
+    }
+    location.replace(url);
   }
 
   // ---------------- Time controls ----------------
@@ -1580,8 +1592,7 @@ export class Game {
     try { localStorage.setItem(SAVE.key, JSON.stringify(save)); }
     catch { throw new Error('Not enough browser storage to load this island. Your current island is unchanged.'); }
     // Prevent visibility/unload autosaves from replacing the imported snapshot.
-    this.releaseForReload();
-    location.reload();
+    this.reloadIsland();
   }
 
   newIsland(): void {
@@ -1591,9 +1602,7 @@ export class Game {
       this.ui.toast('Your saved island could not be cleared. Please free browser storage and try again.', 'warn');
       return;
     }
-    this.releaseForReload();
-    // Fetch a fresh entry page instead of reusing a cached page from an older release.
-    location.replace(`${location.pathname}?r=${Date.now().toString(36)}`);
+    this.reloadIsland();
   }
 
   // ---------------- Picking ----------------
