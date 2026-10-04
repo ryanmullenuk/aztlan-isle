@@ -63,7 +63,7 @@ import { BeachPearls } from './entities/Pearls';
 import { SwampView } from './water/Swamp';
 import { SEA_SURFACE } from './water/Water';
 import type { Islander } from './entities/Islander';
-import { viewportSize } from './render/AppViewport';
+import { stripOverscan, viewportSize } from './render/AppViewport';
 import { showRestart } from './ui/Restart';
 
 const _pathP = new THREE.Vector3();
@@ -73,9 +73,21 @@ export function appViewport(): [number, number] {
   const standalone = matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches
     || (navigator as Navigator & { standalone?: boolean }).standalone === true;
   const [w, h] = viewportSize(window.innerWidth, window.innerHeight, window.visualViewport?.width, window.visualViewport?.height);
+  const ios = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  overscan = stripOverscan(ios, standalone, w, h, screen.width, screen.height);
   document.documentElement.classList.toggle('standalone-app', standalone);
   document.documentElement.style.setProperty('--app-h', `${h}px`);
+  document.documentElement.style.setProperty('--overscan', `${overscan}px`);
   return [w, h];
+}
+
+/** How far the game canvas reaches past the page at the top and bottom (see stripOverscan). */
+let overscan = 0;
+
+/** The game canvas's drawing size: the page, plus any overscan into an iOS status-bar strip. */
+export function canvasSize(): [number, number] {
+  const [w, h] = appViewport();
+  return [w, h + overscan * 2];
 }
 
 export interface GameOptions {
@@ -219,7 +231,8 @@ export class Game {
     const cfg = RENDER.presets[this.preset];
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', stencil: false });
     this.renderer.setPixelRatio(this.pixelRatio());
-    this.renderer.setSize(window.innerWidth, window.innerHeight, false);
+    const [cw, ch] = canvasSize();
+    this.renderer.setSize(cw, ch, false);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = RENDER.exposure;
@@ -245,7 +258,7 @@ export class Game {
     softenMapEdge(this.world, this.veg.plants.filter((p) => p.kind === 'searock' && p.state === PlantState.Alive).map((p) => p.cell));
     this.veg.refreshHeights(0, 0, this.world.N - 1, this.world.N - 1);
 
-    this.rig = new CameraRig(window.innerWidth / window.innerHeight, this.world);
+    this.rig = new CameraRig(cw / ch, this.world);
     this.rig.boundRadius = this.world.half * 0.95;
     this.scene.fog = new THREE.Fog(RENDER.fogColor, RENDER.fogNear, RENDER.fogFar);
     this.scene.background = new THREE.Color(RENDER.fogColor);
@@ -372,7 +385,7 @@ export class Game {
 
     this.post = new PostFX(this.renderer, this.scene, this.rig.camera);
     this.post.applyPreset(this.preset);
-    this.post.setSize(window.innerWidth, window.innerHeight);
+    this.post.setSize(cw, ch);
 
     this.input = new Input(canvas, this.rig, {
       onTap: (x, y) => this.onTap(x, y),
@@ -840,7 +853,7 @@ export class Game {
   }
 
   resize(): void {
-    const [w, h] = appViewport();
+    const [w, h] = canvasSize();
     // Hidden or collapsed views report zero size; keep the last good size.
     if (w < 2 || h < 2) return;
     if (this.settings.pixel) this.renderer.setPixelRatio(this.pixelRatio());
