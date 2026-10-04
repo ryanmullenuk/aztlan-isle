@@ -9,9 +9,8 @@ import { World } from '../world/World';
 import { RNG } from '../world/rng';
 import * as models from './models';
 
-/** Flame size per building, and the fires that burn day and night. */
-const FLAME_SCALE: Partial<Record<BuildingKey, number>> = { campfire: 0.85, bonfire: 1, firepit: 3.0, torch: 1.25, greathall: 3.0, watchtower: 1.1 };
-const ALWAYS_LIT = new Set<BuildingKey>(['campfire', 'bonfire', 'firepit', 'greathall']);
+/** Flame size per building; fires are visible only from dusk until dawn. */
+const FLAME_SCALE: Partial<Record<BuildingKey, number>> = { campfire: 0.85, bonfire: 1, firepit: 0.9, torch: 1.25, greathall: 3.0, watchtower: 1.1 };
 import { Particles } from '../render/Particles';
 
 /** Door direction per rotation (door faces +z at rot 0). */
@@ -907,7 +906,7 @@ export class BuildingSystem {
     const lit = night > 0.12;
     for (const b of this.list) {
       for (const t of b.torches) {
-        const on = (b.complete && !b.upgrading && (lit || ALWAYS_LIT.has(b.key))) as boolean;
+        const on = (b.complete && !b.upgrading && lit) as boolean;
         t.flame.visible = on;
         if (on) {
           const village = b.key === 'campfire' || b.key === 'bonfire';

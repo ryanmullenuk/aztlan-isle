@@ -1620,8 +1620,8 @@ export function greatHallModel(): BuildingModel {
   const sand = c(0xdcb57c), sandDark = c(0xc39a62), cream = c(0xf1e2c0);
   const pave = (i: number, j: number) => c(0xcfc5b3).lerp(c(0xa39683), ((i * 7 + j * 13) % 5) / 6 + rng.range(0, 0.15));
   // Paved court round the platform.
-  b.add(P.box(6.95, 0.012, 6.95), { color: c(0x9c917f) }, M.t(0, 0.006, 0));
-  slabs(b, -3.45, -3.45, 14, 14, 6.9 / 14, 0.004, 0.022, pave, (x, z) => Math.abs(x) < E + 0.15 && Math.abs(z) < E + 0.15);
+  b.add(P.box(6.95, 0.012, 6.95), { color: c(0x9c917f) }, M.t(0, 0.056, 0));
+  slabs(b, -3.45, -3.45, 14, 14, 6.9 / 14, 0.064, 0.028, pave, (x, z) => Math.abs(x) < E + 0.15 && Math.abs(z) < E + 0.15);
   // Lower step: a course of blocks; then the platform proper under a sand-coloured coping.
   b.add(P.box(2 * E + 0.4, 0.2, 2 * E + 0.4), { color: K.stoneDark }, M.t(0, 0.1, 0));
   for (let side = 0; side < 4; side++) {
@@ -1631,7 +1631,7 @@ export function greatHallModel(): BuildingModel {
       b.add(P.box((2 * E + 0.4) / 10 - 0.02, 0.17, 0.03), { color: k % 2 ? K.stone : c(0xb4a894) }, M.t(Math.sin(ry) * (E + 0.2) + Math.cos(ry) * u, 0.1, Math.cos(ry) * (E + 0.2) - Math.sin(ry) * u, 0, ry, 0));
     }
   }
-  b.add(P.box(2 * E, H - 0.2, 2 * E), { color: sand }, M.t(0, 0.2 + (H - 0.2) / 2, 0));
+  b.add(P.box(2 * E, H - 0.25, 2 * E), { color: sand }, M.t(0, 0.2 + (H - 0.25) / 2, 0));
   b.add(P.box(2 * E + 0.06, 0.05, 2 * E + 0.06), { color: sandDark }, M.t(0, H - 0.025, 0));
   // Red key-pattern panels round the sides (not across the stair).
   const panel = (m: THREE.Matrix4) => {
