@@ -611,6 +611,16 @@ p.warn { color: #ffb08a; }
   color: var(--gold) !important;
   box-shadow: none !important;
 }
+/* The splash poster is busy behind its controls: give them a dark, softly blurred backing. */
+#play-btn {
+  background: rgba(8, 32, 34, 0.68) !important;
+  -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+.splash-ui .loading-sub, .splash-hint {
+  width: auto; max-width: 92%; padding: 0.9cqw 2.6cqw; border-radius: 8px;
+  background: rgba(8, 32, 34, 0.6); text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
 #hud button.on, #hud button[aria-pressed="true"], #hud button[aria-expanded="true"] {
   outline: 1px solid var(--gold); outline-offset: 2px;
 }
