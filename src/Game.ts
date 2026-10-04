@@ -207,6 +207,8 @@ export class Game {
 
   private clock = new THREE.Timer();
   private fps = { frames: 0, acc: 0, value: 60 };
+  /** The longest frame (ms) in the last few seconds, and the one being measured now: judder shows here, not in the average. */
+  private worstFrame = { shown: 0, current: 0, age: 0 };
   private wearTimer = 0;
   private milestoneTimer = 0;
   private hoverPoint: THREE.Vector3 | null = null;
@@ -643,11 +645,13 @@ export class Game {
     this.saveHandler = () => {
       if (!this.noSave) writeSave(this);
     };
-    // Autosave, and save when the page is hidden or closed.
+    // Autosave, and save when the page is hidden or closed. Writing the island takes a moment, so
+    // it waits for a pause in touching and moving the view (at most half a minute longer).
     let acc = 0;
     this.systems.push((realDt) => {
       acc += realDt;
-      if (acc >= TIME.autosaveSeconds) {
+      const busy = this.input.touching || this.input.navigating;
+      if (acc >= TIME.autosaveSeconds && (!busy || acc >= TIME.autosaveSeconds + 30)) {
         acc = 0;
         if (!this.noSave) writeSave(this);
       }
@@ -880,7 +884,11 @@ export class Game {
       // simulating/drawing the entire island at 60 Hz while waiting for PLAY.
       if (this.stopped || (ready && !this.playing)) return;
       try {
-        if (this.frame() && !ready) { ready = true; onReady(); }
+        if (this.frame() && !ready) {
+          ready = true;
+          this.warmUp();
+          onReady();
+        }
       } catch (error) {
         this.stop();
         onError(error);
@@ -1746,7 +1754,9 @@ export class Game {
   private frame(): boolean {
     this.clock.update();
     if (this.canvas.clientWidth < 2 || this.canvas.clientHeight < 2) return false;
-    const realDt = this.playing ? Math.min(this.clock.getDelta(), 0.1) : 0;
+    const rawDt = this.clock.getDelta();
+    const realDt = this.playing ? Math.min(rawDt, 0.1) : 0;
+    if (this.playing) this.trackWorstFrame(rawDt);
     const dt = this.time.advance(realDt);
     this.update(realDt, dt);
     this.render(realDt);
@@ -1784,6 +1794,22 @@ export class Game {
 
   get fpsValue(): number {
     return this.fps.value;
+  }
+
+  /** Longest frame in milliseconds over the last ~3 seconds (shown with Show FPS). */
+  get worstFrameMs(): number {
+    return this.worstFrame.shown;
+  }
+
+  private trackWorstFrame(rawDt: number): void {
+    const w = this.worstFrame;
+    w.current = Math.max(w.current, rawDt * 1000);
+    w.age += rawDt;
+    if (w.age >= 3) {
+      w.shown = w.current;
+      w.current = 0;
+      w.age = 0;
+    }
   }
 
   /** Turn back to the default composed view direction (shortest way round). */
@@ -1961,5 +1987,35 @@ export class Game {
   private render(realDt: number): void {
     const focus = this.rig.camera.position.distanceTo(this.rig.target);
     this.post.render(realDt, focus, this.lighting.state.night);
+  }
+
+  /**
+   * Compile every shader before play begins. A shader compiles the first time something using it
+   * is drawn, and on iPhones (WebGL running on Metal) each one can freeze a frame: torches and
+   * stars at dusk, rain, the volcano, a selection ring. Behind the opaque splash, draw one frame
+   * with everything switched on (through the full post chain, so the GPU pipelines are made for
+   * the real render targets too), then put it all back as it was.
+   */
+  private warmUp(): void {
+    const hidden: THREE.Object3D[] = [];
+    const culled: THREE.Object3D[] = [];
+    const empty: THREE.InstancedMesh[] = [];
+    try {
+      this.scene.traverse((o) => {
+        if (!o.visible) { hidden.push(o); o.visible = true; }
+        // Off-screen things too: each must actually be drawn once.
+        if (o.frustumCulled) { culled.push(o); o.frustumCulled = false; }
+        const m = o as THREE.InstancedMesh;
+        if (m.isInstancedMesh && m.count === 0 && m.instanceMatrix.count > 0) { empty.push(m); m.count = 1; }
+      });
+      this.renderer.compile(this.scene, this.rig.camera);
+      this.render(0);
+    } catch {
+      // Best effort: anything not warmed here simply compiles when first drawn, as before.
+    } finally {
+      for (const o of hidden) o.visible = false;
+      for (const o of culled) o.frustumCulled = true;
+      for (const m of empty) m.count = 0;
+    }
   }
 }
