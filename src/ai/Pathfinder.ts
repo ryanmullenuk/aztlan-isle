@@ -60,6 +60,8 @@ export interface PathOptions {
   maxIterations?: number;
   /** Captured livestock escorts may swim; bridges and dry land remain preferred. */
   allowWater?: boolean;
+  /** Cells to steer round if there's any reasonable way (a jam of people): they cost extra. */
+  avoid?: Set<number>;
 }
 
 const DIRS = [
@@ -165,8 +167,9 @@ export class Pathfinder {
         if (dx !== 0 && dz !== 0) {
           if (!this.walkable(cz * N + nx, allow, opts.allowWater) || !this.walkable(nz * N + cx, allow, opts.allowWater)) continue;
         }
-        const sc = this.stepCost(cur, ni, base, opts.allowWater);
+        let sc = this.stepCost(cur, ni, base, opts.allowWater);
         if (sc < 0) continue;
+        if (opts.avoid?.has(ni)) sc += 6;
         const ng = this.g[cur] + sc;
         if (this.stamp[ni] !== gen || ng < this.g[ni]) {
           this.stamp[ni] = gen;

@@ -139,6 +139,9 @@ export class Colony {
       t.stage = 1;
       return 'walking';
     }
+    // Shut inside a building's footprint they don't belong in (it went up, or was moved, where
+    // they stood): walk straight out to open ground first, then find the way again.
+    if (this.escape(isl, dt, opts)) return 'walking';
     if (isl.pathPending) {
       isl.anim = isl.carry ? 'carry' : 'idle';
       return 'walking';
@@ -169,10 +172,20 @@ export class Colony {
     });
     const actualSpeed = Math.hypot(velocity.x, velocity.z);
     isl.stuck = actualSpeed < speed * 0.1 ? isl.stuck + dt : 0;
-    // Replan a route blocked by changed terrain/buildings; keep the task and cargo.
+    // Steady walking wears off being held up.
+    if (actualSpeed > speed * 0.5) isl.jam = Math.max(0, (isl.jam ?? 0) - dt * 0.1);
+    // Held up: first find the way again (terrain or buildings may have changed), then a way
+    // round the knot of people in the way, and if even that fails, give up and do something else
+    // (so jams clear instead of everyone queueing into them).
     if (isl.stuck > 4) {
       isl.stuck = 0;
-      this.requestPath(isl, x, z, opts);
+      isl.jam = (isl.jam ?? 0) + 1;
+      if (isl.jam >= 3) {
+        isl.jam = 0;
+        isl.path = null;
+        return 'failed';
+      }
+      this.requestPath(isl, x, z, isl.jam >= 2 ? { ...opts, avoid: this.crowdCells(isl) } : opts);
     }
     const aligned = actualSpeed > 0 && (velocity.x * dx + velocity.z * dz) / (actualSpeed * (d || 1)) > 0.99;
     if (d < 0.05 || (aligned && d <= actualSpeed * dt)) {
@@ -191,6 +204,61 @@ export class Colony {
       this.wearDirty = true;
     }
     return 'walking';
+  }
+
+  /** Cells round a held-up walker where other people are standing or barely moving (the jam). */
+  private crowdCells(isl: Islander): Set<number> {
+    const cells = new Set<number>();
+    this.grid.query(isl.x, isl.z, 3.5, (o) => {
+      if (o === isl || o.hidden || o.speed > 0.3) return;
+      const c = this.world.cellIndexAt(o.x, o.z);
+      if (c >= 0) cells.add(c);
+    });
+    return cells;
+  }
+
+  /**
+   * Inside a footprint they can't walk in (not the building they're going to, and not raised up
+   * on a floor): step straight toward the nearest open ground. True while getting out.
+   */
+  private escape(isl: Islander, dt: number, opts: PathOptions): boolean {
+    if (isl.hidden || isl.floorY !== null) return false;
+    const w = this.world;
+    const here = w.cellIndexAt(isl.x, isl.z);
+    if (here < 0 || this.pf.walkable(here, opts.allowBuilding, opts.allowWater)) return false;
+    const [cx, cz] = w.cellOf(isl.x, isl.z);
+    let best = -1, bd = Infinity;
+    for (let r = 1; r <= 6 && best < 0; r++) {
+      for (let dz = -r; dz <= r; dz++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== r || !w.inBounds(cx + dx, cz + dz)) continue;
+          const i = w.idx(cx + dx, cz + dz);
+          if (!this.pf.walkable(i, opts.allowBuilding, opts.allowWater)) continue;
+          const d = (w.centerX(cx + dx) - isl.x) ** 2 + (w.centerZ(cz + dz) - isl.z) ** 2;
+          if (d < bd) {
+            bd = d;
+            best = i;
+          }
+        }
+      }
+    }
+    if (best < 0) return false;
+    const tx = w.centerX(best % w.N), tz = w.centerZ((best / w.N) | 0);
+    const dx = tx - isl.x, dz = tz - isl.z, d = Math.hypot(dx, dz);
+    const step = Math.min(d, ISLANDER.walkSpeed * dt);
+    isl.x += (dx / (d || 1)) * step;
+    isl.z += (dz / (d || 1)) * step;
+    isl.y = w.groundY(isl.x, isl.z);
+    this.faceTo(isl, dx, dz, dt);
+    isl.anim = isl.carry ? 'carry' : 'walk';
+    isl.speed = ISLANDER.walkSpeed;
+    isl.stuck = 0;
+    // Out: find the way on from here.
+    if (this.pf.walkable(w.cellIndexAt(isl.x, isl.z), opts.allowBuilding, opts.allowWater)) {
+      isl.pathPending = false;
+      isl.task!.stage = 0;
+    }
+    return true;
   }
 
   /**
@@ -225,6 +293,7 @@ export class Colony {
   private setTask(isl: Islander, kind: Task['kind'], target: number, x: number, z: number, res?: ResourceKey): void {
     this.releaseTask(isl);
     isl.stuck = 0;
+    isl.jam = 0;
     isl.task = { kind, stage: 0, target, timer: 0, x, z, res };
     isl.path = null;
     isl.pathPending = false;
@@ -629,6 +698,8 @@ export class Colony {
     if (this.work(isl)) return;
     // Nothing to do in their own job (store full, nothing left nearby): decide for themselves.
     if (isl.role !== 'warrior' && isl.role !== 'builder' && this.selfDirected(isl)) return;
+    // Nothing to gather (the stores are full): lend a hand on a building site that needs one.
+    if (!night && !isl.manualRole && isl.role !== 'warrior' && this.helpBuild(isl)) return;
     // Truly idle: rest a while in the Great Hall if there is one nearby, else mill about.
     if (!night && this.rnd() < GREAT_HALL.restChance && this.goToHall(isl, false)) return;
     this.wander(isl, isl.x, isl.z, 4);
@@ -652,6 +723,23 @@ export class Colony {
     opts.sort((a, b) => b[0] - a[0]);
     for (const [score, go] of opts) if (score > 0.05 && go()) return true;
     return false;
+  }
+
+  /** Join the builders on the nearest site still short of hands (back to their own work once it's up). */
+  private helpBuild(isl: Islander): boolean {
+    let site: Building | null = null, bd = 45 * 45;
+    for (const b of this.bld.list) {
+      if (b.needsBuilders <= 0) continue;
+      const d = (b.x - isl.x) ** 2 + (b.z - isl.z) ** 2;
+      if (d < bd) {
+        bd = d;
+        site = b;
+      }
+    }
+    if (!site) return false;
+    isl.role = 'builder';
+    isl.workplace = site.id;
+    return this.work(isl);
   }
 
   private startChop(isl: Islander): boolean {
