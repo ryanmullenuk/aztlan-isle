@@ -1691,8 +1691,8 @@ export function greatHallModel(): BuildingModel {
       const top = H + 0.14 + PH + 0.08;
       b.add(P.cyl(0.07, 0.1, 0.1, 8), { color: K.stoneDark }, M.t(x, top + 0.05, z));
       b.add(P.cyl(0.24, 0.12, 0.14, 10), { color: c(0x7d746c) }, M.t(x, top + 0.17, z));
-      b.add(P.cyl(0.2, 0.2, 0.02, 10), { color: c(0x2a1c14) }, M.t(x, top + 0.23, z));
-      torches.push(new THREE.Vector3(x, top + 0.3, z));
+      b.add(P.cyl(0.2, 0.2, 0.02, 10), { color: c(0xa16c3e) }, M.t(x, top + 0.23, z));
+      torches.push(new THREE.Vector3(x, top + 0.245, z));
     }
   }
   // Canopy: six timber posts, beams, and a low striped gable roof with a red fascia and gold studs.

@@ -9,10 +9,16 @@ export function villageFire(): THREE.Mesh {
   const flame = flameGeometry();
   flame.scale(8, 15, 8);
   const fire = new THREE.Mesh(flame, flameMaterial());
+  fire.add(fireEmbers(true));
+  return fire;
+}
+
+/** Small sparks for torch/brazier flames; larger clouds for the communal fire. */
+export function fireEmbers(large = false): THREE.Mesh {
   const b = new GeoBuilder();
-  for (let k = 0; k < 24; k++) {
-    b.add(P.sphere(0.012 + Math.random() * 0.012, 0),
-      { color: new THREE.Color(3.0, 0.4 + Math.random() * 0.7, 0.025), sway: Math.random() * 100 },
+  for (let k = 0; k < (large ? 24 : 7); k++) {
+    b.add(P.sphere(large ? 0.012 + Math.random() * 0.012 : 0.004 + Math.random() * 0.003, 0),
+      { color: new THREE.Color(3.0, 0.4 + Math.random() * 0.7, 0.025), sway: Math.random() * 100, leaf: large ? 1 : 0 },
       M.t(0, 0, 0, 0, Math.random() * 6.28, 0, 0.65, 1.5, 0.65));
   }
   if (!emberMaterial) {
@@ -29,15 +35,15 @@ export function villageFire(): THREE.Mesh {
         float life = fract(clock);
         float seed = aVeg.x + cycle * 19.7;
         float angle = emberHash(seed) * 6.28318 + life * (emberHash(seed + 3.0) - 0.5) * 2.0;
-        float spread = 0.12 + life * (0.25 + emberHash(seed + 1.0) * 0.65);
+        float scale = mix(0.18, 1.0, aVeg.y);
+        float spread = (0.12 + life * (0.25 + emberHash(seed + 1.0) * 0.65)) * scale;
         transformed *= sin(life * 3.14159);
         transformed += vec3(cos(angle) * spread,
-          1.8 + life * (2.0 + emberHash(seed + 2.0) * 1.6), sin(angle) * spread);`);
+          mix(0.14, 1.8, aVeg.y) + life * (2.0 + emberHash(seed + 2.0) * 1.6) * scale, sin(angle) * spread);`);
     };
-    emberMaterial.customProgramCacheKey = () => 'random-village-embers-v1';
+    emberMaterial.customProgramCacheKey = () => 'random-fire-embers-v2';
   }
   const geo = b.build();
   geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 3.0, 0), 3);
-  fire.add(new THREE.Mesh(geo, emberMaterial));
-  return fire;
+  return new THREE.Mesh(geo, emberMaterial);
 }
