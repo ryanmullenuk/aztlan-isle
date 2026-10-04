@@ -100,6 +100,22 @@ html.brand-open, html.brand-open body { background: #000; }
   position: absolute; left: 12%; right: 12%; top: 79.5%; bottom: 5.5%;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2.2cqw;
 }
+/*
+ * Portrait screens: the poster fills the whole screen (trimming a sliver top and bottom or at the
+ * sides) and, like the game, reaches into any iOS status-bar strip; the controls stay near the
+ * bottom of what is actually visible. Wider screens keep the whole poster framed instead, so the
+ * title is never cropped.
+ */
+@media (max-aspect-ratio: 3/4) {
+  #loading {
+    padding: 0; bottom: auto;
+    top: calc(-1 * var(--overscan, 0px));
+    height: calc(var(--app-h, 100dvh) + 2 * var(--overscan, 0px));
+  }
+  .splash-frame { position: absolute; inset: 0; width: auto; aspect-ratio: auto; }
+  .splash-art { object-fit: cover; object-position: 50% 45%; }
+  .splash-ui { top: auto; height: 15%; bottom: calc(5.5% + var(--overscan, 0px) + var(--safe-b)); }
+}
 .splash-ui .loading-sub { margin: 0; color: #ffe08a; font-size: max(10px, 3.2cqw); text-shadow: 0 1px 4px #004e53; text-align: center; }
 /* "Add to Home Screen" means nothing inside the installed app. */
 html.native-app .splash-hint { display: none; }
