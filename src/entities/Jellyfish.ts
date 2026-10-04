@@ -1,3 +1,4 @@
+import { clearWaterMove } from './WaterObstacles';
 import * as THREE from 'three';
 import { JELLYFISH } from '../config';
 import { View } from '../render/View';
@@ -286,7 +287,7 @@ export class Jellyfish {
       for (let cx = 16; cx < N - 16; cx++) {
         const i = cz * N + cx;
         const L = w.layer[i];
-        if (L > -2 || L < -5 || dl[i] < C.shore[0] || dl[i] > C.shore[1] || w.canal[i] || !Number.isNaN(w.riverY[i])) continue;
+        if (!clearWaterMove(w, w.centerX(cx), w.centerZ(cz), w.centerX(cx), w.centerZ(cz), 0.5) || L > -2 || L < -5 || dl[i] < C.shore[0] || dl[i] > C.shore[1] || w.canal[i] || !Number.isNaN(w.riverY[i])) continue;
         cands.push(i);
       }
     }
@@ -308,7 +309,7 @@ export class Jellyfish {
         let ox = 0, oz = 0;
         for (let tries = 0; tries < 12; tries++) {
           const a = rng.range(0, 6.28), r = Math.sqrt(rng.next()) * rng.range(1.6, 3.2);
-          if (this.bed(x + Math.cos(a) * r, z + Math.sin(a) * r * 0.7) < this.shallowest(size) - 0.1) {
+          if (clearWaterMove(w, x + Math.cos(a) * r, z + Math.sin(a) * r * 0.7, x + Math.cos(a) * r, z + Math.sin(a) * r * 0.7, size) && this.bed(x + Math.cos(a) * r, z + Math.sin(a) * r * 0.7) < this.shallowest(size) - 0.1) {
             ox = Math.cos(a) * r;
             oz = Math.sin(a) * r * 0.7;
             break;
@@ -345,7 +346,7 @@ export class Jellyfish {
       const na = s.a + (dt * 0.05 * s.dir) / Math.max(s.rx, s.rz) * 3;
       const lx = Math.cos(na) * s.rx, lz = Math.sin(na) * s.rz;
       const nx = s.hx + lx * Math.cos(s.rot) - lz * Math.sin(s.rot), nz = s.hz + lx * Math.sin(s.rot) + lz * Math.cos(s.rot);
-      if (this.bed(nx, nz) < -0.9) {
+      if (this.bed(nx, nz) < -0.9 && clearWaterMove(this.world, s.x, s.z, nx, nz, 0.5)) {
         s.a = na;
         s.x = nx;
         s.z = nz;
@@ -409,6 +410,19 @@ export class Jellyfish {
         j.vx = (s.x - j.x) * 0.3;
         j.vz = (s.z - j.z) * 0.3;
         j.flee = 0;
+      }
+      if (!clearWaterMove(this.world, j.x, j.z, nx, nz, j.size)) {
+        nx = j.x; nz = j.z;
+        const speed = Math.max(0.12, Math.hypot(j.vx, j.vz));
+        const heading = Math.atan2(j.vz, j.vx);
+        for (const turn of [0.7, -0.7, 1.4, -1.4, Math.PI]) {
+          const vx = Math.cos(heading + turn) * speed, vz = Math.sin(heading + turn) * speed;
+          const tx = j.x + vx * dt, tz = j.z + vz * dt;
+          if (this.bed(tx, tz) <= this.shallowest(j.size) && clearWaterMove(this.world, j.x, j.z, tx, tz, j.size)) {
+            nx = tx; nz = tz; j.vx = vx; j.vz = vz; break;
+          }
+        }
+        if (nx === j.x && nz === j.z) { j.vx = 0; j.vz = 0; }
       }
       j.x = nx;
       j.z = nz;

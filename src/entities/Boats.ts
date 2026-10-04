@@ -874,7 +874,7 @@ export class Boats {
       for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
         if (!w.inBounds(cx + dx, cz + dz)) continue;
         const j = w.idx(cx + dx, cz + dz);
-        if (w.layer[j] !== 1 || w.isle[j] !== 1 || w.occ[j]) continue;
+        if (w.layer[j] !== 1 || w.isle[j] !== 1 || w.occ[j] || w.blocked(j)) continue;
         const d = Math.hypot(w.centerX(cx) - to.x, w.centerZ(cz) - to.z) - w.sandy[j] * 4;
         if (d < bd) {
           bd = d;
@@ -925,9 +925,11 @@ export class Boats {
         if (a.idx >= a.path.length) {
           // Landed: the settlers step ashore; the canoe is pulled up on the sand.
           a.state = 'beached';
+          a.heading = Math.atan2(a.land.x - a.x, a.land.z - a.z);
           a.timer = 120;
           a.speed = 0;
           for (const r of a.rowers) r.dispose();
+          a.rowers.length = 0;
           const people = a.genders.map((g, k) => this.colony.spawn(g, a.land.x + (k - (a.genders.length - 1) / 2) * 0.5, a.land.z));
           this.sfx('splash', a.x, a.z);
           a.onLand?.(people);
@@ -945,7 +947,12 @@ export class Boats {
       }
       if (a.state === 'sail') this.ride(a.mesh, a, time, dt, half, beam);
       else {
-        a.mesh.position.set(a.x, 0.06, a.z);
+        // Ease the empty hull onto the actual beach, then leave it resting on the sand.
+        const pull = 1 - Math.exp(-dt * 1.4);
+        a.x += (a.land.x - a.x) * pull;
+        a.z += (a.land.z - a.z) * pull;
+        const sandY = Math.max(0.06, this.world.heightAt(a.x, a.z) + 0.04);
+        a.mesh.position.set(a.x, sandY, a.z);
         a.mesh.rotation.set(-0.05, a.heading, 0, 'YXZ');
       }
       a.rowers.forEach((r, k) => (r.rotation.z = Math.sin(a.phase + k * 0.7) * 0.04 * (k % 2 ? -1 : 1)));
