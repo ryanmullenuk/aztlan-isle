@@ -33,6 +33,7 @@ import { BuildingSystem, Building } from './buildings/Buildings';
 import { Pathfinder } from './ai/Pathfinder';
 import { Colony } from './ai/Colony';
 import { IslanderRig } from './entities/IslanderRig';
+import { Healers } from './ai/Healers';
 import { Wildlife } from './entities/Wildlife';
 import { Boats } from './entities/Boats';
 import { Marine } from './entities/Marine';
@@ -141,6 +142,8 @@ export class Game {
   pathfinder: Pathfinder;
   colony: Colony;
   rig3d: IslanderRig;
+  /** The white-robed healers of the Healing Centres (scenery, not villagers). */
+  healers!: Healers;
   sculptor: Sculptor;
   lighting: Lighting;
   skyBodies: SkyBodies;
@@ -284,6 +287,7 @@ export class Game {
       return { x: c.x, y: c.y, z: c.z, tx: t.x, tz: t.z, r: this.rig.viewRadius };
     };
     this.rig3d = new IslanderRig();
+    this.healers = new Healers(this.buildings);
     this.scene.add(this.rig3d.group);
     this.sculptor = new Sculptor(this.world, this.terrain, this.water, this.veg, this.eco);
     this.buildings.onComplete = (b) => this.onBuildingComplete(b);
@@ -1870,9 +1874,12 @@ export class Game {
     this.flowers.update(realDt);
     this.garden.update(realDt);
     this.clouds.update(realDt, ls.day, this.rig.cur.dist);
+    this.volcano.daylight = ls.day;
     this.driftClouds.update(realDt, ls.day, this.rig.cur.dist, this.rig.camera.position);
     for (const s of this.systems) s(realDt, dt);
-    this.rig3d.update(this.colony.list, this.selectedIslander, realDt, this.selectedIslanders);
+    this.healers.update(dt);
+    const healers = this.healers.list;
+    this.rig3d.update(healers.length ? [...this.colony.list, ...healers] : this.colony.list, this.selectedIslander, realDt, this.selectedIslanders);
 
     if (this.canalDirty) {
       const [x0, z0, x1, z1] = this.canalDirty;
