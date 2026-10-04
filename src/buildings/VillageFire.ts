@@ -35,16 +35,16 @@ export function villageFire(): THREE.Mesh {
         attribute float aMat;`);
       shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
         if (aMat > 0.5) {
-          float life = fract(uTime * (0.22 + aVeg.x * 0.12) + aVeg.x);
+          float life = fract(uTime * (0.12 + aVeg.x * 0.06) + aVeg.x);
           float angle = aVeg.x * 57.0 + life * 3.0;
           transformed *= sin(life * 3.14159);
           transformed += vec3(cos(angle) * (0.1 + life * 0.45) + life * life * 0.3,
             1.5 + life * 3.4, sin(angle) * (0.1 + life * 0.4));
         } else {
           float height = position.y;
-          transformed.x += sin(uTime * 4.6 + height * 4.0 + aVeg.x) * height * 0.065;
-          transformed.z += cos(uTime * 3.7 + height * 3.0 + aVeg.x) * height * 0.05;
-          transformed.y *= 0.94 + sin(uTime * 6.0 + aVeg.x) * 0.09;
+          transformed.x += sin(uTime * 1.6 + height * 4.0 + aVeg.x) * height * 0.035;
+          transformed.z += cos(uTime * 1.3 + height * 3.0 + aVeg.x) * height * 0.025;
+          transformed.y *= 0.97 + sin(uTime * 2.0 + aVeg.x) * 0.035;
         }`);
     };
     material.customProgramCacheKey = () => 'village-fire-v1';

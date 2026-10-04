@@ -419,7 +419,8 @@ export class Jellyfish {
       _q.setFromUnitVectors(_up, _ax.set(j.tx * 0.9, 1, j.tz * 0.9).normalize());
       _q.multiply(_q2.setFromAxisAngle(_up, j.seed + this.t * 0.1));
       _p.set(j.x, j.y, j.z);
-      _s.setScalar(j.size);
+      // Smaller individual bodies; retain shoal population, spacing and swim routes.
+      _s.setScalar(j.size * 0.65);
       this.mesh.setMatrixAt(i, _m.compose(_p, _q, _s));
       // Tentacles trail against its motion (in its own frame, scaled to its size).
       _v.set(j.vx, j.vy, j.vz).applyQuaternion(_q.invert()).multiplyScalar(0.9 / j.size);

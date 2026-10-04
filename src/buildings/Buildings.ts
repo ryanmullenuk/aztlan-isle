@@ -900,7 +900,10 @@ export class BuildingSystem {
         const on = (b.complete && !b.upgrading && (lit || ALWAYS_LIT.has(b.key))) as boolean;
         t.flame.visible = on;
         if (on) {
-          const f = 0.85 + Math.sin(time * 11 + t.phase) * 0.08 + Math.sin(time * 23 + t.phase * 2) * 0.06;
+          const village = b.key === 'campfire' || b.key === 'bonfire';
+          const f = village
+            ? 0.94 + Math.sin(time * 2.2 + t.phase) * 0.025 + Math.sin(time * 3.8 + t.phase * 2) * 0.015
+            : 0.85 + Math.sin(time * 11 + t.phase) * 0.08 + Math.sin(time * 23 + t.phase * 2) * 0.06;
           const base = FLAME_SCALE[b.key] ?? 1;
           t.flame.scale.set(base * f, base * (0.9 + (1 - f) * 1.5), base * f);
         }
