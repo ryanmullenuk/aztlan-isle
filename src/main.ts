@@ -46,7 +46,12 @@ async function boot(): Promise<void> {
   let game: Game;
   try {
     game = new Game(canvas, { seed: resolveSeed(), preset: defaultPreset() });
-    game.start();
+    // A constructor succeeding does not mean the first rendered frame succeeded.
+    // Keep loading until rendering has actually completed, including shader compilation.
+    await new Promise<void>((resolve, reject) => game.start(resolve, (error) => {
+      reject(error);
+      if ((window as unknown as { aztlanBooted?: boolean }).aztlanBooted) bootFailed(error);
+    }));
   } catch (e) {
     bootFailed(e);
     return;
@@ -64,6 +69,7 @@ async function boot(): Promise<void> {
     entered = true;
     enterFullscreen();
     game.audio.unlock();
+    game.play();
     loading?.classList.add('hidden');
     document.documentElement.classList.remove('splash-open');
     game.resize();
@@ -99,6 +105,9 @@ function booted(): void {
  */
 function bootFailed(e: unknown): void {
   blockSaves();
+  document.getElementById('loading')?.classList.remove('hidden');
+  document.documentElement.classList.add('splash-open');
+  document.getElementById('play-btn')?.classList.add('hidden');
   console.error('Aztlan Isle failed to start', e);
   (window as unknown as { aztlanBootError: unknown }).aztlanBootError = e;
   text('Your island could not be loaded.');

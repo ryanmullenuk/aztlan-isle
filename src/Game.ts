@@ -623,7 +623,7 @@ export class Game {
       this.audio.applyVolumes();
     };
     this.saveHandler = () => {
-      writeSave(this);
+      if (!this.noSave) writeSave(this);
     };
     // Autosave, and save when the page is hidden or closed.
     let acc = 0;
@@ -845,9 +845,43 @@ export class Game {
     this.post.setSize(w, h);
   }
 
-  start(): void {
+  private playing = false;
+  private stopped = false;
+
+  start(onReady: () => void, onError: (error: unknown) => void): void {
     this.clock.connect(document);
-    this.renderer.setAnimationLoop(() => this.frame());
+    let ready = false;
+    this.canvas.addEventListener('webglcontextlost', (event) => {
+      event.preventDefault();
+      if (this.stopped) return;
+      this.stop();
+      onError(new Error('The graphics context was lost. Try again to reload your island.'));
+    });
+    this.renderer.setAnimationLoop(() => {
+      if (this.stopped) return;
+      try {
+        if (this.frame() && !ready) { ready = true; onReady(); }
+      } catch (error) {
+        this.stop();
+        onError(error);
+      }
+    });
+  }
+
+  /** Start the arrival only after the player has dismissed the splash. */
+  play(): void { this.playing = true; this.clock.reset(); }
+
+  private stop(): void {
+    this.stopped = true;
+    this.noSave = true;
+    this.renderer.setAnimationLoop(null);
+    this.clock.dispose();
+  }
+
+  private releaseForReload(): void {
+    this.stop();
+    this.renderer.dispose();
+    this.renderer.forceContextLoss();
   }
 
   // ---------------- Time controls ----------------
@@ -1546,18 +1580,20 @@ export class Game {
     try { localStorage.setItem(SAVE.key, JSON.stringify(save)); }
     catch { throw new Error('Not enough browser storage to load this island. Your current island is unchanged.'); }
     // Prevent visibility/unload autosaves from replacing the imported snapshot.
-    this.noSave = true;
+    this.releaseForReload();
     location.reload();
   }
 
   newIsland(): void {
-    this.noSave = true;
     try {
       localStorage.removeItem(SAVE.key);
     } catch {
-      /* storage unavailable */
+      this.ui.toast('Your saved island could not be cleared. Please free browser storage and try again.', 'warn');
+      return;
     }
-    location.href = location.pathname;
+    this.releaseForReload();
+    // Fetch a fresh entry page instead of reusing a cached page from an older release.
+    location.replace(`${location.pathname}?r=${Date.now().toString(36)}`);
   }
 
   // ---------------- Picking ----------------
@@ -1681,10 +1717,10 @@ export class Game {
 
   // ---------------- Loop ----------------
 
-  private frame(): void {
+  private frame(): boolean {
     this.clock.update();
-    if (this.canvas.clientWidth < 2 || this.canvas.clientHeight < 2) return;
-    const realDt = Math.min(this.clock.getDelta(), 0.1);
+    if (this.canvas.clientWidth < 2 || this.canvas.clientHeight < 2) return false;
+    const realDt = this.playing ? Math.min(this.clock.getDelta(), 0.1) : 0;
     const dt = this.time.advance(realDt);
     this.update(realDt, dt);
     this.render(realDt);
@@ -1696,6 +1732,7 @@ export class Game {
       this.fps.acc = 0;
       this.autoQuality();
     }
+    return true;
   }
 
   private slowSeconds = 0;
