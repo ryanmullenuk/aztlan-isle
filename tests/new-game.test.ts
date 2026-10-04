@@ -27,7 +27,7 @@ function harness() {
       reset: () => { resets++; }, dispose() {} },
     renderer: { setAnimationLoop: (callback: any) => { loop = callback; },
       dispose: () => { released++; }, forceContextLoss: () => lost({ preventDefault() {} }) },
-    time: new GameTime(), fps: { frames: 0, acc: 0, value: 60 },
+    time: new GameTime(), fps: { frames: 0, acc: 0, value: 60 }, worstFrame: { shown: 0, current: 0, age: 0 },
     update() {}, render() {},
   });
   return { g, tick: () => loop?.(), lost: () => lost({ preventDefault() {} }),
