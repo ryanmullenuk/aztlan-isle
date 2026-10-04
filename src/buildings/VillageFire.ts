@@ -3,23 +3,29 @@ import { GeoBuilder, M, P } from '../render/GeoBuilder';
 import { FX } from '../render/materials';
 
 let material: THREE.MeshBasicMaterial | undefined;
-/** Faceted flame tongues and 28 drifting embers, merged into one animated draw call. */
+/** Slender, rounded glowing flame tongues and drifting embers in one animated draw call. */
 export function villageFire(): THREE.Mesh {
   const b = new GeoBuilder();
-  for (let k = 0; k < 11; k++) {
-    const a = k * 2.4, inner = k > 6;
-    const h = inner ? 1.55 + (k % 3) * 0.3 : 2.15 + (k % 4) * 0.42;
-    const r = inner ? 0.16 : 0.28;
-    const g = new THREE.ConeGeometry(r, h, 5, 4);
-    g.translate(0, h / 2, 0);
+  for (let k = 0; k < 7; k++) {
+    const a = k * 2.4, inner = k > 3;
+    const h = inner ? 1.7 + (k % 3) * 0.3 : 2.3 + (k % 4) * 0.35;
+    const radius = inner ? 0.09 : 0.14;
+    const profile: THREE.Vector2[] = [];
+    for (let ring = 0; ring <= 32; ring++) {
+      const t = ring / 32;
+      // Rounded ends and a narrow billowing body, rather than a straight cone and sharp point.
+      const width = Math.sqrt(Math.max(0, Math.sin(t * Math.PI))) * (1 - t * 0.45);
+      profile.push(new THREE.Vector2(radius * width, t * h));
+    }
+    const g = new THREE.LatheGeometry(profile, 12);
     const p = g.getAttribute('position');
     for (let i = 0; i < p.count; i++) {
       const y = p.getY(i) / h;
-      p.setX(i, p.getX(i) + Math.sin(y * 5 + k) * y * 0.13);
-      p.setZ(i, p.getZ(i) + Math.cos(y * 4 + k) * y * 0.09);
+      p.setX(i, p.getX(i) + Math.sin(y * 3 + k) * y * 0.1);
+      p.setZ(i, p.getZ(i) + Math.cos(y * 2 + k) * y * 0.06);
     }
-    b.add(g, { color: new THREE.Color(inner ? 3.0 : 2.4, inner ? 0.7 : 0.22 + (k % 3) * 0.07, 0.012), sway: k * 0.7 },
-      M.t(Math.cos(a) * (inner ? 0.09 : 0.2), 0, Math.sin(a) * (inner ? 0.09 : 0.2)));
+    b.add(g, { color: new THREE.Color(inner ? 3.1 : 2.4, inner ? 0.85 : 0.25 + (k % 3) * 0.07, 0.012), sway: k * 0.7 },
+      M.t(Math.cos(a) * (inner ? 0.06 : 0.16), 0, Math.sin(a) * (inner ? 0.06 : 0.16)));
     g.dispose();
   }
   for (let k = 0; k < 28; k++) {
@@ -42,12 +48,17 @@ export function villageFire(): THREE.Mesh {
             1.5 + life * 3.4, sin(angle) * (0.1 + life * 0.4));
         } else {
           float height = position.y;
-          transformed.x += sin(uTime * 1.6 + height * 4.0 + aVeg.x) * height * 0.035;
-          transformed.z += cos(uTime * 1.3 + height * 3.0 + aVeg.x) * height * 0.025;
+          transformed.x += sin(uTime * 1.6 + height * 1.4 + aVeg.x) * height * 0.022;
+          transformed.z += cos(uTime * 1.3 + height * 1.1 + aVeg.x) * height * 0.018;
           transformed.y *= 0.97 + sin(uTime * 2.0 + aVeg.x) * 0.035;
         }`);
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\nuniform float uTime;')
+        .replace('#include <opaque_fragment>', `
+          outgoingLight *= 0.96 + 0.035 * sin(uTime * 3.0) + 0.02 * sin(uTime * 4.7);
+          #include <opaque_fragment>`);
     };
-    material.customProgramCacheKey = () => 'village-fire-v1';
+    material.customProgramCacheKey = () => 'village-fire-v2';
   }
   const geo = b.build();
   // Include shader-displaced embers in culling bounds.
