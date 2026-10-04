@@ -32,6 +32,8 @@ addEventListener('orientationchange', () => {
 
 /** Must run directly from the Play gesture; unsupported platforms keep standalone mode. */
 function enterFullscreen(): void {
+  // The iOS app is already full screen; asking again would put up iOS's own close button.
+  if (document.documentElement.classList.contains('native-app')) return;
   if (!document.fullscreenEnabled || document.fullscreenElement) return;
   void document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => {
     // Fullscreen may be declined by the browser; the game must still start.
