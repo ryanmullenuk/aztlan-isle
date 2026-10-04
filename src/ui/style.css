@@ -42,12 +42,13 @@ html, body {
 
 #game {
   position: fixed;
-  top: 0;
+  /* Reaches past the page into any iOS status-bar strip (--overscan is 0 everywhere else). */
+  top: calc(-1 * var(--overscan, 0px));
   left: 0;
   width: 100vw;
   height: 100vh;
   height: 100dvh;
-  height: var(--app-h, 100dvh);
+  height: calc(var(--app-h, 100dvh) + 2 * var(--overscan, 0px));
   display: block;
   touch-action: none;
   outline: none;
