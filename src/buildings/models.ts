@@ -1480,10 +1480,22 @@ export function foundationGeometry(w: number, d: number): THREE.BufferGeometry {
   return b.build();
 }
 
-/** Torch flame (emissive, blooms at night). */
-export function flameGeometry(): THREE.BufferGeometry {
-  const g = new THREE.ConeGeometry(0.06, 0.18, 7);
-  g.translate(0, 0.09, 0);
+/**
+ * Torch flame: a rounded teardrop (a full bulb low down tapering to a soft tip), with each
+ * vertex's height up the flame (aH, 0 at the base to 1 at the tip) for the fire shader.
+ */
+export function flameGeometry(radius = 0.06, height = 0.18): THREE.BufferGeometry {
+  const pts: THREE.Vector2[] = [];
+  const n = 12;
+  for (let i = 0; i <= n; i++) {
+    const h = i / n;
+    pts.push(new THREE.Vector2(radius * 1.05 * Math.pow(Math.sin(Math.PI * Math.pow(h, 0.55)), 0.9), h * height));
+  }
+  const g = new THREE.LatheGeometry(pts, 10);
+  const pos = g.getAttribute('position');
+  const aH = new Float32Array(pos.count);
+  for (let i = 0; i < pos.count; i++) aH[i] = pos.getY(i) / height;
+  g.setAttribute('aH', new THREE.BufferAttribute(aH, 1));
   return g;
 }
 

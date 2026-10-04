@@ -2,7 +2,7 @@ import { villageFire, fireEmbers } from './VillageFire';
 import * as THREE from 'three';
 import { BUILDINGS, BuildingDef, BuildingKey, ECONOMY, FARM, HOMES, JETTY, TEMPLE, FARM_TYPES, isFarm } from '../config';
 import { Economy, Cost } from '../economy/Economy';
-import { buildingMaterial, canopyMaterial, flameMaterial, FX } from '../render/materials';
+import { buildingMaterial, canopyMaterial, fireMaterial, flameMaterial, FX } from '../render/materials';
 import { Terrain } from '../terrain/Terrain';
 import { Vegetation } from '../vegetation/Vegetation';
 import { World } from '../world/World';
@@ -670,8 +670,12 @@ export class BuildingSystem {
     b.torches = [];
     for (const p of points) {
       const flame = b.key === 'campfire' || b.key === 'bonfire'
-        ? villageFire() : new THREE.Mesh(this.flameGeo, flameMaterial());
-      if (b.key !== 'campfire' && b.key !== 'bonfire') flame.add(fireEmbers());
+        ? villageFire() : new THREE.Mesh(this.flameGeo, fireMaterial());
+      if (b.key !== 'campfire' && b.key !== 'bonfire') {
+        // Translucent: drawn after the sea (which writes depth), or the sea would erase it.
+        flame.renderOrder = 12;
+        flame.add(fireEmbers());
+      }
       if (b.key === 'greathall') {
         // A lit coal bed replaces the black disk beneath the rooftop flames.
         const coal = new THREE.Mesh(new THREE.SphereGeometry(0.065, 8, 4), flameMaterial());
@@ -912,7 +916,7 @@ export class BuildingSystem {
           const village = b.key === 'campfire' || b.key === 'bonfire';
           const f = village
             ? 0.94 + Math.sin(time * 2.2 + t.phase) * 0.025 + Math.sin(time * 3.8 + t.phase * 2) * 0.015
-            : 0.85 + Math.sin(time * 11 + t.phase) * 0.08 + Math.sin(time * 23 + t.phase * 2) * 0.06;
+            : 0.93 + Math.sin(time * 5.5 + t.phase) * 0.035 + Math.sin(time * 9.7 + t.phase * 2) * 0.025;
           const base = FLAME_SCALE[b.key] ?? 1;
           t.flame.scale.set(base * f, base * (0.9 + (1 - f) * 1.5), base * f);
         }

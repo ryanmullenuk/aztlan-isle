@@ -1,15 +1,43 @@
 import * as THREE from 'three';
 import { GeoBuilder, M, P } from '../render/GeoBuilder';
 import { flameGeometry } from './models';
-import { flameMaterial, FX } from '../render/materials';
+import { FX, fireMaterial } from '../render/materials';
 
 let emberMaterial: THREE.MeshBasicMaterial | undefined;
-/** The torch's own flame, enlarged, with a separate mesh of randomly drifting embers. */
+/**
+ * The torch's own flame, enlarged, with a brighter core flame burning inside it (seen through the
+ * outer flame's translucent edges) and a separate mesh of randomly drifting embers.
+ */
 export function villageFire(): THREE.Mesh {
+  // A tall middle tongue among smaller ones leaning out round it, each swaying on its own
+  // rhythm (the shader times each flame by where it stands), a hot core low in the middle.
   const flame = flameGeometry();
-  flame.scale(8, 15, 8);
-  const fire = new THREE.Mesh(flame, flameMaterial());
-  fire.add(fireEmbers(true));
+  flame.scale(6.5, 13, 6.5);
+  const fire = new THREE.Mesh(flame, fireMaterial());
+  // Translucent tongues draw after the sea (which writes depth), core last.
+  fire.renderOrder = 12;
+  const tongues: [number, number, number, number, number][] = [
+    // angle, distance out, width, height, lean
+    [0.3, 0.17, 4.6, 9.5, 0.22],
+    [2.1, 0.19, 4.2, 8, 0.28],
+    [3.9, 0.16, 4.8, 10, 0.2],
+    [5.2, 0.2, 3.8, 6.8, 0.32],
+  ];
+  for (const [a, d, wd, ht, lean] of tongues) {
+    const g = flameGeometry();
+    g.scale(wd, ht, wd);
+    const t = new THREE.Mesh(g, fireMaterial());
+    t.position.set(Math.cos(a) * d, 0, Math.sin(a) * d);
+    t.rotation.set(Math.sin(a) * lean, 0, -Math.cos(a) * lean);
+    t.renderOrder = 12;
+    fire.add(t);
+  }
+  const coreGeo = flameGeometry();
+  coreGeo.scale(4.2, 6.5, 4.2);
+  const core = new THREE.Mesh(coreGeo, fireMaterial());
+  core.position.set(0.02, 0, -0.02);
+  core.renderOrder = 13;
+  fire.add(core, fireEmbers(true));
   return fire;
 }
 
