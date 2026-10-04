@@ -648,6 +648,7 @@ export class UI {
         <li><b>Pearls</b> wash up on the beaches in open oysters (tap one, or a villager walking by picks it up), and fishers sometimes find one in their catch.</li>
         <li>A finished <b>Trade Dock</b> can build the great <b>voyage ship</b>. Tap the ship, load goods with − and + (pearls fetch the most), and set sail with two villagers. Out past the horizon it may meet storms (calm them with Belief from the dock's card in time!), raiders, good markets or a green island. It comes home with chickens, <b>herbs</b> and <b>spices</b> (which cure the sick and injured at a Healing Centre) and goods, and waits under a green orb for you to unload. Some voyages never come back. A green orb over a visiting trader's boat means bargains are on offer.</li>
         <li>Idle villagers help build by day without being asked. Give them a job yourself and they keep to it.</li>
+        <li>Felled trees lie where they fall until woodcutters have carried all their wood home, a load at a time, then sink into the ground and later regrow from the stump.</li>
         <li>When the <b>volcano</b> starts smoking you have five minutes before it erupts. Tap it and use <b>Calm</b> (50 Belief) to settle it and reassure your people.</li>
         <li>Light rain is fine and gentle; storms pour. Calm a storm for Belief.</li>
         <li>At night in first-person view, look up: the stars and the Milky Way are out on a clear night.</li>
