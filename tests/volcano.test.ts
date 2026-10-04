@@ -83,3 +83,28 @@ test('joined side peak rises above its saddle and breaks radial symmetry', () =>
   assert.ok(peak.y > opposite.y + 4);
   assert.ok(volcanoSurface(0, 2.3).y > peak.y);
 });
+
+test('an eruption brims the lake, spills rounded lobes and fountains, under a dense plume drawn after the sea', () => {
+  const w = new World(); generateIsland(w, WORLD.islandSeed); growIslets(w);
+  const v = new Volcano(w);
+  v.update(150 + 300 + 0.1);
+  assert.equal(v.state.phase, 'erupting');
+  const smoke = v.group.children.filter(o => o.name === 'Volcanic smoke') as import('three').Sprite[];
+  v.update(12);
+  const lava = v.group.getObjectByName('Active lava')!;
+  // The lake has risen towards the breached lip.
+  const lake = lava.children.find(o => o.type === 'Mesh' && (o as import('three').Mesh).geometry.type === 'CircleGeometry')!;
+  assert.ok(lake.position.y > 9.3, `lake at ${lake.position.y}`);
+  // Rounded lobes and fountain bombs are live, with positive, finite sizes.
+  for (const name of ['Downhill molten lobes', 'Lava fountain']) {
+    const mesh = lava.getObjectByName(name) as import('three').InstancedMesh;
+    const m = mesh.instanceMatrix.array;
+    assert.ok(Array.from(m).every(Number.isFinite), name);
+    let live = 0;
+    for (let i = 0; i < mesh.count; i++) if (Math.abs(m[i * 16]) > 0.01) live++;
+    assert.ok(live > 3, `${name}: ${live} live`);
+  }
+  // The plume is denser while erupting, and drawn after the sea so the horizon cannot cut it.
+  assert.ok(smoke.filter(o => o.visible).length > 30);
+  assert.ok(smoke.every(o => o.renderOrder > 10));
+});

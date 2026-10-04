@@ -31,3 +31,20 @@ test('rain fades out when clear and keeps static geometry while falling', () => 
   assert.deepEqual(Array.from(positions.array), before);
   rain.update(1, 0, 0); assert.equal(rain.lines.visible, false);
 });
+test('ordinary rain is light and fine; a storm pours down dense, long and slanting', () => {
+  for (const r of [new RainField(), new RainField({ count: 9000, span: 36, height: 20, local: true, seed: 5521 })] as any[]) {
+    r.update(1, 0.6, 0);
+    const light = { op: r.lines.material.opacity, d: r.density.value, s: r.stretch.value, sl: r.slant.value };
+    r.update(1, 1, 1);
+    const storm = { op: r.lines.material.opacity, d: r.density.value, s: r.stretch.value, sl: r.slant.value };
+    assert.ok(storm.d >= light.d * 1.8, `denser in a storm (${light.d} → ${storm.d})`);
+    assert.ok(storm.s >= light.s * 1.5, 'longer streaks');
+    assert.ok(storm.sl > light.sl * 2, 'slanting in the wind');
+    assert.ok(storm.op > light.op, 'heavier');
+    assert.ok(light.op < 0.3, 'light rain stays faint');
+  }
+  // The close-up layer follows the point the camera looks at.
+  const near = new RainField({ count: 100, span: 36, height: 20, local: true, seed: 1 }) as any;
+  near.update(1, 0.6, 0, new THREE.Vector3(12, 3, -40));
+  assert.deepEqual(near.center.value.toArray(), [12, 3, -40]);
+});

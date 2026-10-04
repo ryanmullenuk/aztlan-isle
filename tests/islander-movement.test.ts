@@ -74,3 +74,28 @@ test('a dense group reaches separate destinations rather than remaining frozen t
       `person ${person.id} still blocked at ${person.x}, ${person.z}`);
   }
 });
+
+test('a route steers round a knot of people when asked to, and goes straight through otherwise', () => {
+  const world = new World(); world.layer.fill(1); world.computeSmooth();
+  const pf = new Pathfinder(world);
+  const straight = pf.find(0, 0, 10, 0)!;
+  assert.ok(straight.every((p) => Math.abs(p.z) < 0.6), 'straight line along the row');
+  // A crowd standing across the way, cells x 3..6 on the row and the rows either side.
+  const avoid = new Set<number>();
+  for (let x = 3; x <= 6; x++) for (const z of [-1, 0, 1]) avoid.add(world.cellIndexAt(x + 0.5, z + 0.5));
+  const round = pf.find(0, 0, 10, 0, { avoid })!;
+  const crossed = round.some((p) => avoid.has(world.cellIndexAt(p.x, p.z)));
+  assert.equal(crossed, false, 'detours round the crowd');
+});
+
+test('someone shut inside a building footprint walks out to open ground, then on to their job', () => {
+  const { colony, world } = setup();
+  const person = colony.spawn('m', 0.5, 0.5);
+  // A building goes up round them (occupying a 3x3 block).
+  for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) world.occ[world.cellIndexAt(0.5 + dx, 0.5 + dz)] = 9;
+  (colony as any).setTask(person, 'wander', -1, 8, 0.5);
+  person.task!.timer = 99;
+  for (let k = 0; k < 30 * 20; k++) colony.update(1 / 30);
+  assert.equal(world.occ[world.cellIndexAt(person.x, person.z)], 0, 'out of the footprint');
+  assert.ok(person.x > 3, `walked on toward the goal (x ${person.x.toFixed(2)})`);
+});
