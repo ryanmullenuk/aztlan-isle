@@ -92,7 +92,7 @@ Select an islander, then click a building, tree, rock or fruit bush to give them
 - Swaying grass clumps over the meadows, hidden automatically under buildings, fields and worn paths.
 - Zoomed in, trees standing between the camera and what you're looking at turn semi-transparent; zoomed out they are fully solid.
 - Chunked for frustum culling, with LOD for distant chunks. Only visible instances are drawn.
-- Chopped trees leave stumps that regrow as saplings. Fruit grows back; rocks give stone.
+- Felled trees topple away from the axe, slowly at first and then faster, and land with a bounce and a burst of dust and leaves. The trunk lies where it fell while woodcutters cut it up and carry the wood home a load at a time (a big tree takes several trips; woodcutters finish fallen trees before felling more). When the last load is gone it sinks into the ground, leaving the stump, which later regrows as a sapling. Fallen trees are saved with the island. Fruit grows back; rocks give stone.
 
 **Islanders**
 - Simple faceted low-poly islanders (white wrap cloth, red belt and front panel, red wristbands, brown boots, black bob or braided hair), articulated at the hips, back, shoulders, elbows and knees so they bend properly when building, hoeing or gathering:
@@ -106,7 +106,7 @@ Select an islander, then click a building, tree, rock or fruit bush to give them
 - Walking and running swing the hips and drop them on the stepping side, with the shoulders counter-rotating.
 - A* pathfinding that climbs terraces and prefers worn paths.
 - Nobody stands about by day: a villager whose own job has nothing to do helps raise the nearest building site (until you give them something else).
-- A villager who gets stuck walks out of anything they're trapped in and plans a new route round the crowd; one who stays stuck gives up that errand and finds another.
+- Nobody gets stuck for long. Being held up is judged by progress toward where they're going, so shuffling on the spot or sidestepping back and forth counts too. Someone boxed in by a crowd (round the fire, at a store door, or in a gap between buildings where someone is standing) squeezes past at a shuffle. Someone still held up plans a new route, then one round the crowd; if they are close to where they were going they settle there (a place in the circle round the fire), and otherwise they give up that errand and find another. Anyone trapped inside a building's footprint walks straight out.
 - A couple in any hut or home may have one child (one per house); children play around the village and never work. Up to 100 adults live on the island. About one adult in five has the elder look (grey hair; white hair and beard on the men); nobody ages. Islanders have Nahuatl-style names.
 
 **Buildings**
