@@ -881,7 +881,7 @@ export class UI {
   private refresh(force: boolean): void {
     const g = this.game;
     const t = g.time;
-    this.timeEl.textContent = g.settings.fps ? `${t.clock} · ${Math.round(g.fpsValue)} fps` : t.clock;
+    this.timeEl.textContent = g.settings.fps ? `${t.clock} · ${Math.round(g.fpsValue)} fps · worst ${Math.round(g.worstFrameMs)} ms` : t.clock;
     this.dateEl.textContent = `${t.season} ${t.dayOfSeason} · Year ${t.year}`;
     const h = t.hour;
     const iconName = t.isNight ? 'moon' : h > 16 || h < 7.5 ? 'sunset' : 'sun';

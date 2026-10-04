@@ -49,6 +49,11 @@ export class Input {
     return (this.moved && (this.dragging === 'pan' || this.dragging === 'rotate' || this.dragging === 'orbit')) || !!this.gesture;
   }
 
+  /** A finger or button is down (the player is mid-gesture). */
+  get touching(): boolean {
+    return this.pointers.size > 0 || !!this.gesture;
+  }
+
   constructor(private el: HTMLElement, private rig: CameraRig, private h: InputHandlers) {
     el.addEventListener('pointerdown', this.down);
     window.addEventListener('pointermove', this.move);
