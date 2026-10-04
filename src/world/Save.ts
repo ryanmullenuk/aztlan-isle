@@ -20,6 +20,8 @@ export interface SaveData {
   volcano?: VolcanoSave;
   world: { layer: string; sandy: string; forest: string; rocky: string; wear: string; path?: string; bridge?: string; canal?: string };
   plants: string;
+  /** Felled trees still lying where they fell: [plant id, direction (hundredths)] pairs. */
+  logs?: number[];
   /** Terrain layout version: 1 = the grown islets are part of the stored terrain. */
   layout?: number;
   buildings: {
@@ -117,6 +119,7 @@ export function serialize(g: Game): SaveData {
     ...(g.volcano ? { volcano: g.volcano.save() } : {}),
     world: { layer: toB64(layerU), sandy: q8(w.sandy), forest: q8(w.forest), rocky: q8(w.rocky), wear: q8(w.wear), path: toB64(w.path), bridge: toB64(w.bridge), canal: toB64(w.canal) },
     plants: toB64(plants),
+    logs: g.veg.serializeLogs(),
     layout: 1,
     buildings: g.buildings.list.map((b) => ({
       id: b.id, key: b.key, cx: b.cx, cz: b.cz, rot: b.rot, complete: b.complete, progress: b.progress, tier: b.tier,
@@ -189,6 +192,7 @@ export function applyRest(g: Game, d: SaveData): void {
     p.fruit = u[i * 4 + 3] / 20;
     g.veg.touch(p);
   });
+  g.veg.restoreLogs(d.logs ?? []);
   g.veg.refreshHeights(0, 0, g.world.N - 1, g.world.N - 1);
   const idMap = new Map<number, number>();
   for (const b of d.buildings) {
