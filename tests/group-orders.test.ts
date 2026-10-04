@@ -1,0 +1,39 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { idleForGroup, needsSelfCare } from '../src/ai/GroupSelection';
+import { Colony } from '../src/ai/Colony';
+import { makeIslander } from '../src/entities/Islander';
+const person = (id = 1) => makeIslander(id, `Person ${id}`, 'm', 0, 0, () => 0.5);
+
+test('group selection includes idle and wandering adults, excludes busy or unavailable people', () => {
+  const i = person();
+  assert.equal(idleForGroup(i), true);
+  i.task = { kind: 'wander' } as any;
+  assert.equal(idleForGroup(i), true);
+  for (const changes of [{child:true}, {sleeping:true}, {hidden:true}, {condition:'sick'}, {warrior:'eagle'}, {task:{kind:'chop'}}, {carry:{kind:'wood',n:1}}]) {
+    assert.equal(idleForGroup({...i,...changes} as any),false);
+  }
+});
+test('automatic workers attend to food and rest, while explicit orders and deliveries retain priority', () => {
+  const i = person(); i.task = {kind:'chop', stage:0} as any; i.hunger=0.05;
+  assert.equal(needsSelfCare(i,false,10),true);
+  assert.equal(needsSelfCare(i,false,0),false);
+  i.manualRole=true; assert.equal(needsSelfCare(i,true,10),false);
+  i.manualRole=false; i.hunger=1; i.rest=0.01;
+  assert.equal(needsSelfCare(i,false,0),true);
+  i.carry={kind:'wood',res:'wood',n:2}; assert.equal(needsSelfCare(i,true,10),false);
+});
+test('group gathering reserves separate resources and starts each order immediately', () => {
+  for (const kind of ['broadleaf','rock']) {
+    const plants = Array.from({length:3},(_,id)=>({id,kind,x:id*2,z:0,reservedBy:-1,amount:10}));
+    const available = (p:any) => p.reservedBy < 0;
+    const veg = {plants,isChoppable:(p:any)=>p.kind==='broadleaf'&&available(p),isMineable:(p:any)=>p.kind==='rock'&&available(p),hasFruit:()=>false,
+      findNearest:(x:number,z:number,r:number,predicate:(p:any)=>boolean)=>plants.filter(predicate).sort((a,b)=>Math.abs(a.x-x)-Math.abs(b.x-x))[0]??null};
+    const colony = new Colony({} as any,veg as any,{space:()=>100} as any,{nearestStore:()=>({id:1})} as any,{} as any,{} as any,()=>0.5);
+    const people = [person(1),person(2),person(3)];
+    assert.equal(colony.assignGroup(people,null,plants[0] as any),3);
+    assert.equal(new Set(people.map(i=>i.task?.target)).size,3);
+    assert.ok(people.every(i=>i.manualRole&&i.task?.kind===(kind==='rock'?'mine':'chop')));
+    assert.deepEqual(plants.map(p=>p.reservedBy),[1,2,3]);
+  }
+});

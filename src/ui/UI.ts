@@ -964,7 +964,14 @@ export class UI {
     this.info.classList.remove('hidden');
     let html = '';
     let key = '';
-    if (isl) {
+    if (g.selectedIslanders.size > 0) {
+      const people = [...g.selectedIslanders].map(id => g.colony.byId(id)).filter(Boolean);
+      key = `group:${people.map(i => i!.id).join(',')}`;
+      html = `<div class="card-head"><span>${people.length} islanders selected</span></div>
+        <p class="muted small">Tap a tree to collect wood, a rock to collect stone, or a workplace to assign the group.</p>
+        <p class="muted small">Islanders manage food and rest automatically when not called to work.</p>
+        <div class="actions"><button class="btn small" data-a="group-auto">Return to automatic jobs</button></div>`;
+    } else if (isl) {
       const home = isl.home >= 0 ? g.buildings.byId(isl.home) : undefined;
       const role = isl.child ? 'Child' : isl.warrior ? (isl.warrior === 'jaguar' ? 'Jaguar warrior' : 'Eagle warrior') : ROLE_LABEL[isl.role];
       const carry = isl.carry ? `${icon(isl.carry.res === 'wood' ? 'wood' : isl.carry.res)} ${isl.carry.n} ${isl.carry.res}` : 'Nothing';
@@ -1159,6 +1166,16 @@ export class UI {
   private infoAction(a: string, islId: number | undefined, b: Building | undefined, animalId?: number): void {
     const g = this.game;
     g.audio?.sfx('click');
+    if (a === 'group-auto') {
+      for (const id of g.selectedIslanders) {
+        const person = g.colony.byId(id);
+        if (!person) continue;
+        person.manualRole = false; person.workplace = -1; person.role = 'idle'; person.focusPlant = -1; person.think = 0;
+        g.colony.cancelTask(person);
+      }
+      g.select(null);
+      return;
+    }
     if (animalId !== undefined && a === 'capture') g.captureAnimal(animalId);
     if (islId !== undefined) {
       const isl = g.colony.byId(islId);

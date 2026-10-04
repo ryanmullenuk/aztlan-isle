@@ -1,3 +1,4 @@
+import { idleForGroup } from './ai/GroupSelection';
 import { Volcano, VOLCANO_COST, VOLCANO_HAPPINESS } from './entities/Volcano';
 import { Explore } from './render/Explore';
 import * as THREE from 'three';
@@ -174,6 +175,8 @@ export class Game {
   private placeRot = 0;
   explorer?: Explore;
   selectedIslander = -1;
+  readonly selectedIslanders = new Set<number>();
+  private lastPersonTap = { id: -1, time: 0, x: 0, y: 0 };
   selectedBuilding = -1;
   /** Selected land animal (index into wildlife.animals.list), or -1. */
   selectedAnimal = -1;
@@ -953,6 +956,7 @@ export class Game {
   }
 
   select(s: { islander?: number; building?: number; animal?: number } | null): void {
+    this.selectedIslanders.clear();
     this.selectedIslander = s?.islander ?? -1;
     this.selectedBuilding = s?.building ?? -1;
     this.selectedAnimal = s?.animal ?? -1;
@@ -1134,11 +1138,25 @@ export class Game {
     }
     const isl = this.colony.pick(this.rig.camera, x, y, rect);
     const current = this.selectedIslander >= 0 ? this.colony.byId(this.selectedIslander) : undefined;
-    if (isl && isl !== current) {
+    if (isl) {
+      const now = performance.now(), last = this.lastPersonTap;
+      const double = last.id === isl.id && now - last.time < 400 && Math.hypot(x - last.x, y - last.y) < 28;
+      this.lastPersonTap = { id: isl.id, time: double ? 0 : now, x, y };
       this.select({ islander: isl.id });
+      if (double && idleForGroup(isl)) {
+        const point = new THREE.Vector3();
+        for (const person of this.colony.list) {
+          if (!idleForGroup(person)) continue;
+          point.set(person.x, person.y + 0.5, person.z).project(this.rig.camera);
+          if (Math.abs(point.x) <= 1 && Math.abs(point.y) <= 1 && point.z >= -1 && point.z <= 1) this.selectedIslanders.add(person.id);
+        }
+        this.selectedIslanders.add(isl.id);
+        this.ui.toast(`${this.selectedIslanders.size} idle islanders selected. Tap a tree, rock or workplace to assign them.`);
+      }
       this.audio?.sfx('select', isl.x, isl.z);
       return;
     }
+    this.lastPersonTap.id = -1;
     // Animals: with an islander selected, send them after it; otherwise select it.
     const animal = this.wildlife.animals.pick(this.rig.camera, x, y, rect);
     if (animal && animal.pen < 0 && !animal.heldBy) {
@@ -1182,6 +1200,16 @@ export class Game {
     }
     const cell = p ? this.world.cellIndexAt(p.x, p.z) : -1;
     const b = (cell >= 0 ? this.buildings.at(cell) : undefined) ?? this.jettyAt(p);
+    if (this.selectedIslanders.size > 0) {
+      const plant = p ? this.veg.findNearest(p.x, p.z, 2, q => this.veg.isChoppable(q) || this.veg.isMineable(q) || this.veg.hasFruit(q)) : null;
+      if (b || (plant && p && Math.hypot(plant.x - p.x, plant.z - p.z) < 1.5)) {
+        const people = [...this.selectedIslanders].map(id => this.colony.byId(id)).filter((i): i is Islander => !!i);
+        const count = this.colony.assignGroup(people, b ?? null, b ? null : plant);
+        this.ui.toast(count ? `${count} islanders assigned to ${b ? b.label : plant?.kind === 'rock' ? 'collect stone' : plant && (plant.kind === 'apple' || plant.kind === 'banana') ? 'gather fruit' : 'collect wood'}.` : 'No available work or storage space for this group.', count ? 'info' : 'warn');
+        this.audio?.sfx('click');
+        return;
+      }
+    }
     // With an islander selected, clicking a building or resource assigns them to it.
     if (current && !current.child) {
       if (b) {
@@ -1788,7 +1816,7 @@ export class Game {
     this.clouds.update(realDt, ls.day, this.rig.cur.dist);
     this.driftClouds.update(realDt, ls.day, this.rig.cur.dist, this.rig.camera.position);
     for (const s of this.systems) s(realDt, dt);
-    this.rig3d.update(this.colony.list, this.selectedIslander, realDt);
+    this.rig3d.update(this.colony.list, this.selectedIslander, realDt, this.selectedIslanders);
 
     if (this.canalDirty) {
       const [x0, z0, x1, z1] = this.canalDirty;

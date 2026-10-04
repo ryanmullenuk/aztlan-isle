@@ -1,3 +1,4 @@
+import { needsSelfCare } from './GroupSelection';
 import * as THREE from 'three';
 import type { Where } from '../ui/where';
 import { ECONOMY, FARM, FOOD_KEYS, ISLANDER, JETTY, NAMES, ResourceKey, TEMPLE, WARRIOR, FARM_TYPES, isFarm, SMOKE, COMFORTS, PATHS, GREAT_HALL, HEALTH, TIME } from '../config';
@@ -249,6 +250,22 @@ export class Colony {
   }
 
   // ---------------- Jobs ----------------
+
+  /** Give a group the same job, reserving different resources before the next person starts. */
+  assignGroup(people: Islander[], building: Building | null, plant: Plant | null): number {
+    let count = 0;
+    for (const person of people) {
+      if (person.child || person.hidden || person.sleeping || person.warrior || person.condition !== 'well') continue;
+      const target = plant ? this.veg.findNearest(plant.x, plant.z, 40, q => this.okPlant(q) &&
+        (plant.kind === 'rock' ? this.veg.isMineable(q) : plant.kind === 'apple' || plant.kind === 'banana' ? this.veg.hasFruit(q) : this.veg.isChoppable(q))) : null;
+      this.assign(person, building, target ?? plant);
+      if (!person.manualRole) continue;
+      if (plant && !this.okPlant(plant)) person.focusPlant = -1;
+      person.think = 0;
+      if (this.work(person)) count++;
+    }
+    return count;
+  }
 
   /** Player override: make this islander work at a building or on a resource. */
   assign(isl: Islander, b: Building | null, plant: Plant | null): string {
@@ -751,7 +768,7 @@ export class Colony {
       case 'woodcutter': {
         if (!store(false) || this.eco.space('wood') < 1) return false;
         const focus = isl.focusPlant >= 0 ? this.veg.plants[isl.focusPlant] : null;
-        let p = focus && this.veg.isChoppable(focus) ? focus : null;
+        let p = focus && this.okPlant(focus) && this.veg.isChoppable(focus) ? focus : null;
         isl.focusPlant = -1;
         p = p ?? this.veg.findNearest(fromX, fromZ, 40, (q) => q.marked && this.veg.isChoppable(q) && this.okPlant(q));
         p = p ?? this.veg.findNearest(fromX, fromZ, 40, (q) => q.kind === 'broadleaf' && this.veg.isChoppable(q) && this.okPlant(q));
@@ -764,7 +781,7 @@ export class Colony {
       case 'miner': {
         if (!store(false) || this.eco.space('stone') < 1) return false;
         const focus = isl.focusPlant >= 0 ? this.veg.plants[isl.focusPlant] : null;
-        let p = focus && this.veg.isMineable(focus) ? focus : null;
+        let p = focus && this.okPlant(focus) && this.veg.isMineable(focus) ? focus : null;
         isl.focusPlant = -1;
         p = p ?? this.veg.findNearest(fromX, fromZ, 50, (q) => q.marked && this.veg.isMineable(q) && this.okPlant(q));
         p = p ?? this.veg.findNearest(fromX, fromZ, 50, (q) => this.veg.isMineable(q) && this.okPlant(q));
@@ -778,7 +795,7 @@ export class Colony {
         // Gatherers also spear fish from the shore now and then, for variety at meals.
         if (this.rnd() < (this.eco.res.fish < 4 ? 0.35 : 0.15) && this.startSpearfish(isl)) return true;
         const focus = isl.focusPlant >= 0 ? this.veg.plants[isl.focusPlant] : null;
-        let p = focus && this.veg.hasFruit(focus) ? focus : null;
+        let p = focus && this.okPlant(focus) && this.veg.hasFruit(focus) ? focus : null;
         isl.focusPlant = -1;
         p = p ?? this.veg.findNearest(fromX, fromZ, 40, (q) => q.marked && this.veg.hasFruit(q) && this.okPlant(q));
         p = p ?? this.veg.findNearest(fromX, fromZ, 40, (q) => this.veg.hasFruit(q) && this.okPlant(q));
@@ -2200,11 +2217,10 @@ export class Colony {
           this.think(isl);
         }
       } else {
-        // Night falls: stop heading to work and go to bed.
-        const t = isl.task;
-        if (this.time.isNight && !this.eco.godMode && !isl.child && isl.role !== 'warrior' && t.stage <= 1 && (t.kind === 'chop' || t.kind === 'mine' || t.kind === 'gather' || t.kind === 'farm' || t.kind === 'smoke' || t.kind === 'wander' || t.kind === 'pray' || t.kind === 'spearfish')) {
+        // Unassigned workers look after their needs; explicit orders retain priority.
+        if (!this.eco.godMode && needsSelfCare(isl, this.time.isNight, this.eco.food)) {
           this.releaseTask(isl);
-          this.goSleep(isl);
+          this.think(isl);
         } else this.runTask(isl, dt);
       }
       if (!isl.hidden) {

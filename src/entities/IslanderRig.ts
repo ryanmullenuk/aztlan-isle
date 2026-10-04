@@ -474,6 +474,7 @@ export class IslanderRig {
   private skin = new THREE.Color();
   private accent = new THREE.Color();
   readonly ring: THREE.Mesh;
+  private groupRings: THREE.InstancedMesh;
 
   constructor() {
     // Props (tools, headdresses, carried loads); the bodies are the two character models.
@@ -494,6 +495,12 @@ export class IslanderRig {
     this.ring.visible = false;
     this.ring.renderOrder = 5;
     this.group.add(this.ring);
+    this.groupRings = new THREE.InstancedMesh(this.ring.geometry, this.ring.material, ISLANDER.max);
+    this.groupRings.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.groupRings.count = 0;
+    this.groupRings.frustumCulled = false;
+    this.groupRings.renderOrder = 5;
+    this.group.add(this.groupRings);
   }
 
   private addMesh(key: string, geo: THREE.BufferGeometry, cap: number): void {
@@ -613,7 +620,7 @@ export class IslanderRig {
     }
   }
 
-  update(list: Islander[], selected: number, _dt: number): void {
+  update(list: Islander[], selected: number, _dt: number, group?: ReadonlySet<number>): void {
     this.count.clear();
     const M = this.m;
     const skinned = !!this.skins.m && !!this.skins.f;
@@ -654,7 +661,15 @@ export class IslanderRig {
       }
     }
     const sel = list.find((l) => l.id === selected);
-    this.ring.visible = !!sel && !sel.hidden;
+    this.ring.visible = !!sel && !sel.hidden && !group?.size;
+    let rings = 0;
+    if (group?.size) for (const person of list) {
+      if (!group.has(person.id) || person.hidden) continue;
+      this.tmp.makeTranslation(person.x, person.y + 0.04, person.z);
+      this.groupRings.setMatrixAt(rings++, this.tmp);
+    }
+    this.groupRings.count = rings;
+    if (rings) this.groupRings.instanceMatrix.needsUpdate = true;
     if (sel) {
       this.ring.position.set(sel.x, sel.y + 0.04, sel.z);
       this.ring.scale.setScalar(sel.child ? 0.7 : 1);
