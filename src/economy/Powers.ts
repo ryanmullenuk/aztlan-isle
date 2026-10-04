@@ -28,6 +28,8 @@ export class Powers {
   rainAmt = 0;
   stormAmt = 0;
   private rain = new RainField();
+  /** Denser rain in a box round the point the camera looks at (so it shows close up). */
+  private rainNear = new RainField({ count: 9000, span: 36, height: 20, local: true, seed: 5521 });
   private sparkles: THREE.Points;
   private sparkPos: Float32Array;
   private sparkLife: Float32Array;
@@ -59,7 +61,7 @@ export class Powers {
   notify: (t: string, kind?: 'info' | 'warn') => void = () => {};
 
   constructor(private eco: Economy, private bld: BuildingSystem, private lighting: Lighting, private water: Water, private time: GameTime, private rnd: () => number) {
-    this.group.add(this.rain.lines);
+    this.group.add(this.rain.lines, this.rainNear.lines);
 
     const n = 300;
     const sg = new THREE.BufferGeometry();
@@ -246,6 +248,7 @@ export class Powers {
     this.lighting.flash = Math.min(1.4, this.flash + boltLight);
 
     this.rain.update(realDt, this.rainAmt, this.stormAmt);
+    this.rainNear.update(realDt, this.rainAmt, this.stormAmt, camTarget);
     // Blessing sparkles; blessed farms keep twinkling.
     for (const f of this.bld.list) {
       if (f.complete && f.blessTimer > 0 && isFarm(f.key) && this.rnd() < realDt * 6) this.spark(f.x + (this.rnd() - 0.5) * f.w, f.y + 0.3, f.z + (this.rnd() - 0.5) * f.d);
