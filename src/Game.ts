@@ -26,6 +26,7 @@ import { GARDEN, Garden, GardenBrush } from './vegetation/Garden';
 import { PeakClouds } from './render/PeakClouds';
 import { DriftClouds } from './render/DriftClouds';
 import { CoastRocks } from './render/CoastRocks';
+import { SeaArch } from './water/SeaArch';
 import { SeaStacks } from './water/SeaStacks';
 import { Breeze } from './render/Breeze';
 import { Economy } from './economy/Economy';
@@ -152,6 +153,7 @@ export class Game {
   /** Rock clusters along the rocky coasts, with waves breaking on them. */
   coastRocks: CoastRocks;
   seaStacks: SeaStacks;
+  seaArch: SeaArch;
   breeze: Breeze;
   buildings: BuildingSystem;
   pathfinder: Pathfinder;
@@ -345,6 +347,12 @@ export class Game {
     this.seaStacks.refreshWater(this.water);
     this.scene.add(this.seaStacks.group);
     this.boats.blockCells(this.seaStacks.cells());
+    // A great sea arch off the main island's coast: boats steer round the rock and sail under it.
+    const taken = [...reefs, ...this.coastRocks.sites.map((r) => ({ x: r.x, z: r.z, r: r.r + 0.8 })), ...this.seaStacks.sites.flatMap((s) => [s.main, ...s.rocks].map((r) => ({ x: r.x, z: r.z, r: r.r + 1.5 })))];
+    this.seaArch = new SeaArch(this.world, opts.seed, taken);
+    this.seaArch.refreshWater(this.water);
+    this.scene.add(this.seaArch.group);
+    this.boats.blockCells(this.seaArch.cells());
     this.marine = new Marine(this.world, this.water);
     this.scene.add(this.marine.group);
     this.waterBirds = new WaterBirds(this.world, this.veg.plants.filter((p) => p.kind === 'searock').map((p) => ({ x: p.x, z: p.z })));
