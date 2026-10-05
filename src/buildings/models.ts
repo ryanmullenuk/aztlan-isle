@@ -64,10 +64,51 @@ export function torchModel(): BuildingModel {
   return { finished: b.build(), torches: [new THREE.Vector3(0, 1.42, 0)], height: 1.5 };
 }
 
-/** Communal hearth: irregular stones, leaning split logs and painted posts. */
+/**
+ * Trampled ground round a fire: a ragged patch of packed earth (no tidy edge) fading out into the
+ * grass, darkened with ash towards the hearth and mottled where feet have scuffed it.
+ */
+function dirtPatch(radius: number, seed: number): THREE.BufferGeometry {
+  const rng = new RNG(seed), SEG = 64, RINGS = 5;
+  // A wandering outline: slow lobes plus fine ragged bites.
+  const p1 = rng.range(0, 6.3), p2 = rng.range(0, 6.3);
+  const edge = Array.from({ length: SEG }, (_, k) => {
+    const a = k / SEG * Math.PI * 2;
+    return 1 + 0.1 * Math.sin(a * 3 + p1) + 0.06 * Math.sin(a * 7 + p2) + rng.range(-0.07, 0.05);
+  });
+  const pos: number[] = [];
+  const at = (k: number, j: number): [number, number, number] => {
+    const a = (k % SEG) / SEG * Math.PI * 2, f = j / RINGS;
+    // The outline wanders; the patch thins to nothing at its edge so it melts into the ground.
+    const r = radius * f * (j === RINGS ? edge[k % SEG] : 1 + (edge[k % SEG] - 1) * f * 0.6);
+    return [Math.cos(a) * r, 0.022 * (1 - f * f), Math.sin(a) * r];
+  };
+  for (let j = 0; j < RINGS; j++) for (let k = 0; k < SEG; k++) {
+    const a = at(k, j), b = at(k + 1, j), c2 = at(k + 1, j + 1), d = at(k, j + 1);
+    pos.push(...a, ...b, ...c2, ...a, ...c2, ...d);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  return g;
+}
+
+/** Communal hearth: irregular stones, leaning split logs and painted posts, on trampled earth and gravel. */
 export function bonfireModel(): BuildingModel {
   const b = new GeoBuilder(), rng = new RNG(905);
-  b.add(lumpy(P.cyl(1.42, 1.46, 0.035, 22), 0.025, 74, 0.5), { color: c(0xa17b4e) }, M.t(0, 0.018, 0));
+  const ash = new THREE.Color(0x3a312a), earth = new THREE.Color(0x6e5338), dust = new THREE.Color(0x8a7152);
+  const dirt = (p: THREE.Vector3) => {
+    const r = Math.hypot(p.x, p.z);
+    const scuff = Math.sin(p.x * 13.1 + Math.sin(p.z * 7.3) * 2) * Math.sin(p.z * 11.7 + p.x * 3.1);
+    const mottle = 0.78 + 0.36 * (scuff * 0.5 + 0.5) + 0.12 * Math.sin(p.x * 31 + p.z * 23);
+    const col = r < 0.9 ? ash.clone().lerp(earth, Math.min(1, Math.max(0, (r - 0.55) / 0.35))) : earth.clone().lerp(dust, Math.min(1, (r - 0.9) / 0.6));
+    return col.multiplyScalar(mottle);
+  };
+  b.add(dirtPatch(1.45, 77), { color: dirt }, M.t(0, 0.004, 0));
+  // Scuffed blotches of loose dirt round the rim break up its outline.
+  for (let k = 0; k < 14; k++) {
+    const a = k / 14 * Math.PI * 2 + rng.range(-0.2, 0.2), r = rng.range(1.25, 1.62);
+    b.add(dirtPatch(rng.range(0.16, 0.34), 400 + k), { color: dirt }, M.t(Math.cos(a) * r, 0.003, Math.sin(a) * r, 0, rng.range(0, 6.3), 0, 1, 1, rng.range(0.6, 1)));
+  }
   b.add(P.cyl(0.66, 0.7, 0.035, 16), { color: c(0x34261e) }, M.t(0, 0.04, 0));
   for (let k = 0; k < 14; k++) {
     const a = k / 14 * Math.PI * 2, r = rng.range(0.66, 0.73);
@@ -93,9 +134,16 @@ export function bonfireModel(): BuildingModel {
       b.add(P.cone(0.035, 0.09, 3), { color: K.gold }, M.t(x + Math.cos(t) * 0.127, 0.43, z + Math.sin(t) * 0.127, 0, -t, 0));
     }
   }
-  for (let k = 0; k < 18; k++) {
-    const a = rng.range(0, Math.PI * 2), r = rng.range(0.86, 1.4);
-    b.add(P.sphere(rng.range(0.02, 0.055), 0), { color: K.stoneDark }, M.t(Math.cos(a) * r, 0.045, Math.sin(a) * r));
+  // Gravel scuffed across the trampled ground: grey and buff stones, thickest near the hearth.
+  const gravel = [K.stoneDark, c(0x8d877c), c(0x9c9184), c(0x6f6a62), c(0xb3a58e)];
+  for (let k = 0; k < 90; k++) {
+    const a = rng.range(0, Math.PI * 2), r = 0.78 + Math.pow(rng.next(), 1.6) * 0.78, s = rng.range(0.015, 0.05);
+    b.add(P.sphere(s, 0), { color: gravel[k % gravel.length] }, M.t(Math.cos(a) * r, 0.018 + s * 0.3, Math.sin(a) * r, rng.next(), a, rng.next(), 1.2, 0.55, 1));
+  }
+  // A few kicked-up clods of earth.
+  for (let k = 0; k < 10; k++) {
+    const a = rng.range(0, Math.PI * 2), r = rng.range(0.95, 1.5);
+    b.add(lumpy(P.sphere(rng.range(0.04, 0.07), 1), 0.3, 300 + k, 0.6), { color: c(0x5c442e) }, M.t(Math.cos(a) * r, 0.02, Math.sin(a) * r, 0, a, 0, 1.3, 0.45, 1));
   }
   return { finished: b.build(), torches: [new THREE.Vector3(0, 0.12, 0)], height: 1.8 };
 }
