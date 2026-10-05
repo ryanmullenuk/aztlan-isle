@@ -33,7 +33,9 @@ class ScenePass extends Pass {
     this.copyMat = new THREE.ShaderMaterial({
       uniforms: { tDiffuse: { value: this.target.texture } },
       vertexShader: quadVert,
-      fragmentShader: 'uniform sampler2D tDiffuse; varying vec2 vUv; void main(){ gl_FragColor = texture2D(tDiffuse, vUv); }',
+      // Guard on the way out: replace any NaN/Inf pixel and clamp extreme highlights, so a single
+      // bad pixel can never be blurred across the screen (by depth of field or bloom) into a flash.
+      fragmentShader: 'uniform sampler2D tDiffuse; varying vec2 vUv; void main(){ vec4 c = texture2D(tDiffuse, vUv); if (any(isnan(c)) || any(isinf(c))) c = vec4(0.0, 0.0, 0.0, 1.0); gl_FragColor = vec4(min(c.rgb, vec3(48.0)), c.a); }',
       depthTest: false,
       depthWrite: false,
     });
@@ -206,11 +208,22 @@ const GradeShader = {
   `,
 };
 
+/**
+ * Ambient occlusion worked out at half resolution (a quarter of the pixels: it was most of the
+ * cost of a frame on high-resolution screens). The soft, denoised result is scaled back up as it
+ * is blended over the full-size picture, which it can't be told apart from.
+ */
+class HalfGTAOPass extends GTAOPass {
+  override setSize(w: number, h: number): void {
+    super.setSize(Math.max(1, Math.ceil(w / 2)), Math.max(1, Math.ceil(h / 2)));
+  }
+}
+
 /** The whole post chain: scene -> GTAO -> DOF -> bloom -> tone map -> grade/vignette -> SMAA/FXAA. */
 export class PostFX {
   readonly composer: EffectComposer;
   private scenePass: ScenePass;
-  private gtao: GTAOPass;
+  private gtao: HalfGTAOPass;
   readonly dof: DofPass;
   private bloom: UnrealBloomPass;
   private output: OutputPass;
@@ -230,7 +243,7 @@ export class PostFX {
     const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, depthBuffer: false });
     this.composer = new EffectComposer(renderer, rt);
     this.scenePass = new ScenePass(scene, camera, size.x, size.y);
-    this.gtao = new GTAOPass(scene, camera, size.x, size.y);
+    this.gtao = new HalfGTAOPass(scene, camera, size.x, size.y);
     this.gtao.updateGtaoMaterial({ radius: RENDER.ssao.radius, thickness: RENDER.ssao.thickness, scale: RENDER.ssao.scale, samples: 12 });
     this.gtao.blendIntensity = RENDER.ssao.blend;
     // Use the scene pass's own depth (normals reconstructed from it): it already has the dithered
@@ -247,13 +260,6 @@ export class PostFX {
     this.composer.addPass(this.scenePass);
     this.composer.addPass(this.gtao);
     this.composer.addPass(this.dof);
-    // Guard before bloom: replace any NaN/Inf pixel and clamp extreme highlights, so a single
-    // bad pixel can never be blurred across the screen into a black flash.
-    this.composer.addPass(new ShaderPass({
-      uniforms: { tDiffuse: { value: null } },
-      vertexShader: quadVert.replace('gl_Position = vec4(position.xy, 0.0, 1.0);', 'gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);'),
-      fragmentShader: 'uniform sampler2D tDiffuse; varying vec2 vUv; void main(){ vec4 c = texture2D(tDiffuse, vUv); if (any(isnan(c)) || any(isinf(c))) c = vec4(0.0, 0.0, 0.0, 1.0); gl_FragColor = vec4(min(c.rgb, vec3(48.0)), c.a); }',
-    }));
     this.composer.addPass(this.bloom);
     this.composer.addPass(this.output);
     this.composer.addPass(this.grade);
