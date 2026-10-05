@@ -210,8 +210,9 @@ button { font-family: inherit; color: inherit; cursor: pointer; -webkit-tap-high
 
 /* ---------- Bottom: belief bar + toolbar ---------- */
 .bottom {
-  position: absolute; left: 50%; bottom: calc(12px + var(--safe-b)); transform: translateX(-50%);
-  display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; width: max-content; max-width: calc(100vw - 16px);
+  /* Low down: into the home-indicator area (the app hides the indicator; a swipe there needs a second swipe). */
+  position: absolute; left: 50%; bottom: max(6px, calc(var(--safe-b) - 18px)); transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; width: max-content; max-width: calc(100vw - 16px);
 }
 .bottom > * { pointer-events: auto; }
 .hint {
@@ -381,7 +382,7 @@ button { font-family: inherit; color: inherit; cursor: pointer; -webkit-tap-high
   .slot .ic { width: 22px; height: 22px; }
   .slot .nm { font-size: 9.5px; }
   .minimap canvas { width: 96px; height: 96px; }
-  .minimap { bottom: calc(150px + var(--safe-b)); left: 8px; padding: 4px; }
+  .minimap { bottom: calc(132px + max(6px, calc(var(--safe-b) - 18px))); left: 8px; padding: 4px; }
   .info { left: 8px; right: 8px; width: auto; top: auto; bottom: calc(150px + var(--safe-b)); max-height: 42vh; }
   .buildmenu { bottom: calc(146px + var(--safe-b)); }
   .bm-grid { grid-template-columns: repeat(4, 1fr); }
@@ -398,7 +399,7 @@ button { font-family: inherit; color: inherit; cursor: pointer; -webkit-tap-high
   .toolbar { gap: 2px; padding: 4px; }
   .resgrid { grid-template-columns: repeat(4, auto); }
   .minimap canvas { width: 84px; height: 84px; }
-  .minimap { bottom: calc(118px + var(--safe-b)); }
+  .minimap { bottom: calc(100px + max(6px, calc(var(--safe-b) - 18px))); }
   .tutorial { bottom: calc(118px + var(--safe-b)); left: 104px; }
   .info { bottom: calc(118px + var(--safe-b)); }
   .buildmenu { bottom: calc(118px + var(--safe-b)); max-height: min(360px, calc(var(--app-h, 100vh) - 118px - var(--safe-b) - 70px - var(--safe-t))); }
