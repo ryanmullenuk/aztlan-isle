@@ -103,9 +103,17 @@ export class GrassTufts {
     old?.dispose();
   }
 
+  /** Ground version the clumps' heights were last taken at, and a signature of what covers the ground. */
+  private heightsAt = -1;
+  private stamp = '';
+
   /** Re-pack visible clumps (hides those under buildings, farms and worn paths; follows sculpting). */
   refresh(): void {
     const w = this.world;
+    this.stamp = this.signature();
+    // Heights only change when the land is reshaped.
+    const reheight = this.heightsAt !== w.version;
+    this.heightsAt = w.version;
     const mtx = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
     for (const m of this.meshes) {
       const list = (m as unknown as { _list: Tuft[] })._list;
@@ -113,7 +121,8 @@ export class GrassTufts {
       for (const t of list) {
         const i = t.cell;
         if (w.occ[i] !== 0 || w.path[i] || w.wear[i] > 0.3 || w.soil[i] > 0.05 || !w.isLandCell(i)) continue;
-        const y = w.heightAt(t.x, t.z);
+        if (reheight) t.y = w.heightAt(t.x, t.z);
+        const y = t.y;
         q.setFromAxisAngle(up, t.rot);
         mtx.compose(p.set(t.x, y - 0.01, t.z), q, s.setScalar(t.s));
         m.setMatrixAt(n++, mtx);
@@ -123,11 +132,23 @@ export class GrassTufts {
     }
   }
 
+  /** What decides which clumps show: the land's shape and what is built, paved, farmed or worn into it. */
+  private signature(): string {
+    const w = this.world;
+    let h = 0;
+    if (!w.occ) return `${w.version}`;
+    for (let i = 0; i < w.occ.length; i++) {
+      if (w.occ[i] !== 0 || w.path[i] || w.wear[i] > 0.3 || w.soil[i] > 0.05) h = (Math.imul(h, 31) + i * (1 + w.path[i]) + (w.occ[i] !== 0 ? 7 : 0)) | 0;
+    }
+    return `${w.version}|${h}`;
+  }
+
   update(dt: number): void {
     this.timer -= dt;
     if (this.timer <= 0) {
       this.timer = 2.5;
-      this.refresh();
+      // Only when something has changed (re-packing every clump is a hitch on a phone).
+      if (this.signature() !== this.stamp) this.refresh();
     }
   }
 }

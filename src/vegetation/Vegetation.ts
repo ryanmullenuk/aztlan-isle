@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { shadowProxy } from '../render/ShadowLayer';
 import { RENDER, VEG, PresetName } from '../config';
 import { stylisedMaterial, stylisedMaterialDouble, treeMaterial, treeMaterialDouble } from '../render/materials';
 import { RNG } from '../world/rng';
@@ -78,12 +79,17 @@ interface BatchDef {
 
 interface ChunkMesh {
   mesh: THREE.InstancedMesh;
+  /** Low-detail stand-in casting this chunk's shadows (trees and bushes); the mesh casts none. */
+  shadow?: THREE.InstancedMesh;
   ids: number[];
   dirty: boolean;
   center: THREE.Vector3;
   def: BatchDef;
   /** Recompute the culling bounds on the next write (a tree was planted in it, or is popping up). */
   bounds?: boolean;
+  /** Nothing to draw, and whether it is near enough to draw at all (small plants fade out far away). */
+  empty?: boolean;
+  inRange?: boolean;
 }
 
 /** Kinds the player can plant (index = saved code). */
@@ -132,7 +138,7 @@ export class Vegetation {
    * are drawn from one small instanced mesh per type and left out of their chunk meshes,
    * which use the lighter mid-distance model.
    */
-  private fine = new Map<string, { mesh: THREE.InstancedMesh; ids: number[] }>();
+  private fine = new Map<string, { mesh: THREE.InstancedMesh; shadow?: THREE.InstancedMesh; ids: number[] }>();
   private nearIds = new Set<number>();
   private fineDirty = false;
   private C = VEG.chunks;
@@ -474,13 +480,16 @@ export class Vegetation {
       const tall = /^(palm|broadleaf|banana|apple1)/.test(def.key);
       const mat = tall ? (def.double ? treeMaterialDouble() : treeMaterial()) : def.double ? stylisedMaterialDouble() : stylisedMaterial();
       const mesh = new THREE.InstancedMesh(def.hi, mat, VEG.fineCap * 3);
-      mesh.castShadow = def.shadow;
       mesh.receiveShadow = true;
       mesh.count = 0;
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       mesh.setColorAt(0, new THREE.Color(1, 1, 1));
-      this.fine.set(def.key, { mesh, ids: [] });
+      // The nearest plants' shadows come from the mid-distance shape, not every leaf.
+      const shadow = def.shadow ? shadowProxy(mesh, def.mid ?? def.lo ?? def.hi) : undefined;
+      mesh.castShadow = false;
+      this.fine.set(def.key, { mesh, shadow, ids: [] });
       this.group.add(mesh);
+      if (shadow) this.group.add(shadow);
     }
 
     // Contact shadows under trees and rocks.
@@ -505,7 +514,7 @@ export class Vegetation {
     const tall = /^(palm|broadleaf|banana|apple1)/.test(key);
     const mat = tall ? (def.double ? treeMaterialDouble() : treeMaterial()) : def.double ? stylisedMaterialDouble() : stylisedMaterial();
     const mesh = new THREE.InstancedMesh(def.hi, mat, Math.max(1, cap));
-    mesh.castShadow = def.shadow;
+    mesh.castShadow = def.shadow && !def.lo;
     mesh.receiveShadow = true;
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     const ccx = chunk % this.C, ccz = Math.floor(chunk / this.C);
@@ -523,7 +532,23 @@ export class Vegetation {
     this.writeChunk(cm, key);
     mesh.computeBoundingSphere();
     this.group.add(mesh);
+    this.attachShadow(cm);
     return cm;
+  }
+
+  /**
+   * Trees and bushes cast their shadows from their low-detail shape (a fraction of the
+   * triangles; soft shadows on the ground don't show the leaves), sharing the chunk's instances.
+   */
+  private attachShadow(cm: ChunkMesh): void {
+    if (cm.shadow) {
+      this.group.remove(cm.shadow);
+      cm.shadow = undefined;
+    }
+    if (!cm.def.shadow || !cm.def.lo) return;
+    cm.shadow = shadowProxy(cm.mesh, cm.def.lo);
+    cm.shadow.visible = cm.mesh.visible;
+    this.group.add(cm.shadow);
   }
 
   /** Swap a chunk's mesh for a bigger one (same shape, material and LOD state). */
@@ -540,6 +565,8 @@ export class Vegetation {
     this.group.add(mesh);
     cm.mesh = mesh;
     cm.dirty = true;
+    cm.bounds = true;
+    this.attachShadow(cm);
   }
 
   /** Give a newly added plant an instance in the mesh for one of its shapes. */
@@ -857,12 +884,20 @@ export class Vegetation {
       n++;
     }
     cm.mesh.count = n;
+    // Empty batches (stumps where nothing is felled, mined-out rocks) are skipped by the renderer.
+    cm.empty = n === 0;
+    cm.mesh.visible = !cm.empty && cm.inRange !== false;
     cm.mesh.instanceMatrix.needsUpdate = true;
     if (cm.mesh.instanceColor) cm.mesh.instanceColor.needsUpdate = true;
     cm.dirty = false;
     if (cm.bounds) {
       cm.mesh.computeBoundingSphere();
       cm.bounds = false;
+    }
+    if (cm.shadow) {
+      cm.shadow.count = n;
+      cm.shadow.visible = cm.mesh.visible;
+      cm.shadow.boundingSphere = cm.mesh.boundingSphere;
     }
   }
 
@@ -919,6 +954,10 @@ export class Vegetation {
       if (f.mesh.instanceColor) f.mesh.instanceColor.needsUpdate = true;
       // Bounds of the instances actually drawn, so the layer is culled when off screen.
       f.mesh.computeBoundingSphere();
+      if (f.shadow) {
+        f.shadow.count = n;
+        f.shadow.boundingSphere = f.mesh.boundingSphere;
+      }
     }
     this.fineDirty = false;
   }
@@ -1178,7 +1217,7 @@ export class Vegetation {
   /**
    * @param growthMul season / rain multiplier on regrowth
    */
-  update(dt: number, camPos: THREE.Vector3, camTarget: THREE.Vector3, lodDist: number, growthMul: number, time = 0): void {
+  update(dt: number, camPos: THREE.Vector3, camTarget: THREE.Vector3, lodDist: number, growthMul: number, time = 0, shapeLod = lodDist): void {
     this.updateMarkers(time);
     // Regrowth timers (spread over frames for cheapness: only every ~0.5 s of game time per plant group).
     this.growAcc += dt;
@@ -1223,13 +1262,17 @@ export class Vegetation {
         const dx = Math.max(0, Math.abs(cm.center.x - camPos.x) - size / 2);
         const dz = Math.max(0, Math.abs(cm.center.z - camPos.z) - size / 2);
         const d = Math.hypot(dx, dz, camPos.y - camTarget.y);
-        const far = d > lodDist;
+        const far = d > shapeLod;
         if (cm.def.lo) {
           const g = far ? cm.def.lo : cm.def.mid ?? cm.def.hi;
           if (cm.mesh.geometry !== g) cm.mesh.geometry = g;
         }
-        cm.mesh.visible = cm.def.cull === 0 || d < lodDist * cm.def.cull;
-        if (cm.def.shadow) cm.mesh.castShadow = d < lodDist * 1.4;
+        cm.inRange = cm.def.cull === 0 || d < lodDist * cm.def.cull;
+        cm.mesh.visible = cm.inRange && !cm.empty;
+        if (cm.shadow) {
+          cm.shadow.visible = cm.mesh.visible;
+          cm.shadow.castShadow = d < lodDist * 1.4;
+        } else if (cm.def.shadow) cm.mesh.castShadow = d < lodDist * 1.4;
       }
       this.pickNear(camPos, lodDist * VEG.fineDetail * (this.ultra ? 1.35 : 1));
     }
