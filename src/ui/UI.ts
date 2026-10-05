@@ -528,6 +528,8 @@ export class UI {
     sel.onchange = () => {
       s.preset = sel.value as PresetName;
       s.autoQuality = false;
+      // Choosing graphics yourself gives back full resolution.
+      s.renderScale = 1;
       this.game.applySettings();
     };
     this.presetSelect = sel;
@@ -881,7 +883,7 @@ export class UI {
   private refresh(force: boolean): void {
     const g = this.game;
     const t = g.time;
-    this.timeEl.textContent = g.settings.fps ? `${t.clock} · ${Math.round(g.fpsValue)} fps · worst ${Math.round(g.worstFrameMs)} ms` : t.clock;
+    this.timeEl.textContent = g.settings.fps ? `${t.clock} · ${Math.round(g.fpsValue)} fps · worst ${Math.round(g.worstFrameMs)} ms · ${g.qualityLabel} · cpu ${g.cpuMs.toFixed(1)} ms` : t.clock;
     this.dateEl.textContent = `${t.season} ${t.dayOfSeason} · Year ${t.year}`;
     const h = t.hour;
     const iconName = t.isNight ? 'moon' : h > 16 || h < 7.5 ? 'sunset' : 'sun';
