@@ -20,6 +20,7 @@ import { Birds } from './Birds';
 import { Critters } from './Critters';
 import { Monkeys } from './Monkeys';
 import { ReefFish } from './ReefFish';
+import { Sharks } from './Sharks';
 import { Coral } from './Coral';
 import { fishGeometry } from './animalModels';
 
@@ -74,6 +75,7 @@ export class Wildlife {
   readonly monkeys: Monkeys;
   readonly critters: Critters;
   readonly reef: ReefFish;
+  readonly sharks: Sharks;
   readonly coral: Coral;
   /** Deep schools only: reef fish are decorative. */
   schools: School[] = [];
@@ -111,7 +113,9 @@ export class Wildlife {
     this.coral = new Coral(world);
     const reefPts = [...this.coral.patches.map((p) => ({ x: p.x, z: p.z })), ...veg.plants.filter((p) => p.kind === 'reef' || p.kind === 'searock').map((p) => ({ x: p.x, z: p.z }))];
     this.reef = new ReefFish(world, reefPts);
-    this.group.add(this.animals.group, this.birds.group, this.monkeys.group, this.critters.group, this.reef.group, this.coral.group);
+    // Hammerhead sharks patrol the reefs and hunt the reef fish.
+    this.sharks = new Sharks(world, this.coral.patches, this.reef);
+    this.group.add(this.animals.group, this.birds.group, this.monkeys.group, this.critters.group, this.reef.group, this.coral.group, this.sharks.group);
     const fmat = fishMaterial(11);
     const cap = Math.max(1, WILDLIFE.schools * WILDLIFE.schoolFishShown);
     const mk = (g: THREE.BufferGeometry) => {
@@ -175,6 +179,7 @@ export class Wildlife {
     this.monkeys.update(dt, input.camTarget, islanders, input.ground);
     this.critters.update(dt, this.time, input.ground, islanders);
     this.reef.update(dt, input.ground, this.boats);
+    this.sharks.update(dt);
     if (dt > 0) this.updateSchools(dt, input.ground);
     this.renderSchools();
   }
