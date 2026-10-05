@@ -48,3 +48,14 @@ test('sea stacks keep off reefs and coral', () => {
     for (const r of [s.main, ...s.rocks]) for (const a of reefs) assert.ok(Math.hypot(r.x - a.x, r.z - a.z) > a.r + r.r);
   }
 });
+
+test('sea stacks: no fallen rock is a spike reaching up from the sea floor', () => {
+  const w = island();
+  for (const s of placeSeaStacks(w, WORLD.islandSeed)) {
+    for (const r of s.rocks) {
+      const bed = Math.min(w.heightAt(r.x, r.z), 0.07 - 0.05) - 0.2;
+      const tall = 0.07 + r.top - bed;
+      assert.ok(tall <= r.r * 2.45, `rock ${r.r.toFixed(2)} wide stands ${tall.toFixed(2)} tall`);
+    }
+  }
+});
