@@ -67,7 +67,7 @@ The app collects no data (a privacy manifest says so, and App Store Connect's pr
 |---|---|---|
 | Pan | Left or right drag, WASD / arrow keys | One finger drag |
 | Zoom | Mouse wheel (towards the cursor), + / − | Pinch |
-| Rotate | Middle-drag, Alt/Shift + drag, Q / E, or drag the compass (bottom right) / hold its arrows | Two-finger twist, or drag the compass with one finger / hold its arrows |
+| Rotate | Middle-drag, Alt/Shift + drag, Q / E, or drag the compass at the end of the toolbar (double-click resets) | Two-finger twist, or drag the compass at the end of the toolbar with one finger (double-tap resets) |
 | Select / place | Click | Tap |
 | Sculpt | Hold and drag with Raise / Lower / Flatten | One finger drag with a sculpt tool |
 | Toolbar | 1–9 | Tap the slots |
