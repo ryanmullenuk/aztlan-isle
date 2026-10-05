@@ -32,8 +32,6 @@ export const COLORS = {
   midWater: 0x15668a,
   shallow: 0x2cc6d2,
   shallowBright: 0x7ee9de,
-  reef1: 0x1c6e7a,
-  reef2: 0x2a5f6e,
   foam: 0xf5fbff,
   sand: 0xf2ddb0,
   sandGold: 0xe8c98e,
