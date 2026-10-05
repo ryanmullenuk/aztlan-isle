@@ -279,10 +279,7 @@ export class SeaStacks {
       // Solid for anything steering by the world's obstacle map (all sea cells).
       for (const i of stackCells(w, [s])) w.blockFixed[i] = 1;
       this.stampFoam(s);
-      this.surf.push({
-        site: s, px: m.x + s.sx * (m.r + 1), pz: m.z + s.sz * (m.r + 1), prev: 0, rising: false,
-        cool: rng.range(0, 3), crashAt: rng.range(0.03, 0.07), gap: rng.range(1.6, 3.4), churn: rng.next(),
-      });
+      this.addSurf(s, rng);
     }
     if (b.vertexCount) {
       const mesh = new THREE.Mesh(b.build(), stylisedMaterial());
@@ -329,6 +326,15 @@ export class SeaStacks {
       const R = Math.ceil(s.main.r + 6);
       water.updateHeight(Math.max(0, cx - R), Math.max(0, cz - R), Math.min(w.N - 1, cx + R), Math.min(w.N - 1, cz + R));
     }
+  }
+
+  /** Waves breaking on a rock face (one of these stacks, or another landmark's seaward faces). */
+  addSurf(s: StackSite, rng = new RNG(Math.round(s.x * 31 + s.z * 17))): void {
+    const m = s.main;
+    this.surf.push({
+      site: s, px: m.x + s.sx * (m.r + 1), pz: m.z + s.sz * (m.r + 1), prev: 0, rising: false,
+      cool: rng.range(0, 3), crashAt: rng.range(0.03, 0.07), gap: rng.range(1.6, 3.4), churn: rng.next(),
+    });
   }
 
   update(dt: number, time: number, water: Water): void {
