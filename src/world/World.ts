@@ -73,6 +73,8 @@ export class World {
   soil = new Float32Array(this.N * this.N);
   /** Foam intensity around rocks in the shallows. */
   foam = new Float32Array(this.N * this.N);
+  /** How clear the shallow water is over a cell (0..1): over coral it lets the colours through. */
+  clearWater = new Float32Array(this.N * this.N);
 
   rivers: RiverData[] = [];
   waterfall: WaterfallData | null = null;
