@@ -3,6 +3,7 @@ import { COLORS, WORLD } from '../config';
 import { Simplex2, clamp, smoothstep } from '../world/noise';
 import { RNG } from '../world/rng';
 import { World } from '../world/World';
+import { SHADOW_LAYER } from '../render/ShadowLayer';
 
 const tmpA = new THREE.Color();
 const tmpB = new THREE.Color();
@@ -39,6 +40,9 @@ export class Terrain {
   /** Group of chunk meshes that share one vertex buffer (each chunk is frustum-culled on its own). */
   readonly mesh = new THREE.Group();
   private chunks: { mesh: THREE.Mesh; i0: number; i1: number; j0: number; j1: number }[] = [];
+  /** The ground's shadow comes from this coarse copy (one vertex per cell corner), not the full mesh. */
+  private shadowGeo!: THREE.BufferGeometry;
+  private shadowChunks: { mesh: THREE.Mesh; i0: number; i1: number; j0: number; j1: number }[] = [];
   readonly material: THREE.MeshStandardMaterial;
   readonly wearTex: THREE.DataTexture;
   private geo: THREE.BufferGeometry;
@@ -123,14 +127,80 @@ export class Terrain {
         g.setIndex(new THREE.BufferAttribute(new Uint32Array(ix), 1));
         const m = new THREE.Mesh(g, this.material);
         m.receiveShadow = true;
-        m.castShadow = true;
+        m.castShadow = false;
         m.name = 'terrain';
         this.chunks.push({ mesh: m, i0, i1, j0, j1 });
         this.mesh.add(m);
       }
     }
+    this.buildShadow(C);
     this.rebuild(0, 0, N - 1, N - 1);
     this.updateWear();
+  }
+
+  /** Below the surface by this much, so the coarse copy never shadows the ground it stands for. */
+  private static SHADOW_SINK = 0.12;
+
+  /**
+   * A coarse stand-in that casts the ground's shadows (hills and cliffs falling into shadow at low
+   * sun): one vertex per cell corner instead of the mesh's 4 to 9, a fraction of the triangles in
+   * the shadow pass. It is drawn only by the shadow pass, in chunks culled like the ground's own.
+   */
+  private buildShadow(C: number): void {
+    const N = this.world.N, V = N + 1;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(V * V * 3), 3));
+    this.shadowGeo = g;
+    // The shadow pass draws the side facing away from the sun, as for the ground itself.
+    const mat = new THREE.MeshBasicMaterial({ side: THREE.FrontSide });
+    const per = Math.ceil(N / C);
+    for (let cj = 0; cj < C; cj++) for (let ci = 0; ci < C; ci++) {
+      const i0 = ci * per, i1 = Math.min(N, (ci + 1) * per), j0 = cj * per, j1 = Math.min(N, (cj + 1) * per);
+      const cg = new THREE.BufferGeometry();
+      cg.setAttribute('position', g.getAttribute('position'));
+      cg.setIndex(new THREE.BufferAttribute(new Uint32Array((i1 - i0) * (j1 - j0) * 6), 1));
+      const m = new THREE.Mesh(cg, mat);
+      m.castShadow = true;
+      m.receiveShadow = false;
+      m.layers.set(SHADOW_LAYER);
+      m.name = 'terrain shadow';
+      this.shadowChunks.push({ mesh: m, i0, i1, j0, j1 });
+      this.mesh.add(m);
+    }
+  }
+
+  /** Refresh the coarse shadow copy over a cell rectangle (inclusive, padded). */
+  private rebuildShadow(cx0: number, cz0: number, cx1: number, cz1: number): void {
+    const w = this.world, N = w.N, V = N + 1;
+    const P = this.shadowGeo.getAttribute('position') as THREE.BufferAttribute;
+    const A = P.array as Float32Array;
+    const i0 = clamp(cx0 - 3, 0, N), i1 = clamp(cx1 + 4, 0, N), j0 = clamp(cz0 - 3, 0, N), j1 = clamp(cz1 + 4, 0, N);
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const x = i - w.half, z = j - w.half, v = j * V + i;
+      A[v * 3] = x;
+      A[v * 3 + 1] = w.heightAt(x, z) - Terrain.SHADOW_SINK;
+      A[v * 3 + 2] = z;
+    }
+    P.needsUpdate = true;
+    // Each cell split along the diagonal whose ends are closest in height (follows the slope).
+    for (const c of this.shadowChunks) {
+      if (c.i1 < i0 || c.i0 > i1 || c.j1 < j0 || c.j0 > j1) continue;
+      const I = c.mesh.geometry.index!;
+      const out = I.array as Uint32Array;
+      let k = 0, minY = Infinity, maxY = -Infinity;
+      for (let j = c.j0; j < c.j1; j++) for (let i = c.i0; i < c.i1; i++) {
+        const a = j * V + i, b = a + 1, cc = a + V, d = cc + 1;
+        const ya = A[a * 3 + 1], yb = A[b * 3 + 1], yc = A[cc * 3 + 1], yd = A[d * 3 + 1];
+        if (Math.abs(ya - yd) <= Math.abs(yb - yc)) { out[k++] = a; out[k++] = cc; out[k++] = d; out[k++] = a; out[k++] = d; out[k++] = b; }
+        else { out[k++] = a; out[k++] = cc; out[k++] = b; out[k++] = b; out[k++] = cc; out[k++] = d; }
+        minY = Math.min(minY, ya, yb, yc, yd);
+        maxY = Math.max(maxY, ya, yb, yc, yd);
+      }
+      I.needsUpdate = true;
+      const cx = (c.i0 + c.i1) / 2 - w.half, cz = (c.j0 + c.j1) / 2 - w.half;
+      const hw = (c.i1 - c.i0) / 2, hd = (c.j1 - c.j0) / 2;
+      c.mesh.geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(cx, (minY + maxY) / 2, cz), Math.hypot(hw, hd, (maxY - minY) / 2 + 0.5));
+    }
   }
 
   /** Recompute vertices covering the cell rectangle (inclusive), padded for smoothing. */
@@ -180,6 +250,7 @@ export class Terrain {
     mask.needsUpdate = true;
     fmask.needsUpdate = true;
     this.retriangulate(P, i0, i1, j0, j1);
+    this.rebuildShadow(cx0, cz0, cx1, cz1);
     // Refresh bounds of the chunks we touched.
     for (const c of this.chunks) {
       if (c.i1 < i0 || c.i0 > i1 || c.j1 < j0 || c.j0 > j1) continue;
