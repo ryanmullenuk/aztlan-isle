@@ -29,6 +29,7 @@ import { PeakClouds } from './render/PeakClouds';
 import { DriftClouds } from './render/DriftClouds';
 import { CoastRocks } from './render/CoastRocks';
 import { SeaArch } from './water/SeaArch';
+import { TubeCoral } from './entities/TubeCoral';
 import { SeaStacks } from './water/SeaStacks';
 import { Breeze } from './render/Breeze';
 import { Economy } from './economy/Economy';
@@ -157,6 +158,7 @@ export class Game {
   coastRocks: CoastRocks;
   seaStacks: SeaStacks;
   seaArch: SeaArch;
+  tubeCoral: TubeCoral;
   breeze: Breeze;
   buildings: BuildingSystem;
   pathfinder: Pathfinder;
@@ -358,6 +360,15 @@ export class Game {
     this.seaArch.refreshWater(this.water);
     this.scene.add(this.seaArch.group);
     this.boats.blockCells(this.seaArch.cells());
+    // Purple tube coral in the shallows and round the rocks standing in the sea.
+    const seaRocks = [
+      ...this.veg.plants.filter((p) => p.kind === 'searock').map((p) => ({ x: p.x, z: p.z, r: 0.7 * p.scale })),
+      ...this.coastRocks.sites.map((r) => ({ x: r.x, z: r.z, r: r.r })),
+      ...this.seaStacks.sites.flatMap((s) => [s.main, ...s.rocks].map((r) => ({ x: r.x, z: r.z, r: r.r }))),
+    ];
+    this.tubeCoral = new TubeCoral(this.world, seaRocks);
+    this.scene.add(this.tubeCoral.group);
+    this.water.updateHeight(0, 0, this.world.N - 1, this.world.N - 1);
     for (const site of this.seaArch.surfSites()) this.seaStacks.addSurf(site);
     for (const i of this.seaArch.landCells()) this.veg.clearArea(i % this.world.N, (i / this.world.N) | 0, 1, 1);
     this.marine = new Marine(this.world, this.water);
