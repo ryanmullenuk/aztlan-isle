@@ -32,7 +32,8 @@ test('hammerheads: pods of three or four over the reefs, always swimming in deep
     for (const p of sharks.pods) states.add(p.state);
     if (t % 30 === 0) for (const s of sharks.sharks) {
       assert.ok(w.heightAt(s.x, s.z) < -0.8, `shark in the shallows at ${s.x.toFixed(1)},${s.z.toFixed(1)}`);
-      assert.ok(s.y < SEA_SURFACE - 0.3, 'shark out of the water');
+      assert.ok(s.y + 0.42 * s.scale < SEA_SURFACE + 0.02, 'fin out of the water');
+      assert.ok(s.y < -0.45, 'swimming at the surface');
     }
   }
   // Over two minutes they cruise, circle, chase fish (which scatter) and swim off.
