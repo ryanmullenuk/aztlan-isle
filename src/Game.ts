@@ -1969,7 +1969,7 @@ export class Game {
     }
     this.eco.update(dt);
     this.sculptor.update(realDt);
-    this.tufts.update(realDt);
+    this.tufts.update(realDt, this.rig.camera.position, RENDER.presets[this.preset].lodDist);
     this.outcrops.update(realDt);
     this.flowers.update(realDt);
     this.garden.update(realDt);
