@@ -8,6 +8,7 @@ import { World } from './world/World';
 import { generateIsland } from './world/generator';
 import { GameTime } from './world/Time';
 import { RNG } from './world/rng';
+import { Outcrops } from './terrain/Outcrops';
 import { Terrain } from './terrain/Terrain';
 import { Sculptor, SculptMode } from './terrain/Sculpt';
 import { Water } from './water/Water';
@@ -143,6 +144,7 @@ export class Game {
   pearls!: BeachPearls;
   veg: Vegetation;
   tufts: GrassTufts;
+  outcrops: Outcrops;
   /** Wildflowers, little ferns and small plants scattered in clumps. */
   flowers: Wildflowers;
   /** The player's planted flowers, bushes and shrubs. */
@@ -383,6 +385,11 @@ export class Game {
     // The volcano and the sea arch are permanent landmarks: the ground under them can't be sculpted.
     this.sculptor.protectedAt = (x, z) => this.seaArch.covers(x, z) || (this.volcano.group.visible &&
       Math.hypot(x - this.volcano.x, z - this.volcano.z) < this.volcano.radius + 0.8);
+    // Rock breaking through the land: crags in the cliffs, bedrock on the rocky hills.
+    this.outcrops = new Outcrops(this.world, (x, z) => this.seaArch.covers(x, z) ||
+      (this.volcano.group.visible && Math.hypot(x - this.volcano.x, z - this.volcano.z) < this.volcano.radius + 2));
+    this.outcrops.setUltra(this.preset === 'ultra');
+    this.scene.add(this.outcrops.group);
     if (this.volcano.group.visible) {
       const [cx, cz] = this.world.cellOf(this.volcano.x, this.volcano.z);
       // Clear only the steep core; preserve the forest against the planted foothills.
@@ -831,6 +838,7 @@ export class Game {
     const ultra = this.preset === 'ultra';
     this.veg.ultra = ultra;
     this.tufts.setUltra(ultra);
+    this.outcrops?.setUltra(ultra);
     this.terrain.uniforms.uUltra.value = Number(ultra);
     this.water.shared.uUltra.value = Number(ultra);
     this.lighting.ultra = ultra;
@@ -1958,6 +1966,7 @@ export class Game {
     this.eco.update(dt);
     this.sculptor.update(realDt);
     this.tufts.update(realDt);
+    this.outcrops.update(realDt);
     this.flowers.update(realDt);
     this.garden.update(realDt);
     this.clouds.update(realDt, ls.day, this.rig.cur.dist);
