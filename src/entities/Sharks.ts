@@ -9,7 +9,7 @@ import { SEA_SURFACE } from '../water/Water';
 /** Model: nose at +z (0.51), tail fin tip at about -0.62; one unit long before scaling. */
 const NOSE = 0.42;
 const BODY_LEN = 0.95;
-const GREY = new THREE.Color(0x667480), BELLY = new THREE.Color(0xe4dccb), DARK = new THREE.Color(0x3c4650), EYE = new THREE.Color(0x101418);
+const GREY = new THREE.Color(0x5a646c), BELLY = new THREE.Color(0xb8b2a6), DARK = new THREE.Color(0x353d44), EYE = new THREE.Color(0x101418);
 
 /** Countershaded: grey above, cream below, the line between them softly ragged. */
 function shade(p: THREE.Vector3, n: THREE.Vector3): THREE.Color {
@@ -101,7 +101,7 @@ export function hammerheadGeometry(): THREE.BufferGeometry {
 
 /** Hammerhead material: the body bends in a travelling wave and curves into turns (per shark). */
 function sharkMaterial(): THREE.MeshStandardMaterial {
-  const mat = patchStylised(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.05, transparent: true, opacity: 0.86 }), 0.4);
+  const mat = patchStylised(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, transparent: true, opacity: 0.72 }), 0.08);
   mat.depthWrite = false;
   const base = mat.onBeforeCompile;
   mat.onBeforeCompile = (shader, r) => {
@@ -110,7 +110,8 @@ function sharkMaterial(): THREE.MeshStandardMaterial {
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
         attribute vec3 iSwim;
-        uniform float uSurfaceY;`)
+        uniform float uSurfaceY;
+        varying float vSharkY;`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
         {
           // 0 at the head, 1 at the tail: each slice of the body follows the one ahead of it.
@@ -125,6 +126,7 @@ function sharkMaterial(): THREE.MeshStandardMaterial {
           transformed.z += position.x * slope * 0.5;
         }`)
       .replace('#include <project_vertex>', `#include <project_vertex>
+        vSharkY = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).y;
         {
           // Depth taken where the view ray enters the water, so the surface doesn't hide them
           // (land and rocks in front still do).
@@ -137,7 +139,20 @@ function sharkMaterial(): THREE.MeshStandardMaterial {
           }
         }`);
   };
-  mat.customProgramCacheKey = () => 'hammerhead-v1';
+  // The water dulls and tints them, more the deeper they swim.
+  const prev = mat.onBeforeCompile;
+  mat.onBeforeCompile = (shader, r) => {
+    prev.call(mat, shader, r);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vSharkY;')
+      .replace('#include <fog_fragment>', `{
+        float d = max(0.0, ${SEA_SURFACE.toFixed(2)} - vSharkY);
+        float k = clamp(0.35 + d * 0.35, 0.0, 0.75);
+        gl_FragColor.rgb = mix(gl_FragColor.rgb * 0.85, vec3(0.05, 0.2, 0.26), k);
+      }
+      #include <fog_fragment>`);
+  };
+  mat.customProgramCacheKey = () => 'hammerhead-v2';
   return mat;
 }
 
@@ -152,6 +167,8 @@ interface Shark {
   scale: number;
   pod: number;
   slot: number;
+  /** Clock for its slow rise and fall through the water. */
+  depthT: number;
 }
 
 type PodState = 'cruise' | 'circle' | 'chase' | 'leave';
@@ -205,7 +222,7 @@ export class Sharks {
       for (let k = 0; k < n; k++) {
         const a = rng.range(0, Math.PI * 2);
         const x = h.x + Math.cos(a) * 1.5, z = h.z + Math.sin(a) * 1.5;
-        this.sharks.push({ x, y: this.swimY(x, z), z, heading: rng.range(0, Math.PI * 2), speed: 0.8, turn: 0, phase: rng.range(0, 6), scale: rng.range(1.15, 1.5), pod: this.pods.length - 1, slot: k });
+        this.sharks.push({ x, y: this.swimY(x, z), z, heading: rng.range(0, Math.PI * 2), speed: 0.8, turn: 0, phase: rng.range(0, 6), scale: rng.range(1.15, 1.5), pod: this.pods.length - 1, slot: k, depthT: rng.range(0, 100) });
       }
     }
     const geo = hammerheadGeometry();
@@ -224,14 +241,19 @@ export class Sharks {
   }
 
   /** Sea deep enough to swim in (open water, floor below `y`). */
-  private deep(x: number, z: number, y = -0.95): boolean {
+  private deep(x: number, z: number, y = -1.05): boolean {
     const w = this.world, i = w.cellIndexAt(x, z);
     return i >= 0 && w.layer[i] <= 0 && Number.isNaN(w.riverY[i]) && !w.canal[i] && !w.blockFixed[i] && w.heightAt(x, z) < y;
   }
 
-  /** Cruising depth: a little off the floor, the dorsal fin's tip about at the surface. */
-  private swimY(x: number, z: number): number {
-    return THREE.MathUtils.clamp(this.world.heightAt(x, z) + 0.45, -1.5, -0.42);
+  /**
+   * Cruising depth: down in the water, each shark rising and sinking slowly on its own rhythm
+   * (now and then high enough for the fin to show faintly, mostly well under), never on the floor.
+   */
+  private swimY(x: number, z: number, wander = 0): number {
+    const bed = this.world.heightAt(x, z);
+    const want = -1.15 + 0.35 * wander;
+    return THREE.MathUtils.clamp(want, bed + 0.32, -0.72);
   }
 
   /** A point in deep water near (x, z), within r. */
@@ -344,7 +366,9 @@ export class Sharks {
       s.speed += (want * (0.55 + 0.45 * Math.cos(Math.min(Math.abs(dh), Math.PI / 2))) - s.speed) * Math.min(1, dt * 1.5);
       const nx = s.x + Math.sin(s.heading) * s.speed * dt, nz = s.z + Math.cos(s.heading) * s.speed * dt;
       if (this.deep(nx, nz)) { s.x = nx; s.z = nz; }
-      s.y += (this.swimY(s.x, s.z) - s.y) * Math.min(1, dt * 0.8);
+      s.depthT += dt;
+      const wander = Math.sin(s.depthT * 0.11 + s.slot * 1.7) * 0.7 + Math.sin(s.depthT * 0.043 + s.pod) * 0.3;
+      s.y += (this.swimY(s.x, s.z, wander) - s.y) * Math.min(1, dt * 0.5);
       // Tail beats faster the harder it swims.
       s.phase += dt * (2.2 + s.speed * 2.6);
     }
