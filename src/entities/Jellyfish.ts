@@ -167,10 +167,6 @@ const frag = /* glsl */ `
     float lit = 0.7 + 0.45 * abs(dot(N, normalize(uSunDir)));
     col *= lit * mix(0.3, 1.0, uDay);
     col += pink * 0.18 * uDay;
-    // At night they glow soft pink, flaring with each pulse.
-    float night = 1.0 - smoothstep(0.28, 0.58, uDay);
-    col += vec3(1.0, 0.32, 0.72) * night * (0.22 + 0.7 * vAnim.x) * mix(1.0, 0.55, step(0.5, vPart));
-    a = min(0.95, a + night * 0.12);
     gl_FragColor = vec4(col, a * vAnim.w);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
@@ -238,7 +234,7 @@ function contraction(ph: number): number {
  * Swarms of pink moon jellies drifting in the shallows off the beaches: each swarm wanders slowly
  * along its stretch of shore, every jelly pulsing its bell (rising a little on each squeeze, sinking
  * gently between) with its arms and tentacles waving behind. They scatter from the pointer, pulsing
- * hard and diving away, then drift back into the swarm. At night they glow.
+ * hard and diving away, then drift back into the swarm.
  */
 export class Jellyfish {
   readonly mesh: THREE.InstancedMesh;

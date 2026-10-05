@@ -462,6 +462,8 @@ interface Arrival extends Vessel {
   idx: number;
   genders: ('m' | 'f')[];
   land: { x: number; z: number };
+  /** Where the empty canoe rests once pulled up the beach (just above the water's edge). */
+  rest?: { x: number; z: number };
   state: 'sail' | 'beached';
   timer: number;
   phase: number;
@@ -1036,6 +1038,9 @@ export class Boats {
           // Landed: the settlers step ashore; the canoe is pulled up on the sand.
           a.state = 'beached';
           a.heading = Math.atan2(a.land.x - a.x, a.land.z - a.z);
+          // Pulled a little way up the sand, not dragged inland.
+          const toLand = Math.hypot(a.land.x - a.x, a.land.z - a.z), up = Math.min(0.9, toLand * 0.5);
+          a.rest = { x: a.x + Math.sin(a.heading) * up, z: a.z + Math.cos(a.heading) * up };
           a.timer = 120;
           a.speed = 0;
           for (const r of a.rowers) r.dispose();
@@ -1057,13 +1062,18 @@ export class Boats {
       }
       if (a.state === 'sail') this.ride(a.mesh, a, time, dt, half, beam);
       else {
-        // Ease the empty hull onto the actual beach, then leave it resting on the sand.
+        // Ease the empty hull up onto the beach, then leave it resting on the sand: sat on the
+        // ground under its bow, middle and stern (afloat where that's still water), tilted to the slope.
+        const rest = a.rest ?? a.land;
         const pull = 1 - Math.exp(-dt * 1.4);
-        a.x += (a.land.x - a.x) * pull;
-        a.z += (a.land.z - a.z) * pull;
-        const sandY = Math.max(0.06, this.world.heightAt(a.x, a.z) + 0.04);
-        a.mesh.position.set(a.x, sandY, a.z);
-        a.mesh.rotation.set(-0.05, a.heading, 0, 'YXZ');
+        a.x += (rest.x - a.x) * pull;
+        a.z += (rest.z - a.z) * pull;
+        const fx = Math.sin(a.heading), fz = Math.cos(a.heading), reach = half * 0.8;
+        const floor = (x: number, z: number) => Math.max(SEA_SURFACE - 0.02, this.world.heightAt(x, z));
+        const bow = floor(a.x + fx * reach, a.z + fz * reach), stern = floor(a.x - fx * reach, a.z - fz * reach), mid = floor(a.x, a.z);
+        const pitch = Math.atan2(bow - stern, reach * 2);
+        a.mesh.position.set(a.x, Math.max(mid, (bow + stern) / 2) + 0.02, a.z);
+        a.mesh.rotation.set(-pitch, a.heading, 0, 'YXZ');
       }
       a.rowers.forEach((r, k) => (r.rotation.z = Math.sin(a.phase + k * 0.7) * 0.04 * (k % 2 ? -1 : 1)));
     }
