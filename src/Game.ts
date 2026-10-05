@@ -115,6 +115,8 @@ export interface Settings {
   pixel: boolean;
   /** God mode only: buildings and upgrades finish the moment they are placed. */
   instantBuild: boolean;
+  /** Share of the preset's resolution actually rendered (auto quality lowers it on slow devices). */
+  renderScale: number;
 }
 
 /** Minimal interface the UI and colony use for sound (implemented by the audio engine). */
@@ -791,7 +793,7 @@ export class Game {
   }
 
   private loadSettings(preset: PresetName): Settings {
-    const def: Settings = { preset, dof: true, dofStrength: RENDER.dof.strength, volume: 0.7, music: 0.5, muted: false, fps: false, autoQuality: true, shadows: true, dayNight: true, weather: true, pixel: false, instantBuild: false };
+    const def: Settings = { preset, dof: true, dofStrength: RENDER.dof.strength, volume: 0.7, music: 0.5, muted: false, fps: false, autoQuality: true, shadows: true, dayNight: true, weather: true, pixel: false, instantBuild: false, renderScale: 1 };
     try {
       const s = JSON.parse(localStorage.getItem(SAVE.settingsKey) ?? 'null');
       if (s) return { ...def, ...s };
@@ -804,7 +806,8 @@ export class Game {
   /** Render resolution: device pixels capped by the preset, or ~380 px tall in pixel style. */
   private pixelRatio(): number {
     if (this.settings.pixel) return Math.min(1, Math.max(0.18, RENDER.pixelStyleHeight / Math.max(1, window.innerHeight)));
-    return Math.min(window.devicePixelRatio, RENDER.presets[this.preset ?? this.settings.preset].pixelRatio);
+    const scale = Math.min(1, Math.max(0.5, this.settings.renderScale || 1));
+    return Math.min(window.devicePixelRatio, RENDER.presets[this.preset ?? this.settings.preset].pixelRatio) * scale;
   }
 
   private applied: Partial<Settings> = {};
@@ -828,7 +831,7 @@ export class Game {
         if (m) (Array.isArray(m) ? m : [m]).forEach((x) => (x.needsUpdate = true));
       });
     }
-    if (was.pixel !== s.pixel) {
+    if (was.pixel !== s.pixel || (was.renderScale !== undefined && was.renderScale !== s.renderScale)) {
       this.canvas.classList.toggle('pixel', s.pixel);
       this.post.setPixelStyle(s.pixel);
       this.renderer.setPixelRatio(this.pixelRatio());
@@ -1758,8 +1761,10 @@ export class Game {
     const realDt = this.playing ? Math.min(rawDt, 0.1) : 0;
     if (this.playing) this.trackWorstFrame(rawDt);
     const dt = this.time.advance(realDt);
+    const c0 = performance.now();
     this.update(realDt, dt);
     this.render(realDt);
+    this.cpuTime += (performance.now() - c0 - this.cpuTime) * 0.1;
     this.fps.frames++;
     this.fps.acc += realDt;
     if (this.fps.acc > 1) {
@@ -1773,19 +1778,49 @@ export class Game {
 
   private slowSeconds = 0;
   private qualityChecks = 0;
-  /** Step the preset down (high → medium → low) after a few seconds of low frame rate. */
+  /**
+   * After a few seconds of low frame rate, step quality down: the preset (high → medium → low),
+   * then the rendered resolution (to as little as half), then shadows, then depth of field. A
+   * phone that is slow even on low is nearly always filling too many pixels, so resolution goes
+   * before anything you'd notice more.
+   */
   private autoQuality(): void {
     if (!this.settings.autoQuality || document.hidden || this.qualityChecks++ < 4) return;
     const target = this.preset === 'ultra' ? 50 : this.preset === 'high' ? 45 : 28;
     this.slowSeconds = this.fps.value < target ? this.slowSeconds + 1 : 0;
-    if (this.slowSeconds >= 4 && this.preset !== 'low') {
-      this.slowSeconds = 0;
-      this.qualityChecks = 0;
-      this.settings.preset = this.preset === 'ultra' ? 'high' : this.preset === 'high' ? 'medium' : 'low';
-      this.applySettings();
-      this.ui.toast(`Graphics set to ${this.settings.preset} for a smoother frame rate (change it in Settings).`);
-    }
+    if (this.slowSeconds < 4) return;
+    this.slowSeconds = 0;
+    this.qualityChecks = 0;
+    const s = this.settings;
+    let change: string;
+    if (this.preset !== 'low') {
+      s.preset = this.preset === 'ultra' ? 'high' : this.preset === 'high' ? 'medium' : 'low';
+      change = `Graphics set to ${s.preset}`;
+    } else if ((s.renderScale || 1) > 0.55) {
+      s.renderScale = Math.max(0.5, Math.round((s.renderScale || 1) * 0.8 * 100) / 100);
+      change = `Resolution lowered to ${Math.round(s.renderScale * 100)}%`;
+    } else if (s.shadows) {
+      s.shadows = false;
+      change = 'Shadows turned off';
+    } else if (s.dof) {
+      s.dof = false;
+      change = 'Depth of field turned off';
+    } else return;
+    this.applySettings();
+    this.ui.toast(`${change} for a smoother frame rate (change it in Settings).`);
   }
+
+  /** Graphics in use, for the Show FPS readout: preset, and the share of its resolution if lowered. */
+  get qualityLabel(): string {
+    const scale = this.settings.renderScale || 1;
+    return scale < 1 ? `${this.preset} ${Math.round(scale * 100)}%` : this.preset;
+  }
+
+  /** Milliseconds of script per frame (simulation and issuing the draw), smoothed. The rest of a slow frame is the graphics chip. */
+  get cpuMs(): number {
+    return this.cpuTime;
+  }
+  private cpuTime = 0;
 
   /** Advance the simulation without rendering (debugging and tests). */
   simulate(seconds: number, step = 0.1): void {
