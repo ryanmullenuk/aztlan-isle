@@ -540,6 +540,20 @@ export class SeaArch {
     return out;
   }
 
+  /** Where coral grows round the formation: its boulders and stacks, and all along both feet. */
+  coralSpots(): { x: number; z: number; r: number; rich: boolean }[] {
+    const s = this.site;
+    if (!s) return [];
+    const out: { x: number; z: number; r: number; rich: boolean }[] = [];
+    for (const b of s.boulders) { const [x, z] = toWorld(s, b.t, b.u); out.push({ x, z, r: b.r, rich: true }); }
+    for (const k of s.stacks) { const [x, z] = toWorld(s, k.t, k.u); out.push({ x, z, r: k.r + 0.3, rich: true }); }
+    for (let t = 0.5; t <= s.tip + 1; t += 1.6) for (const side of [-1, 1]) {
+      const [x, z] = toWorld(s, t, bend(t) + side * 2.6);
+      out.push({ x, z, r: 0.4, rich: true });
+    }
+    return out;
+  }
+
   /** Land cells under the rock (the plants there are cleared away). */
   landCells(): number[] {
     return this.blocked.filter((i) => this.world.layer[i] >= 1);
