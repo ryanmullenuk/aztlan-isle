@@ -90,7 +90,9 @@ export class CoastRocks {
     const wet = SEA_SURFACE + 0.16;
     const rock = (x: number, z: number, r: number, top: number, turn: number) => {
       const bed = Math.min(w.heightAt(x, z), SEA_SURFACE - 0.05) - 0.15;
-      const h = Math.max(0.2, top - bed);
+      // About as tall as wide: in water too deep to break the surface it lies on the seabed.
+      let h = Math.max(0.2, top - bed);
+      if (h > r * 2.2) h = r * 1.4;
       // Sea moss round the waterline on about half of them (picked by place, so layouts don't shift).
       const pick = Math.abs(Math.sin(x * 12.9898 + z * 78.233) * 43758.5453) % 1;
       const weed = pick < 0.5 ? { y0: SEA_SURFACE - 0.3, y1: SEA_SURFACE + 0.28, amount: 0.45 + pick } : undefined;
