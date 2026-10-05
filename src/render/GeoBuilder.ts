@@ -13,12 +13,19 @@ export interface AddOptions {
   ao?: { y0: number; y1: number; min: number };
   /** Material tag for character shading: 0 fixed colour, 1 skin (per-instance tone), 2 accent cloth (per-instance colour). */
   mat?: number;
+  /**
+   * Colour each triangle as one flat facet (the colour function is asked once, at the facet's
+   * centre with its normal) instead of blending between corners: crisp low-poly stone, moss and
+   * lichen rather than smeared gradients. The geometry is unshared, so normals are flat too.
+   */
+  facet?: boolean;
 }
 
 const _p = new THREE.Vector3();
 const _n = new THREE.Vector3();
 const _c = new THREE.Color();
 const _m3 = new THREE.Matrix3();
+const _c2 = new THREE.Vector3();
 
 /**
  * Merges many small primitives into a single indexed geometry with per-vertex colour
@@ -33,6 +40,7 @@ export class GeoBuilder {
   private idx: number[] = [];
 
   add(src: THREE.BufferGeometry, opts: AddOptions, matrix?: THREE.Matrix4): this {
+    if (opts.facet) return this.addFaceted(src, opts, matrix);
     const g = src.index ? src : src.clone();
     if (!g.index) {
       const n = g.getAttribute('position').count;
@@ -68,6 +76,38 @@ export class GeoBuilder {
     }
     const I = g.index!;
     for (let i = 0; i < I.count; i++) this.idx.push(base + I.getX(i));
+    return this;
+  }
+
+  private addFaceted(src: THREE.BufferGeometry, opts: AddOptions, matrix?: THREE.Matrix4): this {
+    const g = src.index ? src.toNonIndexed() : src;
+    const P = g.getAttribute('position');
+    const base = this.pos.length / 3;
+    const fixed = typeof opts.color === 'function' ? null : new THREE.Color(opts.color as number | THREE.Color);
+    const a = new THREE.Vector3(), b = new THREE.Vector3(), cc = new THREE.Vector3();
+    for (let i = 0; i + 2 < P.count; i += 3) {
+      a.fromBufferAttribute(P, i); b.fromBufferAttribute(P, i + 1); cc.fromBufferAttribute(P, i + 2);
+      if (matrix) { a.applyMatrix4(matrix); b.applyMatrix4(matrix); cc.applyMatrix4(matrix); }
+      _n.crossVectors(_p.subVectors(b, a), _c2.subVectors(cc, a));
+      if (_n.lengthSq() < 1e-14) _n.set(0, 1, 0);
+      _n.normalize();
+      _p.copy(a).add(b).add(cc).multiplyScalar(1 / 3);
+      if (fixed) _c.copy(fixed);
+      else _c.copy((opts.color as ColorFn)(_p, _n));
+      if (opts.ao) {
+        const t = THREE.MathUtils.clamp((_p.y - opts.ao.y0) / (opts.ao.y1 - opts.ao.y0), 0, 1);
+        _c.multiplyScalar(opts.ao.min + (1 - opts.ao.min) * t);
+      }
+      for (const v of [a, b, cc]) {
+        this.pos.push(v.x, v.y, v.z);
+        this.nor.push(_n.x, _n.y, _n.z);
+        this.col.push(_c.r, _c.g, _c.b);
+        const sw = typeof opts.sway === 'function' ? opts.sway(v) : opts.sway ?? 0;
+        this.veg.push(sw, opts.leaf ?? 0);
+        this.mat.push(opts.mat ?? 0);
+      }
+    }
+    for (let i = 0; i < P.count - (P.count % 3); i++) this.idx.push(base + i);
     return this;
   }
 

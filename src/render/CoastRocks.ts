@@ -94,7 +94,7 @@ export class CoastRocks {
       // Sea moss round the waterline on about half of them (picked by place, so layouts don't shift).
       const pick = Math.abs(Math.sin(x * 12.9898 + z * 78.233) * 43758.5453) % 1;
       const weed = pick < 0.5 ? { y0: SEA_SURFACE - 0.3, y1: SEA_SURFACE + 0.28, amount: 0.45 + pick } : undefined;
-      b.add(subdivideFacets(angularRockGeometry(Math.floor(rng.next() * 1e6), { tilt: 0.2 }), weed ? 1 : 0), { color: rockColor(0.22, wet, weed) }, M.t(x, bed, z, 0, turn, 0, r, h, r * rng.range(0.8, 1.15)));
+      b.add(subdivideFacets(angularRockGeometry(Math.floor(rng.next() * 1e6), { tilt: 0.2 }), weed ? 1 : 0), { facet: true, color: rockColor(0.22, wet, weed) }, M.t(x, bed, z, 0, turn, 0, r, h, r * rng.range(0.8, 1.15)));
       w.blockCircle(x, z, r * 0.9);
     };
     for (const c of cands) {
