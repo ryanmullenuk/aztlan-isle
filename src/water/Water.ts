@@ -491,6 +491,8 @@ const waterFrag = /* glsl */ `
     float alpha = mix(0.22, 0.6, smoothstep(0.0, 0.9, cdepth));
     alpha = mix(alpha, 0.66, smoothstep(0.9, 3.6, cdepth));
     alpha = mix(alpha, 0.8, openK * uSwash);
+    // Crystal-clear over the coral, so its colours show through.
+    alpha *= hr.a;
     alpha = max(alpha, foam);
     alpha = max(alpha, bioA);
     // Wet sand just above the water line: a thin dark gloss, no water colour.
@@ -862,7 +864,8 @@ export class Water {
         this.heightF[j * r + i] = h;
         this.heightData[k] = toH(h);
         this.heightData[k + 1] = toH(w.sampleField(w.foam, x, z));
-        this.heightData[k + 3] = toH(1);
+        // Alpha: how much of the water's own colour lies over the floor (less over coral).
+        this.heightData[k + 3] = toH(1 - 0.62 * w.sampleField(w.clearWater, x, z));
       }
     }
     this.shoreDistance();

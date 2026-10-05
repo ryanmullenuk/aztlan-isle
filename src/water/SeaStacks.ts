@@ -182,8 +182,12 @@ export function placeSeaStacks(w: World, seed: number, avoid: { x: number; z: nu
     for (let k = 0; k < 3; k++) {
       const a = rng.range(0, Math.PI * 2), rr = r * rng.range(0.65, 1.05);
       const x = c.x + Math.cos(a) * r * 0.65, z = c.z + Math.sin(a) * r * 0.65;
-      if (inSea(x, z, rr + 0.4) && clearOf(x, z, rr + 0.6))
-        rocks.push({ x, z, r: rr, top: rng.range(-0.25, 0.4) });
+      if (inSea(x, z, rr + 0.4) && clearOf(x, z, rr + 0.6)) {
+        let top = rng.range(-0.25, 0.4);
+        const bed = Math.min(w.heightAt(x, z), SEA_SURFACE - 0.05) - 0.2;
+        if (SEA_SURFACE + top - bed > rr * 2.4) top = bed - SEA_SURFACE + rr * 1.6;
+        rocks.push({ x, z, r: rr, top });
+      }
     }
     const n = rng.int(15, 22);
     for (let k = 0; k < 120 && rocks.length < n; k++) {
@@ -192,8 +196,12 @@ export function placeSeaStacks(w: World, seed: number, avoid: { x: number; z: nu
       const d = r + rng.range(0.5, 3.4) * (Math.cos(a) * c.sx + Math.sin(a) * c.sz > 0 ? 1.2 : 0.8);
       const x = c.x + Math.cos(a) * d, z = c.z + Math.sin(a) * d;
       const rr = rng.chance(0.4) ? rng.range(0.12, 0.32) : rng.range(0.35, 1.1);
-      const top = SEA_SURFACE + rng.range(-0.08, 0.35 + rr * 1.1);
+      let top = SEA_SURFACE + rng.range(-0.08, 0.35 + rr * 1.1);
       if (!inSea(x, z, rr + 0.4) || !clearOf(x, z, rr + 0.6) || rocks.some((o) => Math.hypot(o.x - x, o.z - z) < o.r + rr)) continue;
+      // A boulder is about as tall as it is wide: where the water is too deep for it to break the
+      // surface, it lies on the seabed under water (not a spike reaching up from the floor).
+      const bed = Math.min(w.heightAt(x, z), SEA_SURFACE - 0.05) - 0.2;
+      if (SEA_SURFACE + top - bed > rr * 2) top = bed - SEA_SURFACE + rr * rng.range(1.1, 1.5);
       rocks.push({ x, z, r: rr, top });
     }
     out.push({ x: c.x, z: c.z, sx: c.sx, sz: c.sz, main, rocks });
