@@ -70,10 +70,41 @@ export function angularRockGeometry(seed: number, opts: { sides?: number; taper?
 }
 
 /**
+ * Split every triangle of a flat-faceted (non-indexed) rock into 4^levels smaller ones in the same
+ * plane: the shape is unchanged, but there are vertices enough for weed and moss to be painted in
+ * patches across big faces.
+ */
+export function subdivideFacets(g: THREE.BufferGeometry, levels = 1): THREE.BufferGeometry {
+  let pos = Array.from(g.getAttribute('position').array as Float32Array);
+  for (let l = 0; l < levels; l++) {
+    const out: number[] = [];
+    for (let i = 0; i < pos.length; i += 9) {
+      const a = pos.slice(i, i + 3), b = pos.slice(i + 3, i + 6), c2 = pos.slice(i + 6, i + 9);
+      const m = (u: number[], v: number[]) => [(u[0] + v[0]) / 2, (u[1] + v[1]) / 2, (u[2] + v[2]) / 2];
+      const ab = m(a, b), bc = m(b, c2), ca = m(c2, a);
+      out.push(...a, ...ab, ...ca, ...ab, ...b, ...bc, ...ca, ...bc, ...c2, ...ab, ...bc, ...ca);
+    }
+    pos = out;
+  }
+  const r = new THREE.BufferGeometry();
+  r.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  r.computeVertexNormals();
+  return r;
+}
+
+/**
  * Colour for faceted rocks (world-space position and normal): warm grey sides, lighter tops,
  * moss on the flatter crowns (amount 0..1), darker below `wetY`.
  */
-export function rockColor(moss = 0.5, wetY = -Infinity): ColorFn {
+/** Sea moss: weed and algae growing on a rock round the waterline (y0 to y1), on this share of it. */
+export interface SeaMoss {
+  y0: number;
+  y1: number;
+  amount: number;
+}
+const SEA_MOSS = { dark: c(0x2f4a22), mid: c(0x4c6e2b), light: c(0x6f8f3a) };
+
+export function rockColor(moss = 0.5, wetY = -Infinity, seaMoss?: SeaMoss): ColorFn {
   return (p, n) => {
     const up = n.y * 0.5 + 0.5;
     const v = hash(Math.floor(p.x * 3), Math.floor(p.y * 3), Math.floor(p.z * 3));
@@ -82,6 +113,14 @@ export function rockColor(moss = 0.5, wetY = -Infinity): ColorFn {
     col.multiplyScalar(0.92 + v * 0.14);
     if (moss > 0 && n.y > 0.62 && hash(Math.round(p.x * 1.7), 0, Math.round(p.z * 1.7)) < moss) col = ROCK_PAL.moss.clone().lerp(ROCK_PAL.mossLight, v);
     if (p.y < wetY) col.lerp(ROCK_PAL.wet, 0.55);
+    // Patchy green weed in a ragged band round the waterline, thickest low down.
+    if (seaMoss && p.y > seaMoss.y0 && p.y < seaMoss.y1) {
+      const ragged = seaMoss.y1 - (seaMoss.y1 - seaMoss.y0) * 0.45 * hash(Math.round(p.x * 2.3), 7, Math.round(p.z * 2.3));
+      if (p.y < ragged && hash(Math.round(p.x * 1.6), 3, Math.round(p.z * 1.6)) < seaMoss.amount) {
+        const low = 1 - (p.y - seaMoss.y0) / (seaMoss.y1 - seaMoss.y0);
+        col = SEA_MOSS.mid.clone().lerp(low > 0.6 ? SEA_MOSS.dark : SEA_MOSS.light, Math.abs(low - 0.5) + v * 0.3);
+      }
+    }
     return col;
   };
 }

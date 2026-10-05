@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GeoBuilder, M } from './GeoBuilder';
 import { stylisedMaterial } from './materials';
 import { Particles } from './Particles';
-import { angularRockGeometry, rockColor } from './rocks';
+import { angularRockGeometry, rockColor, subdivideFacets } from './rocks';
 import { View } from './View';
 import { SEA_SURFACE, Water } from '../water/Water';
 import { RNG } from '../world/rng';
@@ -42,7 +42,7 @@ interface Site {
  */
 export class CoastRocks {
   readonly group = new THREE.Group();
-  private sites: Site[] = [];
+  readonly sites: Site[] = [];
   private spray = new Particles(800, 0xf6fcff);
   private foam = new Particles(300, 0xf2f9ff, 0.7);
 
@@ -91,7 +91,10 @@ export class CoastRocks {
     const rock = (x: number, z: number, r: number, top: number, turn: number) => {
       const bed = Math.min(w.heightAt(x, z), SEA_SURFACE - 0.05) - 0.15;
       const h = Math.max(0.2, top - bed);
-      b.add(angularRockGeometry(Math.floor(rng.next() * 1e6), { tilt: 0.2 }), { color: rockColor(0.22, wet) }, M.t(x, bed, z, 0, turn, 0, r, h, r * rng.range(0.8, 1.15)));
+      // Sea moss round the waterline on about half of them (picked by place, so layouts don't shift).
+      const pick = Math.abs(Math.sin(x * 12.9898 + z * 78.233) * 43758.5453) % 1;
+      const weed = pick < 0.5 ? { y0: SEA_SURFACE - 0.3, y1: SEA_SURFACE + 0.28, amount: 0.45 + pick } : undefined;
+      b.add(subdivideFacets(angularRockGeometry(Math.floor(rng.next() * 1e6), { tilt: 0.2 }), weed ? 1 : 0), { color: rockColor(0.22, wet, weed) }, M.t(x, bed, z, 0, turn, 0, r, h, r * rng.range(0.8, 1.15)));
       w.blockCircle(x, z, r * 0.9);
     };
     for (const c of cands) {
