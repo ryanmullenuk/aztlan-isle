@@ -1096,7 +1096,7 @@ export class Water {
     /** A rock: across / along the fall, base height, size (across, height, along), turn, moss. */
     const rock = (a: number, l: number, y0: number, w: number, h: number, d: number, turn = 0, moss = 0.55, wet = f.poolY + 0.08) => {
       const [x, z] = at(a, l);
-      b.add(angularRockGeometry(Math.floor(rng.next() * 1e6)), { color: rockColor(moss, wet), ao: { y0: y0 - 0.2, y1: y0 + h * 0.6, min: 0.6 } }, M.t(x, y0, z, 0, yaw + turn, 0, w / 2, h, d / 2));
+      b.add(angularRockGeometry(Math.floor(rng.next() * 1e6)), { facet: true, color: rockColor(moss, wet), ao: { y0: y0 - 0.2, y1: y0 + h * 0.6, min: 0.6 } }, M.t(x, y0, z, 0, yaw + turn, 0, w / 2, h, d / 2));
       // Solid: nobody walks through a boulder.
       this.world.blockCircle(x, z, Math.max(w, d) * 0.42);
       return { x, z, top: y0 + h * 1.02, w, d };

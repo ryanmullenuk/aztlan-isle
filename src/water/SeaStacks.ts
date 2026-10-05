@@ -265,16 +265,16 @@ export class SeaStacks {
       const turn = rng.next() * 6.28;
       // A broad, broken skirt at the waterline, the main column, and a narrower upper column
       // stepped off-centre (like layered strata), capped with a tilted crown.
-      b.add(subdivideFacets(angularRockGeometry(Math.floor(rng.next() * 1e6), { taper: 0.8, tilt: 0.25 }), weed ? 2 : 0), { color: rockColor(0.1, wet, weed) }, M.t(m.x, bed, m.z, 0, turn, 0, m.r * 1.45, SEA_SURFACE + 0.55 - bed, m.r * 1.3));
-      b.add(subdivideFacets(angularRockGeometry(Math.floor(rng.next() * 1e6), { taper: 0.78, tilt: 0.12 }), weed ? 2 : 0), { color: rockColor(0.3, wet, weed), ao: { y0: bed, y1: top, min: 0.72 } }, M.t(m.x, bed, m.z, 0, turn + 0.5, 0, m.r, (top - bed) * 0.72, m.r * 0.92));
+      b.add(subdivideFacets(angularRockGeometry(Math.floor(rng.next() * 1e6), { taper: 0.8, tilt: 0.25 }), weed ? 2 : 0), { facet: true, color: rockColor(0.1, wet, weed) }, M.t(m.x, bed, m.z, 0, turn, 0, m.r * 1.45, SEA_SURFACE + 0.55 - bed, m.r * 1.3));
+      b.add(subdivideFacets(angularRockGeometry(Math.floor(rng.next() * 1e6), { taper: 0.78, tilt: 0.12 }), weed ? 2 : 0), { facet: true, color: rockColor(0.3, wet, weed), ao: { y0: bed, y1: top, min: 0.72 } }, M.t(m.x, bed, m.z, 0, turn + 0.5, 0, m.r, (top - bed) * 0.72, m.r * 0.92));
       const ox = m.x - s.sx * m.r * 0.18 + rng.range(-0.15, 0.15), oz = m.z - s.sz * m.r * 0.18 + rng.range(-0.15, 0.15);
       const y1 = bed + (top - bed) * 0.66;
-      b.add(angularRockGeometry(Math.floor(rng.next() * 1e6), { taper: 0.7, tilt: 0.22 }), { color: rockColor(0.55, wet) }, M.t(ox, y1, oz, 0, turn + 1.3, 0, m.r * 0.74, top - y1, m.r * 0.68));
+      b.add(angularRockGeometry(Math.floor(rng.next() * 1e6), { taper: 0.7, tilt: 0.22 }), { facet: true, color: rockColor(0.55, wet) }, M.t(ox, y1, oz, 0, turn + 1.3, 0, m.r * 0.74, top - y1, m.r * 0.68));
       // Boulders fallen from it, round its foot.
       for (const r of s.rocks) {
         const rb = bedAt(r.x, r.z);
         const rweed = weed && rng.chance(0.6) ? { y0: SEA_SURFACE - 0.35, y1: SEA_SURFACE + 0.3, amount: rng.range(0.5, 0.9) } : undefined;
-        b.add(subdivideFacets(angularRockGeometry(Math.floor(rng.next() * 1e6), { tilt: 0.2 }), rweed ? 1 : 0), { color: rockColor(0.15, wet, rweed) }, M.t(r.x, rb, r.z, 0, rng.next() * 6.28, 0, r.r, Math.max(0.2, SEA_SURFACE + r.top - rb), r.r * rng.range(0.8, 1.15)));
+        b.add(subdivideFacets(angularRockGeometry(Math.floor(rng.next() * 1e6), { tilt: 0.2 }), rweed ? 1 : 0), { facet: true, color: rockColor(0.15, wet, rweed) }, M.t(r.x, rb, r.z, 0, rng.next() * 6.28, 0, r.r, Math.max(0.2, SEA_SURFACE + r.top - rb), r.r * rng.range(0.8, 1.15)));
       }
       // Solid for anything steering by the world's obstacle map (all sea cells).
       for (const i of stackCells(w, [s])) w.blockFixed[i] = 1;
