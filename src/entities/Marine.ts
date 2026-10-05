@@ -342,6 +342,7 @@ export class Marine {
   private spray = new Particles(3200, 0xf2fcff);
   /** Heaving clumps of white water, and soft drifting mist (textured sprites). */
   private white: Whitewater;
+  private churn: Whitewater;
   private fog: Whitewater;
   /** Fine misty spray of a whale's blow (its own pool, so other splashes never steal it). */
   private blowMist = new Particles(1100, 0xf4fbff, 0.32);
@@ -354,15 +355,16 @@ export class Marine {
     this.rng = new RNG(world.seed * 53 + 17);
     const wwTex = whitewaterTexture();
     this.white = new Whitewater(1600, wwTex, 8.5);
+    this.churn = new Whitewater(256, wwTex, 0);
     this.fog = new Whitewater(420, wwTex, 0.25, 0.55);
     this.fog.points.renderOrder = 18;
-    this.group.add(this.spray.points, this.blowMist.points, this.white.points, this.fog.points);
+    this.group.add(this.spray.points, this.blowMist.points, this.white.points, this.churn.points, this.fog.points);
     (this.blowMist.points.material as THREE.ShaderMaterial).blending = THREE.NormalBlending;
 
     const foamTex = spiralFoamTexture(), soft = softTexture();
     const ringTex = foamRingTexture();
     const ringGeo = new THREE.RingGeometry(0.72, 1, 64, 1).rotateX(-Math.PI / 2);
-    for (let k = 0; k < 28; k++) {
+    for (let k = 0; k < 48; k++) {
       const m = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ map: ringTex, color: 0xf2fcff, transparent: true, opacity: 0, depthWrite: false, fog: true }));
       m.visible = false;
       m.renderOrder = 15;
@@ -770,11 +772,13 @@ export class Marine {
     }
     this.spray.update(dt, 9);
     this.white.update(dt);
+    this.churn.update(dt);
     this.fog.update(dt);
     // The blow rises fast, slows and hangs as it drifts; greyer at night.
     this.blowMist.update(dt, 1.5);
     const day = 0.35 + 0.65 * this.water.shared.uDay.value;
     ((this.blowMist.points.material as THREE.ShaderMaterial).uniforms.uColor.value as THREE.Color).setRGB(0.95 * day, 0.98 * day, day);
+    this.churn.color.setRGB(0.96 * day, 0.985 * day, day);
     this.white.color.setRGB(0.96 * day, 0.985 * day, day);
     this.fog.color.setRGB(0.93 * day, 0.97 * day, day);
   }
@@ -881,11 +885,17 @@ export class Marine {
       const homeDistance = Math.hypot(homeX - w.x, homeZ - w.z);
       if (follow || homeDistance > 45)
         want = THREE.MathUtils.clamp(Marine.turnTo(P.yaw, Math.atan2(homeX - w.x, homeZ - w.z)), -0.65, 0.65);
+      const calf = this.whales.find(other => other.mother === w);
+      const waitForCalf = calf && Math.hypot(calf.x - w.x, calf.z - w.z) > 10;
+      if (waitForCalf) {
+        w.seek = null;
+        want = THREE.MathUtils.clamp(Marine.turnTo(P.yaw, Math.atan2(calf.x - w.x, calf.z - w.z)), -0.65, 0.65);
+      }
       // Never into the shallows (this wins over everything else).
       want = this.shallowsTurn(w) ?? want;
       w.turnRate += (want - w.turnRate) * Math.min(1, dt * 0.8);
       P.yaw += w.turnRate * dt;
-      const sp = MARINE.whaleSpeed * (follow ? THREE.MathUtils.clamp(homeDistance / 4, 0.25, 1.8) : 1);
+      const sp = MARINE.whaleSpeed * (follow ? THREE.MathUtils.clamp(homeDistance / 4, 0.25, 1.8) : waitForCalf ? 0.15 : 1);
       w.x += Math.sin(P.yaw) * sp * dt;
       w.z += Math.cos(P.yaw) * sp * dt;
       w.heading = P.yaw;
@@ -904,7 +914,7 @@ export class Marine {
         this.rise(w);
       }
       w.nextRise -= dt;
-      if (!w.mother && w.state === 'swim' && !w.seek && w.nextRise <= 0) {
+      if (!w.mother && (!calf || (calf.state === 'swim' && Math.hypot(calf.x - w.x, calf.z - w.z) < 6)) && w.state === 'swim' && !w.seek && w.nextRise <= 0) {
         w.nextRise = MARINE.riseEvery[0] + this.rng.next() * (MARINE.riseEvery[1] - MARINE.riseEvery[0]);
         // Prefer coming up where the player is looking.
         const near = Math.hypot(w.x - camTarget.x, w.z - camTarget.z) < 90;
@@ -912,7 +922,7 @@ export class Marine {
       }
       w.nextSpout -= dt;
       if (w.state === 'swim' && !w.seek && w.nextSpout <= 0) {
-        if (this.bedAt(w.x, w.z) < -4.2) {
+        if (this.bedAt(w.x, w.z) < -4.2 && (!follow || homeDistance < 8) && (!calf || (!waitForCalf && calf.state === 'swim'))) {
           this.surface(w);
           // Never come right up in the middle of (or just after) a quiet breath.
           w.nextRise = Math.max(w.nextRise, 22);
@@ -1245,23 +1255,29 @@ export class Marine {
       const up = ph < Math.PI;
       const u = ph / Math.PI;
       const big = d.spin ? 1.45 : 1;
-      d.y = up ? Math.sin(u * Math.PI) * MARINE.leapHeight * d.leapH * big : -0.32 - Math.sin((u - 1) * Math.PI) * 0.22;
-      d.pitch = up ? Math.cos(u * Math.PI) * 0.9 : Math.cos((u - 1) * Math.PI) * 0.18;
+      d.y = up ? Math.sin(u * Math.PI) * MARINE.leapHeight * d.leapH * big : -Math.sin((u - 1) * Math.PI) * 0.65;
+      d.pitch = Math.cos(ph) * 0.75;
       // Splashes (rings and sound only near the camera: the droplets are cheap, rings are draw calls).
       const near = !camTarget || Math.abs(d.x - camTarget.x) + Math.abs(d.z - camTarget.z) < 110;
       if (up && !d.wasUp) {
         d.spin = this.rng.chance(0.1);
         // Leaving the water: a small burst thrown forward off the head, and a faint ring.
         this.dolphinSplash(d.x, d.z, fx, fz, 16, 1.9, 0.2);
-        if (near) this.ring(d.x, d.z, 0.1, 0.5, 0.8, 0, 0.3);
+        if (near) {
+          this.water.disturb(d.x, d.z, 0.38);
+          this.ring(d.x, d.z, 0.15, 1.2, 2.1, 0, 0.48);
+          this.dolphinChurn(d.x, d.z, fx, fz, false);
+        }
       }
       if (!up && d.wasUp) {
         // Re-entry: a bigger splash, a tight ring of white water, then a spreading ripple.
         const ex = d.x + fx * 0.6, ez = d.z + fz * 0.6;
         this.dolphinSplash(ex, ez, fx, fz, d.spin ? 30 : 24, d.spin ? 2.9 : 2.3, 0.26);
         if (near) {
-          this.ring(ex, ez, 0.1, 0.55, 0.7, 0, 0.7);
-          this.ring(ex, ez, 0.2, 1.1, 1.3, 0.1, 0.38);
+          this.water.disturb(ex, ez, 0.65);
+          this.ring(ex, ez, 0.15, 1.1, 1.8, 0, 0.8);
+          this.ring(ex, ez, 0.3, 2.0, 3.0, 0.15, 0.5);
+          this.dolphinChurn(ex, ez, fx, fz, true);
           if (d.spin || this.rng.chance(0.06)) this.sfx('splash', ex, ez);
         }
       }
@@ -1283,6 +1299,16 @@ export class Marine {
     // Only as many instances as there are dolphins (spare slots would sit frozen at the map centre).
     this.dolphinMesh.count = this.dolphins.length;
     this.dolphinMesh.instanceMatrix.needsUpdate = true;
+  }
+
+  /** Broken foam stays on the surface after the dolphin has disappeared below it. */
+  private dolphinChurn(x: number, z: number, fx: number, fz: number, landing: boolean): void {
+    for (let k = 0; k < (landing ? 14 : 8); k++) {
+      const a = this.rng.next() * Math.PI * 2, r = this.rng.range(0.12, 0.45);
+      const dx = Math.cos(a), dz = Math.sin(a);
+      this.churn.spawn(x + dx * r - fx * k * 0.035, 0.045, z + dz * r - fz * k * 0.035,
+        dx * 0.2, 0, dz * 0.2, landing ? 2.8 : 1.8, this.rng.range(0.18, 0.3), 0.13, 0.65, 0);
+    }
   }
 
   /** A dolphin-sized splash: the shared droplet burst plus a few drops carried along the direction of travel. */

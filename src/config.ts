@@ -914,7 +914,7 @@ export const MARINE = {
   dolphinLength: 1.15,
   dolphinSpeed: 3.2,
   /** Seconds per porpoising cycle (half leaping, half gliding under). */
-  leapPeriod: 2.1,
+  leapPeriod: 3.2,
   leapHeight: 0.85,
 };
 

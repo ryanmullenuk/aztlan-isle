@@ -23,7 +23,8 @@ test('dolphin sweep rejects rocks between endpoints and beside the body', () => 
 test('marine population has opposite adults and a calf; dolphin routes clear coastal rocks and splash twice per leap', () => {
   const w = new World(); generateIsland(w, WORLD.islandSeed); growIslets(w);
   for (const i of stackCells(w, placeSeaStacks(w, w.seed))) w.blockFixed[i] = 1;
-  const m = new Marine(w, { shared: { uDay: { value: 1 } }, disturb() {} } as any) as any;
+  const disturbances: number[] = [];
+  const m = new Marine(w, { shared: { uDay: { value: 1 } }, disturb(_x: number, _z: number, strength: number) { disturbances.push(strength); } } as any) as any;
   assert.equal(m.whales.length, 3);
   const [first, mother, calf] = m.whales;
   assert.ok(first.x * mother.x + first.z * mother.z < 0);
@@ -33,10 +34,18 @@ test('marine population has opposite adults and a calf; dolphin routes clear coa
   let splashes = 0;
   m.dolphinSplash = () => { splashes++; };
   for (let t = 0; t < 600; t++) {
-    m.updateDolphins(1 / 30, new THREE.Vector3());
+    m.updateDolphins(1 / 30);
     for (const d of m.dolphins) assert.ok(marinePathClear(w, d.x, d.z, d.x, d.z), 'dolphin intersects a rock');
   }
   assert.ok(splashes >= m.dolphins.length * 4);
+  assert.ok(disturbances.includes(0.38), 'take-off displaces the water');
+  assert.ok(disturbances.includes(0.65), 'landing displaces the water');
+  assert.ok(m.rings.some((r: any) => r.life >= 3), 'landing ripples linger');
+  m.dolphinChurn(0, 0, 1, 0, true);
+  m.churn.update(1);
+  const foam = m.churn.points.geometry;
+  const position = foam.getAttribute('position'), alpha = foam.getAttribute('aAlpha');
+  assert.ok(Array.from(alpha.array as Float32Array).some((a, i) => a > 0.05 && position.getY(i) > 0), 'foam remains on the surface after one second');
   let furthest = 0;
   for (let t = 0; t < 1200; t++) {
     m.update(0.1, new THREE.Vector3());
