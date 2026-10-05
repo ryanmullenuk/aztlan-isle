@@ -661,7 +661,7 @@ export class UI {
         <li>At night in first-person view, look up: the stars and the Milky Way are out on a clear night.</li>
         <li>Birds and fish scatter from your cursor.</li>
         <li>Humpback whales cruise the deep water and come up for air now and then, with a tall blow. Tap one to bring it up.</li>
-        <li>Swarms of pink jellyfish drift in the shallows off the beaches. Move the pointer near them and they scatter (they glow at night).</li>
+        <li>Swarms of pink jellyfish drift in the shallows off the beaches. Move the pointer near them and they scatter.</li>
       </ul>`;
     const close = el('button', 'ib small close', ICONS.close);
     close.onclick = () => this.toggle(this.help, false);
