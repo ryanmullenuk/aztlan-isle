@@ -328,12 +328,14 @@ export class Terrain {
         `#include <normal_fragment_maps>
         {
           // Fine relief on rock and earth faces: chiselled, cracked stone instead of smooth plaster.
-          float bk = (vMask.w * 0.9 + (1.0 - vMask.y) * 0.5) * (1.0 - smoothstep(25.0, 60.0, vViewDist)) * step(0.0, vWPos.y);
+          // Ultra carries deeper relief further out.
+          float ultraK = step(0.5, uUltra);
+          float bk = (vMask.w * 0.9 + (1.0 - vMask.y) * 0.5) * (1.0 - smoothstep(mix(25.0, 40.0, ultraK), mix(60.0, 95.0, ultraK), vViewDist)) * step(0.0, vWPos.y);
           if (bk > 0.01) {
             float e = 0.05;
             float h0 = relief(vWPos);
             vec3 g = vec3(relief(vWPos + vec3(e, 0.0, 0.0)) - h0, relief(vWPos + vec3(0.0, e, 0.0)) - h0, relief(vWPos + vec3(0.0, 0.0, e)) - h0) / e;
-            normal = normalize(normal - (viewMatrix * vec4(g * 0.05 * bk, 0.0)).xyz);
+            normal = normalize(normal - (viewMatrix * vec4(g * mix(0.05, 0.085, ultraK) * bk, 0.0)).xyz);
           }
         }`
       )
@@ -465,14 +467,22 @@ export class Terrain {
             float face = (1.0 - vMask.y) * (1.0 - vMask.z);
             float rk = max(vMask.w, face * 0.8);
             if (rk > 0.02) {
+              float ultraR = step(0.5, uUltra);
               float strata = sin(vWPos.y * 11.0 + vn2(xz * 0.5) * 4.0) * 0.5 + 0.5;
-              diffuseColor.rgb *= 1.0 - rk * (1.0 - vMask.y) * strata * 0.12;
+              diffuseColor.rgb *= 1.0 - rk * (1.0 - vMask.y) * strata * mix(0.12, 0.18, ultraR);
               // Short broken cracks (masked by a second noise so they never form continuous contour lines).
               float crack = 1.0 - smoothstep(0.0, 0.02, abs(vn2(vec2(xz.x * 2.6 + vWPos.y * 1.9, xz.y * 2.6 - vWPos.y * 1.1)) - 0.5));
               crack *= smoothstep(0.55, 0.75, vn2(xz * 1.3 + vWPos.y * 0.7 + 21.0));
               diffuseColor.rgb *= 1.0 - crack * rk * 0.22 * nearK;
               float lichen = smoothstep(0.7, 0.85, vn2(xz * 4.0 + 9.0)) * vMask.w * vMask.y * nearK;
               diffuseColor.rgb = mix(diffuseColor.rgb, lin(vec3(0.74, 0.76, 0.5)), lichen * 0.35);
+              if (ultraR > 0.5) {
+                // Mineral grain and weathering stains, faded out before they could shimmer.
+                float fade = 1.0 - smoothstep(0.02, 0.1, length(fwidth(xz)));
+                float grain = vn2(xz * 24.0 + vWPos.y * 9.0) - 0.5;
+                float stain = smoothstep(0.55, 0.85, vn2(vec2(xz.x * 0.8 + xz.y * 0.3, vWPos.y * 2.2)));
+                diffuseColor.rgb *= 1.0 + rk * nearK * (grain * 0.14 * fade - stain * (1.0 - vMask.y) * 0.1);
+              }
             }
           }
           // Stone paths: irregular flagstones with dark joints, ragged edges into the grass.
