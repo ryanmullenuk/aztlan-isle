@@ -365,6 +365,8 @@ export class Game {
       ...this.veg.plants.filter((p) => p.kind === 'searock').map((p) => ({ x: p.x, z: p.z, r: 0.7 * p.scale })),
       ...this.coastRocks.sites.map((r) => ({ x: r.x, z: r.z, r: r.r })),
       ...this.seaStacks.sites.flatMap((s) => [s.main, ...s.rocks].map((r) => ({ x: r.x, z: r.z, r: r.r }))),
+      // A many-coloured coral garden round the feet of the sea arch.
+      ...this.seaArch.coralSpots(),
     ];
     this.tubeCoral = new TubeCoral(this.world, seaRocks);
     this.scene.add(this.tubeCoral.group);
