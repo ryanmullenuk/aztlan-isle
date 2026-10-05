@@ -283,10 +283,11 @@ export function rockGeometry(variant: number, seed: number, reef = false): THREE
   const b = new GeoBuilder();
   // Rocks out on the reef: the same faceted grey stone as the sea rocks, dark and wet all over.
   if (reef) {
-    b.add(angularRockGeometry(seed * 7 + 5, { tilt: 0.25 }), { color: rockColor(0.05, 10) }, M.t(0, 0.05, 0, 0, rng.next() * 6.28, 0, 0.6, 0.5, 0.52));
+    const reefWeed = { y0: -0.3, y1: 0.45, amount: 0.55 };
+    b.add(angularRockGeometry(seed * 7 + 5, { tilt: 0.25 }), { color: rockColor(0.05, 10, reefWeed) }, M.t(0, 0.05, 0, 0, rng.next() * 6.28, 0, 0.6, 0.5, 0.52));
     for (let k = 0; k < variant; k++) {
       const a = rng.range(0, Math.PI * 2), sz = rng.range(0.24, 0.36);
-      b.add(angularRockGeometry(seed * 7 + 9 + k), { color: rockColor(0.05, 10) }, M.t(Math.cos(a) * 0.55, 0, Math.sin(a) * 0.55, 0, rng.next() * 6.28, 0, sz, sz * 0.9, sz * 0.85));
+      b.add(angularRockGeometry(seed * 7 + 9 + k), { color: rockColor(0.05, 10, reefWeed) }, M.t(Math.cos(a) * 0.55, 0, Math.sin(a) * 0.55, 0, rng.next() * 6.28, 0, sz, sz * 0.9, sz * 0.85));
     }
     return b.build();
   }
@@ -313,11 +314,13 @@ export function rockGeometry(variant: number, seed: number, reef = false): THREE
 export function seaRockGeometry(seed: number): THREE.BufferGeometry {
   const rng = new RNG(seed);
   const b = new GeoBuilder();
-  b.add(angularRockGeometry(seed * 7 + 1, { tilt: 0.2 }), { color: rockColor(0.18, 0.22) }, M.t(0, -0.05, 0, 0, rng.next() * 6.28, 0, 0.62, 0.66, 0.55));
+  // One of the two shapes wears sea moss round its waterline.
+  const weed = seed % 2 === 0 ? { y0: -0.2, y1: 0.24, amount: 0.7 } : undefined;
+  b.add(angularRockGeometry(seed * 7 + 1, { tilt: 0.2 }), { color: rockColor(0.18, 0.22, weed) }, M.t(0, -0.05, 0, 0, rng.next() * 6.28, 0, 0.62, 0.66, 0.55));
   const n = rng.int(1, 2);
   for (let k = 0; k < n; k++) {
     const a = rng.range(0, Math.PI * 2), sz = rng.range(0.25, 0.38);
-    b.add(angularRockGeometry(seed * 7 + 3 + k), { color: rockColor(0.1, 0.22) }, M.t(Math.cos(a) * 0.62, -0.08, Math.sin(a) * 0.62, 0, rng.next() * 6.28, 0, sz, sz * 1.1, sz * 0.9));
+    b.add(angularRockGeometry(seed * 7 + 3 + k), { color: rockColor(0.1, 0.22, weed) }, M.t(Math.cos(a) * 0.62, -0.08, Math.sin(a) * 0.62, 0, rng.next() * 6.28, 0, sz, sz * 1.1, sz * 0.9));
   }
   return b.build();
 }
