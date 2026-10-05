@@ -22,6 +22,12 @@ import {
   stumpGeometry,
 } from './models';
 
+/** Which of the two sets of boulder shapes a rock uses (fixed by where it lies). */
+function rockAlt(p: { x: number; z: number }): boolean {
+  const h = Math.sin(Math.floor(p.x * 3.1) * 12.9898 + Math.floor(p.z * 3.1) * 78.233) * 43758.5453;
+  return h - Math.floor(h) < 0.5;
+}
+
 export type PlantKind = 'palm' | 'broadleaf' | 'fern' | 'bush' | 'flowerbush' | 'apple' | 'banana' | 'rock' | 'searock' | 'reef';
 
 export const enum PlantState {
@@ -200,7 +206,10 @@ export class Vegetation {
     mid('bush0', () => bushGeometry(false, false, 41));
     mid('flowerbush0', () => bushGeometry(true, false, 42));
     mid('apple0', () => bushGeometry(false, false, 43, true));
-    for (let v = 0; v < 3; v++) d(`rock${v}`, rockGeometry(v, 61 + v), undefined, false);
+    for (let v = 0; v < 3; v++) {
+      d(`rock${v}`, rockGeometry(v, 61 + v), undefined, false);
+      d(`rock${v}b`, rockGeometry(v, 64 + v, false, true), undefined, false);
+    }
     d('searock0', seaRockGeometry(71), undefined, false);
     d('searock1', seaRockGeometry(72), undefined, false);
     d('reef0', rockGeometry(2, 81, true), undefined, false, false, 1.5);
@@ -435,6 +444,8 @@ export class Vegetation {
 
   /** Batch key for the main mesh of a plant. */
   private mainKey(p: Plant): string {
+    // Boulders come in two sets of shapes, half the rocks of each variant from each.
+    if (p.kind === 'rock' && rockAlt(p)) return `rock${p.variant}b`;
     return `${p.kind}${p.variant}`;
   }
 

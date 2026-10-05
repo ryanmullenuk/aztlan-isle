@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { COLORS } from '../config';
-import { GeoBuilder, M, P, lumpy, ribbon, tube } from '../render/GeoBuilder';
+import { GeoBuilder, M, P, ribbon, tube } from '../render/GeoBuilder';
 import { RNG } from '../world/rng';
-import { angularRockGeometry, rockColor } from '../render/rocks';
+import { angularRockGeometry, boulderGeometry, rockColor } from '../render/rocks';
 import { BARK, FINE, barkTrunk, barkColor, branch, foliage, hangingVine, leafGeometry, liana, roots, trunkVine } from './detail';
 
 const c = (h: number) => new THREE.Color(h);
@@ -26,11 +26,6 @@ const PAL = {
   banana: c(0xf2d33a),
   bananaLeaf: c(0x4d8038),
   bananaTip: c(0x8ca84a),
-  rockTop: c(0xb3a39c),
-  rock: c(COLORS.rock),
-  rockLight: c(COLORS.rockLight),
-  rockLav: c(0x6f6782),
-  moss: c(0x6b8538),
   stumpTop: c(0xdcbb8c),
 };
 
@@ -277,35 +272,75 @@ export function stumpGeometry(): THREE.BufferGeometry {
   return b.build();
 }
 
-/** Rounded chunky rock cluster: warm sunlit top, lavender underside, a little moss. */
-export function rockGeometry(variant: number, seed: number, reef = false): THREE.BufferGeometry {
+/**
+ * Boulders on land, in the island's faceted grey stone: weathered, irregular hulls bedded into
+ * the ground, each face its own shade, lichen flecks and moss on the tops, small chips of stone
+ * round the foot. Variant 0 is one stone, 1 two and 2 a cluster (their footprints match the
+ * stone they hold); `alt` gives a second set of shapes: a tilted slab, a boulder split in two,
+ * and one stone perched on another. Reef rocks are wet grey stone with weed.
+ */
+export function rockGeometry(variant: number, seed: number, reef = false, alt = false): THREE.BufferGeometry {
   const rng = new RNG(seed);
   const b = new GeoBuilder();
   // Rocks out on the reef: the same faceted grey stone as the sea rocks, dark and wet all over.
   if (reef) {
     const reefWeed = { y0: -0.3, y1: 0.45, amount: 0.55 };
-    b.add(angularRockGeometry(seed * 7 + 5, { tilt: 0.25 }), { color: rockColor(0.05, 10, reefWeed) }, M.t(0, 0.05, 0, 0, rng.next() * 6.28, 0, 0.6, 0.5, 0.52));
+    b.add(angularRockGeometry(seed * 7 + 5, { tilt: 0.25 }), { facet: true, color: rockColor(0.05, 10, reefWeed) }, M.t(0, 0.05, 0, 0, rng.next() * 6.28, 0, 0.6, 0.5, 0.52));
     for (let k = 0; k < variant; k++) {
       const a = rng.range(0, Math.PI * 2), sz = rng.range(0.24, 0.36);
-      b.add(angularRockGeometry(seed * 7 + 9 + k), { color: rockColor(0.05, 10, reefWeed) }, M.t(Math.cos(a) * 0.55, 0, Math.sin(a) * 0.55, 0, rng.next() * 6.28, 0, sz, sz * 0.9, sz * 0.85));
+      b.add(angularRockGeometry(seed * 7 + 9 + k), { facet: true, color: rockColor(0.05, 10, reefWeed) }, M.t(Math.cos(a) * 0.55, 0, Math.sin(a) * 0.55, 0, rng.next() * 6.28, 0, sz, sz * 0.9, sz * 0.85));
     }
     return b.build();
   }
-  const count = variant === 0 ? 1 : variant === 1 ? 2 : 3;
-  for (let k = 0; k < count; k++) {
-    const rad = k === 0 ? 0.62 : rng.range(0.28, 0.42);
-    const a = rng.range(0, Math.PI * 2);
-    const off = k === 0 ? 0 : 0.55;
-    const g = lumpy(P.sphere(rad, 1), 0.22, seed * 31 + k, rng.range(0.55, 0.75));
-    b.add(g, {
-      color: (p, nn) => {
-        let col = mix(PAL.rockLav, PAL.rock, nn.y * 0.6 + 0.5);
-        col = mix(col, PAL.rockTop, Math.max(0, nn.y - 0.2) * 1.1);
-        const mossy = nn.y > 0.7 && Math.sin(p.x * 11 + p.z * 7) > 0.25;
-        return mossy ? mix(col, PAL.moss, 0.65) : col;
-      },
-      ao: { y0: -0.1, y1: 0.35, min: 0.72 },
-    }, M.t(Math.cos(a) * off, rad * 0.3, Math.sin(a) * off, rng.next(), rng.next() * 3, rng.next()));
+  const stone = (moss: number) => ({ facet: true, color: rockColor(moss), ao: { y0: -0.12, y1: 0.42, min: 0.66 } });
+  const put = (g: THREE.BufferGeometry, x: number, z: number, rx: number, rz: number, y = 0, moss = 0.32, tilt = 0) =>
+    b.add(g, stone(moss), M.t(x, y, z, tilt * rng.range(-1, 1), rng.next() * 6.28, tilt * rng.range(-1, 1), rx, 1, rz));
+  /** Chips and pebbles scattered round the foot. */
+  const chips = (n: number, r0: number, r1: number) => {
+    for (let k = 0; k < n; k++) {
+      const a = rng.range(0, Math.PI * 2), d = rng.range(r0, r1), sz = rng.range(0.07, 0.15);
+      put(boulderGeometry(seed * 13 + 40 + k, { points: 9, height: sz * 1.1, sink: 0.04 }), Math.cos(a) * d, Math.sin(a) * d, sz, sz * rng.range(0.7, 1), 0, 0.1);
+    }
+  };
+  if (!alt) {
+    if (variant === 0) {
+      put(boulderGeometry(seed * 13 + 1, { height: 0.78, points: 17 }), 0, 0, 0.66, 0.58);
+      chips(3, 0.62, 0.85);
+    } else if (variant === 1) {
+      put(boulderGeometry(seed * 13 + 1, { height: 0.72 }), -0.12, 0, 0.56, 0.5);
+      const a = rng.range(0, Math.PI * 2);
+      put(boulderGeometry(seed * 13 + 2, { height: 0.5, lean: [0.12, 0] }), Math.cos(a) * 0.55, Math.sin(a) * 0.55, 0.36, 0.32, 0, 0.25, 0.18);
+      chips(3, 0.6, 0.95);
+    } else {
+      put(boulderGeometry(seed * 13 + 1, { height: 0.85 }), 0, 0, 0.5, 0.46);
+      for (let k = 0; k < 2; k++) {
+        const a = rng.range(0, Math.PI * 2) + k * 2.6, sz = rng.range(0.28, 0.4);
+        put(boulderGeometry(seed * 13 + 2 + k, { height: sz * 1.4 }), Math.cos(a) * 0.58, Math.sin(a) * 0.58, sz, sz * 0.88, 0, 0.25, 0.15);
+      }
+      chips(5, 0.55, 1.0);
+    }
+  } else if (variant === 0) {
+    // A tilted slab, its top sheared flat, with a thinner leaf of the same bed beside it.
+    put(boulderGeometry(seed * 13 + 1, { height: 0.55, flat: 1, points: 14, lean: [0.1, 0] }), 0, 0, 0.74, 0.58, 0, 0.45, 0.08);
+    put(boulderGeometry(seed * 13 + 2, { height: 0.24, flat: 1, points: 10 }), 0.5, 0.36, 0.34, 0.24, 0, 0.2, 0.1);
+    chips(3, 0.7, 0.95);
+  } else if (variant === 1) {
+    // A boulder cracked in two, the halves just parted.
+    const turn = rng.next() * 6.28, ca = Math.cos(turn), sa = Math.sin(turn);
+    for (const half of [-1, 1] as const) {
+      const g = boulderGeometry(seed * 13 + 1, { height: 0.8, half, gap: 0.04, points: 18, lean: [0, 0] });
+      b.add(g, stone(0.32), M.t(ca * half * 0.05, 0, -sa * half * 0.05, 0, turn, half * 0.06, 0.62, 1, 0.55));
+    }
+    chips(4, 0.6, 0.9);
+  } else {
+    // One stone perched on another.
+    put(boulderGeometry(seed * 13 + 1, { height: 0.5, flat: 0.8 }), 0, 0, 0.66, 0.6, 0, 0.3);
+    put(boulderGeometry(seed * 13 + 2, { height: 0.46, sink: 0.04 }), rng.range(-0.1, 0.1), rng.range(-0.1, 0.1), 0.36, 0.32, 0.44, 0.4, 0.12);
+    for (let k = 0; k < 2; k++) {
+      const a = rng.range(0, Math.PI * 2) + k * 2.8, sz = rng.range(0.22, 0.3);
+      put(boulderGeometry(seed * 13 + 3 + k, { height: sz * 1.3 }), Math.cos(a) * 0.7, Math.sin(a) * 0.7, sz, sz * 0.9, 0, 0.2, 0.12);
+    }
+    chips(4, 0.6, 1.0);
   }
   return b.build();
 }
@@ -316,11 +351,11 @@ export function seaRockGeometry(seed: number): THREE.BufferGeometry {
   const b = new GeoBuilder();
   // One of the two shapes wears sea moss round its waterline.
   const weed = seed % 2 === 0 ? { y0: -0.2, y1: 0.24, amount: 0.7 } : undefined;
-  b.add(angularRockGeometry(seed * 7 + 1, { tilt: 0.2 }), { color: rockColor(0.18, 0.22, weed) }, M.t(0, -0.05, 0, 0, rng.next() * 6.28, 0, 0.62, 0.66, 0.55));
+  b.add(angularRockGeometry(seed * 7 + 1, { tilt: 0.2 }), { facet: true, color: rockColor(0.18, 0.22, weed) }, M.t(0, -0.05, 0, 0, rng.next() * 6.28, 0, 0.62, 0.66, 0.55));
   const n = rng.int(1, 2);
   for (let k = 0; k < n; k++) {
     const a = rng.range(0, Math.PI * 2), sz = rng.range(0.25, 0.38);
-    b.add(angularRockGeometry(seed * 7 + 3 + k), { color: rockColor(0.1, 0.22, weed) }, M.t(Math.cos(a) * 0.62, -0.08, Math.sin(a) * 0.62, 0, rng.next() * 6.28, 0, sz, sz * 1.1, sz * 0.9));
+    b.add(angularRockGeometry(seed * 7 + 3 + k), { facet: true, color: rockColor(0.1, 0.22, weed) }, M.t(Math.cos(a) * 0.62, -0.08, Math.sin(a) * 0.62, 0, rng.next() * 6.28, 0, sz, sz * 1.1, sz * 0.9));
   }
   return b.build();
 }
