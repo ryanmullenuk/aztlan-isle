@@ -27,7 +27,7 @@ export class CanoePassenger extends THREE.Group {
     const body = new THREE.Group();
     body.scale.setScalar(this.bodyScale * (g === 'f' ? 0.98 : 1));
     // Hips sit just above the bench; feet rest inside the hull.
-    body.position.y = 0.37;
+    body.position.y = 0.4;
     this.add(body);
     // Seated: thighs forward along the bench, shins down, hands resting forward on the knees.
     const geo = bakePose(models[g], {

@@ -7,6 +7,7 @@ import { GeoBuilder, M, P } from '../render/GeoBuilder';
 import { patchStylised } from '../render/materials';
 import { Vegetation } from '../vegetation/Vegetation';
 import { SEA_SURFACE, Water } from '../water/Water';
+import { WakeTrails } from './Wake';
 import { Particles } from '../render/Particles';
 export { Particles };
 import { World } from '../world/World';
@@ -67,8 +68,8 @@ interface Boat extends Vessel {
 /** Boats were oversized next to islanders. */
 export const BOAT_SCALE = 0.65;
 /** Half length and half beam of a fishing boat's hull (world units at BOAT_SCALE). */
-export const HULL_HALF = 1.05 * BOAT_SCALE;
-export const HULL_BEAM = 0.32 * BOAT_SCALE;
+export const HULL_HALF = 1.16 * BOAT_SCALE;
+export const HULL_BEAM = 0.37 * BOAT_SCALE;
 
 /** Hull and sail colours. */
 export interface BoatLook {
@@ -86,19 +87,123 @@ export interface BoatLook {
 /** The village's own boats: red-ochre hulls, cream sails with gold stripes. */
 export const HOME_LOOK: BoatLook = { hull: 0xb8452f, keel: 0x8b5a34, inner: 0x5e3a22, deck: 0x7a4e2e, rim: 0xd8b04a, sail: 0xf4ecd8, stripe: 0xd4a017 };
 
+/** Canoe hull proportions (local units, before BOAT_SCALE): half length, half beam, depth and gunwale height. */
+const CANOE = { len: 1.16, beam: 0.37, depth: 0.2, top: 0.2 };
+/** Half width, depth and gunwale height of the hull at t (-1 stern … 1 bow): pointed ends, upswept sheer. */
+const canoeW = (t: number) => CANOE.beam * Math.pow(Math.max(0, 1 - Math.abs(t) ** 2.4), 0.6);
+const canoeD = (t: number) => CANOE.depth * (0.35 + 0.65 * Math.sqrt(Math.max(0, 1 - t * t)));
+const canoeTop = (t: number) => CANOE.top + 0.075 * Math.abs(t) ** 4;
+/** Deterministic roughness, so every canoe is hand-hewn the same way (and nothing flickers). */
+const rough = (a: number, b: number) => {
+  const h = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
+  return h - Math.floor(h) - 0.5;
+};
+
+/**
+ * One skin of the dugout hull as loose triangles (so it shades in flat, hand-adzed facets): the
+ * outside, or the inside a plank's thickness in. Rings run bow to stern, each a U across the beam.
+ */
+function canoeSkin(inner: boolean): THREE.BufferGeometry {
+  const R = 22, M = 8, thick = 0.032, pts: THREE.Vector3[][] = [];
+  for (let i = 0; i <= R; i++) {
+    const t = (i / R) * 2 - 1, ring: THREE.Vector3[] = [];
+    const end = Math.abs(t) > 0.97;
+    for (let j = 0; j <= M; j++) {
+      const th = (j / M - 0.5) * Math.PI;
+      const w = Math.max(0, canoeW(t) - (inner ? thick : 0)), d = Math.max(0.02, canoeD(t) - (inner ? thick : 0));
+      const jit = end ? 0 : 0.011;
+      ring.push(new THREE.Vector3(
+        w * Math.sin(th) + rough(i, j) * jit,
+        canoeTop(t) - d * Math.pow(Math.cos(th), 0.7) + rough(j, i) * jit * 0.8 + (inner ? 0 : 0),
+        t * CANOE.len * (inner ? 0.97 : 1),
+      ));
+    }
+    pts.push(ring);
+  }
+  const pos: number[] = [];
+  const tri = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3) => {
+    if (inner) pos.push(a.x, a.y, a.z, c.x, c.y, c.z, b.x, b.y, b.z);
+    else pos.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
+  };
+  for (let i = 0; i < R; i++) for (let j = 0; j < M; j++) {
+    const a = pts[i][j], b = pts[i + 1][j], c = pts[i + 1][j + 1], d = pts[i][j + 1];
+    tri(a, c, b);
+    tri(a, d, c);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  return g;
+}
+
+/** A rough log rail laid along one gunwale (side -1 port, 1 starboard). */
+function gunwaleRail(side: number): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  const N = 12;
+  for (let k = 0; k < N; k++) {
+    const t0 = (k / N) * 1.9 - 0.95, t1 = ((k + 1) / N) * 1.9 - 0.95;
+    const a = new THREE.Vector3(side * canoeW(t0), canoeTop(t0) + 0.012, t0 * CANOE.len);
+    const b = new THREE.Vector3(side * canoeW(t1), canoeTop(t1) + 0.012, t1 * CANOE.len);
+    const len = a.distanceTo(b);
+    const seg = new THREE.BoxGeometry(0.042 + rough(k, side) * 0.01, 0.038, len * 1.04).toNonIndexed();
+    const m = new THREE.Matrix4().lookAt(a, b, new THREE.Vector3(0, 1, 0));
+    m.setPosition(a.clone().add(b).multiplyScalar(0.5));
+    seg.applyMatrix4(m);
+    parts.push(seg);
+  }
+  const pos: number[] = [];
+  for (const g of parts) pos.push(...(g.getAttribute('position').array as Float32Array));
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  return g;
+}
+
+/**
+ * A hand-built wooden canoe: a dugout hull hewn in flat facets, plank strakes with butt joints and
+ * a painted top strake, rough log gunwales, two seat planks for the crew, a slatted floor, and
+ * upswept prow and stern posts bound with cord. Optionally a mast and striped sail.
+ */
 export function boatGeometry(sail: boolean, look: BoatLook = HOME_LOOK): THREE.BufferGeometry {
   const b = new GeoBuilder();
-  const hull = new THREE.SphereGeometry(1, 14, 6, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
-  b.add(hull, { color: (p) => (p.y > -0.05 ? new THREE.Color(look.hull) : new THREE.Color(look.keel)) }, M.t(0, 0.18, 0, 0, 0, 0, 0.32, 0.22, 1.05));
-  // Inner hull and deck: the half-sphere shell alone is see-through from above.
-  b.add(hull.clone().scale(-1, 1, 1), { color: look.inner }, M.t(0, 0.18, 0, 0, 0, 0, 0.29, 0.19, 1.0));
-  b.add(new THREE.CircleGeometry(1, 14).rotateX(-Math.PI / 2), { color: look.deck }, M.t(0, 0.1, 0, 0, 0, 0, 0.27, 1, 0.95));
-  // Gunwale rim.
-  b.add(new THREE.TorusGeometry(1, 0.04, 4, 20).rotateX(Math.PI / 2), { color: look.rim }, M.t(0, 0.185, 0, 0, 0, 0, 0.32, 1, 1.05));
-  b.add(P.box(0.5, 0.03, 0.08), { color: 0x6e4428 }, M.t(0, 0.16, 0.3));
-  b.add(P.box(0.5, 0.03, 0.08), { color: 0x6e4428 }, M.t(0, 0.16, -0.35));
+  const wood = [0x7a5233, 0x8a5e3a, 0x6c4729, 0x946a42, 0x75502f];
+  const shade = (hex: number, k: number) => new THREE.Color(hex).multiplyScalar(k);
+  // Outside: a painted band along the top strake, weathered plank strakes below, a dark keel.
+  b.add(canoeSkin(false), {
+    color: (p) => {
+      const t = Math.max(-1, Math.min(1, p.z / CANOE.len));
+      const s = (canoeTop(t) - p.y) / canoeD(t);
+      const grain = 0.9 + rough(Math.round(p.z * 9), Math.round(p.y * 40)) * 0.16;
+      if (s > 0.86) return shade(look.keel, grain * 0.85);
+      if (s < 0.2) return shade(look.hull, grain);
+      const strake = Math.floor(s * 5);
+      const joint = Math.floor((p.z + 3) / 0.62 + strake * 0.45);
+      return shade(wood[(strake * 3 + joint) % wood.length], grain * (0.92 + rough(strake, joint) * 0.14));
+    },
+  });
+  // Inside: darker, oiled timber with the same plank lines.
+  b.add(canoeSkin(true), {
+    color: (p) => {
+      const strake = Math.floor((CANOE.top - p.y) / 0.045);
+      return shade(look.inner, 0.85 + rough(strake, Math.floor((p.z + 3) / 0.7)) * 0.3);
+    },
+  });
+  // Rough log gunwales over the joint between the skins.
+  for (const side of [-1, 1]) b.add(gunwaleRail(side), { color: (p) => shade(0x5a3a20, 0.9 + rough(Math.round(p.z * 12), side) * 0.25) });
+  // Slatted floor and two seat planks (the crew sit on these).
+  for (let k = -2; k <= 2; k++) {
+    b.add(P.box(0.07, 0.014, 1.5), { color: shade(look.deck, 0.88 + rough(k, 3) * 0.24) }, M.t(k * 0.075, 0.075, -0.02));
+  }
+  for (const [z, w] of [[0.36, 0.62], [-0.32, 0.64]] as const) {
+    b.add(P.box(w, 0.032, 0.11), { color: shade(0x6e4428, 0.95) }, M.t(0, 0.165, z, 0, rough(z, 1) * 0.06, 0));
+  }
+  // Upswept prow and stern posts, lashed with cord; a painted knob on the prow.
+  for (const end of [1, -1]) {
+    const z = end * CANOE.len * 0.97, y = canoeTop(1) + 0.02;
+    b.add(P.box(0.05, 0.17, 0.07), { color: shade(look.keel, 1.05) }, M.t(0, y, z, end * 0.35, 0, 0));
+    for (const dy of [-0.05, 0.0]) b.add(new THREE.TorusGeometry(0.034, 0.009, 3, 8).rotateX(Math.PI / 2), { color: 0xd8c79a }, M.t(0, y + dy, z - end * 0.012));
+  }
+  b.add(P.sphere(0.04, 1), { color: look.rim }, M.t(0, canoeTop(1) + 0.12, CANOE.len * 1.0));
   // Net pile at the stern.
-  b.add(P.sphere(0.12, 1), { color: 0xd9c9a0 }, M.t(0, 0.15, -0.65, 0, 0, 0, 1.2, 0.5, 1));
+  b.add(P.sphere(0.12, 1), { color: 0xd9c9a0 }, M.t(0, 0.13, -0.66, 0, 0, 0, 1.2, 0.5, 1));
   if (sail) {
     b.add(P.cyl(0.015, 0.02, 1.1, 5), { color: 0x6e4428 }, M.t(0, 0.7, 0.35));
     const s = new THREE.Shape();
@@ -238,45 +343,49 @@ class Ripples {
   }
 }
 
-/** Soft foam wakes, splashes and ripple rings on the sea surface, shared by every boat. */
+/** Animated foam wakes, spray, splashes and ripple rings on the sea surface, shared by every boat. */
 export class SeaFx {
   readonly group = new THREE.Group();
   readonly splash = new Particles(240, 0xe8fbff);
-  private foam = new Particles(1600, 0xf5fbff, BOATS.wakeOpacity);
+  /** Fine white spray thrown off the bow (falls back under gravity). */
+  private spray = new Particles(500, 0xffffff, 0.9);
+  readonly trails = new WakeTrails();
   private rings = new Ripples(64);
 
   constructor() {
-    this.group.add(this.foam.points, this.splash.points, this.rings.mesh);
+    this.group.add(this.trails.mesh, this.spray.points, this.splash.points, this.rings.mesh);
   }
 
   /**
-   * A gentle continuous wake: foam puffs laid every BOATS.wakeSpacing sailed, so a faster boat
-   * leaves a longer, wider, livelier trail and a boat drifting slowly barely any.
+   * The wake behind a boat under way: two arms of broken foam peeling off the bow in a V and a
+   * churned trail behind the stern, stronger and wider the faster it goes, with spray flicked off
+   * the bow when it's moving well. A boat drifting slowly barely leaves any.
    * @param top the boat's cruising speed (sets how strong the wake is at a given speed)
    */
   wake(v: Vessel, dt: number, half: number, beam: number, top: number): void {
     const s = Math.min(1.2, Math.max(0, v.speed) / top);
+    const size = half / HULL_HALF;
+    this.trails.record(v, half, beam, size, s);
     if (s < 0.06) {
       v.wakeAcc = 0;
       return;
     }
     v.wakeAcc += v.speed * dt;
-    const size = half / HULL_HALF;
-    const y = SEA_SURFACE + 0.05;
+    const y = SEA_SURFACE + 0.06;
     const fx = Math.sin(v.heading), fz = Math.cos(v.heading), px = Math.cos(v.heading), pz = -Math.sin(v.heading);
     while (v.wakeAcc > BOATS.wakeSpacing) {
       v.wakeAcc -= BOATS.wakeSpacing;
-      const sx = v.x - fx * half * 0.9, sz = v.z - fz * half * 0.9;
-      // Two arms spreading outward from the stern quarters (the V), and a faint trail between them.
-      const spread = (0.1 + 0.28 * s) * size;
+      if (s < 0.35) continue;
+      // Spray flicked up off each side of the bow, and the odd droplet from the stern.
       for (const side of [-1, 1]) {
-        this.foam.spawn(sx + px * beam * 0.8 * side, y, sz + pz * beam * 0.8 * side, px * spread * side - fx * 0.04, 0, pz * spread * side - fz * 0.04, 1.3 + 1.5 * s, (0.13 + 0.13 * s) * size, (0.16 + 0.22 * s) * size);
+        if (Math.random() > 0.35 + 0.5 * s) continue;
+        const bx = v.x + fx * half * 0.7 + px * beam * 0.7 * side, bz = v.z + fz * half * 0.7 + pz * beam * 0.7 * side;
+        const out = (0.25 + Math.random() * 0.45) * size * s;
+        this.spray.spawn(bx, y, bz, px * out * side + fx * 0.15, (0.55 + Math.random() * 0.6) * Math.sqrt(size) * s, pz * out * side + fz * 0.15, 0.45 + Math.random() * 0.35, (0.035 + Math.random() * 0.03) * size, -0.02);
       }
-      this.foam.spawn(sx, y, sz, 0, 0, 0, 1 + 1.6 * s, (0.18 + 0.1 * s) * size, 0.28 * s * size);
-      // A little bow wave when under way.
-      if (s > 0.5 && Math.random() < 0.5) {
-        const bx = v.x + fx * half * 0.8, bz = v.z + fz * half * 0.8, side = Math.random() < 0.5 ? -1 : 1;
-        this.foam.spawn(bx + px * beam * side, y, bz + pz * beam * side, px * spread * 1.3 * side, 0, pz * spread * 1.3 * side, 0.7, 0.1 * size, 0.18 * size);
+      if (Math.random() < 0.25 * s) {
+        const sx = v.x - fx * half * 0.85 + (Math.random() - 0.5) * beam, sz = v.z - fz * half * 0.85 + (Math.random() - 0.5) * beam;
+        this.spray.spawn(sx, y, sz, (Math.random() - 0.5) * 0.3, 0.35 + Math.random() * 0.3, (Math.random() - 0.5) * 0.3, 0.4, 0.04 * size, -0.02);
       }
     }
   }
@@ -287,7 +396,8 @@ export class SeaFx {
   }
 
   update(dt: number): void {
-    this.foam.update(dt);
+    this.trails.update(dt);
+    this.spray.update(dt, 3.2);
     this.splash.update(dt, 3);
     this.rings.update(dt);
   }
