@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import { stylisedMaterial } from '../render/materials';
+import { boulderGeometry } from '../render/rocks';
+import { bushGeometry } from '../vegetation/models';
 import { World } from '../world/World';
 import { RNG } from '../world/rng';
 
@@ -297,11 +300,12 @@ export class Volcano {
     this.craterLight.position.set(0.38, 9.7, 0); this.group.add(this.craterLight);
     // Batched angular outcrops and scrub nest the mountain into its jungle island.
     const rng = new RNG(w.seed + 9817), dummy = new THREE.Object3D();
-    const rockGeo = new THREE.IcosahedronGeometry(1, 0);
+    // Weathered, fractured boulders (centred like a unit ball, so they sit as the old blocks did).
+    const rockGeo = boulderGeometry(w.seed * 3 + 77, { height: 1.3, sink: 0.35, points: 18 }).translate(0, -0.45, 0);
     const outcrops = new THREE.InstancedMesh(rockGeo,
       texturedRock(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, flatShading: true })), 18);
-    const shrubs = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 0),
-      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, flatShading: true }), 240);
+    // The island's own leafy bushes (swaying in the wind), not green blocks.
+    const shrubs = new THREE.InstancedMesh(bushGeometry(false, true, w.seed * 5 + 41), stylisedMaterial(), 240);
     for (const [mesh, vegetation] of [[outcrops, false], [shrubs, true]] as const) {
       for (let i = 0; i < mesh.count; i++) {
         const f = rng.range(vegetation ? 0.40 : 0.25, 0.98);
@@ -311,11 +315,13 @@ export class Volcano {
         const size = rng.range(vegetation ? 0.18 : 0.25, vegetation ? 0.72 : 0.95);
         dummy.position.copy(point);
         const ground = (w.heightAt(this.x + point.x * 1.5, this.z + point.z * 1.4) - y) / 2.15;
-        dummy.position.y = Math.max(point.y, ground) + (vegetation ? 0.12 : size * 0.35);
+        dummy.position.y = Math.max(point.y, ground) + (vegetation ? -0.02 : size * 0.35);
         dummy.rotation.set(rng.range(-0.15, 0.15), angle, rng.range(-0.2, 0.2));
-        dummy.scale.set(size, size * (vegetation ? 0.65 : rng.range(0.7, 1.4)), size);
+        // Bushes are squashed against the mountain's tall scale so they keep their shape.
+        if (vegetation) dummy.scale.set(size * 1.8, size * 1.8 * 0.7, size * 1.8);
+        else dummy.scale.set(size, size * rng.range(0.7, 1.4), size);
         dummy.updateMatrix(); mesh.setMatrixAt(i, dummy.matrix);
-        mesh.setColorAt(i, new THREE.Color(vegetation ? 0x628c32 : 0x737d87).multiplyScalar(rng.range(0.65, 1.15)));
+        mesh.setColorAt(i, vegetation ? new THREE.Color().setScalar(rng.range(0.82, 1.08)) : new THREE.Color(0x737d87).multiplyScalar(rng.range(0.65, 1.15)));
       }
       mesh.castShadow = true; mesh.receiveShadow = true; this.group.add(mesh);
     }
@@ -326,12 +332,11 @@ export class Volcano {
     crag.position.copy(cragPoint); crag.position.y += 0.7;
     crag.rotation.y = 0.65; crag.scale.set(0.70, 1, 0.60);
     crag.castShadow = true; crag.receiveShadow = true; this.group.add(crag);
-    const cragShrubs = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 0),
-      new THREE.MeshStandardMaterial({ color: 0x729339, roughness: 1, flatShading: true }), 12);
+    const cragShrubs = new THREE.InstancedMesh(shrubs.geometry, stylisedMaterial(), 12);
     for (let i = 0; i < 12; i++) {
       const a = i * 2.4, r = rng.range(0, 0.30);
-      dummy.position.set(cragPoint.x + Math.cos(a) * r, cragPoint.y + 2.07, cragPoint.z + Math.sin(a) * r);
-      dummy.rotation.set(0, a, 0); dummy.scale.set(0.22, 0.15, 0.22); dummy.updateMatrix();
+      dummy.position.set(cragPoint.x + Math.cos(a) * r, cragPoint.y + 2.0, cragPoint.z + Math.sin(a) * r);
+      dummy.rotation.set(0, a, 0); dummy.scale.set(0.4, 0.28, 0.4); dummy.updateMatrix();
       cragShrubs.setMatrixAt(i, dummy.matrix);
     }
     cragShrubs.castShadow = true; this.group.add(cragShrubs);
