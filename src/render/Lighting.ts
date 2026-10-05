@@ -65,6 +65,8 @@ export class Lighting {
     this.sun.shadow.bias = -0.0006;
     // Larger normal offset: no shadow acne patterns on smooth hillsides.
     this.sun.shadow.normalBias = 0.07;
+    // A gentle PCF penumbra keeps the faceted trees' ground shadows soft.
+    this.sun.shadow.radius = 1.6;
     const sc = this.sun.shadow.camera;
     sc.near = 1;
     sc.far = 400;

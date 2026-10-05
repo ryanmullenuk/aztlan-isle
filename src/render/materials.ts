@@ -90,14 +90,41 @@ export function setCanopyFade(cut: number): void {
 }
 
 let tree: THREE.MeshStandardMaterial | null = null;
-/** Stylised material for trees, with the see-through effect when zoomed in. */
+/** Flat facets with a restrained green-black silhouette, in the existing tree draw call. */
+function patchTreeStyle(mat: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial {
+  mat.flatShading = true;
+  const prev = mat.onBeforeCompile;
+  mat.onBeforeCompile = (shader, renderer) => {
+    prev.call(mat, shader, renderer);
+    // Keep the interpolated model normal for the silhouette while the lighting
+    // uses flat face normals. Otherwise whole grazing facets turn into black bands.
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vTreeEdgeNormal;')
+      .replace('#include <defaultnormal_vertex>', '#include <defaultnormal_vertex>\nvTreeEdgeNormal = normalize(transformedNormal);');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vTreeEdgeNormal;')
+      .replace('#include <opaque_fragment>', `
+        {
+          float facing = abs(dot(normalize(vTreeEdgeNormal), normalize(vViewPosition)));
+          float edge = 1.0 - smoothstep(0.06, 0.24, facing);
+          // Fade tiny distant outlines so a zoomed-out forest stays green.
+          float nearby = 1.0 - smoothstep(45.0, 110.0, length(vViewPosition));
+          float ink = edge * nearby * mix(0.28, 0.52, vLeaf);
+          outgoingLight = mix(outgoingLight, outgoingLight * vec3(0.22, 0.30, 0.24), ink);
+        }
+        #include <opaque_fragment>`);
+  };
+  return mat;
+}
+
+/** Stylised tree material, retaining wind and the close-up see-through effect. */
 export function treeMaterial(): THREE.MeshStandardMaterial {
-  if (!tree) tree = patchSeeThrough(patchStylised(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0 })), 'tree');
+  if (!tree) tree = patchSeeThrough(patchTreeStyle(patchStylised(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 }), 0.12)), 'tree-faceted-outline-v1');
   return tree;
 }
 let treeDouble: THREE.MeshStandardMaterial | null = null;
 export function treeMaterialDouble(): THREE.MeshStandardMaterial {
-  if (!treeDouble) treeDouble = patchSeeThrough(patchStylised(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, metalness: 0, side: THREE.DoubleSide })), 'tree-double');
+  if (!treeDouble) treeDouble = patchSeeThrough(patchTreeStyle(patchStylised(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, side: THREE.DoubleSide }), 0.12)), 'tree-double-faceted-outline-v1');
   return treeDouble;
 }
 
