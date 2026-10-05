@@ -676,3 +676,8 @@ p.warn { color: #ffb08a; }
 .alert-entry { padding: 10px 0; border-top: 1px solid var(--panel-border); }
 .alert-entry p { margin: 0 0 8px; }
 .alert-entry button { display: inline-flex; margin-right: 8px; }
+
+/* Keep the current speed inside the time control, above its lower border. */
+#hud .ib.ff { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 3px; }
+#hud .ib.ff svg { width: 19px; height: 19px; flex: 0 0 19px; }
+#hud .ib.ff .ff-x { position: static; display: block; font-size: 8px; line-height: 9px; }

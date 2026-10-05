@@ -108,3 +108,23 @@ test('an eruption brims the lake, spills rounded lobes and fountains, under a de
   assert.ok(smoke.filter(o => o.visible).length > 30);
   assert.ok(smoke.every(o => o.renderOrder > 10));
 });
+
+test('uncalmed eruptions charge once, including a large time step; calming avoids the charge', () => {
+  const v = new VolcanoCycle(42);
+  let belief = 100, penalties = 0;
+  v.onErupt = () => { belief = Math.max(0, belief - 75); penalties++; };
+  v.update(451);
+  assert.equal(belief, 25); assert.equal(penalties, 1);
+  v.update(50);
+  assert.equal(penalties, 1);
+  const calmed = new VolcanoCycle(42);
+  calmed.onErupt = v.onErupt;
+  calmed.update(150);
+  calmed.calm(() => true);
+  calmed.update(30);
+  assert.equal(penalties, 1);
+  const skipped = new VolcanoCycle(42);
+  skipped.onErupt = v.onErupt;
+  skipped.update(530);
+  assert.equal(penalties, 2); assert.equal(belief, 0);
+});

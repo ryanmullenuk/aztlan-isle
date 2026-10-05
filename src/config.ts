@@ -888,7 +888,7 @@ export const CRITTERS = {
 };
 
 export const MARINE = {
-  whales: 1,
+  whales: 2, // Adults; the second is accompanied by a calf.
   /** Whale length in world units (islanders are ~0.62 tall). */
   whaleLength: 5.2,
   whaleSpeed: 1.5,

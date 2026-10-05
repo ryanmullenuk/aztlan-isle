@@ -59,7 +59,6 @@ export class UI {
   private tooltip!: HTMLDivElement;
   private speedBtns: HTMLButtonElement[] = [];
   private pauseBtn!: HTMLButtonElement;
-  private muteBtn!: HTMLButtonElement;
   private settings!: HTMLDivElement;
   private help!: HTMLDivElement;
   private tutorial!: HTMLDivElement;
@@ -165,11 +164,13 @@ export class UI {
     this.pauseBtn = el('button', 'ib', ICONS.pause);
     this.pauseBtn.title = 'Pause (Space)';
     this.pauseBtn.onclick = () => this.game.togglePause();
-    tr.appendChild(this.pauseBtn);
+
     // Fast forward: opens the 1× / 2× / 3× choice.
-    this.speedBtn = el('button', 'ib ff', `${ICONS.speed}<span class="ff-x"></span>`);
-    this.speedBtn.title = 'Game speed';
+    this.speedBtn = el('button', 'ib ff', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="10" r="7"/><path d="M12 5v5l3 2"/></svg><span class="ff-x"></span>');
+    this.speedBtn.title = 'Time: play, pause and speed';
+    this.speedBtn.setAttribute('aria-label', 'Time controls');
     this.speedPop = el('div', 'panel popup speed-pop hidden');
+    this.speedPop.appendChild(this.pauseBtn);
     for (const s of [1, 2, 3]) {
       const b = el('button', 'ib sp', `${s}×`);
       b.title = `Speed ${s}×`;
@@ -183,9 +184,6 @@ export class UI {
     this.speedBtn.onclick = () => this.openPopup(this.speedPop, this.speedBtn, 'below');
     tr.appendChild(this.speedBtn);
     this.root.appendChild(this.speedPop);
-    this.muteBtn = el('button', 'ib', ICONS.sound);
-    this.muteBtn.title = 'Mute (M)';
-    this.muteBtn.onclick = () => this.game.toggleMute();
     const gear = el('button', 'ib', ICONS.gear);
     gear.title = 'Settings';
     gear.onclick = () => this.toggle(this.settings);
@@ -215,7 +213,7 @@ export class UI {
     };
     this.root.appendChild(this.alertPanel);
     views.append(eye, explore, this.alertButton);
-    tr.append(over, this.muteBtn, gear, views);
+    tr.append(over, gear, views);
     this.root.appendChild(tr);
     // Shown on its own while the interface is hidden: brings everything back.
     this.zenBtn = el('button', 'ib zen-eye', ICONS.eye);
@@ -503,6 +501,7 @@ export class UI {
       <label class="row">Pixel style <input type="checkbox" data-k="pixel"></label>
       <label class="row">Tilt-shift depth of field <input type="checkbox" data-k="dof"></label>
       <label class="row">Blur strength <input type="range" min="0" max="2" step="0.05" data-k="dofStrength"></label>
+      <label class="row">Mute sound <input type="checkbox" data-k="muted"></label>
       <label class="row">Volume <input type="range" min="0" max="1" step="0.05" data-k="volume"></label>
       <label class="row">Music <input type="range" min="0" max="1" step="0.05" data-k="music"></label>
       <label class="row">Show MAP button <input type="checkbox" data-k="showMap"></label>
@@ -996,13 +995,14 @@ export class UI {
     for (const b of this.terrainItems) b.classList.toggle('on', g.tool === b.dataset.tool);
     for (const b of this.floraItems) b.classList.toggle('on', g.tool === b.dataset.tool);
     const ffx = this.speedBtn.querySelector('.ff-x')!;
-    const sp = t.paused ? '' : `${t.speed}×`;
+    const sp = t.paused ? 'Ⅱ' : `${t.speed}×`;
     if (ffx.textContent !== sp) ffx.textContent = sp;
     this.speedBtn.classList.toggle('on', !t.paused && t.speed > 1);
     this.pauseBtn.innerHTML = t.paused ? ICONS.play : ICONS.pause;
+    this.pauseBtn.title = t.paused ? 'Play (Space)' : 'Pause (Space)';
+    this.pauseBtn.setAttribute('aria-label', t.paused ? 'Play' : 'Pause');
     this.pauseBtn.classList.toggle('on', t.paused);
     this.speedBtns.forEach((b, i) => b.classList.toggle('on', !t.paused && t.speed === i + 1));
-    this.muteBtn.innerHTML = g.settings.muted ? ICONS.mute : ICONS.sound;
     this.buildMenu.classList.toggle('hidden', g.tool !== 'build' || !!g.placing);
     if (!this.buildMenu.classList.contains('hidden')) {
       for (const [key, b] of this.buildItems) b.classList.toggle('dim', !e.canAfford(BUILDINGS[key].cost));

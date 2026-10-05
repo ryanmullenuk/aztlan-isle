@@ -178,13 +178,20 @@ export function placeSeaStacks(w: World, seed: number, avoid: { x: number; z: nu
     if (!inSea(c.x, c.z, r + 1) || !clearOf(c.x, c.z, r + 2)) continue;
     const main = { x: c.x, z: c.z, r, top: rng.range(C.height[0], C.height[1]) };
     const rocks: StackRock[] = [];
-    const n = rng.int(5, 9);
-    for (let k = 0; k < 40 && rocks.length < n; k++) {
+    // Interlocking submerged shoulders underpin the tall stack.
+    for (let k = 0; k < 3; k++) {
+      const a = rng.range(0, Math.PI * 2), rr = r * rng.range(0.65, 1.05);
+      const x = c.x + Math.cos(a) * r * 0.65, z = c.z + Math.sin(a) * r * 0.65;
+      if (inSea(x, z, rr + 0.4) && clearOf(x, z, rr + 0.6))
+        rocks.push({ x, z, r: rr, top: rng.range(-0.25, 0.4) });
+    }
+    const n = rng.int(15, 22);
+    for (let k = 0; k < 120 && rocks.length < n; k++) {
       const a = rng.range(0, Math.PI * 2);
       // More of the scatter lies on the seaward side, where the stack has broken away from.
       const d = r + rng.range(0.5, 3.4) * (Math.cos(a) * c.sx + Math.sin(a) * c.sz > 0 ? 1.2 : 0.8);
       const x = c.x + Math.cos(a) * d, z = c.z + Math.sin(a) * d;
-      const rr = rng.range(0.25, 0.85);
+      const rr = rng.chance(0.4) ? rng.range(0.12, 0.32) : rng.range(0.35, 1.1);
       const top = SEA_SURFACE + rng.range(-0.08, 0.35 + rr * 1.1);
       if (!inSea(x, z, rr + 0.4) || !clearOf(x, z, rr + 0.6) || rocks.some((o) => Math.hypot(o.x - x, o.z - z) < o.r + rr)) continue;
       rocks.push({ x, z, r: rr, top });

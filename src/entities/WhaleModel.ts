@@ -4,14 +4,14 @@ import * as THREE from 'three';
 // The body is a lofted shell (superelliptic sections: a flat-topped rostrum, a deep pleated throat,
 // a keeled tail stock), with the flippers, flukes and dorsal fin lofted as airfoils and knobs,
 // eyes and barnacles set into the skin. It is skinned to an articulated skeleton:
-//   torso (root) → neck → head, and torso → seven tail joints → fluke → left / right lobes,
+//   torso (root) → neck → head, and torso → nine spine joints → fluke → left / right lobes,
 //   and each flipper: shoulder → elbow → wrist (on the neck joint).
 // Everything bends with the spine, so fins and flukes never come apart from the body.
 
 /** Joint positions along the body (model z). */
-const Z = { head: 0.36, neck: 0.2, torso: 0.04, tail: [-0.06, -0.15, -0.24, -0.32, -0.39, -0.445, -0.485], fluke: -0.5 };
+const Z = { head: 0.36, neck: 0.2, torso: 0.04, tail: [-0.015, -0.06, -0.105, -0.15, -0.24, -0.32, -0.39, -0.445, -0.485], fluke: -0.5 };
 /** Bone indices in the skeleton. */
-const B = { torso: 0, neck: 1, head: 2, tail0: 3, fluke: 10, lobeL: 11, lobeR: 12, finL: 13, finR: 16 };
+const B = { torso: 0, neck: 1, head: 2, tail0: 3, fluke: 12, lobeL: 13, lobeR: 14, finL: 15, finR: 18 };
 /** The spine as one chain, head to tail: [bone, z]. */
 const CHAIN: [number, number][] = [[B.head, Z.head], [B.neck, Z.neck], [B.torso, Z.torso], ...Z.tail.map((z, i): [number, number] => [B.tail0 + i, z])];
 /** Flipper root (on the lower flank), span and elbow / wrist positions along it. */
@@ -572,7 +572,7 @@ function whaleGeometry(): NonNullable<typeof cached> {
     const ax = Math.abs(p.x);
     const lw = sstep(ax, 0.02, 0.085);
     const stock = (1 - sstep(ax, 0, 0.03)) * sstep(p.z, -0.51, -0.486) * 0.7;
-    return [[p.x > 0 ? B.lobeL : B.lobeR, lw * (1 - stock)], [B.fluke, (1 - lw) * (1 - stock)], [B.tail0 + 6, stock]];
+    return [[p.x > 0 ? B.lobeL : B.lobeR, lw * (1 - stock)], [B.fluke, (1 - lw) * (1 - stock)], [B.tail0 + Z.tail.length - 1, stock]];
   };
   const flukeColor = (p: THREE.Vector3, n: THREE.Vector3) => {
     if (n.y > -0.2) return _c.copy(C.top).lerp(C.flank, vn(p.x * 70, p.z * 70) * 0.3).clone();
@@ -623,7 +623,7 @@ export function createWhale(material: THREE.Material): WhaleRig {
   add('neck', B.torso, new THREE.Vector3(0, 0.004, Z.neck));
   add('head', B.neck, new THREE.Vector3(0, 0.006, Z.head));
   Z.tail.forEach((z, i) => add(`tail${i}`, i === 0 ? B.torso : B.tail0 + i - 1, new THREE.Vector3(0, i < 3 ? 0.002 * i : 0.004, z)));
-  add('fluke', B.tail0 + 6, new THREE.Vector3(0, 0, Z.fluke));
+  add('fluke', B.tail0 + Z.tail.length - 1, new THREE.Vector3(0, 0, Z.fluke));
   add('lobeL', B.fluke, new THREE.Vector3(0.055, 0, -0.52));
   add('lobeR', B.fluke, new THREE.Vector3(-0.055, 0, -0.52));
   for (const side of [1, -1] as const) {
@@ -652,7 +652,7 @@ export function createWhale(material: THREE.Material): WhaleRig {
     torso: bones[B.torso],
     neck: bones[B.neck],
     head: bones[B.head],
-    tail: bones.slice(B.tail0, B.tail0 + 7),
+    tail: bones.slice(B.tail0, B.tail0 + Z.tail.length),
     fluke: bones[B.fluke],
     lobeL: bones[B.lobeL],
     lobeR: bones[B.lobeR],

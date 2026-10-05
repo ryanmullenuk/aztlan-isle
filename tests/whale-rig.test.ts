@@ -15,7 +15,8 @@ test('whale mesh: finite, closed skin weights on real bones, fins and flukes all
   const g = r.mesh.geometry;
   const pos = g.getAttribute('position'), si = g.getAttribute('skinIndex'), sw = g.getAttribute('skinWeight');
   const bones = r.mesh.skeleton.bones.length;
-  assert.equal(bones, 19);
+  assert.equal(bones, 21);
+  assert.equal(r.tail.length, 9);
   const box = new THREE.Box3();
   for (let i = 0; i < pos.count; i++) {
     const p = new THREE.Vector3().fromBufferAttribute(pos, i);

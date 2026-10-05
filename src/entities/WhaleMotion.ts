@@ -134,10 +134,10 @@ export interface WhaleDrive {
 }
 
 /** Amplitude (radians at stroke 1), phase lag and share of arch / turn bend of each tail joint, front to back. */
-const TAIL_AMP = [0.012, 0.02, 0.032, 0.05, 0.07, 0.09, 0.1];
-const TAIL_LAG = [0.25, 0.6, 0.95, 1.3, 1.6, 1.85, 2.05];
-const TAIL_ARCH = [0.05, 0.06, 0.07, 0.07, 0.06, 0.05, 0.04];
-const TAIL_YAW = [0.13, 0.16, 0.19, 0.2, 0.2, 0.19, 0.16];
+const TAIL_AMP = [0.022, 0.026, 0.03, 0.034, 0.042, 0.055, 0.07, 0.09, 0.1];
+const TAIL_LAG = [0.1, 0.25, 0.42, 0.6, 0.95, 1.3, 1.6, 1.85, 2.05];
+const TAIL_ARCH = [0.04, 0.04, 0.045, 0.05, 0.065, 0.07, 0.06, 0.05, 0.04];
+const TAIL_YAW = [0.08, 0.09, 0.1, 0.12, 0.17, 0.2, 0.2, 0.19, 0.16];
 const _e = new THREE.Euler();
 const _q = new THREE.Quaternion();
 
@@ -155,7 +155,7 @@ export function poseWhale(r: WhaleRig, d: WhaleDrive): void {
     r.tail[i].rotation.set(
       TAIL_AMP[i] * S * Math.sin(ph - TAIL_LAG[i]) + TAIL_ARCH[i] * d.arch,
       -TAIL_YAW[i] * lag,
-      0.012 * S * (i / 6) * Math.sin(ph * 0.5 - TAIL_LAG[i]),
+      0.012 * S * (i / (r.tail.length - 1)) * Math.sin(ph * 0.5 - TAIL_LAG[i]),
     );
   }
   const fp = ph - 3.35;

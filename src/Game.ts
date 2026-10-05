@@ -406,6 +406,7 @@ export class Game {
     });
 
     this.ui = new UI(this);
+    this.volcano.state.onErupt = () => { this.eco.res.belief = Math.max(0, this.eco.res.belief - 75); };
     this.volcano.notify = message => this.ui.toast(message, 'warn', () => ({ x: this.volcano.x, z: this.volcano.z }));
     // A new game (or a save from before anyone landed) starts with the arrival canoe.
     if (this.colony.list.length === 0) this.beginSettlement();

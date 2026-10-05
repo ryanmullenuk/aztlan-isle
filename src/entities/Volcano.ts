@@ -26,12 +26,13 @@ export class VolcanoCycle {
     }
   }
   get active(): boolean { return this.phase === 'smoking' || this.phase === 'erupting'; }
+  onErupt: () => void = () => {};
   update(dt: number): void {
     if (!Number.isFinite(dt) || dt <= 0) return;
     this.remaining -= dt;
     while (this.remaining <= 0) {
       if (this.phase === 'dormant') { this.phase = 'smoking'; this.remaining += VOLCANO_SMOKE_SECONDS; }
-      else if (this.phase === 'smoking') { this.phase = 'erupting'; this.remaining += 65; }
+      else if (this.phase === 'smoking') { this.phase = 'erupting'; this.remaining += 65; this.onErupt(); }
       else if (this.phase === 'erupting') { this.coolingHot = true; this.phase = 'cooling'; this.remaining += 25; }
       else {
         this.phase = 'dormant'; this.cycle++;
@@ -488,9 +489,9 @@ export class Volcano {
     const previous = this.state.phase;
     this.state.update(dt); this.age += dt;
     if (previous !== this.state.phase && this.state.phase === 'smoking')
-      this.notify('The volcano will smoke for five minutes before lava appears. Use Calm on the volcano for 50 Belief to reassure your people.');
+      this.notify('The volcano will smoke for five minutes before lava appears. Use Calm for 50 Belief before it erupts, or lose 75 Belief.');
     if (previous !== this.state.phase && this.state.phase === 'erupting')
-      this.notify('The volcano is erupting! Lava is spilling down its slopes. Use Calm for 50 Belief.');
+      this.notify('The volcano is erupting! 75 Belief lost. Use Calm for 50 Belief to stop the lava.');
     this.animate(dt);
   }
   private animate(_dt: number): void {

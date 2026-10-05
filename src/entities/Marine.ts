@@ -1,3 +1,4 @@
+import { marinePathClear } from './MarineClearance';
 import * as THREE from 'three';
 import { MARINE } from '../config';
 import { GeoBuilder, M, P } from '../render/GeoBuilder';
@@ -285,6 +286,7 @@ interface Whale {
   /** Tapped while busy: come up as soon as it can. */
   wantRise: boolean;
   length: number;
+  mother?: Whale;
   flags: Set<string>;
   ring: THREE.Mesh;
   glow: THREE.Mesh;
@@ -370,8 +372,9 @@ export class Marine {
 
     // Whales live out in the open ocean, beyond the reef shelf.
     const spots = this.deepSpots(MARINE.whales, -4.8, 0.78, 1.15);
+    if (spots[1]) spots.push({ x: spots[1].x + 3, z: spots[1].z - 3 });
     spots.forEach((s, k) => {
-      const L = MARINE.whaleLength * (0.9 + this.rng.next() * 0.2);
+      const L = MARINE.whaleLength * (k === 2 ? 0.48 : 0.9 + this.rng.next() * 0.2);
       const root = new THREE.Group();
       const bodyMat = underwater(patchStylised(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4, metalness: 0 }), 0.3), 'whale-body');
       const rig = createWhale(bodyMat);
@@ -403,6 +406,7 @@ export class Marine {
       foam.renderOrder = 15;
       const a = this.rng.range(0, Math.PI * 2);
       this.whales.push({
+        mother: k === 2 ? this.whales[1] : undefined,
         root, rig, x: s.x, z: s.z, heading: 0, flapPhase: 0, turnLag: 0,
         track: { c: new THREE.Vector3(), ax: new THREE.Vector3(), lobeL: new THREE.Vector3(), lobeR: new THREE.Vector3(), ok: false },
         route: { x: s.x, z: s.z, r: 10 + this.rng.next() * 10, a, dir: this.rng.chance(0.5) ? 1 : -1 },
@@ -452,9 +456,10 @@ export class Marine {
       const cx = Math.cos(a) * d, cz = Math.sin(a) * d, r = 9 + this.rng.next() * 9;
       if (loops.some((l) => Math.hypot(l.cx - cx, l.cz - cz) < l.r + r + 12)) continue;
       let ok = true;
-      for (let s = 0; s < 16 && ok; s++) {
-        const t = (s / 16) * Math.PI * 2;
-        if (this.bedAt(cx + Math.cos(t) * r, cz + Math.sin(t) * r) > -2.8) ok = false;
+      for (let s = 0; s < 96 && ok; s++) {
+        const t = (s / 96) * Math.PI * 2;
+        const x = cx + Math.cos(t) * r, z = cz + Math.sin(t) * r;
+        if (!marinePathClear(this.world, x, z, x, z, 4)) ok = false;
       }
       if (ok) loops.push({ cx, cz, r });
     }
@@ -481,6 +486,7 @@ export class Marine {
       const x = Math.cos(a) * d, z = Math.sin(a) * d;
       if (this.bedAt(x, z) > maxBed) continue;
       if (out.some((o) => Math.hypot(o.x - x, o.z - z) < 25)) continue;
+      if (out.length === 1 && out[0].x * x + out[0].z * z > -0.6 * Math.hypot(out[0].x, out[0].z) * Math.hypot(x, z)) continue;
       out.push({ x, z });
     }
     return out;
@@ -643,7 +649,7 @@ export class Marine {
       // Bow wave off the head and a trickle of water off the back.
       if (this.rng.next() < dt * 14 * collar) {
         const hx = w.x + fx * L * 0.36, hz = w.z + fz * L * 0.36;
-        this.spray.spawn(hx + (this.rng.next() - 0.5) * 0.4, 0.05, hz + (this.rng.next() - 0.5) * 0.4, fx * 0.5 + (this.rng.next() - 0.5) * 0.8, 0.5 + this.rng.next() * 0.8, fz * 0.5 + (this.rng.next() - 0.5) * 0.8, 0.5, 0.05 + this.rng.next() * 0.05);
+        this.spray.spawn(hx + (this.rng.next() - 0.5) * 0.4, 0.05, hz + (this.rng.next() - 0.5) * 0.4, fx * 0.5 + (this.rng.next() - 0.5) * 0.8, 0.5 + this.rng.next() * 0.8, fz * 0.5 + (this.rng.next() - 0.5) * 0.8, 0.5, 0.08 + this.rng.next() * 0.06);
       }
     }
     w.nextPrint -= dt;
@@ -868,11 +874,18 @@ export class Marine {
       if (w.seek) want = THREE.MathUtils.clamp(Marine.turnTo(P.yaw, Math.atan2(w.seek.x - w.x, w.seek.z - w.z)) * 0.8, -0.45, 0.45);
       // Don't wander off beyond the horizon: circle back toward the island's waters.
       if (Math.hypot(w.x, w.z) > this.world.half * 1.3) want = Math.sign(Marine.turnTo(P.yaw, Math.atan2(-w.x, -w.z))) * 0.4;
+      // Each adult keeps its own side of the island; the calf stays alongside its mother.
+      const follow = w.mother;
+      const homeX = follow ? follow.x + Math.cos(follow.pose.yaw) * 3 : w.route.x;
+      const homeZ = follow ? follow.z - Math.sin(follow.pose.yaw) * 3 : w.route.z;
+      const homeDistance = Math.hypot(homeX - w.x, homeZ - w.z);
+      if (follow || homeDistance > 45)
+        want = THREE.MathUtils.clamp(Marine.turnTo(P.yaw, Math.atan2(homeX - w.x, homeZ - w.z)), -0.65, 0.65);
       // Never into the shallows (this wins over everything else).
       want = this.shallowsTurn(w) ?? want;
       w.turnRate += (want - w.turnRate) * Math.min(1, dt * 0.8);
       P.yaw += w.turnRate * dt;
-      const sp = MARINE.whaleSpeed;
+      const sp = MARINE.whaleSpeed * (follow ? THREE.MathUtils.clamp(homeDistance / 4, 0.25, 1.8) : 1);
       w.x += Math.sin(P.yaw) * sp * dt;
       w.z += Math.cos(P.yaw) * sp * dt;
       w.heading = P.yaw;
@@ -891,7 +904,7 @@ export class Marine {
         this.rise(w);
       }
       w.nextRise -= dt;
-      if (w.state === 'swim' && !w.seek && w.nextRise <= 0) {
+      if (!w.mother && w.state === 'swim' && !w.seek && w.nextRise <= 0) {
         w.nextRise = MARINE.riseEvery[0] + this.rng.next() * (MARINE.riseEvery[1] - MARINE.riseEvery[0]);
         // Prefer coming up where the player is looking.
         const near = Math.hypot(w.x - camTarget.x, w.z - camTarget.z) < 90;
@@ -1209,14 +1222,24 @@ export class Marine {
     const cycle = (2 * Math.PI) / MARINE.leapPeriod;
     for (const pod of this.pods) pod.phase += dt * cycle;
     const bend = this.dolphinBend.array as Float32Array;
+    const turnedPods = new Set<Pod>();
     this.dolphins.forEach((d, i) => {
       const pod = this.pods[d.pod];
       // Travel direction is the tangent of the pod's loop; the pod swims in a loose echelon.
       const yaw = Math.atan2(-Math.sin(pod.a) * pod.dir, Math.cos(pod.a) * pod.dir);
       const fx = Math.sin(yaw), fz = Math.cos(yaw);
       const tx = pod.x + fz * d.offX - fx * d.offZ, tz = pod.z - fx * d.offX - fz * d.offZ;
-      d.x += (tx - d.x) * Math.min(1, dt * 1.5);
-      d.z += (tz - d.z) * Math.min(1, dt * 1.5);
+      const nx = dt < 0.001 ? tx : d.x + (tx - d.x) * Math.min(1, dt * 1.5);
+      const nz = dt < 0.001 ? tz : d.z + (tz - d.z) * Math.min(1, dt * 1.5);
+      if (marinePathClear(this.world, dt < 0.001 ? nx : d.x, dt < 0.001 ? nz : d.z, nx, nz)) {
+        d.x = nx; d.z = nz;
+      } else {
+        // Turn the pod away rather than allowing even one dolphin to clip a rock.
+        if (!turnedPods.has(pod)) { pod.dir *= -1; turnedPods.add(pod); }
+        const away = Math.hypot(pod.cx, pod.cz) || 1;
+        pod.cx += pod.cx / away * dt * 4;
+        pod.cz += pod.cz / away * dt * 4;
+      }
       // Porpoising together: the pod's rhythm, each dolphin a little behind the one ahead.
       const ph = (((pod.phase - d.lag * Math.PI * 2) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
       const up = ph < Math.PI;
@@ -1229,13 +1252,13 @@ export class Marine {
       if (up && !d.wasUp) {
         d.spin = this.rng.chance(0.1);
         // Leaving the water: a small burst thrown forward off the head, and a faint ring.
-        this.dolphinSplash(d.x, d.z, fx, fz, 12, 1.7, 0.16);
+        this.dolphinSplash(d.x, d.z, fx, fz, 16, 1.9, 0.2);
         if (near) this.ring(d.x, d.z, 0.1, 0.5, 0.8, 0, 0.3);
       }
       if (!up && d.wasUp) {
         // Re-entry: a bigger splash, a tight ring of white water, then a spreading ripple.
         const ex = d.x + fx * 0.6, ez = d.z + fz * 0.6;
-        this.dolphinSplash(ex, ez, fx, fz, d.spin ? 34 : 22, d.spin ? 2.9 : 2.3, 0.26);
+        this.dolphinSplash(ex, ez, fx, fz, d.spin ? 30 : 24, d.spin ? 2.9 : 2.3, 0.26);
         if (near) {
           this.ring(ex, ez, 0.1, 0.55, 0.7, 0, 0.7);
           this.ring(ex, ez, 0.2, 1.1, 1.3, 0.1, 0.38);
@@ -1265,9 +1288,13 @@ export class Marine {
   /** A dolphin-sized splash: the shared droplet burst plus a few drops carried along the direction of travel. */
   private dolphinSplash(x: number, z: number, fx: number, fz: number, n: number, speed: number, radius: number): void {
     this.burst(x, z, n, speed, radius);
+    for (let k = 0; k < 5; k++) {
+      const a = this.rng.next() * Math.PI * 2;
+      this.white.spawn(x, 0.08, z, Math.cos(a) * 0.6, speed * 0.55, Math.sin(a) * 0.6, 0.5, 0.15, 0.04, 0.6, 0.65);
+    }
     for (let k = 0; k < n >> 2; k++) {
       const f = 0.6 + this.rng.next() * 0.9;
-      this.spray.spawn(x + (this.rng.next() - 0.5) * 0.2, 0.06, z + (this.rng.next() - 0.5) * 0.2, fx * f + (this.rng.next() - 0.5) * 0.4, speed * (0.4 + this.rng.next() * 0.4), fz * f + (this.rng.next() - 0.5) * 0.4, 0.6 + this.rng.next() * 0.3, 0.05 + this.rng.next() * 0.05);
+      this.spray.spawn(x + (this.rng.next() - 0.5) * 0.2, 0.06, z + (this.rng.next() - 0.5) * 0.2, fx * f + (this.rng.next() - 0.5) * 0.4, speed * (0.4 + this.rng.next() * 0.4), fz * f + (this.rng.next() - 0.5) * 0.4, 0.6 + this.rng.next() * 0.3, 0.08 + this.rng.next() * 0.06);
     }
   }
 
