@@ -143,7 +143,21 @@ export class GrassTufts {
     return `${w.version}|${h}`;
   }
 
-  update(dt: number): void {
+  private cullTimer = 0;
+
+  /**
+   * @param camPos camera position, and `far`: clumps further than this aren't drawn (a couple of
+   * pixels each by then, but thousands of them).
+   */
+  update(dt: number, camPos?: THREE.Vector3, far = Infinity): void {
+    this.cullTimer -= dt;
+    if (camPos && this.cullTimer <= 0) {
+      this.cullTimer = 0.25;
+      for (const m of this.meshes) {
+        const bs = m.boundingSphere;
+        m.visible = !bs || bs.center.distanceTo(camPos) - bs.radius < far;
+      }
+    }
     this.timer -= dt;
     if (this.timer <= 0) {
       this.timer = 2.5;
