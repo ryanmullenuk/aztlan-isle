@@ -45,6 +45,7 @@ export class UI {
   private tl!: HTMLDivElement;
   private resEls: Record<string, HTMLSpanElement> = {};
   private timeEl!: HTMLDivElement;
+  private perfEl!: HTMLDivElement;
   private dateEl!: HTMLDivElement;
   private sunIcon!: HTMLSpanElement;
   private beliefFill!: HTMLDivElement;
@@ -74,7 +75,7 @@ export class UI {
   private buildItems = new Map<BuildingKey, HTMLButtonElement>();
   private tutSteps: TutorialStep[] = [
     { title: 'Found your village', text: 'Your first two villagers have come ashore. Choose open, flat land for the campfire: your village will grow around it. (Tap Place campfire if you closed the placement.)', done: (g) => g.buildings.hasCampfire },
-    { title: 'Look around', text: 'Drag with the mouse (or one finger) to pan the island. WASD and arrow keys work too. Rotate with Q/E, middle-drag, or by dragging the compass at the bottom right.', done: (g) => Math.hypot(g.rig.cur.x - this.tutStart.x, g.rig.cur.z - this.tutStart.z) > 8 || Math.abs(g.rig.cur.yaw - g.rig.goal.yaw) > 0.3 },
+    { title: 'Look around', text: 'Drag with the mouse (or one finger) to pan the island. WASD and arrow keys work too. Rotate with Q/E, middle-drag, or by dragging the compass at the end of the toolbar.', done: (g) => Math.hypot(g.rig.cur.x - this.tutStart.x, g.rig.cur.z - this.tutStart.z) > 8 || Math.abs(g.rig.cur.yaw - g.rig.goal.yaw) > 0.3 },
     { title: 'Zoom in', text: 'Scroll (or pinch) to zoom in close to your islanders, and out to see the whole island.', done: (g) => Math.abs(g.rig.cur.dist - this.tutStart.dist) > 15 },
     { title: 'Meet your villagers', text: 'Tap an islander near the campfire to see their name, job and needs. More settlers arrive by canoe when you have spare beds and food.', done: (g) => g.selectedIslander >= 0 },
     { title: 'Build a Hut', text: 'Press Build (2), choose a Hut and place it on flat land. Your builders will do the rest.', done: (g) => g.buildings.list.some((b) => b.key === 'hut' || b.key === 'home') },
@@ -125,8 +126,9 @@ export class UI {
     this.sunIcon = el('span', 'sunicon', ICONS.sun);
     this.timeEl = el('div', 'time');
     this.dateEl = el('div', 'date');
+    this.perfEl = el('div', 'perf');
     const tx = el('div', 'clocktext');
-    tx.append(this.timeEl, this.dateEl);
+    tx.append(this.timeEl, this.dateEl, this.perfEl);
     clock.append(this.sunIcon, tx);
     timePanel.appendChild(clock);
     this.tl.appendChild(timePanel);
@@ -346,7 +348,8 @@ export class UI {
       if ([this.speedPop, this.terrainPop, this.floraPop, this.speedBtn, this.terrainSlot, this.floraSlot].some((el2) => el2?.contains(t))) return;
       this.closePopups();
     }, true);
-    bottom.append(this.hint, bb, this.toolbar);
+    // The belief bar sits under the toolbar.
+    bottom.append(this.hint, this.toolbar, bb);
     this.root.appendChild(bottom);
   }
 
@@ -428,39 +431,14 @@ export class UI {
 
   private compassNeedle!: HTMLSpanElement;
 
-  /** Rotate control: hold the arrows, or drag the compass left/right (mouse or finger). Double-tap resets. */
+  /** Rotate control: the compass at the end of the toolbar. Drag it left/right (mouse or finger) to turn the view; double-tap resets. Q / E still turn it too. */
   private buildRotate(): void {
-    const wrap = el('div', 'panel rotate');
-    const left = el('button', 'ib rot', ICONS.rotL);
-    const right = el('button', 'ib rot', ICONS.rotR);
-    left.title = 'Rotate left (Q). Hold to keep turning';
-    right.title = 'Rotate right (E). Hold to keep turning';
-    const dial = el('button', 'ib dial');
-    dial.title = 'Drag to rotate the view · double-click to reset';
+    const dial = el('button', 'slot compass-slot dial');
+    dial.title = 'Drag to rotate the view · double-tap to reset';
+    dial.setAttribute('aria-label', 'Compass: drag to rotate the view, double-tap to reset');
     this.compassNeedle = el('span', 'needle', ICONS.compass);
     dial.appendChild(this.compassNeedle);
-    wrap.append(left, dial, right);
-    const hold = (btn: HTMLButtonElement, dir: number) => {
-      const stop = () => {
-        this.game.rotateHold = 0;
-        btn.classList.remove('on');
-      };
-      btn.addEventListener('pointerdown', (e) => {
-        e.preventDefault();
-        try {
-          btn.setPointerCapture(e.pointerId);
-        } catch {
-          /* optional */
-        }
-        this.game.rotateHold = dir;
-        btn.classList.add('on');
-      });
-      btn.addEventListener('pointerup', stop);
-      btn.addEventListener('pointercancel', stop);
-      btn.addEventListener('lostpointercapture', stop);
-    };
-    hold(left, 1);
-    hold(right, -1);
+    this.toolbar.appendChild(dial);
     let lastX = 0, dragging = false, lastTap = 0;
     dial.addEventListener('pointerdown', (e) => {
       e.preventDefault();
@@ -483,7 +461,6 @@ export class UI {
     const end = () => (dragging = false);
     dial.addEventListener('pointerup', end);
     dial.addEventListener('pointercancel', end);
-    this.root.appendChild(wrap);
   }
 
   private buildSettings(): void {
@@ -624,7 +601,7 @@ export class UI {
         <div><h4>Desktop</h4><ul>
           <li><b>Drag</b> (left or right) or <b>WASD</b>: pan</li>
           <li><b>Scroll</b>: zoom · <b>Q / E</b>, <b>middle-drag</b> or <b>Alt/Shift + drag</b>: rotate</li>
-          <li>Or drag the <b>compass</b> (bottom right), or hold its arrows</li>
+          <li>Or drag the <b>compass</b> at the end of the toolbar (double-click resets)</li>
           <li><b>Click</b>: select or place · <b>R</b>: rotate a building</li>
           <li><b>Hold and drag</b> with a Terrain tool: sculpt</li>
           <li><b>1–7</b>: toolbar · <b>Space</b>: pause · <b>Esc</b>: cancel</li>
@@ -632,7 +609,7 @@ export class UI {
         <div><h4>Touch</h4><ul>
           <li><b>One finger</b>: pan (or sculpt with a sculpt tool)</li>
           <li><b>Pinch</b>: zoom · <b>Twist</b> with two fingers: rotate</li>
-          <li>Drag the <b>compass</b> with one finger, or hold its arrows, to rotate</li>
+          <li>Drag the <b>compass</b> at the end of the toolbar with one finger to rotate (double-tap resets)</li>
           <li><b>Tap</b>: select or place</li>
         </ul></div>
       </div>
@@ -883,7 +860,10 @@ export class UI {
   private refresh(force: boolean): void {
     const g = this.game;
     const t = g.time;
-    this.timeEl.textContent = g.settings.fps ? `${t.clock} · ${Math.round(g.fpsValue)} fps · worst ${Math.round(g.worstFrameMs)} ms · ${g.qualityLabel} · cpu ${g.cpuMs.toFixed(1)} ms` : t.clock;
+    this.timeEl.textContent = t.clock;
+    // Show FPS: frame rate and the worst frame, then the graphics in use and script time per frame.
+    const perf = g.settings.fps ? `${Math.round(g.fpsValue)} fps · worst ${Math.round(g.worstFrameMs)} ms\n${g.qualityLabel} · cpu ${g.cpuMs.toFixed(1)} ms` : '';
+    if (this.perfEl.textContent !== perf) this.perfEl.textContent = perf;
     this.dateEl.textContent = `${t.season} ${t.dayOfSeason} · Year ${t.year}`;
     const h = t.hour;
     const iconName = t.isNight ? 'moon' : h > 16 || h < 7.5 ? 'sunset' : 'sun';

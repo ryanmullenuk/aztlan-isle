@@ -413,20 +413,10 @@ button { font-family: inherit; color: inherit; cursor: pointer; -webkit-tap-high
 .tutorial, .minimap { z-index: 4; }
 .bottom { z-index: 5; }
 
-/* ---------- Rotate control (bottom right) ---------- */
-.rotate { position: absolute; right: 12px; bottom: calc(12px + var(--safe-b)); padding: 5px; display: flex; gap: 4px; align-items: center; z-index: 4; touch-action: none; }
-.rotate .rot { width: 40px; height: 40px; touch-action: none; }
-.rotate .dial { width: 48px; height: 48px; border-radius: 50%; padding: 4px; cursor: ew-resize; touch-action: none; background: rgba(255,255,255,0.08); }
-.rotate .needle { display: block; width: 100%; height: 100%; transition: transform 0.05s linear; }
-.rotate .needle svg { width: 100%; height: 100%; display: block; }
-@media (max-width: 720px) {
-  .rotate { right: 8px; bottom: calc(150px + var(--safe-b)); flex-direction: column; }
-}
-@media (max-width: 480px) {
-  .rotate { bottom: calc(118px + var(--safe-b)); padding: 3px; }
-  .rotate .rot { width: 34px; height: 34px; }
-  .rotate .dial { width: 40px; height: 40px; }
-}
+/* ---------- Compass (end of the toolbar): drag to rotate, double-tap to reset ---------- */
+.compass-slot { display: flex; align-items: center; justify-content: center; cursor: ew-resize; touch-action: none; }
+.compass-slot .needle { display: block; width: 70%; height: 70%; transition: transform 0.05s linear; pointer-events: none; }
+.compass-slot .needle svg { width: 100%; height: 100%; display: block; }
 
 /* Section labels and two-way toggles inside info cards (kennel dogs and role). */
 .sec-h { display: flex; align-items: center; gap: 6px; margin: 10px 0 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold); }
@@ -618,6 +608,24 @@ p.warn { color: #ffb08a; }
   .time-panel { padding: 8px 10px; }
 }
 
+/* Phones: a compact clock tucked into the top-left corner beside the Dynamic Island (inside the
+ * top safe area where there is one), with the inventory button the same width just under it. */
+@media (max-width: 720px) {
+  #hud .tl { width: 124px; gap: 4px; left: 8px; top: max(6px, calc(var(--safe-t) - 52px)); }
+  #hud .time-panel { padding: 4px 8px 5px; border-radius: 10px; }
+  #hud .islename { font-size: 8.5px; letter-spacing: 0.1em; margin: 0 0 1px; max-width: 108px; }
+  #hud .clock { gap: 5px; }
+  #hud .sunicon { width: 16px; height: 16px; }
+  #hud .time { font-size: 13px; line-height: 1.15; }
+  #hud .date { font-size: 9.5px; line-height: 1.2; }
+  #hud .inventory-toggle { min-height: 26px; padding: 4px 8px; font-size: 9.5px; border-radius: 10px; }
+  #hud .inventory-chevron { font-size: 14px; }
+  #hud .inventory-panel { width: min(218px, calc(100vw - 78px)); align-self: flex-start; }
+}
+/* Show FPS: its own small lines under the date, so the clock stays compact. */
+.perf { font-size: 9.5px; line-height: 1.25; color: var(--muted); white-space: pre; }
+.perf:empty { display: none; }
+
 /* One outline treatment for every game button, including selected and hover states. */
 #hud button, #hud button:hover, #hud button:active, #hud button.on,
 #hud button.ghost, #hud button.selected, #play-btn, #loading .boot-actions button {
@@ -646,3 +654,15 @@ p.warn { color: #ffb08a; }
 }
 #hud button:disabled { opacity: 0.4; }
 #hud button.on .nm, #hud button.on .key, #hud button.on .cost { color: var(--gold); }
+
+/* The inventory button wears the same shaded panel as the clock above it. */
+#hud .inventory-toggle, #hud .inventory-toggle:hover, #hud .inventory-toggle:active {
+  background: var(--panel) !important;
+  -webkit-backdrop-filter: blur(10px) saturate(1.2); backdrop-filter: blur(10px) saturate(1.2);
+  border: 1px solid var(--panel-border) !important;
+}
+/* Small phones: eight toolbar items (the compass is the eighth) fit across without scrolling. */
+@media (max-width: 480px) {
+  .toolbar { gap: 3px; padding: 4px; }
+  .slot { width: 40px; height: 42px; }
+}
