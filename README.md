@@ -202,7 +202,7 @@ Select an islander, then click a building, tree, rock or fruit bush to give them
 **Everything else**
 - Autosaves to localStorage every minute and when the tab is hidden. "Restart island" to start again.
 - High, Medium and Low graphics presets, with an automatic step-down if the frame rate is low. Phones default to Low.
-- Built to run smoothly on phones: trees and bushes cast their shadows from light stand-in shapes, plants are drawn in map chunks that are skipped when off screen (and switch to simple shapes sooner on Low and Medium), whales and jellyfish out of sight aren't drawn (jellyfish off screen move on in coarse steps), the grass is only re-laid when the ground changes, shadows are drawn once a frame, and ambient occlusion is worked out at half resolution.
+- Built to run smoothly on phones: trees and bushes cast their shadows from light stand-in shapes, plants are drawn in map chunks that are skipped when off screen (and switch to simple shapes sooner on Low and Medium), the ground casts its shadow from a coarse copy, whales and jellyfish out of sight aren't drawn (jellyfish off screen move on in coarse steps), grass far from the camera isn't drawn and is only re-laid when the ground changes, shadows are drawn once a frame, and ambient occlusion is worked out at half resolution.
 - Settings toggles for shadows, the day/night cycle (off keeps warm afternoon light), random weather, and a pixel-art style (low-resolution rendering with a dithered palette).
 - Minimap, pause and 1×/2×/3× speed, settings, a help overlay and a 5-step tutorial.
 
