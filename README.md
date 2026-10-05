@@ -179,7 +179,7 @@ Select an islander, then click a building, tree, rock or fruit bush to give them
   - The back and dorsal fin roll up through the surface with water sheeting off, then it dives with the flukes lifting and streaming, leaving a smooth footprint.
   - The sea moves all round it: a white collar and bow wave where it meets the water, and rings of waves spreading out across the surface (quiet breaths stir the water too).
 - Smooth, flexible dolphins (beak, swept dorsal fin, dark cape and white belly) swim in pods of six that leap together in a rippling line, arching through the air, with the odd high spinning jump, splashes and ripples.
-- Swarms of pink moon jellies drift in the shallows off the beaches. Their bells pulse (rising on each squeeze), with four gonads showing through, and frilly arms and fine tentacles ripple and trail behind them. They scatter from the pointer, pulsing hard and diving away, then drift back, and they glow pink at night.
+- Swarms of pink moon jellies drift in the shallows off the beaches. Their bells pulse (rising on each squeeze), with four gonads showing through, and frilly arms and fine tentacles ripple and trail behind them. They scatter from the pointer, pulsing hard and diving away, then drift back.
 
 **Boats**
 - The Jetty builds canoes and fishing boats, crewed by fishers. Canoes are hand-built wood: a dugout hull hewn in rough facets, plank strakes with butt joints under a painted top strake, log gunwales, two seat planks and a slatted floor, and upswept prow and stern posts bound with cord, roomy enough for the crew to sit inside.
