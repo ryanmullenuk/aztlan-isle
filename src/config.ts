@@ -78,11 +78,18 @@ export const RENDER = {
   fogNear: 140,
   fogFar: 700,
   presets: {
-    ultra: { pixelRatio: 2, shadowSize: 4096, ssao: true, dofSamples: 48, smaa: true, bloom: true, vegDensity: 1.0, lodDist: 120, terrainSubdiv: 3 },
-    high: { pixelRatio: 1.75, shadowSize: 2048, ssao: true, dofSamples: 36, smaa: true, bloom: true, vegDensity: 1.0, lodDist: 80, terrainSubdiv: 3 },
-    medium: { pixelRatio: 1.35, shadowSize: 2048, ssao: false, dofSamples: 24, smaa: false, bloom: true, vegDensity: 0.8, lodDist: 62, terrainSubdiv: 2 },
-    low: { pixelRatio: 1, shadowSize: 1024, ssao: false, dofSamples: 12, smaa: false, bloom: false, vegDensity: 0.55, lodDist: 48, terrainSubdiv: 2 },
-  } as Record<PresetName, { pixelRatio: number; shadowSize: number; ssao: boolean; dofSamples: number; smaa: boolean; bloom: boolean; vegDensity: number; lodDist: number; terrainSubdiv: number }>,
+    ultra: { pixelRatio: 2, shadowSize: 4096, ssao: true, dofSamples: 48, smaa: true, bloom: true, vegDensity: 1.0, lodDist: 120, vegLod: 120, terrainSubdiv: 3 },
+    high: { pixelRatio: 1.75, shadowSize: 2048, ssao: true, dofSamples: 36, smaa: true, bloom: true, vegDensity: 1.0, lodDist: 80, vegLod: 80, terrainSubdiv: 3 },
+    medium: { pixelRatio: 1.35, shadowSize: 2048, ssao: false, dofSamples: 24, smaa: false, bloom: true, vegDensity: 0.8, lodDist: 62, vegLod: 46, terrainSubdiv: 2 },
+    low: { pixelRatio: 1, shadowSize: 1024, ssao: false, dofSamples: 12, smaa: false, bloom: false, vegDensity: 0.55, lodDist: 48, vegLod: 32, terrainSubdiv: 2 },
+  } as Record<PresetName, {
+    pixelRatio: number; shadowSize: number; ssao: boolean; dofSamples: number; smaa: boolean; bloom: boolean; vegDensity: number;
+    /** Plants: small ones fade and shadows stop beyond this (scaled per type); full-detail plants within a share of it. */
+    lodDist: number;
+    /** Plants switch to their low-detail shapes beyond this (sooner than lodDist on phones). */
+    vegLod: number;
+    terrainSubdiv: number;
+  }>,
   dof: {
     /** Default strength (0 = off). */
     strength: 1.0,
@@ -183,7 +190,8 @@ export const VEG = {
   saplingGrowSeconds: 900,
   stumpToSaplingSeconds: 200,
   windStrength: 1.0,
-  chunks: 4,
+  /** Plants are drawn in chunks of the map (this many a side), each culled when off screen. */
+  chunks: 6,
   /** Decorative swaying grass clumps per open grass cell (scaled by the preset's vegetation density). */
   tuftsPerCell: 4,
 };

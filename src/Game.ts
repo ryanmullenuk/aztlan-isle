@@ -9,6 +9,7 @@ import { generateIsland } from './world/generator';
 import { GameTime } from './world/Time';
 import { RNG } from './world/rng';
 import { Outcrops } from './terrain/Outcrops';
+import { frameShadows, setupShadows } from './render/ShadowLayer';
 import { Terrain } from './terrain/Terrain';
 import { Sculptor, SculptMode } from './terrain/Sculpt';
 import { Water } from './water/Water';
@@ -248,6 +249,8 @@ export class Game {
     this.renderer.shadowMap.enabled = this.settings.shadows;
     // PCF with the soft kernel (PCFSoftShadowMap was folded into PCFShadowMap in recent three.js).
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    // One shadow pass a frame (not one per post-processing pass), and the shadow stand-in layer.
+    setupShadows(this.renderer);
 
     generateIsland(this.world, opts.seed);
     // Plants are generated from the untouched island so saved plant states line up.
@@ -1928,7 +1931,8 @@ export class Game {
     setCanopyFade(FX.uCut.value);
 
     const growth = [1.2, 1.0, 0.85, 0.5][this.time.seasonIndex] * (this.raining ? 1.6 : 1);
-    this.veg.update(dt, this.rig.camera.position, this.rig.target, RENDER.presets[this.preset].lodDist, growth, t);
+    const vcfg = RENDER.presets[this.preset];
+    this.veg.update(dt, this.rig.camera.position, this.rig.target, vcfg.lodDist, growth, t, vcfg.vegLod);
     this.colony.update(dt);
     const fire = this.buildings.list.find((b) => b.key === 'campfire');
     this.jaguars.update(dt, this.time.isNight, fire ? { x: fire.x, z: fire.z } : null);
@@ -2042,6 +2046,7 @@ export class Game {
   }
 
   private render(realDt: number): void {
+    frameShadows(this.renderer);
     const focus = this.rig.camera.position.distanceTo(this.rig.target);
     this.post.render(realDt, focus, this.lighting.state.night);
   }
