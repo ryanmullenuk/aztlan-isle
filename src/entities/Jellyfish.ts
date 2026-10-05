@@ -239,6 +239,10 @@ function contraction(ph: number): number {
 export class Jellyfish {
   readonly mesh: THREE.InstancedMesh;
   private swarms: Swarm[] = [];
+  /** Per swarm: how far its jellies spread, whether it's in sight this frame, and time saved up while it isn't. */
+  private swarmR: number[] = [];
+  private swarmSeen: boolean[] = [];
+  private swarmAcc: number[] = [];
   private jellies: Jelly[] = [];
   private anim: THREE.InstancedBufferAttribute;
   private drift: THREE.InstancedBufferAttribute;
@@ -350,8 +354,32 @@ export class Jellyfish {
     }
     const arr = this.anim.array as Float32Array, dr = this.drift.array as Float32Array;
     const R2 = C.fleeRadius * C.fleeRadius;
-    this.jellies.forEach((j, i) => {
+    // Swarms out of sight (or beyond the draw distance) aren't drawn, and move on in coarse steps
+    // four times a second instead of every frame.
+    if (this.swarmR.length !== this.swarms.length) {
+      this.swarmR = this.swarms.map(() => 2);
+      this.swarmAcc = this.swarms.map(() => 0);
+      for (const j of this.jellies) this.swarmR[j.swarm] = Math.max(this.swarmR[j.swarm], Math.hypot(j.ox, j.oz) + 3);
+    }
+    const step = this.swarms.map((s, k) => {
+      const seen = View.sees(s.x, -0.6, s.z, this.swarmR[k]) && View.dist2(s.x, 0, s.z) < (C.drawDistance + this.swarmR[k]) ** 2;
+      this.swarmSeen[k] = seen;
+      if (seen) {
+        this.swarmAcc[k] = 0;
+        return dt;
+      }
+      this.swarmAcc[k] += dt;
+      if (this.swarmAcc[k] < 0.25) return 0;
+      const sdt = Math.min(this.swarmAcc[k], 0.5);
+      this.swarmAcc[k] = 0;
+      return sdt;
+    });
+    let n = 0;
+    this.jellies.forEach((j) => {
       const s = this.swarms[j.swarm];
+      const dt = step[j.swarm];
+      if (dt <= 0) return;
+      const seen = this.swarmSeen[j.swarm];
       // Scatter from the pointer.
       if (cursor) {
         const dx = j.x - cursor.x, dz = j.z - cursor.z, d2 = dx * dx + dz * dz;
@@ -425,6 +453,8 @@ export class Jellyfish {
       bed = this.bed(nx, nz);
       // Below the surface, and clear of the sea floor where there's room (the surface wins where there isn't).
       j.y = Math.min(Math.max(j.y + j.vy * dt, bed + j.size * 1.6, -1.6), -0.06 - j.size * 0.6);
+      if (!seen) return;
+      const i = n++;
       // Pose: bell axis tilted, spinning slowly about it.
       _q.setFromUnitVectors(_up, _ax.set(j.tx * 0.9, 1, j.tz * 0.9).normalize());
       _q.multiply(_q2.setFromAxisAngle(_up, j.seed + this.t * 0.1));
@@ -444,9 +474,13 @@ export class Jellyfish {
       arr[i * 4 + 2] = j.tint;
       arr[i * 4 + 3] = 1 - THREE.MathUtils.smoothstep(d2, far2 * 0.6, far2);
     });
-    this.mesh.instanceMatrix.needsUpdate = true;
-    this.anim.needsUpdate = true;
-    this.drift.needsUpdate = true;
+    // Only the jellies on screen are drawn (packed to the front).
+    if (n || this.mesh.count) {
+      this.mesh.count = n;
+      this.mesh.instanceMatrix.needsUpdate = true;
+      this.anim.needsUpdate = true;
+      this.drift.needsUpdate = true;
+    }
   }
 
   /** Swarm centres (for tests and the minimap). */

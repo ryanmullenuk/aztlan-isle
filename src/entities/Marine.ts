@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { MARINE } from '../config';
 import { GeoBuilder, M, P } from '../render/GeoBuilder';
 import { patchStylised } from '../render/materials';
+import { View } from '../render/View';
 import { RNG } from '../world/rng';
 import { World } from '../world/World';
 import { Water } from '../water/Water';
@@ -755,7 +756,11 @@ export class Marine {
       return;
     }
     this.time += dt;
-    for (const w of this.whales) this.updateWhale(w, dt, camTarget);
+    for (const w of this.whales) {
+      this.updateWhale(w, dt, camTarget);
+      // Drawn (and its skeleton skinned, and its shadow cast) only while on screen.
+      w.rig.mesh.visible = View.sees(w.x, 0, w.z, w.length * 0.8);
+    }
     this.updateDolphins(dt, camTarget);
     for (const r of this.rings) {
       if (r.t >= r.life) {
