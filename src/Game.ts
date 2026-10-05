@@ -353,6 +353,8 @@ export class Game {
     this.seaArch.refreshWater(this.water);
     this.scene.add(this.seaArch.group);
     this.boats.blockCells(this.seaArch.cells());
+    for (const site of this.seaArch.surfSites()) this.seaStacks.addSurf(site);
+    for (const i of this.seaArch.landCells()) this.veg.clearArea(i % this.world.N, (i / this.world.N) | 0, 1, 1);
     this.marine = new Marine(this.world, this.water);
     this.scene.add(this.marine.group);
     this.waterBirds = new WaterBirds(this.world, this.veg.plants.filter((p) => p.kind === 'searock').map((p) => ({ x: p.x, z: p.z })));
@@ -378,8 +380,9 @@ export class Game {
     if (save) this.loadFrom(save);
     this.volcano = new Volcano(this.world, save?.volcano);
     this.scene.add(this.volcano.group);
-    this.sculptor.protectedAt = (x, z) => this.volcano.group.visible &&
-      Math.hypot(x - this.volcano.x, z - this.volcano.z) < this.volcano.radius + 0.8;
+    // The volcano and the sea arch are permanent landmarks: the ground under them can't be sculpted.
+    this.sculptor.protectedAt = (x, z) => this.seaArch.covers(x, z) || (this.volcano.group.visible &&
+      Math.hypot(x - this.volcano.x, z - this.volcano.z) < this.volcano.radius + 0.8);
     if (this.volcano.group.visible) {
       const [cx, cz] = this.world.cellOf(this.volcano.x, this.volcano.z);
       // Clear only the steep core; preserve the forest against the planted foothills.
