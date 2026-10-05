@@ -31,9 +31,6 @@ const PAL = {
   rockLight: c(COLORS.rockLight),
   rockLav: c(0x6f6782),
   moss: c(0x6b8538),
-  reef1: c(COLORS.reef1),
-  reef2: c(COLORS.reef2),
-  coral: c(0xe0766a),
   stumpTop: c(0xdcbb8c),
 };
 
@@ -284,6 +281,15 @@ export function stumpGeometry(): THREE.BufferGeometry {
 export function rockGeometry(variant: number, seed: number, reef = false): THREE.BufferGeometry {
   const rng = new RNG(seed);
   const b = new GeoBuilder();
+  // Rocks out on the reef: the same faceted grey stone as the sea rocks, dark and wet all over.
+  if (reef) {
+    b.add(angularRockGeometry(seed * 7 + 5, { tilt: 0.25 }), { color: rockColor(0.05, 10) }, M.t(0, 0.05, 0, 0, rng.next() * 6.28, 0, 0.6, 0.5, 0.52));
+    for (let k = 0; k < variant; k++) {
+      const a = rng.range(0, Math.PI * 2), sz = rng.range(0.24, 0.36);
+      b.add(angularRockGeometry(seed * 7 + 9 + k), { color: rockColor(0.05, 10) }, M.t(Math.cos(a) * 0.55, 0, Math.sin(a) * 0.55, 0, rng.next() * 6.28, 0, sz, sz * 0.9, sz * 0.85));
+    }
+    return b.build();
+  }
   const count = variant === 0 ? 1 : variant === 1 ? 2 : 3;
   for (let k = 0; k < count; k++) {
     const rad = k === 0 ? 0.62 : rng.range(0.28, 0.42);
@@ -292,7 +298,6 @@ export function rockGeometry(variant: number, seed: number, reef = false): THREE
     const g = lumpy(P.sphere(rad, 1), 0.22, seed * 31 + k, rng.range(0.55, 0.75));
     b.add(g, {
       color: (p, nn) => {
-        if (reef) return mix(PAL.reef2, PAL.reef1, nn.y * 0.5 + 0.5 + Math.sin(p.x * 9) * 0.15);
         let col = mix(PAL.rockLav, PAL.rock, nn.y * 0.6 + 0.5);
         col = mix(col, PAL.rockTop, Math.max(0, nn.y - 0.2) * 1.1);
         const mossy = nn.y > 0.7 && Math.sin(p.x * 11 + p.z * 7) > 0.25;
@@ -300,12 +305,6 @@ export function rockGeometry(variant: number, seed: number, reef = false): THREE
       },
       ao: { y0: -0.1, y1: 0.35, min: 0.72 },
     }, M.t(Math.cos(a) * off, rad * 0.3, Math.sin(a) * off, rng.next(), rng.next() * 3, rng.next()));
-  }
-  if (reef) {
-    for (let k = 0; k < 4; k++) {
-      const a = rng.range(0, Math.PI * 2);
-      b.add(P.cone(0.07, 0.35, 5), { color: rng.chance(0.5) ? PAL.coral : c(0x3f9a8a), sway: 0.15 }, M.t(Math.cos(a) * 0.5, 0.25, Math.sin(a) * 0.5, rng.range(-0.3, 0.3), 0, rng.range(-0.3, 0.3)));
-    }
   }
   return b.build();
 }
