@@ -437,7 +437,6 @@ const waterFrag = /* glsl */ `
     //  - drifting streams of plankton: long winding ribbons of tiny twinkling specks that follow
     //    the currents between the islands (a soft haze from afar, sparkles close up);
     //  - stirred water lights up: breaking surf, the swash line and the backwash glow cyan.
-    // Fish, rays and turtles carry their own glow (see patchBioGlow).
     float bioNight = 1.0 - smoothstep(0.28, 0.58, uDay);
     float bioA = 0.0;
     if (uSwash > 0.5 && bioNight > 0.001) {
