@@ -104,6 +104,7 @@ export interface Settings {
   music: number;
   muted: boolean;
   fps: boolean;
+  showMap: boolean;
   /** Drop the graphics preset automatically if the frame rate is too low. */
   autoQuality: boolean;
   shadows: boolean;
@@ -793,7 +794,7 @@ export class Game {
   }
 
   private loadSettings(preset: PresetName): Settings {
-    const def: Settings = { preset, dof: true, dofStrength: RENDER.dof.strength, volume: 0.7, music: 0.5, muted: false, fps: false, autoQuality: true, shadows: true, dayNight: true, weather: true, pixel: false, instantBuild: false, renderScale: 1 };
+    const def: Settings = { preset, dof: true, dofStrength: RENDER.dof.strength, volume: 0.7, music: 0.5, muted: false, fps: false, showMap: false, autoQuality: true, shadows: true, dayNight: true, weather: true, pixel: false, instantBuild: false, renderScale: 1 };
     try {
       const s = JSON.parse(localStorage.getItem(SAVE.settingsKey) ?? 'null');
       if (s) return { ...def, ...s };

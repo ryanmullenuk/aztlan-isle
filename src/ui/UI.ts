@@ -65,6 +65,10 @@ export class UI {
   private tutorial!: HTMLDivElement;
   private minimap!: HTMLCanvasElement;
   private mapVisible = false;
+  private mapWrap!: HTMLDivElement;
+  private alertButton!: HTMLButtonElement;
+  private alertPanel!: HTMLDivElement;
+  private alerts: { text: string; at?: Where; toast?: HTMLElement }[] = [];
   private miniBase: ImageData | null = null;
   private miniVersion = -1;
   private timer = 0;
@@ -196,7 +200,21 @@ export class UI {
     explore.setAttribute('aria-label', 'Explore island');
     explore.onclick = () => this.game.toggleExplore();
     const views = el('div', 'view-controls');
-    views.append(eye, explore);
+    this.alertButton = el('button', 'ib alert-button', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v9"/><circle cx="12" cy="19" r="1"/></svg>');
+    this.alertButton.setAttribute('aria-label', 'Alerts: none');
+    this.alertButton.setAttribute('aria-expanded', 'false');
+    this.alertButton.setAttribute('aria-controls', 'island-alerts');
+    this.alertPanel = el('div', 'panel alert-panel hidden');
+    this.alertPanel.id = 'island-alerts';
+    this.alertPanel.setAttribute('aria-label', 'Island alerts');
+    this.alertButton.onclick = () => {
+      this.renderAlerts();
+      const open = this.alertPanel.classList.contains('hidden');
+      this.alertPanel.classList.toggle('hidden', !open);
+      this.alertButton.setAttribute('aria-expanded', String(open));
+    };
+    this.root.appendChild(this.alertPanel);
+    views.append(eye, explore, this.alertButton);
     tr.append(over, this.muteBtn, gear, views);
     this.root.appendChild(tr);
     // Shown on its own while the interface is hidden: brings everything back.
@@ -392,7 +410,8 @@ export class UI {
   }
 
   private buildMinimap(): void {
-    const wrap = el('div', 'panel minimap');
+    const wrap = this.mapWrap = el('div', 'panel minimap');
+    wrap.classList.toggle('hidden', !this.game.settings.showMap);
     const toggle = el('button', 'map-toggle', 'MAP');
     toggle.setAttribute('aria-expanded', 'false');
     toggle.setAttribute('aria-controls', 'island-minimap');
@@ -403,6 +422,7 @@ export class UI {
       this.mapVisible = !this.mapVisible;
       this.minimap.classList.toggle('hidden', !this.mapVisible);
       toggle.setAttribute('aria-expanded', String(this.mapVisible));
+      this.pruneAlerts();
       if (this.mapVisible) this.drawMinimap();
     };
     this.minimap.width = this.minimap.height = 168;
@@ -485,6 +505,7 @@ export class UI {
       <label class="row">Blur strength <input type="range" min="0" max="2" step="0.05" data-k="dofStrength"></label>
       <label class="row">Volume <input type="range" min="0" max="1" step="0.05" data-k="volume"></label>
       <label class="row">Music <input type="range" min="0" max="1" step="0.05" data-k="music"></label>
+      <label class="row">Show MAP button <input type="checkbox" data-k="showMap"></label>
       <label class="row">Show FPS <input type="checkbox" data-k="fps"></label>
       <label class="row godrow hidden">Instant build and upgrade <input type="checkbox" data-k="instantBuild"></label>
       <div class="obtns">
@@ -535,6 +556,14 @@ export class UI {
       inp.oninput = () => {
         (s as unknown as Record<string, unknown>)[k] = inp.type === 'checkbox' ? inp.checked : parseFloat(inp.value);
         this.game.applySettings();
+        if (k === 'showMap') {
+          this.mapWrap.classList.toggle('hidden', !s.showMap);
+          if (!s.showMap) {
+            this.mapVisible = false;
+            this.minimap.classList.add('hidden');
+            this.mapWrap.querySelector('button')!.setAttribute('aria-expanded', 'false');
+          }
+        }
       };
     });
     card.querySelector<HTMLButtonElement>('[data-a="new"]')!.onclick = () => {
@@ -790,9 +819,68 @@ export class UI {
 
   // ---------------- Notifications ----------------
 
+  private renderAlerts(): void {
+    this.alertButton.classList.toggle('unread', this.alerts.length > 0);
+    this.alertButton.setAttribute('aria-label', this.alerts.length ? `Alerts: ${this.alerts.length} active` : 'Alerts: none');
+    this.alertPanel.replaceChildren();
+    const heading = el('div', 'alert-heading', '<strong>Alerts</strong>');
+    const close = el('button', 'ib small', ICONS.close);
+    close.setAttribute('aria-label', 'Close alerts');
+    close.onclick = () => {
+      this.alertPanel.classList.add('hidden');
+      this.alertButton.setAttribute('aria-expanded', 'false');
+    };
+    heading.appendChild(close);
+    this.alertPanel.appendChild(heading);
+    if (!this.alerts.length) this.alertPanel.appendChild(el('p', '', 'No active alerts.'));
+    for (const alert of this.alerts) {
+      const row = el('div', 'alert-entry');
+      const message = el('p');
+      message.textContent = alert.text;
+      row.appendChild(message);
+      if (alert.at) {
+        const go = el('button', 'obtn sm', 'View');
+        go.onclick = () => {
+          this.game.focusAt(alert.at!);
+          close.click();
+        };
+        row.appendChild(go);
+      }
+      const clear = el('button', 'obtn sm', 'Clear');
+      clear.setAttribute('aria-label', `Clear alert: ${alert.text}`);
+      clear.onclick = () => {
+        alert.toast?.remove();
+        this.alerts = this.alerts.filter(a => a !== alert);
+        this.renderAlerts();
+      };
+      row.appendChild(clear);
+      this.alertPanel.appendChild(row);
+    }
+  }
+
+  private pruneAlerts(): void {
+    const remaining = this.alerts.filter(a => {
+      if (typeof a.at !== 'function' || a.at() !== null) return true;
+      a.toast?.remove();
+      return false;
+    });
+    if (remaining.length !== this.alerts.length) {
+      this.alerts = remaining;
+      this.renderAlerts();
+    }
+  }
+
   /** @param at where the news is: clicking the notification takes the camera there */
   toast(text: string, kind: 'info' | 'milestone' | 'warn' = 'info', at?: Where): void {
-    // Natural mode: no notifications at all until the interface is back.
+    if (kind === 'warn') {
+      const existing = this.alerts.find(a => a.text === text);
+      if (existing) { existing.at = at; return; }
+      this.alerts.push({ text, at });
+      // Bound the inbox when warnings arrive faster than they can be read.
+      if (this.alerts.length > 30) this.alerts.shift()?.toast?.remove();
+      this.renderAlerts();
+    }
+    // Keep warnings in the inbox while the interface is hidden.
     if (this.zen) return;
     const t = el('div', `toast ${kind}`, kind === 'milestone' ? `<span class="tm">${ICONS.bless}</span><span><small>Milestone</small><br>${text}</span>` : text);
     if (at) {
@@ -804,6 +892,8 @@ export class UI {
         t.remove();
       };
     }
+    if (kind === 'warn') this.alerts.find(a => a.text === text)!.toast = t;
+    t.setAttribute('role', 'status');
     this.toasts.appendChild(t);
     requestAnimationFrame(() => t.classList.add('in'));
     setTimeout(() => {
@@ -846,6 +936,7 @@ export class UI {
     this.miniTimer -= dt;
     if (this.miniTimer <= 0) {
       this.miniTimer = 0.5;
+      this.pruneAlerts();
       if (this.mapVisible) this.drawMinimap();
     }
     if (this.tutStep < this.tutSteps.length && !this.tutorial.classList.contains('hidden')) {
