@@ -307,19 +307,21 @@ function patchBuilding(mat: THREE.MeshStandardMaterial): THREE.MeshStandardMater
 
           // Material classes from the vertex colour.
           float thatchFlag = step(0.05, vLeaf) * (1.0 - step(0.6, vLeaf));
-          float thatchW = max(thatchFlag, warm * smoothstep(0.53, 0.58, hueW) * smoothstep(0.38, 0.45, sat) * smoothstep(0.5, 0.58, val) * (1.0 - step(0.97, ny)));
+          // Thatch is explicitly marked by the model. Ochre stone must not acquire straw fibres.
+          float thatchW = thatchFlag;
           float grey = 1.0 - smoothstep(0.22, 0.28, sat);
           float plasterW = grey * smoothstep(0.84, 0.9, val) * step(sc.b, sc.r);
-          float stoneW = grey * smoothstep(0.4, 0.48, val) * (1.0 - smoothstep(0.82, 0.88, val));
-          float adobeW = warm * (1.0 - thatchW) * smoothstep(0.72, 0.8, val) * smoothstep(0.2, 0.28, sat) * smoothstep(0.28, 0.34, hueW) * (1.0 - smoothstep(0.58, 0.64, hueW));
+          float sandstoneW = warm * smoothstep(0.62, 0.76, val) * smoothstep(0.42, 0.55, hueW) * (1.0 - smoothstep(0.48, 0.58, sat));
+          float stoneW = max(grey * smoothstep(0.4, 0.48, val) * (1.0 - smoothstep(0.82, 0.88, val)), sandstoneW) * (1.0 - thatchW);
+          float adobeW = warm * (1.0 - thatchW) * (1.0 - stoneW) * smoothstep(0.72, 0.8, val) * smoothstep(0.2, 0.28, sat) * smoothstep(0.28, 0.34, hueW) * (1.0 - smoothstep(0.58, 0.64, hueW));
           float woodW = warm * (1.0 - thatchW) * (1.0 - smoothstep(0.66, 0.72, val)) * smoothstep(0.3, 0.4, sat) * smoothstep(0.12, 0.2, val);
 
           // Perceptual brightness multiplier.
           float n1 = bNoise(suv * 2.2 + 17.0);
           float n2 = bNoise(suv * 6.5 - 5.0);
-          float m = 1.0 + ((n1 - 0.5) * 0.14 + (n2 - 0.5) * 0.07) * wAll;
+          float m = 1.0 + ((n1 - 0.5) * 0.08 + (n2 - 0.5) * 0.045) * wAll;
           float st = bNoise(vec2(suv.x * 9.0, suv.y * 0.7));
-          m *= 1.0 - smoothstep(0.62, 0.95, st) * 0.06 * wallW * wAll;
+          m *= 1.0 - smoothstep(0.62, 0.95, st) * 0.025 * wallW * wAll;
           float hb = vBldW.y - vBldBase;
           m *= mix(1.0, mix(0.84, 1.0, smoothstep(-0.02, 0.3, hb)), (wallW * 0.85 + 0.15) * wAll);
           float desat = 0.0;
@@ -344,11 +346,11 @@ function patchBuilding(mat: THREE.MeshStandardMaterial): THREE.MeshStandardMater
           }
           float stW = stoneW * wAll * max(wallW, topW);
           if (stW > 0.01) {
-            vec2 sz = mix(vec2(0.3, 0.18), vec2(0.3, 0.26), topW);
-            vec3 sb = bBlocks(suv + (n1 - 0.5) * 0.02, sz, 0.6, 0.007, pw);
+            vec2 sz = mix(vec2(0.42, 0.22), vec2(0.42, 0.34), topW);
+            vec3 sb = bBlocks(suv + (n1 - 0.5) * 0.02, sz, 0.6, 0.0045, pw);
             float sw = stW * fadeStone;
-            m *= 1.0 - sb.x * 0.2 * sw;
-            m *= 1.0 + (sb.y - 0.5) * 0.14 * sw;
+            m *= 1.0 - sb.x * 0.12 * sw;
+            m *= 1.0 + (sb.y - 0.5) * 0.09 * sw;
             m *= 1.0 + (smoothstep(0.0, 0.05, sb.z) - 0.5) * 0.05 * sw;
             m *= 1.0 + (bNoise(suv * 22.0) - 0.5) * 0.08 * stW * fadeFine;
           }
@@ -373,7 +375,7 @@ function patchBuilding(mat: THREE.MeshStandardMaterial): THREE.MeshStandardMater
         }`
       );
   };
-  mat.customProgramCacheKey = () => 'building';
+  mat.customProgramCacheKey = () => 'building-sandstone-v2';
   return mat;
 }
 

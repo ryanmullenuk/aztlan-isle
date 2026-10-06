@@ -5,20 +5,20 @@ import { RNG } from '../world/rng';
 
 const c = (h: number) => new THREE.Color(h);
 const K = {
-  thatch: c(COLORS.thatch),
-  thatchDark: c(0xb3843f),
-  timber: c(COLORS.timber),
+  thatch: c(0xbca06b),
+  thatchDark: c(0x94794d),
+  timber: c(0x866443),
   timberDark: c(0x5e3b22),
-  terracotta: c(COLORS.terracotta),
-  stone: c(COLORS.stone),
-  stoneDark: c(0x9d907f),
-  gold: c(COLORS.gold),
-  jade: c(COLORS.jade),
+  terracotta: c(0xa8583e),
+  stone: c(0xd5bea0),
+  stoneDark: c(0xa69276),
+  gold: c(0xc8a451),
+  jade: c(0x427c73),
   adobe: c(0xe2c79c),
   plaster: c(0xefe2c6),
   door: c(0x3a2a20),
-  red: c(0xc0392b),
-  blue: c(0x3a7bbf),
+  red: c(0xa64032),
+  blue: c(0x327879),
   white: c(0xf4eee0),
   mud: c(0x6e5034),
   rope: c(0xc9a86a),
@@ -267,13 +267,13 @@ export function kennelModel(): BuildingModel {
 // ---------------- Adobe houses (levels 1–5) ----------------
 
 const AD = {
-  wall: c(0xf2a164),
-  wallLight: c(0xf9bd82),
-  roof: c(0xe08f55),
-  band: c(0xd9673f),
-  door: c(0x1b8a9b),
+  wall: c(0xcdb18a),
+  wallLight: c(0xe3ccb0),
+  roof: c(0xb99b76),
+  band: c(0x9d7860),
+  door: c(0x366c66),
   win: c(0x3a2721),
-  red: c(0xc8342c),
+  red: c(0xa74a39),
   cream: c(0xf3e3c6),
   post: c(0x7a4a2a),
   pot: c(0xc4643a),
@@ -285,7 +285,9 @@ const AD = {
 function adobeBlock(b: GeoBuilder, w: number, h: number, d: number, x: number, y: number, z: number, parapet = true): void {
   b.add(P.rbox(w, h, d, 0.035), { color: (p) => AD.wall.clone().lerp(AD.wallLight, Math.min(1, Math.max(0, (p.y - y) / h)) * 0.55) }, M.t(x, y + h / 2, z));
   if (!parapet) return;
-  const t = 0.07, ph = 0.09;
+  // Low, substantial coping gives the roof a finished silhouette.
+  b.add(P.rbox(w + 0.025, 0.045, d + 0.025, 0.012, 1), { color: AD.wallLight }, M.t(x, y + h - 0.025, z));
+  const t = 0.085, ph = 0.10;
   b.add(P.box(w, ph, t), { color: AD.wallLight }, M.t(x, y + h + ph / 2, z + d / 2 - t / 2));
   b.add(P.box(w, ph, t), { color: AD.wallLight }, M.t(x, y + h + ph / 2, z - d / 2 + t / 2));
   b.add(P.box(t, ph, d), { color: AD.wallLight }, M.t(x + w / 2 - t / 2, y + h + ph / 2, z));
@@ -294,14 +296,19 @@ function adobeBlock(b: GeoBuilder, w: number, h: number, d: number, x: number, y
 }
 /** Terracotta band around the foot of a wall. */
 function baseBand(b: GeoBuilder, w: number, d: number, x: number, z: number, h = 0.16): void {
-  b.add(P.box(w + 0.02, h, d + 0.02), { color: AD.band }, M.t(x, h / 2, z));
+  b.add(P.rbox(w + 0.02, h, d + 0.02, 0.025, 1), { color: AD.band }, M.t(x, h / 2, z));
 }
 function tealDoor(b: GeoBuilder, x: number, y: number, z: number, w = 0.26, h = 0.46): void {
-  b.add(P.box(w + 0.06, h + 0.04, 0.03), { color: AD.wallLight }, M.t(x, y + h / 2, z));
-  b.add(P.box(w, h, 0.04), { color: AD.door }, M.t(x, y + h / 2, z + 0.01));
+  // Dark recess, timber door and projecting stone jambs/lintel.
+  b.add(P.box(w + 0.065, h + 0.03, 0.035), { color: K.door }, M.t(x, y + h / 2, z));
+  b.add(P.box(w * 0.86, h * 0.96, 0.018), { color: AD.door }, M.t(x, y + h * 0.48, z + 0.022));
+  for (const side of [-1, 1]) b.add(P.box(0.045, h + 0.05, 0.07), { color: AD.wallLight }, M.t(x + side * (w / 2 + 0.035), y + h / 2, z + 0.015));
+  b.add(P.rbox(w + 0.16, 0.065, 0.10, 0.012, 1), { color: K.stone }, M.t(x, y + h + 0.025, z + 0.025));
+  b.add(P.box(w + 0.12, 0.035, 0.13), { color: K.stoneDark }, M.t(x, y + 0.012, z + 0.04));
 }
 function adobeWindow(b: GeoBuilder, x: number, y: number, z: number, side = false, w = 0.12, h = 0.18): void {
   b.add(P.box(side ? 0.04 : w, h, side ? w : 0.04), { color: AD.win }, M.t(x, y, z));
+  b.add(P.box(side ? 0.075 : w + 0.065, 0.035, side ? w + 0.065 : 0.075), { color: AD.wallLight }, M.t(x, y - h / 2 - 0.012, z));
 }
 /** Sloping cloth awning on two posts; striped red and cream, or plain red. */
 function awning(b: GeoBuilder, x: number, y: number, z: number, w: number, d: number, striped: boolean): void {
@@ -448,8 +455,9 @@ export function templeModel(tier: number): BuildingModel {
     const size = base + (top - base) * t;
     const y = s * sh;
     b.add(P.rbox(size, sh, size, 0.05), { color: (p) => (p.y - y > sh * 0.35 ? K.stone : K.stoneDark) }, M.t(0, y + sh / 2, 0));
-    // Decorative band on each tier.
-    b.add(P.box(size + 0.02, 0.06, size + 0.02), { color: s % 2 ? K.terracotta : K.jade }, M.t(0, y + sh * 0.72, 0));
+    // Pale coping and a restrained mineral-painted frieze.
+    b.add(P.rbox(size + 0.035, 0.065, size + 0.035, 0.015, 1), { color: K.stone }, M.t(0, y + sh - 0.025, 0));
+    if (s === 0 || s === steps - 1) b.add(P.box(size + 0.012, 0.026, size + 0.012), { color: K.terracotta }, M.t(0, y + sh * 0.73, 0));
   }
   const H = steps * sh;
   // Staircase up the front face: solid stepped columns so the profile reads cleanly.
@@ -459,10 +467,10 @@ export function templeModel(tier: number): BuildingModel {
   for (let k = 0; k < stairN; k++) {
     const yTop = ((k + 1) / stairN) * H;
     const z0 = zf(k), z1 = zf(k + 1);
-    // Treads stand a hair proud of the terraces they cut into, so the red and the stone tops never
+    // Treads stand a hair proud of the terraces they cut into, so the treads and the terrace tops never
     // share a plane (that flickered as the camera moved).
     const yT = yTop + 0.008;
-    b.add(P.box(0.82, yT, z0 - z1 + 0.02), { color: (p) => (p.y > yT - 0.04 ? K.terracotta : K.terracotta.clone().multiplyScalar(0.8)) }, M.t(0, yT / 2, (z0 + z1) / 2));
+    b.add(P.box(0.82, yT, z0 - z1 + 0.02), { color: (p) => (p.y > yT - 0.04 ? K.stone : K.stoneDark) }, M.t(0, yT / 2, (z0 + z1) / 2));
   }
   // Sloped balustrades either side of the stairs.
   const slope = Math.atan2(H, run + 0.06);
@@ -472,11 +480,15 @@ export function templeModel(tier: number): BuildingModel {
   }
   const torches: THREE.Vector3[] = [];
   const shrine = (x: number, col: THREE.Color, w: number) => {
-    b.add(P.rbox(w, 0.7, w * 0.8, 0.04), { color: col }, M.t(x, H + 0.35, -0.1));
+    b.add(P.rbox(w, 0.7, w * 0.8, 0.04), { color: K.stone }, M.t(x, H + 0.35, -0.1));
     b.add(P.box(w * 0.4, 0.45, 0.06), { color: K.door }, M.t(x, H + 0.26, -0.1 + w * 0.4));
-    b.add(P.rbox(w + 0.14, 0.14, w * 0.8 + 0.14, 0.03), { color: K.gold }, M.t(x, H + 0.76, -0.1));
+    b.add(P.rbox(w + 0.14, 0.14, w * 0.8 + 0.14, 0.03), { color: col }, M.t(x, H + 0.76, -0.1));
     b.add(P.rbox(w * 0.8, 0.3, w * 0.64, 0.05), { color: col.clone().multiplyScalar(0.85) }, M.t(x, H + 0.98, -0.1));
-    for (let k = 0; k < 5; k++) b.add(P.box(0.1, 0.16, 0.08), { color: K.white }, M.t(x - w * 0.36 + (k * w * 0.72) / 4, H + 1.2, -0.1 + w * 0.32));
+    b.add(P.box(w * 0.55, 0.07, w * 0.55), { color: col }, M.t(x, H + 1.16, -0.1));
+    b.add(P.box(0.16, 0.16, 0.025), { color: K.gold }, M.t(x, H + 0.98, -0.085 + w * 0.32));
+    b.add(P.box(0.075, 0.075, 0.028), { color: col }, M.t(x, H + 0.98, -0.08 + w * 0.32));
+    for (const side of [-1, 1]) b.add(P.box(0.07, 0.48, 0.09), { color: K.plaster }, M.t(x + side * w * 0.25, H + 0.26, -0.07 + w * 0.4));
+    b.add(P.box(w * 0.66, 0.08, 0.10), { color: K.plaster }, M.t(x, H + 0.52, -0.07 + w * 0.4));
   };
   if (tier < 3) shrine(0, tier === 1 ? K.plaster : K.terracotta, tier === 1 ? 0.9 : 1.1);
   else {
