@@ -687,3 +687,9 @@ p.warn { color: #ffb08a; }
 @media (max-width: 720px) {
   #hud .tl { left: max(20px, calc(var(--safe-l, 0px) + 12px)); }
 }
+
+/* Notifications occupy the lane below inventory and left of the side controls. */
+.toasts { left: 20px; right: 76px; transform: none; align-items: flex-start; max-height: 30dvh; overflow-y: auto; }
+.toast { font-size: 11px; line-height: 1.35; padding: 7px 10px; max-width: min(290px, 100%); box-sizing: border-box; }
+.alert-panel { font-size: 11px; line-height: 1.4; }
+.bm-nm { white-space: normal; line-height: 1.2; text-align: center; }

@@ -24,9 +24,9 @@ export const TOOLS: ToolDef[] = [
   { id: 'lower', name: 'Lower', icon: 'lower', hint: 'Hold and drag to lower the land one layer.', cost: POWERS.sculptCostPerCell },
   { id: 'flatten', name: 'Flatten', icon: 'flatten', hint: 'Hold and drag to level land to the layer you started on.', cost: POWERS.sculptCostPerCell },
   { id: 'harvest', name: 'Harvest', icon: 'harvest', hint: 'Mark trees, rocks and fruit for priority harvesting, or tap an animal to send a hunter after it.' },
-  { id: 'bless', name: 'Bless', icon: 'bless', hint: 'Bless farms in an area: crops grow much faster for a while.', cost: POWERS.bless.cost },
+  { id: 'bless', name: 'Bless crops', icon: 'bless', hint: 'Bless farms in an area: crops grow much faster for a while.', cost: POWERS.bless.cost },
   { id: 'rain', name: 'Rain', icon: 'rain', hint: 'Summon rain: crops and forests grow faster.', cost: POWERS.rain.cost },
-  { id: 'calm', name: 'Calm', icon: 'calm', hint: 'Calm a storm and bring back the sun.', cost: POWERS.calm.cost },
+  { id: 'calm', name: 'Calm', icon: 'calm', hint: 'Calm storms or an active volcano.', cost: POWERS.calm.cost },
 ];
 
 export const BUILD_MENU: BuildingKey[] = ['hut', 'home', 'farm', 'maizefarm', 'chinampa', 'woodstore', 'grainstore', 'smokehouse', 'firepit', 'well', 'bonfire', 'torch', 'temple', 'greathall', 'healer', 'butcher', 'pigpen', 'chickenpen', 'kennel', 'jetty', 'tradedock', 'warroom', 'watchtower'];
@@ -35,7 +35,7 @@ export const BUILD_MENU: BuildingKey[] = ['hut', 'home', 'farm', 'maizefarm', 'c
 export const TERRAIN_TOOLS: ToolId[] = ['raise', 'lower', 'flatten'];
 
 /** A toolbar slot: a tool, the Terrain slot that opens Raise / Lower / Flatten, or the Flora slot of planting brushes. */
-export type SlotId = ToolId | 'terrain' | 'flora';
+export type SlotId = ToolId | 'terrain' | 'flora' | 'blessings';
 
 /** The toolbar (number keys 1–7). */
 export const TOOLBAR: { id: SlotId; name: string; icon: string; hint: string; cost?: number }[] = [
@@ -43,5 +43,5 @@ export const TOOLBAR: { id: SlotId; name: string; icon: string; hint: string; co
   { id: 'terrain', name: 'Terrain', icon: 'terrain', hint: 'Shape the land: raise, lower or flatten it. Hold and drag to sculpt.', cost: POWERS.sculptCostPerCell },
   { id: 'flora', name: 'Flora', icon: 'flora', hint: 'Plant flowers, bushes, shrubs and trees: hold and drag over open ground, like laying a path. Trees cost Belief; the rest are free.' },
   // (Harvesting is left to the islanders: they fell, mine and pick by themselves.)
-  ...TOOLS.filter((t) => !['select', 'build', 'raise', 'lower', 'flatten', 'harvest'].includes(t.id)),
+  { id: 'blessings', name: 'Blessing', icon: 'bless', hint: 'Choose Bless crops, Rain or Calm storms and volcanoes.' },
 ];

@@ -94,6 +94,13 @@ export class UI {
     this.root.appendChild(this.info);
     this.toasts = el('div', 'toasts');
     this.root.appendChild(this.toasts);
+    const placeAlerts = () => {
+      const root = this.root.getBoundingClientRect(), clock = this.tl.getBoundingClientRect();
+      this.toasts.style.top = `${Math.max(8, clock.bottom - root.top + 8)}px`;
+    };
+    const alertLayout = new ResizeObserver(placeAlerts);
+    alertLayout.observe(this.tl);
+    alertLayout.observe(this.root);
     this.tooltip = el('div', 'tooltip hidden');
     this.root.appendChild(this.tooltip);
     this.buildMinimap();
@@ -241,6 +248,8 @@ export class UI {
   private terrainItems: HTMLButtonElement[] = [];
   private floraSlot!: HTMLButtonElement;
   private floraPop!: HTMLDivElement;
+  private blessingPop!: HTMLDivElement;
+  private blessingSlot!: HTMLButtonElement;
   private floraItems: HTMLButtonElement[] = [];
 
   /** Show a small popup menu next to the button that opened it (toggles if already open). */
@@ -270,12 +279,13 @@ export class UI {
 
   closePopups(): boolean {
     let closed = false;
-    for (const p of [this.speedPop, this.terrainPop, this.floraPop]) {
+    for (const p of [this.speedPop, this.terrainPop, this.floraPop, this.blessingPop]) {
       if (p && !p.classList.contains('hidden')) {
         p.classList.add('hidden');
         closed = true;
       }
     }
+    this.blessingSlot?.setAttribute('aria-expanded', 'false');
     return closed;
   }
 
@@ -287,6 +297,11 @@ export class UI {
   /** The Flora slot's popup: Flowers, Bushes, Shrubs & ferns, Trees, Dig up plants (number key 4 too). */
   toggleFlora(): void {
     this.openPopup(this.floraPop, this.floraSlot, 'above');
+  }
+
+  toggleBlessings(): void {
+    this.openPopup(this.blessingPop, this.blessingSlot, 'above');
+    this.blessingSlot.setAttribute('aria-expanded', String(!this.blessingPop.classList.contains('hidden')));
   }
 
   private buildBottom(): void {
@@ -314,6 +329,10 @@ export class UI {
       } else if (id === 'flora') {
         this.floraSlot = b;
         b.onclick = () => this.toggleFlora();
+      } else if (id === 'blessings') {
+        this.blessingSlot = b;
+        b.setAttribute('aria-expanded', 'false');
+        b.onclick = () => this.toggleBlessings();
       } else b.onclick = () => {
         this.closePopups();
         this.game.setTool(id as ToolId);
@@ -358,10 +377,20 @@ export class UI {
       this.floraPop.appendChild(b);
     }
     this.root.appendChild(this.floraPop);
+    this.blessingPop = el('div', 'panel popup terrain-pop hidden');
+    for (const id of ['bless', 'rain', 'calm'] as ToolId[]) {
+      const t = TOOLS.find(t => t.id === id)!;
+      const b = el('button', 'tp-item', `${icon(t.icon)}<span class="nm">${t.name}</span><span class="cost">${icon('belief')}${t.cost}</span>`);
+      b.dataset.tool = id;
+      b.onclick = () => { this.closePopups(); this.game.setTool(id); };
+      this.addTip(b, t.hint);
+      this.blessingPop.appendChild(b);
+    }
+    this.root.appendChild(this.blessingPop);
     // Tapping anywhere else closes an open popup.
     document.addEventListener('pointerdown', (e) => {
       const t = e.target as Node;
-      if ([this.speedPop, this.terrainPop, this.floraPop, this.speedBtn, this.terrainSlot, this.floraSlot].some((el2) => el2?.contains(t))) return;
+      if ([this.speedPop, this.terrainPop, this.floraPop, this.blessingPop, this.speedBtn, this.terrainSlot, this.floraSlot, this.blessingSlot].some((el2) => el2?.contains(t))) return;
       this.closePopups();
     }, true);
     // The belief bar sits under the toolbar.
@@ -977,7 +1006,7 @@ export class UI {
       const tool = TOOLBAR[i];
       const terrain = tool.id === 'terrain' && TERRAIN_TOOLS.includes(g.tool);
       const flora = tool.id === 'flora' && GARDEN_TOOLS.includes(g.tool);
-      b.classList.toggle('on', g.tool === tool.id || terrain || flora || (tool.id === 'build' && PAINT_TOOLS.includes(g.tool) && !GARDEN_TOOLS.includes(g.tool)));
+      b.classList.toggle('on', g.tool === tool.id || terrain || flora || (tool.id === 'blessings' && ['bless', 'rain', 'calm'].includes(g.tool)) || (tool.id === 'build' && PAINT_TOOLS.includes(g.tool) && !GARDEN_TOOLS.includes(g.tool)));
       b.classList.toggle('dim', !!tool.cost && e.res.belief < tool.cost);
       // The Flora slot names the brush in use.
       if (tool.id === 'flora') {

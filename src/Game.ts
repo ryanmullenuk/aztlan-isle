@@ -1636,6 +1636,8 @@ export class Game {
       const t = TOOLBAR[parseInt(k, 10) - 1];
       if (t?.id === 'terrain') this.ui.toggleTerrain();
       else if (t?.id === 'flora') this.ui.toggleFlora();
+      else if (t?.id === 'blessings') this.ui.toggleBlessings();
+      else if (k === '6' || k === '7') { this.ui.closePopups(); this.setTool(k === '6' ? 'rain' : 'calm'); }
       else if (t) {
         this.ui.closePopups();
         this.setTool(t.id);
