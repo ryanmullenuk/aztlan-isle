@@ -1,3 +1,4 @@
+import { Demolition } from './Demolition';
 import { villageFire, fireEmbers } from './VillageFire';
 import * as THREE from 'three';
 import { BUILDINGS, BuildingDef, BuildingKey, ECONOMY, FARM, HOMES, JETTY, TEMPLE, FARM_TYPES, isFarm } from '../config';
@@ -150,6 +151,7 @@ export class Building {
  */
 export class BuildingSystem {
   readonly group = new THREE.Group();
+  private demolitions: Demolition[] = [];
   list: Building[] = [];
   private nextId = 1;
   private ghost: THREE.Group | null = null;
@@ -525,8 +527,20 @@ export class BuildingSystem {
   }
 
   remove(b: Building, refund = true): void {
+    if (!this.list.includes(b)) return;
     this.onRemove(b);
-    for (let z = b.cz; z < b.cz + b.d; z++) for (let x = b.cx; x < b.cx + b.w; x++) this.world.occ[this.world.idx(x, z)] = 0;
+    const clear = () => {
+      for (let z = b.cz; z < b.cz + b.d; z++) for (let x = b.cx; x < b.cx + b.w; x++) {
+        const i = this.world.idx(x, z);
+        if (this.world.occ[i] === b.id) this.world.occ[i] = 0;
+      }
+      this.world.version++;
+    };
+    if (refund) {
+      const demolition = new Demolition(b, clear);
+      this.demolitions.push(demolition);
+      this.group.add(demolition.group);
+    } else clear();
     if (b.key === 'torch') this.world.passableBuildings.delete(b.id);
     if (isFarm(b.key)) {
       this.world.passableBuildings.delete(b.id);
@@ -871,6 +885,7 @@ export class BuildingSystem {
   // ------------- Per-frame -------------
 
   update(dt: number, time: number, night: number, seasonIndex: number, raining: boolean, camTarget: THREE.Vector3): void {
+    this.demolitions = this.demolitions.filter(effect => !effect.update(dt));
     for (const b of this.list) {
       if (!b.complete) continue;
       if (b.bell) {
