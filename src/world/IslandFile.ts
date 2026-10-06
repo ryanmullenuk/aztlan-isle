@@ -1,4 +1,4 @@
-import { BUILDINGS, WORLD } from '../config';
+import { BUILDINGS, TEMPLE, WORLD } from '../config';
 import type { SaveData } from './Save';
 
 export const MAX_ISLAND_FILE_BYTES = 8 * 1024 * 1024;
@@ -51,7 +51,7 @@ export function parseIslandFile(raw: string): SaveData {
     for (const k of ['breed', 'cool', 'guard']) if (b[k] !== undefined && !number(b[k])) return fail();
     ids.add(b.id);
   }
-  const islanderKeys = ['id', 'name', 'gender', 'child', 'age', 'x', 'z', 'hunger', 'rest', 'happy', 'role', 'manualRole', 'workplace', 'home', 'skin', 'cloth', 'cloth2', 'headdress', 'jewel', 'warrior', 'heading', 'condition', 'conditionT'];
+  const islanderKeys = ['id', 'name', 'gender', 'child', 'age', 'x', 'z', 'hunger', 'rest', 'happy', 'role', 'manualRole', 'workplace', 'home', 'skin', 'cloth', 'cloth2', 'headdress', 'jewel', 'warrior', 'heading', 'condition', 'conditionT', 'greatTemplePrayer'];
   ids.clear();
   for (const i of d.islanders) {
     if (!fields(i, ['id', 'age', 'x', 'z', 'hunger', 'rest', 'happy', 'workplace', 'home', 'skin', 'cloth', 'cloth2', 'headdress', 'heading']) ||
@@ -61,6 +61,7 @@ export function parseIslandFile(raw: string): SaveData {
     // Health (optional: older files have none, and the healthy save none).
     if ((i.condition !== undefined && !['well', 'sick', 'mauled'].includes(i.condition)) ||
         (i.conditionT !== undefined && (!number(i.conditionT) || i.conditionT < 0))) return fail();
+    if (i.greatTemplePrayer !== undefined && (!number(i.greatTemplePrayer) || i.greatTemplePrayer < 0 || i.greatTemplePrayer >= TEMPLE.greatPrayerSeconds)) return fail();
     ids.add(i.id);
     for (const key of Object.keys(i)) if (!islanderKeys.includes(key)) delete i[key];
   }

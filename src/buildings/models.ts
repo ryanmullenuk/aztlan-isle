@@ -495,6 +495,96 @@ export function templeModel(tier: number): BuildingModel {
   return { finished: b.build(), torches, height: H + 1.3 };
 }
 
+/** Monumental twin sanctuary: broad sandstone terraces, red/turquoise crowns and sun banners. */
+export function greatTempleModel(): BuildingModel {
+  const b = new GeoBuilder(), torches: THREE.Vector3[] = [];
+  const stone = c(0xd9bd8b), shade = c(0xb69b74), turquoise = c(0x227f80);
+  const masonry = (p: THREE.Vector3, n: THREE.Vector3) =>
+    (n.y > 0.5 ? stone : shade).clone().multiplyScalar(0.97 + 0.035 * Math.sin(Math.floor(p.x * 3) * 21 + Math.floor(p.z * 3) * 13 + Math.floor(p.y * 4) * 7));
+  const terrace = (base: number, top: number, y: number, h: number) => {
+    b.add(P.cyl(top / Math.SQRT2, base / Math.SQRT2, h, 4), { color: masonry }, M.t(0,y+h/2,0,0,Math.PI/4,0));
+    b.add(P.box(top+0.16,0.12,top+0.16), { color: stone }, M.t(0,y+h+0.06,0));
+    // Recessed courses and staggered blocks on the sloping faces, kept clear of the main stair.
+    for (let face=0;face<4;face++) for (let row=0;row<5;row++) {
+      const f=(row+0.5)/5, size=base+(top-base)*f;
+      const m=M.t(0,y+f*h,0,0,face*Math.PI/2,0);
+      for(let x=-size/2+0.25+(row%2)*0.2;x<size/2-0.2;x+=0.5) {
+        if(face===0 && Math.abs(x)<1.05) continue;
+        b.add(P.box(0.47,0.022,0.026),{color:shade.clone().multiplyScalar(0.85)},m.clone().multiply(M.t(x,0,size/2+0.009)));
+      }
+    }
+  };
+  b.add(P.box(7.95,0.12,7.95),{color:shade},M.t(0,0.06,0));
+  terrace(7.8,6.6,0.12,1.72);
+  terrace(5.9,4.8,1.96,1.72);
+  const H=3.8;
+  // Separate flights follow each sloping face, with a level landing on the terrace.
+  // Keeping every tread outside the masonry avoids the terraces cutting through the stairs.
+  const stair = (yaw:number,width:number) => {
+    const m=M.t(0,0,0,0,yaw,0);
+    for(const [y0,y1,z0,z1] of [[0.12,1.96,3.99,3.32],[1.96,H,2.99,2.43]]) {
+      const count=14, run=(z0-z1)/count;
+      for(let k=0;k<count;k++) {
+        const h=y0+(y1-y0)*(k+1)/count+0.016;
+        b.add(P.box(width,h,run+0.016),{color:masonry},m.clone().multiply(M.t(0,h/2,z0-(k+0.5)*run)));
+      }
+      const angle=Math.atan2(y1-y0,z0-z1), length=Math.hypot(y1-y0,z0-z1);
+      for(const side of [-1,1]) {
+        const rail=m.clone().multiply(M.t(side*(width/2+0.12),(y0+y1)/2+0.09,(z0+z1)/2,angle,0,0));
+        b.add(P.box(0.17,0.16,length),{color:stone},rail);
+        b.add(P.box(0.07,0.024,length),{color:side<0?K.red:turquoise},rail.clone().multiply(M.t(0,0.091,0)));
+      }
+    }
+    b.add(P.box(width,0.035,0.36),{color:stone},m.clone().multiply(M.t(0,1.974,3.145)));
+  };
+  stair(0,1.45); stair(Math.PI/2,0.7); stair(-Math.PI/2,0.7);
+  const shrine = (x:number,col:THREE.Color) => {
+    const z=-0.55, w=1.58;
+    b.add(P.cyl(1.25/Math.SQRT2,w/Math.SQRT2,1.55,4),{color:masonry},M.t(x,H+0.775,z,0,Math.PI/4,0));
+    // Deep dark doorway framed by sandstone lintels; crown echoes the reference's stepped glyph.
+    b.add(P.box(0.51,1.04,0.04),{color:K.door},M.t(x,H+0.52,z+0.8));
+    for(const side of [-1,1]) b.add(P.box(0.14,1.15,0.16),{color:stone},M.t(x+side*0.33,H+0.57,z+0.83));
+    b.add(P.box(0.87,0.15,0.17),{color:col},M.t(x,H+1.2,z+0.83));
+    b.add(P.box(1.42,0.17,1.42),{color:col},M.t(x,H+1.54,z));
+    b.add(P.box(1.14,0.65,1.12),{color:col},M.t(x,H+1.92,z));
+    b.add(P.box(0.6,0.24,0.75),{color:col.clone().multiplyScalar(0.92)},M.t(x,H+2.34,z));
+    for(const side of [-1,1]) {
+      b.add(P.box(0.19,0.2,0.03),{color:K.gold},M.t(x+side*0.35,H+1.98,z+0.576));
+      b.add(P.box(0.075,0.085,0.037),{color:col},M.t(x+side*0.35,H+1.98,z+0.59));
+    }
+    for(let k=0;k<7;k++) b.add(P.box(0.08,0.075,0.035),{color:K.gold},M.t(x-0.6+k*0.2,H+1.56,z+0.722));
+    b.add(P.box(0.4,0.25,0.09),{color:K.gold},M.t(x,H+1.67,z+0.76));
+    b.add(P.box(0.18,0.11,0.025),{color:col},M.t(x,H+1.69,z+0.815));
+  };
+  shrine(-1.1,K.red); shrine(1.1,turquoise);
+  const brazier = (x:number,y:number,z:number) => {
+    b.add(P.box(0.48,0.14,0.48),{color:shade},M.t(x,y+0.07,z));
+    b.add(P.box(0.32,0.34,0.32),{color:stone},M.t(x,y+0.29,z));
+    b.add(P.box(0.52,0.09,0.52),{color:K.gold},M.t(x,y+0.5,z));
+    b.add(P.box(0.36,0.035,0.36),{color:c(0x46352b)},M.t(x,y+0.56,z));
+    torches.push(new THREE.Vector3(x,y+0.6,z));
+  };
+  for(const side of [-1,1]) {
+    brazier(side*1.18,0.12,3.56);
+    brazier(side*2.68,1.96,2.67);
+    brazier(side*1.98,H,1.97);
+    brazier(side*1.98,H,-1.95);
+    sunBanner(b,M.t(side*2.0,0.99,3.622,-Math.atan2(0.6,1.72),0,0),0.66,1.22);
+    sunBanner(b,M.t(side*1.55,2.85,2.69,-Math.atan2(0.55,1.72),0,0),0.6,1.25);
+    sunBanner(b,M.t(side*3.64,1.0,side*1.9,0,side*Math.PI/2,0).multiply(M.t(0,0,0,-Math.atan2(0.6,1.72),0,0)),0.65,1.2);
+    for(const [x,y,z] of [[3.3,0.12,2.65],[2.8,1.96,0.8],[1.8,H,-1.75]]) {
+      broadLeaf(b,side*x,y,z,1.8,Math.round(x*31+side));
+      fern(b,side*(x-0.25),y,z+0.15,1.1,Math.round(x*50+side));
+    }
+  }
+  const r=new RNG(731);
+  for(let i=0;i<26;i++) {
+    const side=i%2?1:-1,x=side*r.range(3.55,3.83),z=r.range(-3.65,3.55);
+    b.add(lumpy(P.sphere(0.14,0),0.18,i),{color:shade},M.t(x,0.14,z,0,r.next()*6,0,1.3,0.8,1));
+  }
+  return {finished:b.build(),torches,height:H+2.48};
+}
+
 /** Farm: fence with a gate, a small shelter and a scarecrow. Crops are a separate mesh. */
 export function farmModel(w: number, d: number, kind: 'veg' | 'maize' = 'veg'): BuildingModel {
   const b = new GeoBuilder();

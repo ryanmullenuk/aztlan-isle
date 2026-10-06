@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { MARINE } from '../config';
 import type { WhaleRig } from './WhaleModel';
 
 // ---------------- Coming up for air ----------------
@@ -55,7 +56,9 @@ const KEYS: RiseKey[] = [
 ];
 
 /** How far the rise carries the whale along its heading (whale lengths). */
-export const RISE_REACH = KEYS[KEYS.length - 1].h;
+// Keep the travel speed of the original animation when the model size changes.
+const RISE_TRAVEL_SCALE = 5.2 / MARINE.whaleLength;
+export const RISE_REACH = KEYS[KEYS.length - 1].h * RISE_TRAVEL_SCALE;
 /** Body half-thickness allowance (whale lengths) when keeping it off the seabed. */
 export const WHALE_GIRTH = 0.14;
 
@@ -74,7 +77,11 @@ export function sampleRise(t: number, lean = 12): RisePose {
     const m1 = ((get(d, key) - get(b, key)) / (d.t - b.t || 1)) * (c.t - b.t);
     return (2 * f * f * f - 3 * f * f + 1) * get(b, key) + (f * f * f - 2 * f * f + f) * m0 + (-2 * f * f * f + 3 * f * f) * get(c, key) + (f * f * f - f * f) * m1;
   };
-  return { y: value('y'), h: value('h'), pitch: value('pitch'), roll: value('roll'), fin: value('fin'), arch: value('arch'), stroke: value('stroke') };
+  // A larger body needs a shallower dive arc above the fixed ocean floor. The smooth
+  // lift is zero at both ends, preserving cruise depth and the flukes-up silhouette.
+  const dive = THREE.MathUtils.clamp((tt - 7.7) / (13.2 - 7.7), 0, 1);
+  const lift = Math.max(0, 1 - RISE_TRAVEL_SCALE) * 0.46 * Math.sin(dive * Math.PI) ** 2;
+  return { y: value('y') + lift, h: value('h') * RISE_TRAVEL_SCALE, pitch: value('pitch'), roll: value('roll'), fin: value('fin'), arch: value('arch'), stroke: value('stroke') };
 }
 
 /** Lowest point of a straight whale body (in whale lengths, relative to its centre) at a pitch. */

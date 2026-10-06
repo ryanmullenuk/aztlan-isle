@@ -391,7 +391,7 @@ export class Colony {
       isl.workplace = b.id;
       return `${isl.name} will help build the ${b.label}.`;
     }
-    const map: Partial<Record<string, Role>> = { farm: 'farmer', maizefarm: 'farmer', chinampa: 'farmer', temple: 'priest', jetty: 'fisher', butcher: 'butcher', smokehouse: 'smoker', woodstore: 'woodcutter', grainstore: 'gatherer' };
+    const map: Partial<Record<string, Role>> = { farm: 'farmer', maizefarm: 'farmer', chinampa: 'farmer', temple: 'priest', greattemple: 'priest', jetty: 'fisher', butcher: 'butcher', smokehouse: 'smoker', woodstore: 'woodcutter', grainstore: 'gatherer' };
     if (b.key === 'warroom') {
       isl.manualRole = false;
       return this.trainWarrior(b, this.rnd() < 0.5 ? 'jaguar' : 'eagle', isl) ? `${isl.name} is training as a warrior.` : 'Not enough resources to train a warrior.';
@@ -402,7 +402,7 @@ export class Colony {
       return `Nothing to do at the ${b.label}.`;
     }
     isl.role = role;
-    isl.workplace = isFarm(b.key) || ['temple', 'jetty', 'butcher', 'smokehouse', 'watchtower'].includes(b.key) ? b.id : -1;
+    isl.workplace = isFarm(b.key) || ['temple', 'greattemple', 'jetty', 'butcher', 'smokehouse', 'watchtower'].includes(b.key) ? b.id : -1;
     return `${isl.name} now works as a ${role}.`;
   }
 
@@ -464,7 +464,7 @@ export class Colony {
       if (!b.complete || b.upgrading) slots.push({ b, role: 'builder', n: b.def.builders });
       else if (isFarm(b.key)) slots.push({ b, role: 'farmer', n: b.def.workers });
       else if (b.key === 'smokehouse') slots.push({ b, role: 'smoker', n: b.def.workers });
-      else if (b.key === 'temple') slots.push({ b, role: 'priest', n: b.def.workers });
+      else if (b.key === 'temple' || b.key === 'greattemple') slots.push({ b, role: 'priest', n: b.def.workers });
       else if (b.key === 'butcher') slots.push({ b, role: 'butcher', n: b.def.workers });
       else if (b.key === 'jetty') slots.push({ b, role: 'fisher', n: Math.min(b.def.workers, b.boats.length) });
     }
@@ -665,6 +665,7 @@ export class Colony {
     let target = 0.3;
     if (home) target += home.key === 'home' ? 0.32 : 0.22;
     if (isl.hunger > 0.45) target += 0.2;
+    if (this.bld.of('greattemple').length) target += 0.15;
     if (this.bld.of('temple').length) target += 0.1 + Math.min(0.1, this.bld.of('temple').reduce((s, b) => s + b.tier, 0) * 0.03);
     if (FOOD_KEYS.filter((k) => this.eco.res[k] > 0).length >= 3) target += ECONOMY.varietyHappiness;
     // Fresh water close to home.
@@ -959,8 +960,15 @@ export class Colony {
       case 'priest': {
         const t = this.bld.byId(isl.workplace);
         if (!t) return false;
-        const [dx, dz] = t.dir;
-        this.setTask(isl, 'pray', t.id, t.door.x + dx * 0.4 + (this.rnd() - 0.5) * 1.2, t.door.z + dz * 0.4 + (this.rnd() - 0.5) * 1.2);
+        if (t.key === 'greattemple') {
+          // Spread the congregation in rows in front of the staircase, outside the blocked footprint.
+          const slot = Math.max(0, this.list.filter(i => i.workplace === t.id && i.role === 'priest').indexOf(isl));
+          const [x,z] = t.local((slot % 6 - 2.5) * 0.9, 4.8 + Math.floor(slot / 6) * 0.9);
+          this.setTask(isl, 'pray', t.id, x, z);
+        } else {
+          const [dx, dz] = t.dir;
+          this.setTask(isl, 'pray', t.id, t.door.x + dx * 0.4 + (this.rnd() - 0.5) * 1.2, t.door.z + dz * 0.4 + (this.rnd() - 0.5) * 1.2);
+        }
         return true;
       }
       case 'butcher': {
@@ -1298,7 +1306,7 @@ export class Colony {
       }
       case 'pray': {
         const tp = this.bld.byId(t.target);
-        if (!tp || !tp.complete) return this.releaseTask(isl);
+        if (!tp || !tp.complete || tp.upgrading) return this.releaseTask(isl);
         isl.tool = 'none';
         if (t.stage < 2) {
           const r = this.travel(isl, dt, t.x, t.z, { goalRadius: 1 });
@@ -1309,7 +1317,12 @@ export class Colony {
         }
         this.faceTo(isl, tp.x - isl.x, tp.z - isl.z, dt);
         isl.anim = 'pray';
-        this.eco.add('belief', TEMPLE.prayBelief * tp.tier * dt);
+        if (tp.key === 'greattemple') {
+          const elapsed = (isl.greatTemplePrayer ?? 0) + dt;
+          const offerings = Math.floor((elapsed + 1e-8) / TEMPLE.greatPrayerSeconds);
+          isl.greatTemplePrayer = Math.max(0, elapsed - offerings * TEMPLE.greatPrayerSeconds);
+          if (offerings > 0) this.eco.add('belief', offerings);
+        } else this.eco.add('belief', TEMPLE.prayBelief * tp.tier * dt);
         t.timer -= dt;
         if (t.timer <= 0) this.releaseTask(isl);
         break;

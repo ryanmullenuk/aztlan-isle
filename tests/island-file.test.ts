@@ -13,6 +13,7 @@ function snapshot() {
   world.layer[12] = 7; world.path[43] = 1;
   const person = makeIslander(1, 'Test', 'f', 3, 5, () => 0.5, false);
   person.warrior = 'eagle';
+  person.greatTemplePrayer = 145.5;
   return serialize({ world, veg: { plants: [{ state: 1, marked: true, growth: 0.5, amount: 2, fruit: 1 }], serializePlanted: () => [], serializeLogs: () => [] },
     time: { elapsed: 400, day: 2, t: 0.4, speed: 2 }, rig: { goal: { x: 4, z: 5, dist: 30, yaw: 1 } },
     eco: { res: { wood: 20, stone: 30, grain: 40, fruit: 50, meat: 60, fish: 70, belief: 80 } },
@@ -58,4 +59,16 @@ test('transient islander state from a file is not assigned into the running simu
   const d = JSON.parse(await islandFile(snapshot()).text());
   d.save.islanders[0].task = { kind: 'invalid' };
   assert.equal(parseIslandFile(JSON.stringify(d)).islanders[0].task, undefined);
+});
+
+
+test('Great Temple and retained prayer progress survive a shared island file', async () => {
+  const save = snapshot();
+  save.buildings[0].key = 'greattemple'; save.buildings[0].tier = 1;
+  const restored = parseIslandFile(await islandFile(save).text());
+  assert.equal(restored.buildings[0].key, 'greattemple');
+  assert.equal(restored.islanders[0].greatTemplePrayer, 145.5);
+  const invalid = JSON.parse(await islandFile(save).text());
+  invalid.save.islanders[0].greatTemplePrayer = 300;
+  assert.throws(() => parseIslandFile(JSON.stringify(invalid)));
 });

@@ -26,7 +26,7 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = ''):
 const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${Math.floor(n)}`);
 
 const BUILD_ICON: Record<BuildingKey, string> = {
-  campfire: 'belief', hut: 'b_hut', home: 'b_home', temple: 'b_temple', farm: 'b_farm', butcher: 'b_butcher',
+  campfire: 'belief', hut: 'b_hut', home: 'b_home', temple: 'b_temple', greattemple: 'b_greattemple', farm: 'b_farm', butcher: 'b_butcher',
   woodstore: 'b_woodstore', grainstore: 'b_grainstore', warroom: 'b_warroom', jetty: 'b_jetty',
   maizefarm: 'b_maize', chinampa: 'b_chinampa', smokehouse: 'b_smoke',
   tradedock: 'b_trade', torch: 'b_torch', bonfire: 'b_bonfire', firepit: 'b_firepit', well: 'b_well', kennel: 'b_kennel', greathall: 'b_greathall',
@@ -1174,6 +1174,10 @@ export class UI {
     if (b.complete && b.def.workers) body += `<div class="kv"><span>Workers</span><b>${workers.map((w) => w.name).join(', ') || 'None yet'}</b></div>`;
     if (b.key === 'smokehouse' && b.complete) body += `<div class="kv"><span>Smoking</span><b>${b.tendTimer > 0 ? 'Fire lit, racks full' : g.eco.res.fish >= SMOKE.input || g.eco.res.meat >= SMOKE.input ? 'Waiting for a keeper' : 'Needs raw fish or meat'}</b></div><p class="muted small">${SMOKE.input} raw fish or meat + ${SMOKE.wood} wood → ${SMOKE.output} smoked.</p>`;
     if (FARM_TYPES[b.key] && b.complete) body += this.bar(b.growth >= 1 ? 'Ready to harvest' : `${FARM_TYPES[b.key]!.label} growing ${Math.round(b.growth * 100)}%`, b.growth, 'good') + (b.blessTimer > 0 ? '<div class="kv"><span>Blessed</span><b>Growing faster</b></div>' : '');
+    if (b.key === 'greattemple' && b.complete) {
+      const praying = workers.filter(i => i.task?.kind === 'pray' && i.task.target === b.id && i.task.stage === 2 && i.anim === 'pray').length;
+      body += `<div class="kv"><span>Praying now</span><b>${praying}</b></div><div class="kv"><span>Belief</span><b>+1 per worshipper / 5 min of prayer</b></div><p>Prayer progress is kept between visits. Assign islanders here to pray.</p>`;
+    }
     if (b.key === 'temple' && b.complete) body += `<div class="kv"><span>Belief</span><b>+${(0.25 * b.tier * 60).toFixed(0)}/min and more from priests</b></div>`;
     if (b.key === 'woodstore' || b.key === 'campfire') body += `<div class="kv"><span>Wood / Stone</span><b>${Math.floor(g.eco.res.wood)} · ${Math.floor(g.eco.res.stone)} of ${g.eco.woodCap}</b></div>`;
     if (b.key === 'grainstore' || b.key === 'campfire') body += `<div class="kv"><span>Food</span><b>${Math.floor(g.eco.food)} of ${g.eco.foodCap}</b></div>`;
@@ -1453,7 +1457,7 @@ export class UI {
     const toPx = (x: number, z: number): [number, number] => [(x + w.half) * k, (z + w.half) * k];
     for (const b of g.buildings.list) {
       const [x, y] = toPx(b.cx - w.half, b.cz - w.half);
-      ctx.fillStyle = b.complete ? (b.key === 'temple' ? '#ffd24a' : '#f5e6c4') : 'rgba(245,230,196,0.5)';
+      ctx.fillStyle = b.complete ? (['temple', 'greattemple'].includes(b.key) ? '#ffd24a' : '#f5e6c4') : 'rgba(245,230,196,0.5)';
       ctx.fillRect(x, y, Math.max(2, b.w * k), Math.max(2, b.d * k));
     }
     ctx.fillStyle = '#ffffff';

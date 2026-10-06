@@ -111,6 +111,8 @@ export interface Islander {
   warrior: 'jaguar' | 'eagle' | null;
   /** Day of the last evening spent at a bonfire. */
   lastBonfire: number;
+  /** Completed prayer seconds towards the next Great Temple offering, retained between visits. */
+  greatTemplePrayer?: number;
   /** Waving up at the player (seconds left), and time until they might wave again. */
   waveT: number;
   waveCool: number;

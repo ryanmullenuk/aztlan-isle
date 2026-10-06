@@ -11,7 +11,7 @@ import { RNG } from '../world/rng';
 import * as models from './models';
 
 /** Flame size per building; fires are visible only from dusk until dawn. */
-const FLAME_SCALE: Partial<Record<BuildingKey, number>> = { campfire: 0.85, bonfire: 1, firepit: 0.9, torch: 1.25, greathall: 3.0, watchtower: 1.1 };
+const FLAME_SCALE: Partial<Record<BuildingKey, number>> = { campfire: 0.85, bonfire: 1, firepit: 0.9, torch: 1.25, greathall: 3.0, watchtower: 1.1, greattemple: 1.5 };
 import { Particles } from '../render/Particles';
 
 /** Door direction per rotation (door faces +z at rot 0). */
@@ -576,6 +576,7 @@ export class BuildingSystem {
       case 'hut': return models.hutModel();
       case 'home': return models.homeModel(b.tier);
       case 'temple': return models.templeModel(b.tier);
+      case 'greattemple': return models.greatTempleModel();
       case 'farm': return models.farmModel(sw, sd, 'veg');
       case 'maizefarm': return models.farmModel(sw, sd, 'maize');
       case 'chinampa': return models.chinampaModel(sw, sd);
@@ -795,6 +796,7 @@ export class BuildingSystem {
       wood += b.def.woodCap ?? 0;
       food += b.def.foodCap ?? 0;
       if (b.key === 'temple') tiers += b.tier;
+      if (b.key === 'greattemple') tiers += TEMPLE.greatBeliefCapTiers;
     }
     this.eco.recomputeCaps(wood, food, tiers);
   }

@@ -253,7 +253,7 @@ export const ECONOMY = {
   varietyHappiness: 0.05,
 };
 
-export type BuildingKey = 'campfire' | 'hut' | 'home' | 'temple' | 'farm' | 'maizefarm' | 'chinampa' | 'butcher' | 'smokehouse' | 'woodstore' | 'grainstore' | 'warroom' | 'jetty' | 'torch' | 'bonfire' | 'firepit' | 'well' | 'tradedock' | 'kennel' | 'greathall' | 'pigpen' | 'chickenpen' | 'healer' | 'watchtower';
+export type BuildingKey = 'campfire' | 'hut' | 'home' | 'temple' | 'greattemple' | 'farm' | 'maizefarm' | 'chinampa' | 'butcher' | 'smokehouse' | 'woodstore' | 'grainstore' | 'warroom' | 'jetty' | 'torch' | 'bonfire' | 'firepit' | 'well' | 'tradedock' | 'kennel' | 'greathall' | 'pigpen' | 'chickenpen' | 'healer' | 'watchtower';
 
 export interface BuildingDef {
   key: BuildingKey;
@@ -281,6 +281,7 @@ export const BUILDINGS: Record<BuildingKey, BuildingDef> = {
   hut: { key: 'hut', name: 'Hut', description: 'Level 1 house: a small adobe home for 2 islanders.', size: [2, 2], cost: { wood: 12, stone: 0, belief: 0 }, buildTime: 22, builders: 2, workers: 0, housing: 2, upgradeTo: 'home', placeable: true },
   home: { key: 'home', name: 'Family House', description: 'Adobe family house (level 2, 4 people). Upgrade it up to level 5 for 16. A couple in any house may have one child, who plays around the village.', size: [3, 3], cost: { wood: 26, stone: 14, belief: 0 }, buildTime: 45, builders: 3, workers: 0, housing: 4, maxTier: 4, placeable: true },
   temple: { key: 'temple', name: 'Temple', description: 'Stepped pyramid that generates Belief. Upgrade twice to raise the Great Pyramid.', size: [4, 4], cost: { wood: 20, stone: 36, belief: 20 }, buildTime: 70, builders: 4, workers: 2, maxTier: 3, placeable: true },
+  greattemple: { key: 'greattemple', name: 'Great Temple', description: 'A monumental twin-shrine sanctuary, four times the Great Pyramid footprint. Each worshipper earns 1 Belief per 5 minutes of prayer; progress is kept between visits.', size: [8, 8], cost: { wood: 160, stone: 480, belief: 200 }, buildTime: 240, builders: 8, workers: 12, placeable: true },
   farm: { key: 'farm', name: 'Vegetable Farm', description: 'Beans climbing poles, squash and chillies. Quick to grow; farmers also catch wild chickens for the pen.', size: [4, 4], cost: { wood: 16, stone: 0, belief: 0 }, buildTime: 25, builders: 2, workers: 2, placeable: true },
   maizefarm: { key: 'maizefarm', name: 'Maize Farm', description: 'A big field of tall maize with a granary crib. Slower to ripen but the richest grain harvest.', size: [5, 5], cost: { wood: 26, stone: 4, belief: 0 }, buildTime: 35, builders: 2, workers: 3, placeable: true },
   chinampa: { key: 'chinampa', name: 'Water Garden', description: 'Raised garden beds between water channels, built beside a river, pool or shore. Rich, wet soil grows crops fast in every season.', size: [4, 4], cost: { wood: 20, stone: 8, belief: 0 }, buildTime: 40, builders: 2, workers: 2, placeable: true },
@@ -369,6 +370,8 @@ export const TEMPLE = {
   ],
   upgradeTime: [0, 0, 90, 140],
   prayBelief: 0.06,
+  greatPrayerSeconds: 300,
+  greatBeliefCapTiers: 12,
 };
 
 /** Per farm type: growth speed multiplier, grain per harvest, lowest seasonal growth, crop label. */
@@ -896,10 +899,10 @@ export const CRITTERS = {
 export const MARINE = {
   whales: 2, // Adults; the second is accompanied by a calf.
   /** Whale length in world units (islanders are ~0.62 tall). */
-  whaleLength: 5.2,
+  whaleLength: 7.8,
   whaleSpeed: 1.5,
   /** Cruising depth of the whale's body centre below the surface. */
-  swimDepth: 1.7,
+  swimDepth: 2.55,
   /**
    * Seconds until a whale first comes right up for air (head and back out, a big blow, flukes up
    * as it dives), then a random gap between those per whale (it breathes more quietly between).
@@ -907,13 +910,13 @@ export const MARINE = {
   firstRise: 40,
   riseEvery: [70, 130] as [number, number],
   /** Only in deep, open water: seabed below this under the whole run... */
-  riseBed: -4.8,
+  riseBed: -6.0,
   /** ...and nothing shallower than the deep sea (land, reef shelf) within this of it. */
   riseClear: 8,
   /** Seconds a whale spends swimming out to open water to come up before giving up. */
   riseSeek: 60,
   /** Cruising whales turn away from water shallower than this ahead of them. */
-  whaleBed: -4.6,
+  whaleBed: -5.6,
   /** Seconds until a whale first comes up to breathe (back, blow, dive), then the gap between breaths. */
   firstSurface: 6,
   surfaceEvery: [20, 40] as [number, number],

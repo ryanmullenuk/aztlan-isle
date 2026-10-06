@@ -374,8 +374,8 @@ export class Marine {
     }
 
     // Whales live out in the open ocean, beyond the reef shelf.
-    const spots = this.deepSpots(MARINE.whales, -4.8, 0.78, 1.15);
-    if (spots[1]) spots.push({ x: spots[1].x + 3, z: spots[1].z - 3 });
+    const spots = this.deepSpots(MARINE.whales, MARINE.riseBed, 0.78, 1.15);
+    if (spots[1]) spots.push({ x: spots[1].x + 4.5, z: spots[1].z - 4.5 });
     spots.forEach((s, k) => {
       const L = MARINE.whaleLength * (k === 2 ? 0.48 : 0.9 + this.rng.next() * 0.2);
       const root = new THREE.Group();
@@ -885,8 +885,8 @@ export class Marine {
       if (Math.hypot(w.x, w.z) > this.world.half * 1.3) want = Math.sign(Marine.turnTo(P.yaw, Math.atan2(-w.x, -w.z))) * 0.4;
       // Each adult keeps its own side of the island; the calf stays alongside its mother.
       const follow = w.mother;
-      const homeX = follow ? follow.x + Math.cos(follow.pose.yaw) * 3 : w.route.x;
-      const homeZ = follow ? follow.z - Math.sin(follow.pose.yaw) * 3 : w.route.z;
+      const homeX = follow ? follow.x + Math.cos(follow.pose.yaw) * 4.5 : w.route.x;
+      const homeZ = follow ? follow.z - Math.sin(follow.pose.yaw) * 4.5 : w.route.z;
       const homeDistance = Math.hypot(homeX - w.x, homeZ - w.z);
       if (follow || homeDistance > 45)
         want = THREE.MathUtils.clamp(Marine.turnTo(P.yaw, Math.atan2(homeX - w.x, homeZ - w.z)), -0.65, 0.65);

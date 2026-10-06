@@ -29,7 +29,7 @@ export const TOOLS: ToolDef[] = [
   { id: 'calm', name: 'Calm', icon: 'calm', hint: 'Calm storms or an active volcano.', cost: POWERS.calm.cost },
 ];
 
-export const BUILD_MENU: BuildingKey[] = ['hut', 'home', 'farm', 'maizefarm', 'chinampa', 'woodstore', 'grainstore', 'smokehouse', 'firepit', 'well', 'bonfire', 'torch', 'temple', 'greathall', 'healer', 'butcher', 'pigpen', 'chickenpen', 'kennel', 'jetty', 'tradedock', 'warroom', 'watchtower'];
+export const BUILD_MENU: BuildingKey[] = ['hut', 'home', 'farm', 'maizefarm', 'chinampa', 'woodstore', 'grainstore', 'smokehouse', 'firepit', 'well', 'bonfire', 'torch', 'temple', 'greattemple', 'greathall', 'healer', 'butcher', 'pigpen', 'chickenpen', 'kennel', 'jetty', 'tradedock', 'warroom', 'watchtower'];
 
 /** The land-shaping tools, offered together in the Terrain slot's popup. */
 export const TERRAIN_TOOLS: ToolId[] = ['raise', 'lower', 'flatten'];
@@ -43,5 +43,5 @@ export const TOOLBAR: { id: SlotId; name: string; icon: string; hint: string; co
   { id: 'terrain', name: 'Terrain', icon: 'terrain', hint: 'Shape the land: raise, lower or flatten it. Hold and drag to sculpt.', cost: POWERS.sculptCostPerCell },
   { id: 'flora', name: 'Flora', icon: 'flora', hint: 'Plant flowers, bushes, shrubs and trees: hold and drag over open ground, like laying a path. Trees cost Belief; the rest are free.' },
   // (Harvesting is left to the islanders: they fell, mine and pick by themselves.)
-  { id: 'blessings', name: 'Blessing', icon: 'bless', hint: 'Choose Bless crops, Rain or Calm storms and volcanoes.' },
+  { id: 'blessings', name: 'Power', icon: 'bless', hint: 'Choose Bless crops, Rain or Calm storms and volcanoes.' },
 ];
