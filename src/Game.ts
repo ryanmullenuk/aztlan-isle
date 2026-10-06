@@ -779,6 +779,8 @@ export class Game {
   private settlerTimer = 200;
   /** The camera rides along with the first canoe until it lands (or the player takes over). */
   private introFollow = false;
+  private introElapsed = 0;
+  private introDistance = 0;
 
   /**
    * A new game: the first two villagers paddle in from the open sea and land on the main
@@ -937,7 +939,29 @@ export class Game {
   }
 
   /** Start the arrival only after the player has dismissed the splash. */
-  play(): void { this.playing = true; this.clock.reset(); }
+  play(): void {
+    if (this.playing) return;
+    this.playing = true; this.clock.reset();
+    if (this.introFollow) {
+      this.introElapsed = 0;
+      this.introDistance = this.rig.maxDist * 1.04;
+      this.rig.goal.tilt = 0;
+      this.rig.jumpTo(0, 0, this.introDistance, this.rig.camera.aspect < 1 ? Math.PI / 2 : 0);
+    }
+  }
+
+  private updateIntroCamera(realDt: number): void {
+    if (!this.introFollow || !this.playing) return;
+    const a = this.boats.arrivalPos;
+    if (!a || this.input.navigating) { this.introFollow = false; return; }
+    this.introElapsed += realDt;
+    // Hold the island overview, then ease down towards the moving canoe over six seconds.
+    const t = Math.min(1, Math.max(0, (this.introElapsed - 1.2) / 6));
+    const ease = t * t * t * (t * (t * 6 - 15) + 10);
+    this.rig.goal.x = a.x * ease;
+    this.rig.goal.z = a.z * ease;
+    this.rig.goal.dist = this.introDistance + (30 - this.introDistance) * ease;
+  }
 
   private stop(): void {
     this.stopped = true;
@@ -1972,14 +1996,7 @@ export class Game {
     this.defence.update(dt);
     this.buildings.update(dt, t, ls.night, this.time.seasonIndex, this.raining, this.rig.target);
     this.updateSettlers(dt);
-    if (this.introFollow) {
-      const a = this.boats.arrivalPos;
-      if (!a || this.input.navigating) this.introFollow = false;
-      else {
-        this.rig.goal.x += (a.x - this.rig.goal.x) * Math.min(1, realDt * 2);
-        this.rig.goal.z += (a.z - this.rig.goal.z) * Math.min(1, realDt * 2);
-      }
-    }
+    this.updateIntroCamera(realDt);
     this.eco.update(dt);
     this.sculptor.update(realDt);
     this.tufts.update(realDt, this.rig.camera.position, RENDER.presets[this.preset].lodDist);

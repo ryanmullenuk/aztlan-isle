@@ -681,3 +681,9 @@ p.warn { color: #ffb08a; }
 #hud .ib.ff { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 3px; }
 #hud .ib.ff svg { width: 19px; height: 19px; flex: 0 0 19px; }
 #hud .ib.ff .ff-x { position: static; display: block; font-size: 8px; line-height: 9px; }
+
+/* Keep PLAY slightly lower without moving the artwork or the home-screen hint. */
+#play-btn { transform: translateY(8px); }
+@media (max-width: 720px) {
+  #hud .tl { left: max(20px, calc(var(--safe-l, 0px) + 12px)); }
+}

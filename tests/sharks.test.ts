@@ -49,3 +49,22 @@ test('hammerhead model: hammer wider than the body, nose forward, long upper tai
   assert.ok(b.max.z > 0.5 && b.min.z < -0.6);
   assert.ok(b.max.y > 0.28, 'no tall dorsal or tail lobe');
 });
+
+test('sharks are solid and steer around rocks and each other without overlapping', () => {
+  const w = new World(); w.layer.fill(-4); w.smooth.fill(-4);
+  w.blockFixed[w.cellIndexAt(0, 0)] = 1;
+  const group = new Sharks(w, [{ x: -6, z: 0, r: 4 }], { schools: [], scatter() {} }) as any;
+  assert.equal(group.mesh.material.opacity, 1);
+  assert.equal(group.mesh.material.depthWrite, true);
+  const starts = group.sharks.map((s: any) => ({x:s.x,z:s.z}));
+  group.pods[0].tx = 8; group.pods[0].tz = 0; group.pods[0].timer = 100;
+  for (let k = 0; k < 900; k++) {
+    group.update(1/30);
+    for (const s of group.sharks) {
+      assert.ok(group.clearWater(s.x,s.z,s.scale*0.72), 'rock clearance');
+      for (const o of group.sharks) if (o !== s)
+        assert.ok(Math.hypot(s.x-o.x,s.z-o.z) >= (s.scale+o.scale)*0.72, 'sharks overlap');
+    }
+  }
+  assert.ok(group.sharks.some((s: any,i: number) => Math.hypot(s.x-starts[i].x,s.z-starts[i].z) > 5), 'must keep swimming');
+});

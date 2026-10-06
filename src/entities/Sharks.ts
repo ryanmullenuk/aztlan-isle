@@ -9,7 +9,7 @@ import { SEA_SURFACE } from '../water/Water';
 /** Model: nose at +z (0.51), tail fin tip at about -0.62; one unit long before scaling. */
 const NOSE = 0.42;
 const BODY_LEN = 0.95;
-const GREY = new THREE.Color(0x5a646c), BELLY = new THREE.Color(0xb8b2a6), DARK = new THREE.Color(0x353d44), EYE = new THREE.Color(0x101418);
+const GREY = new THREE.Color(0x39434b), BELLY = new THREE.Color(0x8d928e), DARK = new THREE.Color(0x222c34), EYE = new THREE.Color(0x101418);
 
 /** Countershaded: grey above, cream below, the line between them softly ragged. */
 function shade(p: THREE.Vector3, n: THREE.Vector3): THREE.Color {
@@ -17,14 +17,30 @@ function shade(p: THREE.Vector3, n: THREE.Vector3): THREE.Color {
   return (under ? BELLY : GREY).clone().multiplyScalar(0.95 + ((Math.sin(p.x * 91 + p.z * 57) * 43758.5) % 1 + 1) % 1 * 0.08);
 }
 
-/** A thin fin: a triangle with a little thickness, so it shows from both sides. */
+/** A closed, gently rounded fin, retaining a few broad low-poly facets. */
 function fin(a: THREE.Vector3, b: THREE.Vector3, tip: THREE.Vector3, t = 0.008): THREE.BufferGeometry {
-  // Thickness across the fin's plane.
-  const nrm = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(tip, a)).normalize().multiplyScalar(t);
-  const v = [a.clone().add(nrm), b.clone().add(nrm), tip.clone().add(nrm.clone().multiplyScalar(0.2)), a.clone().sub(nrm), b.clone().sub(nrm), tip.clone().sub(nrm.clone().multiplyScalar(0.2))];
-  const tri = [[0, 1, 2], [3, 5, 4], [0, 3, 4], [0, 4, 1], [1, 4, 5], [1, 5, 2], [2, 5, 3], [2, 3, 0]];
+  const normal = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(tip, a)).normalize();
+  const corners = [a, b, tip], edge: THREE.Vector3[] = [];
+  for (let i = 0; i < 3; i++) {
+    const p = corners[i], prev = corners[(i + 2) % 3], next = corners[(i + 1) % 3];
+    const round = i === 2 ? 0.16 : 0.09;
+    const start = p.clone().lerp(prev, round), end = p.clone().lerp(next, round);
+    for (let j = 0; j <= 3; j++) {
+      const u = j / 3;
+      edge.push(start.clone().multiplyScalar((1-u)*(1-u)).addScaledVector(p, 2*u*(1-u)).addScaledVector(end, u*u));
+    }
+  }
+  const centre = a.clone().add(b).add(tip).multiplyScalar(1/3);
   const pos: number[] = [];
-  for (const [i, j, k] of tri) pos.push(v[i].x, v[i].y, v[i].z, v[j].x, v[j].y, v[j].z, v[k].x, v[k].y, v[k].z);
+  const tri = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3) => pos.push(...a.toArray(), ...b.toArray(), ...c.toArray());
+  for (let i = 0; i < edge.length; i++) {
+    const p = edge[i], q = edge[(i+1)%edge.length];
+    const pf = p.clone().addScaledVector(normal, t*0.25), qf = q.clone().addScaledVector(normal, t*0.25);
+    const pb = p.clone().addScaledVector(normal, -t*0.25), qb = q.clone().addScaledVector(normal, -t*0.25);
+    tri(centre.clone().addScaledVector(normal, t), pf, qf);
+    tri(centre.clone().addScaledVector(normal, -t), qb, pb);
+    tri(pf, pb, qb); tri(pf, qb, qf);
+  }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.computeVertexNormals();
@@ -101,8 +117,9 @@ export function hammerheadGeometry(): THREE.BufferGeometry {
 
 /** Hammerhead material: the body bends in a travelling wave and curves into turns (per shark). */
 function sharkMaterial(): THREE.MeshStandardMaterial {
-  const mat = patchStylised(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, transparent: true, opacity: 0.72 }), 0.08);
-  mat.depthWrite = false;
+  const mat = patchStylised(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, transparent: true, opacity: 1 }), 0.08);
+  // Keep the underwater render pass after the transparent ocean, but use solid alpha.
+  mat.depthWrite = true;
   const base = mat.onBeforeCompile;
   mat.onBeforeCompile = (shader, r) => {
     base.call(mat, shader, r);
@@ -152,7 +169,7 @@ function sharkMaterial(): THREE.MeshStandardMaterial {
       }
       #include <fog_fragment>`);
   };
-  mat.customProgramCacheKey = () => 'hammerhead-v2';
+  mat.customProgramCacheKey = () => 'hammerhead-v3-solid';
   return mat;
 }
 
@@ -220,9 +237,15 @@ export class Sharks {
       this.pods.push({ home: { x: h.x, z: h.z }, state: 'cruise', timer: rng.range(4, 10), tx: h.x, tz: h.z, cx: h.x, cz: h.z, cr: 2.5, dir: 1, ang: 0, prey: null, scareT: 0 });
       const n = rng.int(3, 4);
       for (let k = 0; k < n; k++) {
-        const a = rng.range(0, Math.PI * 2);
-        const x = h.x + Math.cos(a) * 1.5, z = h.z + Math.sin(a) * 1.5;
-        this.sharks.push({ x, y: this.swimY(x, z), z, heading: rng.range(0, Math.PI * 2), speed: 0.8, turn: 0, phase: rng.range(0, 6), scale: rng.range(1.15, 1.5), pod: this.pods.length - 1, slot: k, depthT: rng.range(0, 100) });
+        const scale = rng.range(1.15, 1.5);
+        let x = 0, z = 0, placed = false;
+        for (let attempt = 0; attempt < 80; attempt++) {
+          const a = rng.range(0, Math.PI * 2), r = rng.range(1.8, 5);
+          x = h.x + Math.cos(a) * r; z = h.z + Math.sin(a) * r;
+          if (this.clearWater(x, z, scale * 0.72) && this.sharks.every(o => Math.hypot(o.x-x, o.z-z) > (o.scale+scale)*0.72 + 0.15)) { placed = true; break; }
+        }
+        if (!placed) continue;
+        this.sharks.push({ x, y: this.swimY(x, z), z, heading: rng.range(0, Math.PI * 2), speed: 0.8, turn: 0, phase: rng.range(0, 6), scale, pod: this.pods.length - 1, slot: k, depthT: rng.range(0, 100) });
       }
     }
     const geo = hammerheadGeometry();
@@ -244,6 +267,35 @@ export class Sharks {
   private deep(x: number, z: number, y = -1.05): boolean {
     const w = this.world, i = w.cellIndexAt(x, z);
     return i >= 0 && w.layer[i] <= 0 && Number.isNaN(w.riverY[i]) && !w.canal[i] && !w.blockFixed[i] && w.heightAt(x, z) < y;
+  }
+
+  /** Conservative footprint includes the hammer, tail swing and rounded fins. */
+  private clearWater(x: number, z: number, radius: number): boolean {
+    if (!this.deep(x, z)) return false;
+    const w = this.world, [cx, cz] = w.cellOf(x, z), reach = Math.ceil(radius + 0.71);
+    for (let dz = -reach; dz <= reach; dz++) for (let dx = -reach; dx <= reach; dx++) {
+      const xx = cx + dx, zz = cz + dz;
+      if (Math.hypot(w.centerX(xx)-x, w.centerZ(zz)-z) > radius + 0.71) continue;
+      if (!w.inBounds(xx, zz)) return false;
+      const i = w.idx(xx, zz);
+      if (w.blockFixed[i] || !this.deep(w.centerX(xx), w.centerZ(zz))) return false;
+    }
+    return true;
+  }
+
+  private clearPath(s: Shark, x: number, z: number, predict = false): boolean {
+    const steps = Math.max(1, Math.ceil(Math.hypot(x-s.x, z-s.z)/0.3));
+    for (let k = 1; k <= steps; k++) {
+      const f = k/steps, px = s.x+(x-s.x)*f, pz = s.z+(z-s.z)*f;
+      if (!this.clearWater(px, pz, s.scale*0.72)) return false;
+      for (const o of this.sharks) {
+        if (o === s) continue;
+        const time = predict ? f * 0.65 : 0;
+        const ox = o.x + Math.sin(o.heading)*o.speed*time, oz = o.z + Math.cos(o.heading)*o.speed*time;
+        if (Math.hypot(px-ox, pz-oz) < (s.scale+o.scale)*0.72 + 0.08) return false;
+      }
+    }
+    return true;
   }
 
   /**
@@ -282,8 +334,9 @@ export class Sharks {
       p.tx = school.x;
       p.tz = school.z;
       p.scareT -= dt;
-      if (p.scareT <= 0 && Math.hypot(school.x - c.x, school.z - c.z) < 4) {
-        this.prey.scatter(c.x, c.z, 3.2);
+      const hunter = this.sharks.find(s => s.pod === k && Math.hypot(school.x - s.x, school.z - s.z) < 5);
+      if (p.scareT <= 0 && hunter) {
+        this.prey.scatter(hunter.x, hunter.z, 3.2);
         p.scareT = 0.4;
       }
     }
@@ -324,6 +377,12 @@ export class Sharks {
 
   update(dt: number): void {
     if (dt <= 0) return;
+    const steps = Math.ceil(dt / 0.05);
+    for (let k = 0; k < steps; k++) this.step(dt / steps);
+    this.draw();
+  }
+
+  private step(dt: number): void {
     this.pods.forEach((p, k) => this.think(p, k, dt));
     const counts = this.pods.map((_, k) => this.sharks.filter((s) => s.pod === k).length);
     for (const s of this.sharks) {
@@ -347,32 +406,33 @@ export class Sharks {
         tz = p.tz + (lead ? 0 : -Math.sin(h) * side - Math.cos(h) * back);
         want = p.state === 'chase' ? 2.6 : p.state === 'leave' ? 1.5 : 0.95;
       }
-      // Keep apart from the others.
-      for (const o of this.sharks) {
-        if (o === s) continue;
-        const dx = s.x - o.x, dz = s.z - o.z, d = Math.hypot(dx, dz);
-        if (d < 1.1 && d > 1e-3) { tx += (dx / d) * 1.5; tz += (dz / d) * 1.5; }
+      const goal = Math.atan2(tx-s.x, tz-s.z);
+      const angle = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+      const look = Math.max(1.8, s.speed * 1.3);
+      let heading = s.heading, best = Infinity;
+      // Search both sides early; a slight right-hand preference prevents head-on indecision.
+      for (const offset of [0, 0.35, -0.35, 0.7, -0.7, 1.1, -1.1, 1.55, -1.55, 2.2, -2.2, Math.PI]) {
+        const h = goal + offset;
+        if (!this.clearPath(s, s.x+Math.sin(h)*look, s.z+Math.cos(h)*look, true)) continue;
+        const score = Math.abs(offset) + Math.abs(angle(h-s.heading))*0.35 + (offset < 0 ? 0.03 : 0);
+        if (score < best) { best = score; heading = h; }
       }
-      let dh = Math.atan2(tx - s.x, tz - s.z) - s.heading;
-      while (dh > Math.PI) dh -= Math.PI * 2;
-      while (dh < -Math.PI) dh += Math.PI * 2;
-      // Ahead into the shallows: turn hard away.
-      const lx = s.x + Math.sin(s.heading) * 2, lz = s.z + Math.cos(s.heading) * 2;
-      if (!this.deep(lx, lz)) dh = (dh >= 0 ? 1 : -1) * 2;
+      let dh = angle(heading-s.heading);
+      if (!Number.isFinite(best)) { dh = 1.8; want = 0; }
       const maxTurn = p.state === 'chase' ? 1.6 : 1.0;
       const turn = THREE.MathUtils.clamp(dh * 1.4, -maxTurn, maxTurn);
       s.turn += (turn - s.turn) * Math.min(1, dt * 3);
       s.heading += s.turn * dt;
       s.speed += (want * (0.55 + 0.45 * Math.cos(Math.min(Math.abs(dh), Math.PI / 2))) - s.speed) * Math.min(1, dt * 1.5);
       const nx = s.x + Math.sin(s.heading) * s.speed * dt, nz = s.z + Math.cos(s.heading) * s.speed * dt;
-      if (this.deep(nx, nz)) { s.x = nx; s.z = nz; }
+      if (this.clearPath(s, nx, nz)) { s.x = nx; s.z = nz; }
+      else s.speed *= Math.exp(-dt * 8);
       s.depthT += dt;
       const wander = Math.sin(s.depthT * 0.11 + s.slot * 1.7) * 0.7 + Math.sin(s.depthT * 0.043 + s.pod) * 0.3;
       s.y += (this.swimY(s.x, s.z, wander) - s.y) * Math.min(1, dt * 0.5);
       // Tail beats faster the harder it swims.
       s.phase += dt * (2.2 + s.speed * 2.6);
     }
-    this.draw();
   }
 
   private draw(): void {
