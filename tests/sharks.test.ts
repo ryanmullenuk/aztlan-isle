@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import * as THREE from 'three';
 import assert from 'node:assert/strict';
 import { World } from '../src/world/World';
 import { generateIsland } from '../src/world/generator';
@@ -67,4 +68,27 @@ test('sharks are solid and steer around rocks and each other without overlapping
     }
   }
   assert.ok(group.sharks.some((s: any,i: number) => Math.hypot(s.x-starts[i].x,s.z-starts[i].z) > 5), 'must keep swimming');
+});
+
+
+test('sharks render as solid underwater geometry without flattening depth onto the ocean', () => {
+  const w = new World(); w.layer.fill(-4); w.smooth.fill(-4);
+  const sharks = new Sharks(w, [{x:0,z:0,r:4}], {schools:[],scatter(){}}) as any;
+  const mat = sharks.mesh.material;
+  assert.equal(mat.transparent, false, 'render before the transparent water');
+  assert.equal(mat.opacity, 1);
+  assert.equal(mat.depthWrite, true);
+  assert.ok(sharks.mesh.renderOrder < 10);
+  assert.equal(sharks.mesh.castShadow, false, 'no undeformed shadow silhouette');
+  const shader = {uniforms:{},vertexShader:THREE.ShaderLib.standard.vertexShader,fragmentShader:THREE.ShaderLib.standard.fragmentShader};
+  mat.onBeforeCompile(shader, {});
+  assert.ok(shader.vertexShader.includes('#include <project_vertex>'));
+  assert.ok(shader.vertexShader.includes('attribute vec3 iSwim;'));
+  assert.ok(!shader.vertexShader.includes('gl_Position.z ='), 'keep real geometry depth');
+  assert.ok(!shader.fragmentShader.includes('vSharkY'), 'ocean supplies submersion rather than a second dark overlay');
+  const g=sharks.mesh.geometry, colors=g.getAttribute('color'), normals=g.getAttribute('normal'), p=g.getAttribute('position');
+  const back=[];
+  for(let i=0;i<p.count;i++) if(normals.getY(i)>.5 && Math.abs(p.getZ(i))<.2 && Math.abs(p.getX(i))<.1) back.push(colors.getX(i));
+  assert.ok(back.length>0);
+  assert.ok(back.reduce((a,b)=>a+b,0)/back.length>.07, 'graphite surfaces retain visible shape rather than near-black');
 });

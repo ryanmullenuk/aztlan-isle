@@ -9,7 +9,7 @@ import { SEA_SURFACE } from '../water/Water';
 /** Model: nose at +z (0.51), tail fin tip at about -0.62; one unit long before scaling. */
 const NOSE = 0.42;
 const BODY_LEN = 0.95;
-const GREY = new THREE.Color(0x292a29), BELLY = new THREE.Color(0x62645e), DARK = new THREE.Color(0x181b19), EYE = new THREE.Color(0x101418);
+const GREY = new THREE.Color(0x555b57), BELLY = new THREE.Color(0x969b90), DARK = new THREE.Color(0x3e4541), EYE = new THREE.Color(0x101418);
 
 /** Countershaded: grey above, cream below, the line between them softly ragged. */
 function shade(p: THREE.Vector3, n: THREE.Vector3): THREE.Color {
@@ -95,7 +95,7 @@ export function hammerheadGeometry(): THREE.BufferGeometry {
   hammer.rotateX(Math.PI / 2);
   hammer.translate(0, 0.014, 0);
   hammer.deleteAttribute('uv');
-  b.add(hammer.toNonIndexed(), { facet: true, color: (p, n) => (n.y < -0.3 ? BELLY : GREY.clone().multiplyScalar(1.04)) });
+  b.add(hammer.index ? hammer.toNonIndexed() : hammer, { facet: true, color: (p, n) => (n.y < -0.3 ? BELLY : GREY.clone().multiplyScalar(1.04)) });
   for (const s of [-1, 1]) b.add(P.sphere(0.017, 1), { facet: true, color: EYE }, M.t(s * 0.205, 0.006, 0.452));
   const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
   const finCol = (p: THREE.Vector3) => (p.y > 0.24 || p.y < -0.2 ? DARK : GREY.clone().multiplyScalar(0.92));
@@ -118,18 +118,15 @@ export function hammerheadGeometry(): THREE.BufferGeometry {
 
 /** Hammerhead material: the body bends in a travelling wave and curves into turns (per shark). */
 function sharkMaterial(): THREE.MeshStandardMaterial {
-  const mat = patchStylised(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, transparent: true, opacity: 1 }), 0.08);
-  // Keep the underwater render pass after the transparent ocean, but use solid alpha.
+  const mat = patchStylised(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, transparent: false, opacity: 1 }), 0.08);
+  // Real opaque geometry is rendered before the ocean, exactly like the whales.
+  // Retain its own depth so the body occludes its fins and rocks occlude the shark.
   mat.depthWrite = true;
   const base = mat.onBeforeCompile;
   mat.onBeforeCompile = (shader, r) => {
     base.call(mat, shader, r);
-    shader.uniforms.uSurfaceY = { value: SEA_SURFACE };
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', `#include <common>
-        attribute vec3 iSwim;
-        uniform float uSurfaceY;
-        varying float vSharkY;`)
+      .replace('#include <common>', '#include <common>\nattribute vec3 iSwim;')
       .replace('#include <begin_vertex>', `#include <begin_vertex>
         {
           // 0 at the head, 1 at the tail: each slice of the body follows the one ahead of it.
@@ -142,35 +139,9 @@ function sharkMaterial(): THREE.MeshStandardMaterial {
           // Each slice also turns to follow the wave, so fins and tail sweep with it.
           float slope = iSwim.y * (1.5 * pow(max(s, 0.001), 0.5) * wave - pow(s, 1.5) * 4.2 * cos(iSwim.x - s * 4.2)) / ${BODY_LEN.toFixed(2)} + 2.0 * iSwim.z * s / ${BODY_LEN.toFixed(2)};
           transformed.z += position.x * slope * 0.5;
-        }`)
-      .replace('#include <project_vertex>', `#include <project_vertex>
-        vSharkY = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).y;
-        {
-          // Depth taken where the view ray enters the water, so the surface doesn't hide them
-          // (land and rocks in front still do).
-          vec4 fw = modelMatrix * instanceMatrix * vec4(transformed, 1.0);
-          vec3 ray = fw.xyz - cameraPosition;
-          float tS = ray.y < -1e-4 ? clamp((uSurfaceY - cameraPosition.y) / ray.y, 0.0, 1.0) : 1.0;
-          if (fw.y < uSurfaceY) {
-            vec4 sc = projectionMatrix * viewMatrix * vec4(cameraPosition + ray * tS, 1.0);
-            gl_Position.z = (sc.z / sc.w - 0.0002) * gl_Position.w;
-          }
         }`);
   };
-  // The water dulls and tints them, more the deeper they swim.
-  const prev = mat.onBeforeCompile;
-  mat.onBeforeCompile = (shader, r) => {
-    prev.call(mat, shader, r);
-    shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying float vSharkY;')
-      .replace('#include <fog_fragment>', `{
-        float d = max(0.0, ${SEA_SURFACE.toFixed(2)} - vSharkY);
-        float k = clamp(0.10 + d * 0.08, 0.0, 0.28);
-        gl_FragColor.rgb = mix(gl_FragColor.rgb * 0.85, vec3(0.022, 0.025, 0.023), k);
-      }
-      #include <fog_fragment>`);
-  };
-  mat.customProgramCacheKey = () => 'hammerhead-v4-charcoal';
+  mat.customProgramCacheKey = () => 'hammerhead-v5-natural-depth';
   return mat;
 }
 
@@ -257,8 +228,9 @@ export class Sharks {
     this.mesh = new THREE.InstancedMesh(geo, sharkMaterial(), n);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.frustumCulled = false;
-    this.mesh.renderOrder = 12;
-    this.mesh.castShadow = true;
+    this.mesh.renderOrder = 0;
+    // Submerged silhouettes do not need a mismatched, undeformed shadow mesh.
+    this.mesh.castShadow = false;
     this.mesh.name = 'hammerheads';
     this.mesh.count = 0;
     this.group.add(this.mesh);
@@ -445,7 +417,7 @@ export class Sharks {
       q.setFromAxisAngle(up, s.heading);
       this.mesh.setMatrixAt(n, m.compose(p.set(s.x, s.y, s.z), q, sc.setScalar(s.scale)));
       arr[n * 3] = s.phase;
-      arr[n * 3 + 1] = 0.075 + 0.035 * Math.min(1, s.speed / 2);
+      arr[n * 3 + 1] = 0.045 + 0.025 * Math.min(1, s.speed / 2);
       // Bend into the turn (the tail swings out the other way).
       arr[n * 3 + 2] = THREE.MathUtils.clamp(-s.turn * 0.09, -0.12, 0.12);
       n++;
