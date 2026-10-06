@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { animalForm } from './animalForm';
 import { ColorFn, GeoBuilder, M, P, facet } from '../render/GeoBuilder';
 import { WingSpec } from './birdWings';
 
@@ -68,15 +69,15 @@ export const PEL = {
 
 export function pelicanBody(): THREE.BufferGeometry {
   const b = new GeoBuilder();
-  const back = new THREE.Color(0x8e857a), belly = new THREE.Color(0xb4ac9e);
-  // Heavy, broad-chested body with a keel, silvery-grey streaked back.
-  b.add(P.sphere(PEL.body, 1), {
-    color: (p) => back.clone().lerp(belly, THREE.MathUtils.smoothstep(-p.y, -0.02, 0.04)).multiplyScalar(1 + 0.06 * Math.sin(p.z * 90 + p.x * 40)),
-  }, M.t(0, 0, 0, 0, 0, 0, 1, 0.82, 1.55));
-  b.add(P.sphere(0.05, 1), C(0x9e958a), M.t(0, -0.022, 0.045, 0, 0, 0, 0.95, 0.8, 1.2));
-  // Short, rounded dark tail and the pale breast below the neck.
-  b.add(P.cone(0.042, 0.075, 5), C(0x5e564c), M.t(0, 0.014, -0.12, -1.72, 0, 0, 1, 0.32, 1));
-  b.add(P.sphere(0.045, 1), C(0xe8e2d2), M.t(0, 0.012, 0.078, 0, 0, 0, 0.88, 0.95, 0.78));
+  const back = new THREE.Color(0x777267), belly = new THREE.Color(0xc5beaa);
+  b.add(animalForm([
+    [-0.14,0.009,0.022,0.014,0.013], [-0.095,0.002,0.052,0.036,0.04],
+    [-0.04,-0.002,0.074,0.06,0.057], [0.025,-0.008,0.078,0.065,0.062],
+    [0.072,0.003,0.055,0.053,0.05], [0.105,0.022,0.025,0.03,0.03],
+  ]), { color: (p,n) => n.y < -0.2 ? belly : back.clone().lerp(belly, THREE.MathUtils.smoothstep(p.z,0.025,0.11)) });
+  // Short rounded feather fan, tucked below the folded wings.
+  for (let i = -2; i <= 2; i++) b.add(P.sphere(0.022,1), C(0x625e54),
+    M.t(i*0.008,0.008,-0.133,0,i*0.12,0,0.38,0.18,1.6-Math.abs(i)*0.15));
   return facet(b.build());
 }
 
@@ -95,15 +96,10 @@ export function pelicanHead(): THREE.BufferGeometry {
   const b = new GeoBuilder();
   b.add(P.sphere(0.028, 1), C(0xf2ecd8), M.t(0, 0.008, 0, 0, 0, 0, 0.95, 1, 1.05));
   b.add(P.sphere(0.018, 0), C(0xe8c860), M.t(0, 0.026, -0.004, 0, 0, 0, 1, 0.5, 1.2));
-  // Bare skin around the eye, and the eye.
-  for (const x of [-1, 1]) {
-    b.add(P.sphere(0.008, 0), C(0xa8b0a0), M.t(x * 0.019, 0.012, 0.014, 0, 0, 0, 0.6, 1, 1.2));
-    b.add(P.sphere(0.0048, 0), C(0xe8e0b0), M.t(x * 0.022, 0.013, 0.015));
-    b.add(P.sphere(0.0025, 0), C(0x101010), M.t(x * 0.0245, 0.0132, 0.016));
-  }
+  // Featureless cream head: recognition comes from bill, pouch and folded neck.
   // Upper mandible: long, flat, ridged down the middle, greyish at the base warming to orange,
   // with the red hooked nail at the tip.
-  const up: BillSpec = { z0: 0.012, y0: 0.004, len: 0.2, h0: 0.014, h1: 0.009, w0: 0.03, w1: 0.022, curve: 0.004, hook: 0.012, segs: 6, flat: true };
+  const up: BillSpec = { z0: 0.012, y0: 0.004, len: 0.2, h0: 0.014, h1: 0.006, w0: 0.034, w1: 0.013, curve: 0.004, hook: 0.012, segs: 6, flat: true };
   b.add(billGeo(up), { color: (p) => new THREE.Color(p.z > 0.198 ? 0xb03a22 : p.z > 0.1 ? 0xd8a24a : 0xb89a70) });
   b.add(P.box(0.006, 0.004, 0.17), C(0xc8903c), M.t(0, 0.012, 0.11, -0.02, 0, 0));
   return facet(b.build());
@@ -118,7 +114,7 @@ export function pelicanJaw(): THREE.BufferGeometry {
   for (const x of [-1, 1]) b.add(P.box(0.005, 0.006, 0.19), C(0xc89458), M.t(x * 0.012, -0.004, 0.095, 0, x * -0.02, 0));
   b.add(P.box(0.022, 0.004, 0.012), C(0xb03a22), M.t(0, -0.002, 0.188));
   // Pouch: a deep scoop tapering toward the tip, darker near the throat.
-  b.add(P.sphere(0.04, 1), { color: (p) => new THREE.Color(p.z < 0.05 ? 0x8a7050 : 0xa8865a) }, M.t(0, -0.022, 0.085, 0.05, 0, 0, 0.5, 0.58, 2.2));
+  b.add(P.sphere(0.04, 1), { color: (p) => new THREE.Color(p.z < 0.05 ? 0x8a7050 : 0xa8865a) }, M.t(0, -0.022, 0.085, 0.05, 0, 0, 0.65, 0.82, 2.2));
   return facet(b.build());
 }
 
@@ -142,9 +138,9 @@ export const PELICAN_WING: WingSpec = {
   thick: 0.016,
   fingers: 5,
   segs: [
-    { len: 0.11, c0: 0.1, c1: 0.095, sweep: 0.0, color: pelUpper },
-    { len: 0.1, c0: 0.095, c1: 0.085, sweep: 0.012, color: pelUpper },
-    { len: 0.13, c0: 0.085, c1: 0.045, sweep: 0.03, color: pelTip },
+    { len: 0.11, c0: 0.114, c1: 0.105, sweep: 0.0, color: pelUpper },
+    { len: 0.1, c0: 0.105, c1: 0.09, sweep: 0.012, color: pelUpper },
+    { len: 0.13, c0: 0.09, c1: 0.05, sweep: 0.03, color: pelTip },
   ],
 };
 

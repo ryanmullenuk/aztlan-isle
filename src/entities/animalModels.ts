@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { animalForm } from './animalForm';
 import { ColorFn, GeoBuilder, M, P, facet, tube } from '../render/GeoBuilder';
 
 /**
@@ -60,7 +61,11 @@ export function chickenBody(kind: 'hen' | 'speckled' | 'rooster'): THREE.BufferG
   const rooster = kind === 'rooster';
   const big = rooster ? 1.08 : 1;
   // Egg-shaped body, back rising gently toward the tail, plump breast low at the front.
-  b.add(P.sphere(0.068, 1), COAT, M.t(0, 0.09, -0.005, -0.12, 0, 0, 0.95 * big, 0.9 * big, 1.22 * big));
+  b.add(animalForm([
+    [-0.087,0.109,0.026,0.028,0.034], [-0.05,0.091,0.054,0.058,0.047],
+    [0,0.084,0.064,0.062,0.05], [0.042,0.084,0.048,0.052,0.048],
+    [0.078,0.096,0.018,0.026,0.021],
+  ]), COAT, M.t(0,0,0,0,0,0,big,big,big));
   b.add(P.sphere(0.048, 1), rooster ? C(0x2a2320) : coat(0.97), M.t(0, 0.08, 0.042, 0, 0, 0, 1.08, 1.05, 0.95));
   // Shoulders where the neck joins, fluffy thighs over the hips and a fluffy vent under the tail.
   b.add(P.sphere(0.034, 0), COAT, M.t(0, 0.112, 0.04, 0, 0, 0, 1, 0.9, 1.1));
@@ -134,8 +139,6 @@ export function chickenHead(rooster: boolean): THREE.BufferGeometry {
     const w = rooster ? 1.5 : 1;
     b.add(P.sphere(0.008 * w, 0), C(RED), M.t(x * 0.005, -0.012 * s - 0.004 * w, 0.032 * s, 0, 0, 0, 0.6, 1.5, 0.9));
     b.add(P.sphere(0.006 * s, 0), C(rooster ? 0xe8dccb : RED), M.t(x * 0.024 * s, 0.003 * s, -0.002, 0, 0, 0, 0.45, 1, 1));
-    b.add(P.sphere(0.0065 * s, 0), C(0xd8861c), M.t(x * 0.022 * s, 0.02 * s, 0.02 * s));
-    b.add(P.sphere(0.0036 * s, 0), C(0x120c0a), M.t(x * 0.0265 * s, 0.0205 * s, 0.022 * s));
   }
   return facet(b.build());
 }
@@ -174,21 +177,14 @@ export function pigHead(): THREE.BufferGeometry {
   b.add(P.sphere(0.045, 0), coat(0.93), M.t(0, -0.046, 0.02, 0, 0, 0, 1.1, 0.7, 1.2));
   b.add(P.cyl(0.033, 0.048, 0.075, 8), coat(0.9), M.t(0, -0.012, 0.11, Math.PI / 2, 0, 0, 1, 1, 0.9));
   b.add(P.cyl(0.036, 0.034, 0.014, 8), coat(0.74), M.t(0, -0.013, 0.152, Math.PI / 2, 0, 0, 1.05, 1, 0.88));
-  // Mouth line under the snout.
-  b.add(P.box(0.052, 0.004, 0.035), C(0x5a3230), M.t(0, -0.04, 0.112, 0.12, 0, 0));
-  for (const x of [-1, 1]) {
-    b.add(P.sphere(0.0085, 0), C(0x3a2020), M.t(x * 0.013, -0.012, 0.159, 0, 0, 0, 0.8, 1.1, 0.5));
-    b.add(P.sphere(0.011, 0), C(0x141010), M.t(x * 0.05, 0.03, 0.094));
-    b.add(P.box(0.026, 0.007, 0.014), coat(0.82), M.t(x * 0.049, 0.043, 0.09, 0, 0, x * 0.3));
-  }
   return facet(b.build());
 }
 
 /** Floppy ear (pivot at its root, pointing +y, inner face toward +z). */
 export function pigEar(): THREE.BufferGeometry {
   const b = new GeoBuilder();
-  b.add(P.cone(0.036, 0.075, 4), coat(0.84), M.t(0, 0.034, 0, 0, 0, 0, 1, 1, 0.28));
-  b.add(P.cone(0.026, 0.055, 4), coat(0.98), M.t(0, 0.03, 0.005, 0, 0, 0, 1, 1, 0.2));
+  b.add(P.sphere(0.036, 1), coat(0.84), M.t(0, 0.03, 0, 0.25, 0, 0, 0.84, 1.2, 0.24));
+  b.add(P.sphere(0.026, 1), coat(0.98), M.t(0, 0.033, 0.006, 0.25, 0, 0, 0.83, 1.25, 0.15));
   return facet(b.build());
 }
 
@@ -215,7 +211,7 @@ export function goatNeck(): THREE.BufferGeometry {
   return facet(b.build());
 }
 
-/** Goat head (pivot at the poll, where the neck ends): long face, beard, slit-pupilled eyes, horns. */
+/** Goat head (pivot at the poll, where the neck ends): long plain face, beard and horns. */
 export function goatHead(curly: boolean): THREE.BufferGeometry {
   const b = new GeoBuilder();
   const HORN = 0x6e5a40;
@@ -225,9 +221,6 @@ export function goatHead(curly: boolean): THREE.BufferGeometry {
   // Beard hanging from the chin.
   b.add(P.cone(0.013, 0.055, 4), coat(0.7), span([0, -0.034, 0.088], [0, -0.088, 0.096], 1, 0.6));
   for (const x of [-1, 1]) {
-    b.add(P.sphere(0.004, 0), C(0x1a1210), M.t(x * 0.008, -0.01, 0.138));
-    b.add(P.sphere(0.0095, 0), C(0xc9a23a), M.t(x * 0.032, 0.012, 0.048));
-    b.add(P.box(0.004, 0.0024, 0.008), C(0x100c08), M.t(x * 0.04, 0.012, 0.05));
     const s = x;
     let pts: THREE.Vector3[];
     if (curly) {
@@ -254,8 +247,8 @@ export function goatHead(curly: boolean): THREE.BufferGeometry {
 /** Goat ear: a leaf held out sideways (pivot at the root, pointing +y, inner face +z). */
 export function goatEar(): THREE.BufferGeometry {
   const b = new GeoBuilder();
-  b.add(P.cone(0.02, 0.07, 4), coat(0.88), M.t(0, 0.033, 0, 0, 0, 0, 1, 1, 0.35));
-  b.add(P.cone(0.014, 0.05, 4), coat(1), M.t(0, 0.03, 0.004, 0, 0, 0, 1, 1, 0.25));
+  b.add(P.sphere(0.02, 1), coat(0.88), M.t(0, 0.032, 0, 0, 0, 0, 0.85, 1.85, 0.3));
+  b.add(P.sphere(0.014, 1), coat(1), M.t(0, 0.033, 0.004, 0, 0, 0, 0.8, 1.85, 0.2));
   return facet(b.build());
 }
 
@@ -278,10 +271,6 @@ export function tapirHead(): THREE.BufferGeometry {
   b.add(P.sphere(0.075, 1), C(PALE), M.t(0, -0.045, 0.07, 0, 0, 0, 0.95, 0.6, 1.15));
   b.add(P.cyl(0.045, 0.07, 0.12, 7), coat(0.92), M.t(0, -0.02, 0.18, Math.PI / 2, 0, 0, 0.95, 1, 0.95));
   b.add(P.sphere(0.04, 0), C(PALE), M.t(0, -0.056, 0.2, 0, 0, 0, 0.9, 0.5, 1.3));
-  for (const x of [-1, 1]) {
-    b.add(P.sphere(0.011, 0), C(0x0e0c0a), M.t(x * 0.068, 0.035, 0.12));
-    b.add(P.box(0.022, 0.006, 0.012), coat(0.8), M.t(x * 0.066, 0.05, 0.118, 0, 0, x * 0.25));
-  }
   return facet(b.build());
 }
 
@@ -291,7 +280,6 @@ export function tapirTrunk(): THREE.BufferGeometry {
   const pts = [new THREE.Vector3(0, 0, -0.012), new THREE.Vector3(0, -0.004, 0.035), new THREE.Vector3(0, -0.022, 0.07), new THREE.Vector3(0, -0.05, 0.09)];
   b.add(tube(pts, (t) => 0.042 - t * 0.018, 6, 8), coat(0.84));
   b.add(P.sphere(0.026, 0), coat(0.72), M.t(0, -0.056, 0.093, 0, 0, 0, 1, 0.8, 1));
-  for (const x of [-1, 1]) b.add(P.sphere(0.0075, 0), C(0x140e0c), M.t(x * 0.009, -0.075, 0.1));
   return facet(b.build());
 }
 
@@ -320,7 +308,6 @@ export function monkeyHead(): THREE.BufferGeometry {
   const b = new GeoBuilder();
   b.add(P.sphere(0.045, 1), C(MONKEY), M.t(0, 0.04, 0));
   b.add(P.sphere(0.028, 0), C(0x6e5a48), M.t(0, 0.03, 0.03, 0, 0, 0, 1, 0.9, 0.7));
-  for (const x of [-1, 1]) b.add(P.sphere(0.007, 0), C(0x080606), M.t(x * 0.014, 0.045, 0.045));
   return facet(b.build());
 }
 /** Long prehensile tail with a curl at the tip. Pivot at the base, trailing along -z. */
@@ -406,54 +393,59 @@ export function splitBody(g: THREE.BufferGeometry, spineY: number, ov = 0.035): 
   return [pick((cz) => cz > -ov), pick((cz) => cz < ov)];
 }
 
+/** Coat markings are painted onto facets, never floating blobs above the skin. */
+function coatPatch(g: THREE.BufferGeometry, color: number, test: (x: number,y: number,z: number) => boolean): THREE.BufferGeometry {
+  const p=g.getAttribute('position'), c=g.getAttribute('color'), m=g.getAttribute('aMat');
+  const tint=new THREE.Color(color);
+  for(let i=0;i<p.count;i+=3) {
+    const x=(p.getX(i)+p.getX(i+1)+p.getX(i+2))/3;
+    const y=(p.getY(i)+p.getY(i+1)+p.getY(i+2))/3;
+    const z=(p.getZ(i)+p.getZ(i+1)+p.getZ(i+2))/3;
+    if(test(x,y,z)) for(let j=0;j<3;j++){ c.setXYZ(i+j,tint.r,tint.g,tint.b); m.setX(i+j,0); }
+  }
+  return g;
+}
+
 /** Pig body: round barrel with an arched back, heavy shoulders and hams, sagging belly; split at the spine joint. */
 export function pigBodyHalves(spotted: boolean, spineY: number): [THREE.BufferGeometry, THREE.BufferGeometry] {
   const b = new GeoBuilder();
-  b.add(new THREE.CapsuleGeometry(0.112, 0.2, 4, 10), COAT, M.t(0, 0.172, 0, Math.PI / 2, 0, 0, 1.1, 1, 1));
-  b.add(P.sphere(0.104, 1), COAT, M.t(0, 0.178, 0.1, 0, 0, 0, 1.08, 1.02, 1));
-  b.add(P.sphere(0.11, 1), COAT, M.t(0, 0.182, -0.11, 0, 0, 0, 1.12, 1.04, 1));
-  b.add(P.sphere(0.08, 1), COAT, M.t(0, 0.215, -0.03, 0, 0, 0, 1.1, 0.7, 1.6));
-  b.add(P.sphere(0.1, 1), coat(0.92), M.t(0, 0.128, 0, 0, 0, 0, 1, 0.58, 1.65));
-  // Thick neck merging into the jowls.
-  b.add(P.sphere(0.085, 1), COAT, M.t(0, 0.168, 0.19, 0, 0, 0, 1.02, 0.95, 0.8));
-  // Two rows of small teats along the belly.
-  for (const x of [-1, 1]) for (let k = 0; k < 4; k++) b.add(P.sphere(0.006, 0), coat(0.8), M.t(x * 0.03, 0.072, 0.07 - k * 0.05));
-  if (spotted) {
-    for (const [x, y, z, r] of [[0.08, 0.22, 0.05, 0.05], [-0.06, 0.25, -0.08, 0.06], [0.05, 0.16, -0.12, 0.04], [-0.09, 0.15, 0.1, 0.035], [0.02, 0.27, 0.1, 0.03]]) {
-      b.add(P.sphere(r, 0), C(0x2e2622), M.t(x * 1.35, y, z, 0, 0, 0, 1, 0.5, 1));
-    }
-  }
-  return splitBody(facet(b.build()), spineY);
+  b.add(animalForm([
+    [-0.218,0.178,0.047,0.060,0.052], [-0.16,0.181,0.112,0.106,0.095],
+    [-0.075,0.174,0.125,0.121,0.101], [0,0.17,0.12,0.12,0.097],
+    [0.08,0.174,0.115,0.108,0.092], [0.16,0.172,0.092,0.087,0.079],
+    [0.235,0.165,0.055,0.055,0.05],
+  ]), COAT);
+  const g=facet(b.build());
+  if(spotted) coatPatch(g,0x2e2622,(x,y,z) =>
+    ((z-0.065)/0.06)**2+((y-0.205)/0.065)**2 < 1 && x>0.04 ||
+    ((z+0.11)/0.065)**2+((y-0.235)/0.075)**2 < 1 && x<0.02);
+  return splitBody(g,spineY);
 }
 
 /** Goat body: narrow deep chest, lean belly, angular hips and a shaggy fringe; split at the spine joint. */
 export function goatBodyHalves(patched: boolean, spineY: number): [THREE.BufferGeometry, THREE.BufferGeometry] {
   const b = new GeoBuilder();
-  b.add(new THREE.CapsuleGeometry(0.08, 0.2, 4, 8), COAT, M.t(0, 0.262, -0.01, Math.PI / 2, 0, 0, 0.84, 1, 1.06));
-  b.add(P.sphere(0.088, 1), COAT, M.t(0, 0.252, 0.1, 0, 0, 0, 0.8, 1.12, 1.1));
-  b.add(P.sphere(0.05, 0), COAT, M.t(0, 0.305, 0.12, 0, 0, 0, 0.7, 0.7, 1.3));
-  b.add(P.sphere(0.05, 0), COAT, M.t(0, 0.2, 0.165, 0, 0, 0, 0.9, 1, 0.9));
-  b.add(P.sphere(0.078, 1), COAT, M.t(0, 0.27, -0.125, 0, 0, 0, 0.86, 1, 1.05));
-  b.add(P.sphere(0.058, 1), COAT, M.t(0, 0.29, 0.17, 0, 0, 0, 0.8, 1, 1));
-  b.add(P.sphere(0.08, 1), coat(0.92), M.t(0, 0.21, -0.01, 0, 0, 0, 0.8, 0.55, 1.5));
-  for (const x of [-1, 1]) b.add(P.sphere(0.021, 0), COAT, M.t(x * 0.05, 0.308, -0.1));
-  for (let k = 0; k < 3; k++) b.add(P.box(0.07, 0.035, 0.035), coat(0.84), M.t(0, 0.182, 0.1 - k * 0.06, 0.3, 0, 0));
-  if (patched) {
-    b.add(P.sphere(0.075, 0), C(0xf0ebe0), M.t(0, 0.25, 0.1, 0, 0, 0, 0.92, 0.98, 1.1));
-    b.add(P.sphere(0.06, 0), C(0xf0ebe0), M.t(0, 0.2, -0.06, 0, 0, 0, 1.2, 0.6, 1.4));
-  }
-  return splitBody(facet(b.build()), spineY);
+  b.add(animalForm([
+    [-0.205,0.27,0.026,0.044,0.042], [-0.15,0.27,0.063,0.071,0.065],
+    [-0.075,0.263,0.061,0.077,0.065], [0,0.256,0.065,0.080,0.068],
+    [0.08,0.255,0.075,0.084,0.087], [0.14,0.265,0.063,0.085,0.078],
+    [0.205,0.282,0.035,0.048,0.05],
+  ]), COAT);
+  const g=facet(b.build());
+  if(patched) coatPatch(g,0xf0ebe0,(_x,y,z) => z>0.065 && z<0.14 || y<0.24 && z< -0.025 && z> -0.11);
+  return splitBody(g,spineY);
 }
 
 /** Tapir body: low wedge front, heavy high rounded rump, pale throat, stubby tail; split at the spine joint. */
 export function tapirBodyHalves(spineY: number): [THREE.BufferGeometry, THREE.BufferGeometry] {
   const b = new GeoBuilder();
-  b.add(new THREE.CapsuleGeometry(0.19, 0.38, 4, 10), COAT, M.t(0, 0.36, -0.01, Math.PI / 2, 0, 0, 0.96, 1, 1.04));
-  b.add(P.sphere(0.205, 1), COAT, M.t(0, 0.39, -0.21, 0, 0, 0, 1.02, 1.04, 1));
-  b.add(P.sphere(0.17, 1), COAT, M.t(0, 0.35, 0.22, 0, 0, 0, 0.95, 1, 1.1));
-  b.add(P.cyl(0.11, 0.15, dist([0, 0.37, 0.26], [0, 0.335, 0.45]), 9), COAT, span([0, 0.37, 0.26], [0, 0.335, 0.45], 1, 1.08));
-  b.add(P.sphere(0.17, 1), coat(0.9), M.t(0, 0.25, 0, 0, 0, 0, 0.92, 0.55, 1.9));
-  b.add(P.sphere(0.08, 1), C(0xcdbfa6), M.t(0, 0.27, 0.4, 0, 0, 0, 0.9, 0.8, 1.1));
+  b.add(animalForm([
+    [-0.405,0.385,0.065,0.09,0.08], [-0.31,0.38,0.173,0.19,0.16],
+    [-0.20,0.38,0.204,0.213,0.183], [-0.075,0.36,0.195,0.2,0.19],
+    [0.06,0.345,0.181,0.174,0.168], [0.20,0.35,0.16,0.16,0.143],
+    [0.32,0.353,0.12,0.119,0.1], [0.44,0.335,0.086,0.08,0.076],
+  ]), COAT);
+  b.add(P.sphere(0.08,1), C(0xcdbfa6), M.t(0,0.27,0.4,0,0,0,0.9,0.8,1.1));
   // Short bristly mane along the top of the neck.
   b.add(P.box(0.022, 0.03, 0.2), coat(0.7), M.t(0, 0.47, 0.33, 0.28, 0, 0));
   b.add(P.cone(0.03, 0.06, 5), COAT, M.t(0, 0.43, -0.415, -2.3, 0, 0));
@@ -552,10 +544,9 @@ export function carriedChicken(): THREE.BufferGeometry {
   b.add(P.sphere(0.07, 0), C(0xf6f0e4), M.t(0, 0.1, 0.13));
   b.add(P.box(0.02, 0.05, 0.06), C(0xd62f22), M.t(0, 0.17, 0.13));
   b.add(P.cone(0.02, 0.05, 4), C(0xe8b030), M.t(0, 0.1, 0.21, Math.PI / 2, 0, 0));
-  // Wattle, eyes, folded wings and a tail fan (same size and pivot as before).
+  // Wattle, folded wings and a tail fan (same size and pivot as before).
   b.add(P.sphere(0.014, 0), C(0xd62f22), M.t(0, 0.06, 0.18, 0, 0, 0, 0.7, 1.4, 0.9));
   for (const x of [-1, 1]) {
-    b.add(P.sphere(0.011, 0), C(0x120c0a), M.t(x * 0.052, 0.12, 0.16));
     b.add(P.sphere(0.09, 0), C(0xe6ddcc), M.t(x * 0.1, 0.01, -0.02, 0.15, 0, 0, 0.35, 0.75, 1.25));
   }
   for (let k = -1; k <= 1; k++) b.add(P.box(0.012, 0.13, 0.07), C(0xece4d4), rod(0.13, [k * 0.02, 0.04, -0.14], -0.7, 0, -k * 0.3));

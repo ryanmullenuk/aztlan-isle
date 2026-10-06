@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { animalForm } from './animalForm';
 import { ALLIGATORS, DEFENCE } from '../config';
 import { ColorFn, GeoBuilder, M, P, facet } from '../render/GeoBuilder';
 import { View } from '../render/View';
@@ -87,7 +88,7 @@ function bodyHalf(front: boolean): THREE.BufferGeometry {
   for (const z of rows)
     for (const x of [-0.05, -0.022, 0.022, 0.05]) {
       const y = 0.046 * Math.sqrt(Math.max(0, 1 - (x / 0.1) ** 2)) * 0.95;
-      b.add(P.cone(0.012, 0.014, 4), C(SCUTE), M.t(x, y, z, 0, Math.PI / 4, 0, 1, 1, 1.4));
+      b.add(P.sphere(0.012, 0), C(SCUTE), M.t(x, y, z, 0, Math.PI / 4, 0, 1, 0.55, 1.4));
     }
   if (front) for (const x of [-0.03, -0.012, 0.012, 0.03]) b.add(P.cone(0.014, 0.02, 4), C(SCUTE), M.t(x, 0.044, 0.15, 0, Math.PI / 4, 0, 1, 1, 1.2));
   // Neck skin joining the head.
@@ -97,16 +98,12 @@ function bodyHalf(front: boolean): THREE.BufferGeometry {
 
 /** A tapered box running from z0 along +z (snout, jaw), width and height interpolated. */
 function taperBox(len: number, w0: number, w1: number, h0: number, h1: number, z0: number, y0: number): THREE.BufferGeometry {
-  const g = new THREE.BoxGeometry(1, 1, 1, 2, 1, 4);
-  const p = g.getAttribute('position') as THREE.BufferAttribute;
-  for (let i = 0; i < p.count; i++) {
-    const u = p.getZ(i) + 0.5;
-    // A broad, rounded U-shaped snout: the tip narrows only at the very end.
-    const w = w0 + (w1 - w0) * u * u;
-    const h = h0 + (h1 - h0) * u;
-    p.setXYZ(i, p.getX(i) * w, y0 + p.getY(i) * h, z0 + u * len);
-  }
-  return g;
+  return animalForm([
+    [z0,y0,w0*0.5,h0*0.5,h0*0.5],
+    [z0+len*0.45,y0,(w0+(w1-w0)*0.2)*0.5,(h0+h1)*0.25,(h0+h1)*0.25],
+    [z0+len*0.86,y0,w1*0.55,h1*0.5,h1*0.5],
+    [z0+len,y0,w1*0.35,h1*0.32,h1*0.32],
+  ], 8);
 }
 
 /** Head with the upper jaw: broad skull, long rounded snout, raised eyes and brows, nostril knob, teeth. */
@@ -115,7 +112,6 @@ function headGeo(): THREE.BufferGeometry {
   b.add(taperBox(0.09, 0.1, 0.085, 0.046, 0.034, -0.02, 0.012), C(BACK));
   b.add(taperBox(0.13, 0.08, 0.052, 0.03, 0.022, 0.06, 0.004), { color: (p) => new THREE.Color(Math.sin(p.z * 150) > 0.7 ? SKIN_D : 0x3e4a2c) });
   b.add(P.sphere(0.013, 0), C(0x2a2a1a), M.t(0, 0.02, 0.18, 0, 0, 0, 1.3, 0.8, 1));
-  for (const x of [-1, 1]) b.add(P.sphere(0.004, 0), C(0x0c0c08), M.t(x * 0.006, 0.027, 0.183));
   // Teeth along the upper jaw.
   for (let k = 0; k < 7; k++) {
     const z = 0.07 + k * 0.018, w = 0.04 - k * 0.0018;
@@ -124,8 +120,6 @@ function headGeo(): THREE.BufferGeometry {
   for (const x of [-1, 1]) {
     // Bony brows and the raised eyes with yellow irises and dark slit pupils.
     b.add(P.sphere(0.016, 0), C(SCUTE), M.t(x * 0.028, 0.04, 0.02, 0, 0, 0, 1, 0.9, 1.2));
-    b.add(P.sphere(0.009, 0), C(0xc8a030), M.t(x * 0.032, 0.047, 0.03));
-    b.add(P.box(0.002, 0.009, 0.003), C(0x0c0c08), M.t(x * 0.039, 0.048, 0.034));
   }
   return facet(b.build());
 }

@@ -80,7 +80,7 @@ function crabBody(): THREE.BufferGeometry {
   };
   b.add(P.sphere(0.07, 1), { color: shellCol }, M.t(0, CRAB.bodyY, 0, 0, 0, 0, 1.25, 0.5, 1));
   // A raised ridge across the front and the mouthparts beneath.
-  b.add(P.box(0.1, 0.012, 0.018), C(SHELL_DARK), M.t(0, CRAB.bodyY + 0.018, 0.052, 0.3, 0, 0));
+  b.add(P.sphere(0.025, 1), C(SHELL_DARK), M.t(0, CRAB.bodyY + 0.012, 0.042, 0, 0, 0, 2.1, 0.38, 0.7));
   b.add(P.box(0.04, 0.02, 0.02), C(PALE), M.t(0, CRAB.bodyY - 0.012, 0.06));
   return facet(b.build());
 }
@@ -100,7 +100,7 @@ function segX(len: number, r0: number, r1: number, color: number, tip?: number):
 function crabClaw(): THREE.BufferGeometry {
   const b = new GeoBuilder();
   b.add(P.sphere(0.022, 1), C(SHELL), M.t(0.02, 0, 0, 0, 0, 0, 1.2, 0.75, 0.85));
-  b.add(P.box(0.03, 0.008, 0.012), C(SHELL_DARK), M.t(0.052, -0.006, 0));
+  b.add(P.sphere(0.015, 1), C(SHELL_DARK), M.t(0.052, -0.006, 0, 0, 0, 0, 1.2, 0.3, 0.45));
   b.add(P.cone(0.006, 0.014, 4), C(TIP), M.t(0.072, -0.006, 0, 0, 0, -Math.PI / 2));
   return facet(b.build());
 }
@@ -117,7 +117,7 @@ function crabPinch(): THREE.BufferGeometry {
 function crabEye(): THREE.BufferGeometry {
   const b = new GeoBuilder();
   b.add(P.cyl(0.0035, 0.0045, 0.028, 4), C(SHELL_DARK), M.t(0, 0.014, 0));
-  b.add(P.sphere(0.0075, 0), C(0x101010), M.t(0, 0.03, 0.001, 0, 0, 0, 1, 1.3, 1));
+  b.add(P.sphere(0.0055, 0), C(SHELL_DARK), M.t(0, 0.03, 0.001, 0, 0, 0, 1, 1.3, 1));
   return facet(b.build());
 }
 

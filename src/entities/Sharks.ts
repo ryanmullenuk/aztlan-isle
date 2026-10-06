@@ -9,7 +9,7 @@ import { SEA_SURFACE } from '../water/Water';
 /** Model: nose at +z (0.51), tail fin tip at about -0.62; one unit long before scaling. */
 const NOSE = 0.42;
 const BODY_LEN = 0.95;
-const GREY = new THREE.Color(0x39434b), BELLY = new THREE.Color(0x8d928e), DARK = new THREE.Color(0x222c34), EYE = new THREE.Color(0x101418);
+const GREY = new THREE.Color(0x292a29), BELLY = new THREE.Color(0x62645e), DARK = new THREE.Color(0x181b19), EYE = new THREE.Color(0x101418);
 
 /** Countershaded: grey above, cream below, the line between them softly ragged. */
 function shade(p: THREE.Vector3, n: THREE.Vector3): THREE.Color {
@@ -20,10 +20,11 @@ function shade(p: THREE.Vector3, n: THREE.Vector3): THREE.Color {
 /** A closed, gently rounded fin, retaining a few broad low-poly facets. */
 function fin(a: THREE.Vector3, b: THREE.Vector3, tip: THREE.Vector3, t = 0.008): THREE.BufferGeometry {
   const normal = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(tip, a)).normalize();
+  tip = tip.clone().lerp(a.clone().add(b).multiplyScalar(0.5), -0.1);
   const corners = [a, b, tip], edge: THREE.Vector3[] = [];
   for (let i = 0; i < 3; i++) {
     const p = corners[i], prev = corners[(i + 2) % 3], next = corners[(i + 1) % 3];
-    const round = i === 2 ? 0.16 : 0.09;
+    const round = i === 2 ? 0.32 : 0.12;
     const start = p.clone().lerp(prev, round), end = p.clone().lerp(next, round);
     for (let j = 0; j <= 3; j++) {
       const u = j / 3;
@@ -164,12 +165,12 @@ function sharkMaterial(): THREE.MeshStandardMaterial {
       .replace('#include <common>', '#include <common>\nvarying float vSharkY;')
       .replace('#include <fog_fragment>', `{
         float d = max(0.0, ${SEA_SURFACE.toFixed(2)} - vSharkY);
-        float k = clamp(0.35 + d * 0.35, 0.0, 0.75);
-        gl_FragColor.rgb = mix(gl_FragColor.rgb * 0.85, vec3(0.05, 0.2, 0.26), k);
+        float k = clamp(0.10 + d * 0.08, 0.0, 0.28);
+        gl_FragColor.rgb = mix(gl_FragColor.rgb * 0.85, vec3(0.022, 0.025, 0.023), k);
       }
       #include <fog_fragment>`);
   };
-  mat.customProgramCacheKey = () => 'hammerhead-v3-solid';
+  mat.customProgramCacheKey = () => 'hammerhead-v4-charcoal';
   return mat;
 }
 

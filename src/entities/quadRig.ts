@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { animalForm } from './animalForm';
 import { GeoBuilder, M, P, facet } from '../render/GeoBuilder';
 import { peopleMaterial } from '../render/materials';
 import { splitBody } from './animalModels';
@@ -395,7 +396,7 @@ export function dogBodyParts(): { chest: THREE.BufferGeometry; loin: THREE.Buffe
   const [jc, jp] = DOG_DIMS.spineJ!;
   const piece = (z0: number, z1: number, ov0: number, ov1: number, seed: number, extra?: (b: GeoBuilder) => void) => {
     const b = new GeoBuilder();
-    b.add(bodyPiece(DOG_BODY, z0, z1, ov0, ov1, 12, 0.016, 2.25, seed, 0.014, 0.015), COAT);
+    b.add(bodyPiece(DOG_BODY, z0, z1, ov0, ov1, 12, 0.009, 2.1, seed, 0.006, 0.008), COAT);
     extra?.(b);
     const g = facet(b.build());
     markFaces(g, (_x, y, z, _nx, ny, nz) => ny < -0.7 && z > -0.104 && z < 0.128 || (z > 0.072 && y < 0.012 && (nz > 0.3 || ny < -0.35)));
@@ -423,7 +424,7 @@ export function dogNeckParts(): [THREE.BufferGeometry, THREE.BufferGeometry] {
   return [fin(n1), fin(n2)];
 }
 
-/** Dog head (pivot at the top of the neck): domed skull, a clear stop, tapering muzzle, flews, nose, eyes; jaw and ears are separate parts. */
+/** Dog head (pivot at the top of the neck): domed skull, a clear stop, tapering muzzle and flews; jaw and ears are separate parts. */
 export function dogHead(): THREE.BufferGeometry {
   const b = new GeoBuilder();
   const skull = loft([
@@ -442,15 +443,11 @@ export function dogHead(): THREE.BufferGeometry {
   for (const x of [-1, 1]) {
     // Flews: the loose upper lips hanging either side of the muzzle.
     b.add(P.sphere(0.011, 1), COAT, M.t(x * 0.0138, 0.0025, 0.085, 0, x * 0.1, 0, 0.5, 0.62, 1.75));
-    // Eyes with a glint; tan brow spots (markings) above.
-    b.add(P.sphere(0.0074, 1), C(0x140e0a), M.t(x * 0.0205, 0.042, 0.052, 0, 0, 0, 1, 0.9, 1));
-    b.add(P.sphere(0.002, 0), C(0xffffff), M.t(x * 0.0225, 0.0445, 0.0585));
-    b.add(P.sphere(0.0045, 0), MARK, M.t(x * 0.015, 0.053, 0.05, 0, 0, 0, 1.3, 0.55, 0.9));
+    // Keep the face unmarked; species reads through the muzzle and ears.
     // Upper canines, seen when the mouth opens.
     b.add(P.cone(0.0022, 0.007, 4), C(0xf2eadc), M.t(x * 0.0105, -0.0012, 0.094, Math.PI, 0, 0));
   }
-  // Nose leather and nostrils.
-  b.add(P.sphere(0.0098, 1), C(0x1a1412), M.t(0, 0.027, 0.1165, -0.25, 0, 0, 1.15, 0.85, 0.8));
+
   // Dark mouth roof, hidden by the jaw until it opens.
   b.add(P.box(0.02, 0.003, 0.054), C(0x3a1a1a), M.t(0, 0.003, 0.066));
   const g = facet(b.build());
@@ -693,11 +690,12 @@ const JAG_DARK = 0x1c140e;
 export function jaguarBodyHalves(): [THREE.BufferGeometry, THREE.BufferGeometry] {
   const b = new GeoBuilder();
   const y0 = JAG_DIMS.spineY;
-  b.add(P.sphere(0.1, 1), COAT, M.t(0, y0 - 0.008, 0.13, 0, 0, 0, 0.95, 1.12, 1.1));
-  for (const x of [-1, 1]) b.add(P.sphere(0.05, 1), COAT, M.t(x * 0.045, y0 + 0.04, 0.14, -0.35, 0, 0, 0.62, 1.3, 1));
-  b.add(P.cyl(0.088, 0.075, 0.26, 9), COAT, M.t(0, y0, -0.03, Math.PI / 2 + 0.04, 0, 0));
-  b.add(P.sphere(0.088, 1), COAT, M.t(0, y0 + 0.012, -0.17, 0, 0, 0, 1.02, 1, 1.05));
-  b.add(P.sphere(0.05, 1), COAT, M.t(0, y0 + 0.03, -0.235));
+  b.add(animalForm([
+    [-0.28,y0+0.018,0.027,0.032,0.032], [-0.21,y0+0.015,0.079,0.079,0.073],
+    [-0.12,y0+0.006,0.077,0.079,0.072], [-0.035,y0,0.072,0.079,0.065],
+    [0.05,y0,0.086,0.096,0.092], [0.13,y0+0.008,0.101,0.116,0.105],
+    [0.21,y0+0.008,0.071,0.083,0.08], [0.25,y0+0.014,0.04,0.048,0.047],
+  ]), COAT);
   // Pale belly (with the loose skin of the pouch) and chest.
   b.add(P.sphere(0.08, 1), MARK, M.t(0, y0 - 0.05, -0.01, 0, 0, 0, 0.8, 0.5, 2.2));
   b.add(P.sphere(0.06, 1), MARK, M.t(0, y0 - 0.06, 0.17, 0, 0, 0, 0.8, 0.7, 1));
@@ -718,7 +716,7 @@ export function jaguarNeck(): THREE.BufferGeometry {
   return paintFaces(g, (x, y, z, _nx, _ny, _nz, m, i) => (m > 1.5 ? spot(x, y, z, 0.034, 0.3) : 1) * grain(i, 0.03));
 }
 
-/** Jaguar head: broad skull, heavy cheek ruffs, short muzzle with pale whisker pads, amber eyes, fangs. */
+/** Jaguar head: broad skull, heavy cheek ruffs, short muzzle with pale cheeks. */
 export function jaguarHead(): THREE.BufferGeometry {
   const b = new GeoBuilder();
   b.add(P.sphere(0.068, 1), COAT, M.t(0, 0.022, 0.025, 0, 0, 0, 1.15, 0.85, 1.05));
@@ -728,12 +726,8 @@ export function jaguarHead(): THREE.BufferGeometry {
   for (const x of [-1, 1]) {
     b.add(P.sphere(0.036, 1), COAT, M.t(x * 0.046, -0.004, 0.035, 0, 0, 0, 1, 0.95, 1.1));
     b.add(P.sphere(0.022, 1), MARK, M.t(x * 0.019, -0.012, 0.104, 0, 0, 0, 1, 0.85, 0.8));
-    b.add(P.sphere(0.012, 0), C(0xd8a030), M.t(x * 0.034, 0.03, 0.08));
-    b.add(P.sphere(0.006, 0), C(0x120c08), M.t(x * 0.035, 0.031, 0.089));
-    b.add(P.sphere(0.008, 0), MARK, M.t(x * 0.031, 0.018, 0.083, 0, 0, 0, 1.3, 0.6, 0.8));
     b.add(P.cone(0.0045, 0.016, 4), C(0xf2eadc), M.t(x * 0.016, -0.03, 0.108, Math.PI, 0, 0));
   }
-  b.add(P.sphere(0.014, 0), C(0x6a3a30), M.t(0, 0.01, 0.12, 0, 0, 0, 1.3, 0.8, 0.8));
   b.add(P.box(0.05, 0.005, 0.05), C(0x3a1414), M.t(0, -0.028, 0.08));
   const g = subdivide(facet(b.build()), 0.017);
   return paintFaces(g, (x, y, z, _nx, ny, nz, m, i) => (m > 1.5 && (ny > 0.2 || nz < 0.4) ? spot(x, y, z, 0.021, 0.26) : 1) * grain(i, 0.03));

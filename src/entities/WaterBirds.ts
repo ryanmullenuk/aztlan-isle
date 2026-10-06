@@ -299,7 +299,10 @@ export class WaterBirds {
       const s = list[this.rng.int(0, list.length - 1)];
       const d = Math.hypot(s.x - b.x, s.z - b.z);
       if (d > near) continue;
-      if (avoidX !== undefined && Math.hypot(s.x - avoidX, s.z - avoidZ!) < 8) continue;
+      if (avoidX !== undefined) {
+        if (Math.hypot(s.x-avoidX,s.z-avoidZ!) < 8) continue;
+        if ((s.x-b.x)*(b.x-avoidX)+(s.z-b.z)*(b.z-avoidZ!) < 0) continue;
+      }
       let sc = this.score(b.kind, s) - d * 0.02;
       if (b.kind === 'heron' && this.list.some((o) => o !== b && o.kind === 'heron' && o.spot && Math.hypot(o.spot.x - s.x, o.spot.z - s.z) < WATERBIRDS.heronSpacing)) sc -= 3;
       if (sc > bs) {
@@ -315,10 +318,12 @@ export class WaterBirds {
   }
 
   private dayHour = 12;
+  private pointer: { x: number; z: number } | null = null;
 
   // ---------------- Update ----------------
 
-  update(dt: number, hour: number): void {
+  update(dt: number, hour: number, pointer: { x: number; z: number } | null = null): void {
+    this.pointer = pointer;
     this.time += dt;
     this.dayHour = hour;
     if (dt > 0 && this.hooks) for (const b of this.list) this.think(b, dt);
@@ -344,6 +349,14 @@ export class WaterBirds {
     const list = b.kind === 'heron' ? this.wadeSpots : this.restSpots.concat(this.seaSpots);
     const s = this.pickSpot(b, list, WATERBIRDS.relocate, fx, fz) ?? this.pickSpot(b, list, 60, fx, fz);
     if (s) this.fly(b, s.x, s.z, s.water ? 'swim' : 'rest', s);
+    else if (b.kind === 'pelican') {
+      b.school = -1;
+      b.reef = null;
+      // A crowded shore must still let the bird escape. Circle above a point away
+      // from the disturbance; the flight state will choose a safe landing later.
+      const a = Math.hypot(b.x-fx,b.z-fz) > 0.01 ? Math.atan2(b.x-fx,b.z-fz) : b.heading;
+      this.fly(b,b.x+Math.sin(a)*14,b.z+Math.cos(a)*14,'hunt',null);
+    }
   }
 
   private grounded(b: Bird): boolean {
@@ -352,6 +365,12 @@ export class WaterBirds {
 
   private reactions(b: Bird): void {
     const h = this.hooks!;
+    // Hover only, supplied by Game after filtering camera gestures. The existing grounded
+    // gate prevents restarting the take-off every frame while the pointer stays nearby.
+    if (b.kind === 'pelican' && this.pointer && Math.hypot(b.x-this.pointer.x,b.z-this.pointer.z) < 4) {
+      this.flee(b,this.pointer.x,this.pointer.z);
+      return;
+    }
     // Dogs: a running dog sends them up at once.
     for (const d of h.dogs()) {
       const dd = Math.hypot(d.x - b.x, d.z - b.z);
@@ -717,6 +736,7 @@ export class WaterBirds {
         // Off for a swim or to a different beach.
         const s = this.pickSpot(b, r.chance(0.5) ? this.seaSpots : this.restSpots, 30);
         if (s) this.fly(b, s.x, s.z, s.water ? 'swim' : 'rest', s);
+
         else (b.state = 'stand'), (b.timer = 8);
       }
     } else {
@@ -741,6 +761,7 @@ export class WaterBirds {
     const list = b.kind === 'heron' ? this.wadeSpots.concat(this.restSpots) : this.restSpots.concat(this.seaSpots);
     const s = this.pickSpot(b, list, 45);
     if (s) this.fly(b, s.x, s.z, s.water ? 'swim' : 'rest', s);
+
     else this.idleStand(b);
   }
 

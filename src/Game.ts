@@ -1989,7 +1989,7 @@ export class Game {
       if (this.stormRecall <= 0) this.stormShelter(false);
     }
     this.dogs.update(dt, this.time.isNight);
-    this.waterBirds.update(dt, this.time.hour);
+    this.waterBirds.update(dt, this.time.hour, this.input.hover.active && !this.input.navigating && this.cursorActive ? this.cursorWorld : null);
     this.butterflies.update(dt, realDt, ls.day, this.raining, this.input.hover.active && !this.input.navigating && this.cursorActive ? this.cursorWorld : null);
     this.jellies.update(dt, this.input.hover.active && !this.input.navigating && this.cursorActive ? this.cursorWorld : null);
     this.turtles.people = this.colony.grid;

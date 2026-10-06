@@ -1216,25 +1216,19 @@ function chestGeometry(): THREE.BufferGeometry {
   const b = new GeoBuilder();
   b.add(new THREE.CapsuleGeometry(0.041, 0.04, 3, 7), C(FUR), M.t(0, 0.035, 0));
   b.add(P.sphere(0.03, 0), C(FUR_PALE), M.t(0, 0.03, 0.028, 0, 0, 0, 0.9, 1.2, 0.5));
-  b.add(P.sphere(0.048, 1), C(FUR), M.t(0, SHOULDER - 0.004, 0, 0, 0, 0, 1.3, 0.55, 0.85));
+  b.add(P.sphere(0.048, 1), C(FUR), M.t(0, SHOULDER - 0.004, 0, 0, 0, 0, 1.22, 0.7, 0.85));
   b.add(P.cyl(0.018, 0.024, 0.035, 6), C(FUR), M.t(0, 0.09, 0.004));
   return facet(b.build());
 }
 
-/** Small round head with a pale face mask: muzzle, eye rings, dark eyes under a furry brow. */
+/** Small round head, plain pale face mask and a softly raised crown. */
 function headGeometry(): THREE.BufferGeometry {
   const b = new GeoBuilder();
   b.add(P.sphere(0.04, 1), C(FUR), M.t(0, 0.04, -0.004, 0, 0, 0, 0.95, 1, 1));
-  b.add(P.sphere(0.022, 0), C(FUR), M.t(0, 0.07, -0.012));
+  b.add(P.sphere(0.025, 1), C(FUR), M.t(0, 0.066, -0.012, 0, 0, 0, 0.9, 0.7, 1));
   b.add(P.sphere(0.03, 1), C(FACE), M.t(0, 0.035, 0.024, 0, 0, 0, 1, 1.05, 0.7));
   b.add(P.sphere(0.019, 1), C(FACE), M.t(0, 0.021, 0.045, 0, 0, 0, 1.05, 0.85, 0.85));
-  b.add(P.box(0.044, 0.009, 0.014), C(FUR), M.t(0, 0.059, 0.03, 0.3, 0, 0));
-  b.add(P.box(0.016, 0.0025, 0.004), C(0x2a1a14), M.t(0, 0.012, 0.059));
   for (const x of [-1, 1]) {
-    b.add(P.sphere(0.011, 0), C(FACE_PALE), M.t(x * 0.013, 0.045, 0.04));
-    b.add(P.sphere(0.0065, 0), C(0x100a08), M.t(x * 0.013, 0.046, 0.048));
-    b.add(P.sphere(0.002, 0), C(0xffffff), M.t(x * 0.015, 0.048, 0.054));
-    b.add(P.sphere(0.003, 0), C(0x2a1a14), M.t(x * 0.005, 0.025, 0.062));
     b.add(P.sphere(0.009, 0), C(SKIN), M.t(x * 0.037, 0.042, 0.0, 0, 0, 0, 0.5, 1, 0.9));
   }
   return facet(b.build());
