@@ -449,6 +449,48 @@ export function buildingMaterial(): THREE.MeshStandardMaterial {
   return building;
 }
 
+const fadeMats = new Map<string, { mat: THREE.MeshStandardMaterial; far: { value: number } }>();
+/**
+ * A copy of a stylised material whose instances shrink smoothly away (each from its own base) as
+ * they near `far` from the camera, instead of a whole patch of plants vanishing at once when its
+ * chunk is switched off. The chunk can then be skipped once it is entirely beyond `far`, by which
+ * point every plant in it has already gone. `far` is a uniform: set it with setFadeFar.
+ */
+export function fadingMaterial(base: THREE.MeshStandardMaterial, id: string): THREE.MeshStandardMaterial {
+  const key = `${base.uuid}|${id}`;
+  let f = fadeMats.get(key);
+  if (!f) {
+    const far = { value: 1e6 };
+    const mat = base.clone();
+    mat.onBeforeCompile = (shader, r) => {
+      base.onBeforeCompile(shader, r);
+      shader.uniforms.uFadeFar = far;
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nuniform float uFadeFar;')
+        .replace(
+          '#include <project_vertex>',
+          `#ifdef USE_INSTANCING
+          {
+            vec3 fo = (modelMatrix * vec4(instanceMatrix[3].xyz, 1.0)).xyz;
+            transformed *= 1.0 - smoothstep(uFadeFar * 0.7, uFadeFar * 0.97, distance(fo, cameraPosition));
+          }
+          #endif
+          #include <project_vertex>`
+        );
+    };
+    const baseKey = base.customProgramCacheKey.bind(base);
+    mat.customProgramCacheKey = () => `${baseKey()}|fade`;
+    f = { mat, far };
+    fadeMats.set(key, f);
+  }
+  return f.mat;
+}
+
+/** Set the distance at which a fadingMaterial's plants have fully shrunk away. */
+export function setFadeFar(mat: THREE.Material, far: number): void {
+  for (const f of fadeMats.values()) if (f.mat === mat) f.far.value = far;
+}
+
 let sharedDouble: THREE.MeshStandardMaterial | null = null;
 /** Double-sided variant for thin leaves and fronds. */
 export function stylisedMaterialDouble(): THREE.MeshStandardMaterial {
