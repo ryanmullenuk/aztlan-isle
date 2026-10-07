@@ -15,6 +15,7 @@ import * as models from './models';
 /** Flame size per building; fires are visible only from dusk until dawn. */
 const FLAME_SCALE: Partial<Record<BuildingKey, number>> = { campfire: 0.85, bonfire: 1, firepit: 0.9, torch: 1.25, greathall: 3.0, watchtower: 1.1, greattemple: 1.5 };
 import { Particles } from '../render/Particles';
+import { FireLights, FireSpot } from './FireLights';
 
 /** Door direction per rotation (door faces +z at rot 0). */
 export const ROT_DIR: [number, number][] = [[0, 1], [1, 0], [0, -1], [-1, 0]];
@@ -180,8 +181,10 @@ export class BuildingSystem {
   /** God mode's "instant build": new buildings and upgrades finish the moment they are placed. */
   instantBuild: () => boolean = () => false;
   private flameGeo = models.flameGeometry();
-  private lights: THREE.PointLight[] = [];
-  private lightTimer = 0;
+  /** Firelight: a glow under every lit fire and real lights on the ones that matter most. */
+  readonly fireLights = new FireLights();
+  private fireSpots: FireSpot[] = [];
+  private spotTimer = 0;
   private cropGeos = new Map<string, THREE.BufferGeometry>();
   /** Chimney and rack smoke from smokehouses. */
   private smoke = new Particles(360, 0xc9c2ba, 0.6);
@@ -198,12 +201,7 @@ export class BuildingSystem {
   constructor(private world: World, private veg: Vegetation, private eco: Economy, private terrain: Terrain, private scene: THREE.Scene) {
     this.group.add(this.smoke.points);
     this.scene.add(this.spaceMesh);
-    for (let i = 0; i < 8; i++) {
-      const l = new THREE.PointLight(0xffa04a, 0, 8, 1.6);
-      l.castShadow = false;
-      this.lights.push(l);
-      this.group.add(l);
-    }
+    this.group.add(this.fireLights.group);
   }
 
   byId(id: number): Building | undefined {
@@ -735,6 +733,22 @@ export class BuildingSystem {
     }
   }
 
+  /** Every lit fire, a building's flames that burn close together (a bonfire's) counted as one. */
+  private litFires(): FireSpot[] {
+    const out: FireSpot[] = [];
+    for (const b of this.list) {
+      if (!b.complete || b.upgrading || !b.torches.length) continue;
+      const big = b.key === 'campfire' || b.key === 'bonfire' || b.key === 'firepit' || b.key === 'greathall';
+      const mine: FireSpot[] = [];
+      b.torches.forEach((t, k) => {
+        if (mine.some((m) => m.pos.distanceToSquared(t.pos) < 0.8 * 0.8)) return;
+        mine.push({ key: `${b.id}:${k}`, pos: t.pos, ground: this.world.heightAt(t.pos.x, t.pos.z), big });
+      });
+      out.push(...mine);
+    }
+    return out;
+  }
+
   /** Smoke curling from the smokehouse chimney and racks; thicker while someone is at work. */
   private smokeFrom(b: Building, dt: number): void {
     if (b.upgrading) return;
@@ -953,7 +967,7 @@ export class BuildingSystem {
     this.smoke.update(dt, -0.02);
     const day = 0.4 + 0.6 * (1 - night);
     ((this.smoke.points.material as THREE.ShaderMaterial).uniforms.uColor.value as THREE.Color).setRGB(0.79 * day, 0.76 * day, 0.73 * day);
-    // Torches: flicker, visible from dusk; the few nearest the camera get real lights.
+    // Torches: flicker, visible from dusk (FireLights lights the ground and the nearest walls).
     const lit = night > 0.12;
     for (const b of this.list) {
       for (const t of b.torches) {
@@ -969,24 +983,12 @@ export class BuildingSystem {
         }
       }
     }
-    this.lightTimer -= dt;
-    if (this.lightTimer <= 0) {
-      this.lightTimer = 0.4;
-      const all: Torch[] = [];
-      for (const b of this.list) if (b.complete) for (const t of b.torches) all.push(t);
-      all.sort((a, b2) => a.pos.distanceToSquared(camTarget) - b2.pos.distanceToSquared(camTarget));
-      this.lights.forEach((l, i) => {
-        const t = all[i];
-        if (t) {
-          l.position.copy(t.pos);
-          l.position.y += 0.25;
-        }
-        l.userData.on = !!t;
-      });
+    this.spotTimer -= dt;
+    if (this.spotTimer <= 0) {
+      this.spotTimer = 0.25;
+      this.fireSpots = lit ? this.litFires() : [];
     }
-    for (const l of this.lights) {
-      l.intensity = l.userData.on ? night * (2.2 + Math.sin(time * 9 + l.position.x) * 0.3) : 0;
-    }
+    this.fireLights.update(dt, time, night, this.fireSpots, camTarget);
     void FX;
   }
 
