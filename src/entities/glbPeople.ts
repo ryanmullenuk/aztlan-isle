@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { characterVariant, type CharacterModelKey } from './CharacterVariants';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 /**
@@ -39,7 +40,7 @@ export interface GlbModel {
   len: { upper: number; fore: number; thigh: number; shin: number; hand: number };
 }
 
-export type GlbPeople = Record<'m' | 'f', GlbModel>;
+export type GlbPeople = Record<CharacterModelKey, GlbModel>;
 
 const FILES: Record<'m' | 'f', { mesh: string; tex: string }> = {
   m: { mesh: 'models/islander_male.glb', tex: 'models/islander_male.jpg' },
@@ -420,13 +421,27 @@ async function loadOne(loader: GLTFLoader, g: 'm' | 'f'): Promise<GlbModel> {
   };
 }
 
+/** A light cloth texel for coloured accessory vertices; the shared colour map is unchanged. */
+function lightTexel(map:THREE.Texture):THREE.Vector2 {
+  const image=map.image as {width:number;height:number};
+  const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;
+  const ctx=canvas.getContext('2d',{willReadFrequently:true});
+  if(!ctx) return new THREE.Vector2(.5,.5);
+  ctx.drawImage(map.image as CanvasImageSource,0,0);const data=ctx.getImageData(0,0,image.width,image.height).data;
+  let best=0,at=0;
+  for(let i=0;i<data.length;i+=4){const light=Math.min(data[i],data[i+1],data[i+2]);if(light>best){best=light;at=i/4;}}
+  return new THREE.Vector2((at%image.width+.5)/image.width,(Math.floor(at/image.width)+.5)/image.height);
+}
+
 let pending: Promise<GlbPeople> | null = null;
 
 /** Load (once) both character models. */
 export function loadGlbPeople(): Promise<GlbPeople> {
   if (pending) return pending;
   const loader = new GLTFLoader();
-  pending = Promise.all([loadOne(loader, 'm'), loadOne(loader, 'f')]).then(([m, f]) => ({ m, f }));
+  pending = Promise.all([loadOne(loader, 'm'), loadOne(loader, 'f')]).then(([m, f]) => ({
+    m, f, m_loosehair: characterVariant(m,'m',lightTexel(m.map)), f_flower: characterVariant(f,'f',lightTexel(f.map)),
+  }));
   return pending;
 }
 

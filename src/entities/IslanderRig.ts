@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { characterModelKey, type CharacterModelKey } from './CharacterVariants';
 import { View } from '../render/View';
 import { ISLANDER } from '../config';
 import { peopleMaterial, peopleSkinnedMaterial } from '../render/materials';
@@ -470,7 +471,7 @@ export class IslanderRig {
   };
   /** Posed bone frames for the islander being drawn (model space, metres). */
   private W = Array.from({ length: BONE_COUNT }, () => new THREE.Matrix4());
-  private skins: Partial<Record<'m' | 'f', SkinSet>> = {};
+  private skins: Partial<Record<CharacterModelKey, SkinSet>> = {};
   private skin = new THREE.Color();
   private accent = new THREE.Color();
   readonly ring: THREE.Mesh;
@@ -485,7 +486,7 @@ export class IslanderRig {
     }
     loadGlbPeople()
       .then((glb) => {
-        for (const g of ['m', 'f'] as const) this.skins[g] = this.makeSkin(glb[g]);
+        for (const g of ['m', 'f', 'm_loosehair', 'f_flower'] as const) this.skins[g] = this.makeSkin(glb[g]);
       })
       .catch((err) => console.error('Islander models failed to load.', err));
     this.ring = new THREE.Mesh(
@@ -624,7 +625,7 @@ export class IslanderRig {
     this.count.clear();
     const M = this.m;
     const skinned = !!this.skins.m && !!this.skins.f;
-    if (skinned) this.skins.m!.n = this.skins.f!.n = 0;
+    if (skinned) for (const set of Object.values(this.skins)) set.n = 0;
     for (const isl of list) {
       if (isl.hidden) continue;
       // Off screen: skip posing the jointed body (the villager keeps working as normal).
@@ -638,7 +639,7 @@ export class IslanderRig {
       this.rot(M.base, isl.x, isl.y, isl.z, 0, isl.heading, 0, 'XYZ', sc);
       const hs = isl.child ? 1.22 : 1;
       // Nothing to draw until the character models have loaded.
-      if (skinned) this.drawSkinned(isl, this.skins[g]!, p, hs);
+      if (skinned) this.drawSkinned(isl, this.skins[characterModelKey(isl)] ?? this.skins[g]!, p, hs);
     }
     for (const [key, mesh] of this.meshes) {
       const n = this.count.get(key) ?? 0;
@@ -650,7 +651,7 @@ export class IslanderRig {
       if (acc) acc.needsUpdate = true;
     }
     if (skinned) {
-      for (const s of [this.skins.m!, this.skins.f!]) {
+      for (const s of Object.values(this.skins)) {
         s.mesh.count = s.n;
         if (!s.n) continue;
         s.mesh.instanceMatrix.needsUpdate = true;

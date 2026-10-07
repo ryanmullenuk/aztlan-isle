@@ -80,3 +80,9 @@ test('market deliveries and market keeper assignments survive a shared island fi
  const invalid=JSON.parse(await islandFile(save).text());invalid.save.buildings[0].marketStock.wood=33;
  assert.throws(()=>parseIslandFile(JSON.stringify(invalid)));
 });
+
+test('new character appearances survive sharing and unsupported appearance values are rejected',async()=>{
+ const save=snapshot();save.islanders[0].appearance='flower';
+ const restored=parseIslandFile(await islandFile(save).text());assert.equal(restored.islanders[0].appearance,'flower');
+ const bad=JSON.parse(await islandFile(save).text());bad.save.islanders[0].appearance='invalid';assert.throws(()=>parseIslandFile(JSON.stringify(bad)));
+});

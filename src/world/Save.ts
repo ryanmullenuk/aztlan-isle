@@ -131,7 +131,7 @@ export function serialize(g: Game): SaveData {
     islanders: g.colony.list.map((i) => ({
       id: i.id, name: i.name, gender: i.gender, child: i.child, age: i.age, ...g.colony.savePos(i), hunger: i.hunger, rest: i.rest, happy: i.happy,
       role: i.role, manualRole: i.manualRole, workplace: i.workplace, home: i.home, skin: i.skin, cloth: i.cloth, cloth2: i.cloth2,
-      headdress: i.headdress, jewel: i.jewel, warrior: i.warrior, heading: i.heading,
+      ...(i.appearance ? {appearance:i.appearance} : {}), headdress: i.headdress, jewel: i.jewel, warrior: i.warrior, heading: i.heading,
       ...(i.greatTemplePrayer ? { greatTemplePrayer: i.greatTemplePrayer } : {}),
       ...(i.condition !== 'well' ? { condition: i.condition, conditionT: i.conditionT } : {}),
     })),

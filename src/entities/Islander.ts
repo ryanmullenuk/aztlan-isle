@@ -105,6 +105,8 @@ export interface Islander {
   anim: Anim;
   animT: number;
   tool: Tool;
+  /** Optional stable character variant; older saves use an ID-based mix. */
+  appearance?: import('./CharacterVariants').CharacterStyle;
   skin: number;
   cloth: number;
   cloth2: number;
