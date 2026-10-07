@@ -153,6 +153,9 @@ export class CoastRocks {
     }
   }
 
+  /** Island movement off: the waves stop bursting over the rocks (spray already in the air settles). */
+  calm = false;
+
   update(dt: number, time: number, water: Water): void {
     if (dt <= 0) return;
     const C = COAST_ROCKS;
@@ -162,7 +165,7 @@ export class CoastRocks {
       // A crest has just passed when the swell stops rising.
       const h = water.waveHeight(s.x, s.z, time);
       const rising = h > s.prev;
-      if (s.rising && !rising && h > C.crashAt && s.cool <= 0) {
+      if (!this.calm && s.rising && !rising && h > C.crashAt && s.cool <= 0) {
         this.crash(s, Math.min(1.4, 0.5 + (h - C.crashAt) * 7));
         s.cool = C.cooldown;
       }

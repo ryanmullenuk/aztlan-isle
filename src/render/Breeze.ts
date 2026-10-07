@@ -7,6 +7,8 @@ import { View } from './View';
 export class Breeze {
   readonly group = new THREE.Group();
   strength = 0;
+  /** Island movement off: no gusts and no leaves. */
+  still = false;
   private rng: RNG;
   private wait: number;
   private age = 0;
@@ -53,6 +55,12 @@ export class Breeze {
   update(dt: number, target: THREE.Vector3, radius: number): void {
     // Real time keeps the breeze gentle at every simulation speed.
     dt = Math.min(0.1, Math.max(0, dt));
+    if (this.still) {
+      this.strength = 0;
+      this.duration = 0;
+      for (const leaf of this.leaves) leaf.mesh.visible = false;
+      return;
+    }
     if (this.duration > 0) {
       this.age += dt;
       const progress = Math.min(1, this.age / this.duration);
