@@ -2328,3 +2328,26 @@ function medicinalCrops(ripe: boolean): THREE.BufferGeometry {
   }
   return b.build();
 }
+
+/** Shaded carving yard: substantial stone workpieces, chips and an unfinished glyph pillar. */
+export function stonemasonModel(): BuildingModel {
+  const b = new GeoBuilder(), rng = new RNG(912);
+  b.add(P.rbox(3.7, 0.10, 2.8, 0.025, 1), { color: c(0xbba587) }, M.t(0, 0.05, 0));
+  for (const x of [-1.6,1.6]) for (const z of [-1.1,0.65]) b.add(P.cyl(0.065,0.075,1.7,6), { color: K.timber }, M.t(x,0.95,z));
+  b.add(P.box(3.45,0.09,0.10), { color: K.timberDark }, M.t(0,1.73,0.65));
+  b.add(P.box(3.45,0.09,0.10), { color: K.timberDark }, M.t(0,1.83,-1.1));
+  for(let k=0;k<8;k++) b.add(P.box(3.65/8,0.055,2.05), { color: k%2?c(0xb9a47d):c(0xd2bf96), leaf:0.2 }, M.t(-1.825+(k+.5)*3.65/8,1.79,-0.24,0.06));
+  for(const x of [-0.7,0.7]) {
+    b.add(P.rbox(0.95,0.55,0.55,0.035,1), { color: K.stoneDark }, M.t(x,0.38,0.9));
+    b.add(P.rbox(0.62,0.28,0.42,0.025,1), { color: K.stone }, M.t(x,0.80,0.9));
+    b.add(P.box(0.075,0.035,0.28), { color: K.timberDark }, M.t(x+0.32,0.69,0.9,0,0.3));
+    b.add(P.box(0.16,0.06,0.075), { color: c(0x6b6b60) }, M.t(x+0.29,0.72,0.79));
+    b.add(P.cyl(0.009,0.015,0.20,4), { color: c(0x777468) }, M.t(x-0.35,0.70,0.9,Math.PI/2,0.3));
+  }
+  // Glyph partly cut into a sandstone pillar; one side remains rough.
+  b.add(P.rbox(0.5,1.0,0.48,0.035,1), { color: K.stone }, M.t(-0.9,0.65,-0.7));
+  for(const [x,y,w,h] of [[-0.98,0.72,0.20,0.035],[-0.9,0.82,0.035,0.22],[-0.81,0.91,0.20,0.035]]) b.add(P.box(w,h,0.018), { color: K.stoneDark }, M.t(x,y,-0.45));
+  for(let k=0;k<6;k++) b.add(P.rbox(0.42,0.26,0.4,0.025,1), { color: k%2?K.stone:K.stoneDark }, M.t(0.6+(k%3)*0.42,0.23+Math.floor(k/3)*0.26,-0.8));
+  for(let k=0;k<24;k++) b.add(P.sphere(rng.range(0.025,0.065),0), { color: k%2?K.stone:K.stoneDark }, M.t(rng.range(-1.5,1.5),0.12,rng.range(0.25,1.3),0,rng.range(0,6),0,1,0.45,0.8));
+  return { finished:b.build(), torches:[], height:1.9 };
+}

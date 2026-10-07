@@ -1,12 +1,12 @@
 import { ECONOMY, FOOD_KEYS, GoodKey, ResourceKey, TEMPLE } from '../config';
 
-export type Cost = { wood: number; stone: number; belief: number };
+export type Cost = { wood: number; stone: number; belief: number; carvedStone?: number };
 
 /** Global stockpile. Physical delivery is simulated by carriers; this tracks the totals and capacities. */
 export class Economy {
   res: Record<ResourceKey, number> = { ...ECONOMY.start };
   /** Precious goods (no store limit): pearls for trading, herbs and spices for healing. */
-  goods: Record<GoodKey, number> = { pearls: 0, herbs: 0, spices: 0, medicine: 0 };
+  goods: Record<GoodKey, number> = { pearls: 0, herbs: 0, spices: 0, medicine: 0, carvedstone: 0 };
   woodCap = ECONOMY.baseWoodCap;
   foodCap = ECONOMY.baseFoodCap;
   beliefCap = ECONOMY.beliefBaseCap;
@@ -40,7 +40,7 @@ export class Economy {
 
   canAfford(c: Cost): boolean {
     if (this.godMode) return true;
-    return this.res.wood >= c.wood && this.res.stone >= c.stone && this.res.belief >= c.belief;
+    return this.res.wood >= c.wood && this.res.stone >= c.stone && this.res.belief >= c.belief && this.goods.carvedstone >= (c.carvedStone ?? 0);
   }
 
   spend(c: Cost): boolean {
@@ -49,6 +49,7 @@ export class Economy {
     this.res.wood -= c.wood;
     this.res.stone -= c.stone;
     this.res.belief -= c.belief;
+    this.goods.carvedstone -= c.carvedStone ?? 0;
     return true;
   }
 
@@ -56,6 +57,7 @@ export class Economy {
     this.add('wood', Math.floor(c.wood * frac));
     this.add('stone', Math.floor(c.stone * frac));
     this.add('belief', Math.floor(c.belief * frac));
+    this.goods.carvedstone += Math.floor((c.carvedStone ?? 0) * frac);
   }
 
   /** Take one meal. Returns the food type eaten (variety-weighted), or null. */

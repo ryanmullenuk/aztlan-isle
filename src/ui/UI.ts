@@ -26,7 +26,7 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = ''):
 const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${Math.floor(n)}`);
 
 const BUILD_ICON: Record<BuildingKey, string> = {
-  herbalist: 'b_herbalist', herbalgarden: 'b_herbalgarden',
+  stonemason: 'b_stonemason', herbalist: 'b_herbalist', herbalgarden: 'b_herbalgarden',
   campfire: 'belief', hut: 'b_hut', home: 'b_home', temple: 'b_temple', greattemple: 'b_greattemple', farm: 'b_farm', butcher: 'b_butcher',
   woodstore: 'b_woodstore', grainstore: 'b_grainstore', warroom: 'b_warroom', jetty: 'b_jetty',
   maizefarm: 'b_maize', chinampa: 'b_chinampa', smokehouse: 'b_smoke',
@@ -146,7 +146,7 @@ export class UI {
     const grid = el('div', 'panel resgrid inventory-panel hidden');
     grid.id = 'inventory-panel';
     grid.setAttribute('aria-label', 'Island inventory');
-    for (const k of ['people', 'wood', 'stone', 'grain', 'fruit', 'meat', 'fish', 'pearls', 'herbs', 'spices', 'medicine']) {
+    for (const k of ['people', 'wood', 'stone', 'grain', 'fruit', 'meat', 'fish', 'pearls', 'herbs', 'spices', 'medicine', 'carvedstone']) {
       const r = el('div', 'res', icon(k));
       r.title = k === 'people' ? 'Islanders (housed / total)' : k === 'pearls' ? 'Pearls: found on beaches and in fishing catches; worth a lot on a voyage' : k === 'herbs' ? 'Herbs: harvested at Herbal Gardens and delivered for processing into medicine' : k === 'medicine' ? 'Medicine: made by Herbalists; treats patients at Healing Centres' : k === 'spices' ? 'Spices: brought home by voyages; cure the sick and injured at a Healing Centre' : k[0].toUpperCase() + k.slice(1);
       const v = el('span', 'v');
@@ -409,7 +409,7 @@ export class UI {
     const grid = el('div', 'bm-grid');
     for (const key of BUILD_MENU) {
       const def = BUILDINGS[key];
-      const cost = [def.cost.wood ? `${icon('wood')}${def.cost.wood}` : '', def.cost.stone ? `${icon('stone')}${def.cost.stone}` : '', def.cost.belief ? `${icon('belief')}${def.cost.belief}` : ''].join('');
+      const cost = [def.cost.wood ? `${icon('wood')}${def.cost.wood}` : '', def.cost.stone ? `${icon('stone')}${def.cost.stone}` : '', def.cost.belief ? `${icon('belief')}${def.cost.belief}` : '', def.cost.carvedStone ? `${icon('carvedstone')}${def.cost.carvedStone}` : ''].join('');
       const b = el('button', 'bm-item', `<span class="bm-ic">${ICONS[BUILD_ICON[key]]}</span><span class="bm-nm">${def.name}</span><span class="bm-cost">${cost}</span>`);
       b.setAttribute('aria-label', def.name);
       if (key === 'herbalgarden' || key === 'herbalist') {
@@ -417,7 +417,11 @@ export class UI {
         purpose.textContent = key === 'herbalgarden' ? 'Grow herbs' : 'Make medicine';
         b.querySelector('.bm-nm')?.after(purpose);
       }
-      b.onclick = () => this.game.startPlacing(key);
+      b.onclick = () => {
+        const reason = this.game.buildings.constructionRequirement(key);
+        if (reason) this.toast(reason, 'warn');
+        else this.game.startPlacing(key);
+      };
       this.addTip(b, `<b>${def.name}</b><br>${def.description}<br><span class="c">${cost || 'Free'} · ${def.size[0]}×${def.size[1]}</span>`);
       grid.appendChild(b);
       this.buildItems.set(key, b);
@@ -1041,7 +1045,12 @@ export class UI {
     this.speedBtns.forEach((b, i) => b.classList.toggle('on', !t.paused && t.speed === i + 1));
     this.buildMenu.classList.toggle('hidden', g.tool !== 'build' || !!g.placing);
     if (!this.buildMenu.classList.contains('hidden')) {
-      for (const [key, b] of this.buildItems) b.classList.toggle('dim', !e.canAfford(BUILDINGS[key].cost));
+      for (const [key, b] of this.buildItems) {
+        const reason = g.buildings.constructionRequirement(key);
+        b.classList.toggle('dim', !!reason || !e.canAfford(BUILDINGS[key].cost));
+        b.title = reason || BUILDINGS[key].name;
+        b.setAttribute('aria-disabled', String(!!reason));
+      }
     }
     this.renderInfo(force);
   }
@@ -1155,7 +1164,7 @@ export class UI {
         <div class="actions"><button class="btn small" data-a="capture" ${free && (!d.needsPen || hasPen) ? '' : 'disabled'}>${ICONS.harvest} ${label}</button></div>
         <p class="muted small">Tip: select an islander first, then tap an animal to send them after it.</p>`;
     } else if (b) {
-      key = `b${b.id}|${b.key === 'tradedock' ? g.trade.visitKey(b) + '|' + g.voyage.key() + '|' + JSON.stringify(g.eco.goods) : ''}|${b.key === 'greathall' ? JSON.stringify(g.colony.hallCount(b)) : ''}|${b.key === 'healer' ? g.colony.patients(b).map((p) => `${p.id}:${p.condition}:${Math.ceil(p.conditionT / 60)}:${p.task?.slot}:${g.colony.canCure(p)}`).join(',') + JSON.stringify(g.eco.goods) : ''}|${b.key === 'watchtower' ? `${g.defence.stats(b).shots}|${g.defence.stats(b).kills}|` : ''}${b.key === 'kennel' ? `${g.dogs.alive.length}|${g.dogs.alive.filter((d) => d.puppy).length}|${Math.ceil(b.breedT)}|${Math.ceil(b.breedCool / 5)}|${b.dogRole}|${Math.floor(g.eco.food / 4)}|` : ''}${b.key === 'herbalist' ? JSON.stringify(g.eco.goods) : ''}|${b.complete}|${Math.round(b.progress * 50)}|${b.tier}|${b.residents.length}|${b.upgrading}|${Math.round(b.growth * 20)}|${b.boats.length}|${b.boatBuild > 0}|${b.training.length}|${Math.floor(g.eco.res.wood / 5)}|${Math.floor(g.eco.res.stone / 5)}|${Math.floor(g.eco.res.belief / 5)}`;
+      key = `b${b.id}|${Math.floor(g.eco.goods.carvedstone)}|${g.buildings.constructionRequirement('home')}|${b.key === 'tradedock' ? g.trade.visitKey(b) + '|' + g.voyage.key() + '|' + JSON.stringify(g.eco.goods) : ''}|${b.key === 'greathall' ? JSON.stringify(g.colony.hallCount(b)) : ''}|${b.key === 'healer' ? g.colony.patients(b).map((p) => `${p.id}:${p.condition}:${Math.ceil(p.conditionT / 60)}:${p.task?.slot}:${g.colony.canCure(p)}`).join(',') + JSON.stringify(g.eco.goods) : ''}|${b.key === 'watchtower' ? `${g.defence.stats(b).shots}|${g.defence.stats(b).kills}|` : ''}${b.key === 'kennel' ? `${g.dogs.alive.length}|${g.dogs.alive.filter((d) => d.puppy).length}|${Math.ceil(b.breedT)}|${Math.ceil(b.breedCool / 5)}|${b.dogRole}|${Math.floor(g.eco.food / 4)}|` : ''}${b.key === 'herbalist' || b.key === 'stonemason' ? JSON.stringify(g.eco.goods) : ''}|${b.complete}|${Math.round(b.progress * 50)}|${b.tier}|${b.residents.length}|${b.upgrading}|${Math.round(b.growth * 20)}|${b.boats.length}|${b.boatBuild > 0}|${b.training.length}|${Math.floor(g.eco.res.wood / 5)}|${Math.floor(g.eco.res.stone / 5)}|${Math.floor(g.eco.res.belief / 5)}`;
       html = this.buildingHtml(b);
     }
     if (!force && key === this.infoKey) return;
@@ -1179,6 +1188,7 @@ export class UI {
     }
     const workers = g.colony.list.filter((i) => i.workplace === b.id && b.complete);
     if (b.complete && b.def.workers) body += `<div class="kv"><span>Workers</span><b>${workers.map((w) => w.name).join(', ') || 'None yet'}</b></div>`;
+    if (b.key === 'stonemason' && b.complete) body += `<div class="kv"><span>Carved stone in store</span><b>${Math.floor(g.eco.goods.carvedstone)}</b></div><p class="muted small">Each stonemason turns 4 raw stone into 2 carved stone per minute of work. Unlocks all buildings and stone upgrades.</p>`;
     if (b.key === 'herbalist' && b.complete) body += this.bar('Making medicine', b.growth, 'good') + `<div class="kv"><span>Delivered herb bundles</span><b>${Math.floor(g.eco.goods.herbs)}</b></div><div class="kv"><span>Medicine in store</span><b>${Math.floor(g.eco.goods.medicine)}</b></div><p class="muted small">One herb bundle → one medicine every three game minutes. ${b.stock > 0 ? 'Processing a herb bundle.' : g.eco.goods.medicine >= 40 ? 'Medicine store full.' : 'Waiting for herbs from a Herbal Garden.'}</p>`;
     if (b.key === 'herbalgarden' && b.complete) body += `<p class="muted small">Farmers harvest these beds and deliver herbs to a completed Herbalist’s Garden.${g.buildings.of('herbalist').length ? '' : ' Build a Herbalist’s Garden to receive the harvest.'}</p>`;
     if (b.key === 'healer' && b.complete) body += `<p class="muted small">Medicine treatment: 60 seconds for sickness, 90 seconds for wounds. One medicine per patient; treatment pauses when medicine runs out.</p>`;
@@ -1252,7 +1262,7 @@ export class UI {
       const c = up.cost;
       const next = [4, 7, 12, 16][b.key === 'hut' ? 0 : b.tier];
       const label = b.key === 'hut' ? 'Upgrade to level 2 (4 people)' : b.key === 'home' ? `Upgrade to level ${b.tier + 2} (${next} people)` : b.tier === 2 ? 'Raise the Great Pyramid' : 'Upgrade temple';
-      actions += `<button class="btn small" data-a="upgrade" ${up.ok ? '' : 'disabled'} title="${up.reason}">${ICONS.upgrade} ${label} <span class="c">${c.wood ? icon('wood') + c.wood : ''} ${c.stone ? icon('stone') + c.stone : ''} ${c.belief ? icon('belief') + c.belief : ''}</span></button>`;
+      actions += `<button class="btn small" data-a="upgrade" ${up.ok ? '' : 'disabled'} title="${up.reason}">${ICONS.upgrade} ${label} <span class="c">${c.wood ? icon('wood') + c.wood : ''} ${c.stone ? icon('stone') + c.stone : ''} ${c.belief ? icon('belief') + c.belief : ''} ${c.carvedStone ? icon('carvedstone') + c.carvedStone : ''}</span></button>`;
     }
     if (b.key === 'jetty' && b.complete) {
       const c = JETTY.boatCost;

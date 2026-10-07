@@ -2,6 +2,7 @@ import { Demolition } from './Demolition';
 import { villageFire, fireEmbers } from './VillageFire';
 import * as THREE from 'three';
 import { processMedicine } from './Herbalist';
+import { needsStonemason, masonryCost } from '../config';
 import { BUILDINGS, BuildingDef, BuildingKey, ECONOMY, FARM, HOMES, JETTY, TEMPLE, FARM_TYPES, isFarm } from '../config';
 import { Economy, Cost } from '../economy/Economy';
 import { buildingMaterial, canopyMaterial, fireMaterial, flameMaterial, FX } from '../render/materials';
@@ -278,7 +279,13 @@ export class BuildingSystem {
    * Can this building go here? `moving` is a building being moved or rotated: its own cells count
    * as free and it costs nothing.
    */
+  constructionRequirement(key: BuildingKey): string {
+    return !this.eco.godMode && needsStonemason(key) && !this.list.some(b => b.key === 'stonemason' && b.complete && !b.upgrading)
+      ? 'Complete a Stonemason’s Workshop first' : '';
+  }
+
   canPlace(key: BuildingKey, cx: number, cz: number, rot: number, moving?: Building): { ok: boolean; reason: string } {
+    if (!moving && this.constructionRequirement(key)) return { ok: false, reason: this.constructionRequirement(key) };
     if (!moving) return this.siteCheck(key, cx, cz, rot);
     const cells: number[] = [];
     for (let z = moving.cz; z < moving.cz + moving.d; z++) for (let x = moving.cx; x < moving.cx + moving.w; x++) cells.push(this.world.idx(x, z));
@@ -420,6 +427,10 @@ export class BuildingSystem {
 
   place(key: BuildingKey, cx: number, cz: number, rot: number, instant = false): Building {
     const def = BUILDINGS[key];
+    if (!instant) {
+      const reason = this.constructionRequirement(key);
+      if (reason || !this.eco.canAfford(def.cost)) throw new Error(reason || 'Not enough resources');
+    }
     const b = new Building(this.nextId++, key, cx, cz, rot, this.world.layer[this.world.idx(cx, cz)], this.world);
     if (!instant) this.eco.spend(def.cost);
     let paved = false;
@@ -458,14 +469,15 @@ export class BuildingSystem {
   /** Upgrade a hut into a home, or a temple to the next tier. */
   canUpgrade(b: Building): { ok: boolean; reason: string; cost: Cost } {
     if (!b.complete || b.upgrading) return { ok: false, reason: 'Busy', cost: { wood: 0, stone: 0, belief: 0 } };
+    if (!this.eco.godMode && !this.list.some(x => x.key === 'stonemason' && x.complete && !x.upgrading)) return { ok: false, reason: 'Complete a Stonemason’s Workshop first', cost: { wood: 0, stone: 0, belief: 0 } };
     if (b.key === 'temple') {
       if (b.tier >= (b.def.maxTier ?? 1)) return { ok: false, reason: 'Already the Great Pyramid', cost: { wood: 0, stone: 0, belief: 0 } };
-      const cost = this.eco.templeUpgradeCost(b.tier + 1);
+      const cost = masonryCost(this.eco.templeUpgradeCost(b.tier + 1));
       return this.eco.canAfford(cost) ? { ok: true, reason: '', cost } : { ok: false, reason: 'Not enough resources', cost };
     }
     if (b.key === 'home') {
       if (b.tier >= (b.def.maxTier ?? 1)) return { ok: false, reason: 'Already the largest house', cost: { wood: 0, stone: 0, belief: 0 } };
-      const cost = HOMES.upgradeCost[b.tier + 1];
+      const cost = masonryCost(HOMES.upgradeCost[b.tier + 1]);
       return this.eco.canAfford(cost) ? { ok: true, reason: '', cost } : { ok: false, reason: 'Not enough resources', cost };
     }
     if (b.key === 'hut') {
@@ -587,6 +599,7 @@ export class BuildingSystem {
       case 'firepit': return models.firepitModel();
       case 'kennel': return models.kennelModel();
       case 'greathall': return models.greatHallModel();
+      case 'stonemason': return models.stonemasonModel();
       case 'herbalgarden': return models.herbalGardenModel();
       case 'herbalist': return models.herbalistModel();
       case 'healer': return models.healingCentreModel();

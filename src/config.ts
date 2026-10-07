@@ -253,7 +253,7 @@ export const ECONOMY = {
   varietyHappiness: 0.05,
 };
 
-export type BuildingKey = 'campfire' | 'hut' | 'home' | 'temple' | 'greattemple' | 'farm' | 'maizefarm' | 'chinampa' | 'butcher' | 'smokehouse' | 'woodstore' | 'grainstore' | 'warroom' | 'jetty' | 'torch' | 'bonfire' | 'firepit' | 'well' | 'tradedock' | 'kennel' | 'greathall' | 'pigpen' | 'chickenpen' | 'healer' | 'herbalist' | 'herbalgarden' | 'watchtower';
+export type BuildingKey = 'campfire' | 'hut' | 'home' | 'temple' | 'greattemple' | 'farm' | 'maizefarm' | 'chinampa' | 'butcher' | 'smokehouse' | 'woodstore' | 'grainstore' | 'warroom' | 'jetty' | 'torch' | 'bonfire' | 'firepit' | 'well' | 'tradedock' | 'kennel' | 'greathall' | 'pigpen' | 'chickenpen' | 'healer' | 'herbalist' | 'herbalgarden' | 'stonemason' | 'watchtower';
 
 export interface BuildingDef {
   key: BuildingKey;
@@ -261,7 +261,7 @@ export interface BuildingDef {
   description: string;
   /** Footprint in cells (width x depth). */
   size: [number, number];
-  cost: { wood: number; stone: number; belief: number };
+  cost: { wood: number; stone: number; belief: number; carvedStone?: number };
   /** Worker-seconds of construction. */
   buildTime: number;
   /** Max builders at once. */
@@ -279,6 +279,7 @@ export interface BuildingDef {
 export const BUILDINGS: Record<BuildingKey, BuildingDef> = {
   campfire: { key: 'campfire', name: 'Tribal Fire', description: 'The heart of the tribe. Stores a little of everything.', size: [2, 2], cost: { wood: 0, stone: 0, belief: 0 }, buildTime: 1, builders: 1, workers: 0, placeable: false },
   hut: { key: 'hut', name: 'Hut', description: 'Level 1 house: a small adobe home for 2 islanders.', size: [2, 2], cost: { wood: 12, stone: 0, belief: 0 }, buildTime: 22, builders: 2, workers: 0, housing: 2, upgradeTo: 'home', placeable: true },
+  stonemason: { key: 'stonemason', name: 'Stonemason’s Workshop', description: 'Stone blocks, unfinished carvings and tools beneath a shaded timber workspace. Two stonemasons turn 4 raw stone into 2 carved stone per minute of work. Complete this workshop to unlock buildings beyond Huts. Carved stone is required for stone buildings and house or temple upgrades.', size: [4, 3], cost: { wood: 24, stone: 12, belief: 0 }, buildTime: 40, builders: 2, workers: 2, placeable: true },
   home: { key: 'home', name: 'Family House', description: 'Adobe family house (level 2, 4 people). Upgrade it up to level 5 for 16. A couple in any house may have one child, who plays around the village.', size: [3, 3], cost: { wood: 26, stone: 14, belief: 0 }, buildTime: 45, builders: 3, workers: 0, housing: 4, maxTier: 4, placeable: true },
   temple: { key: 'temple', name: 'Temple', description: 'Stepped pyramid that generates Belief. Upgrade twice to raise the Great Pyramid.', size: [4, 4], cost: { wood: 20, stone: 36, belief: 20 }, buildTime: 70, builders: 4, workers: 2, maxTier: 3, placeable: true },
   greattemple: { key: 'greattemple', name: 'Great Temple', description: 'A monumental twin-shrine sanctuary, four times the Great Pyramid footprint. Each worshipper earns 1 Belief per 5 minutes of prayer; progress is kept between visits.', size: [8, 8], cost: { wood: 160, stone: 480, belief: 200 }, buildTime: 240, builders: 8, workers: 12, placeable: true },
@@ -439,11 +440,12 @@ export const TRADE = {
 };
 
 /** Precious goods kept apart from the stores: pearls for trading, herbs and spices for healing. */
-export type GoodKey = 'pearls' | 'herbs' | 'spices' | 'medicine';
-export const GOOD_KEYS: GoodKey[] = ['pearls', 'herbs', 'spices', 'medicine'];
+export type GoodKey = 'pearls' | 'herbs' | 'spices' | 'medicine' | 'carvedstone';
+export const GOOD_KEYS: GoodKey[] = ['pearls', 'herbs', 'spices', 'medicine', 'carvedstone'];
 export const GOODS: Record<GoodKey, { name: string; one: string; value: number }> = {
   pearls: { name: 'Pearls', one: 'pearl', value: 14 },
   herbs: { name: 'Herbs', one: 'bundle of herbs', value: 6 },
+  carvedstone: { name: 'Carved Stone', one: 'carved stone block', value: 4 },
   medicine: { name: 'Medicine', one: 'dose of medicine', value: 10 },
   spices: { name: 'Spices', one: 'pouch of spices', value: 8 },
 };
@@ -476,9 +478,9 @@ export const VOYAGE = {
   speed: 3.2,
   /** Least worth of cargo worth sending, and how many of each good a +/- click moves. */
   minValue: 18,
-  step: { wood: 10, stone: 10, grain: 10, fruit: 10, meat: 5, fish: 10, pearls: 1, herbs: 1, spices: 1, medicine: 1 } as Record<string, number>,
+  step: { wood: 10, stone: 10, grain: 10, fruit: 10, meat: 5, fish: 10, pearls: 1, herbs: 1, spices: 1, medicine: 1, carvedstone: 1 } as Record<string, number>,
   /** What the cargo is worth abroad, and how much better than fair a voyage does. */
-  values: { wood: 1, stone: 1.4, grain: 1, fruit: 1, meat: 1.8, fish: 1.2, pearls: 14, herbs: 6, spices: 8, medicine: 10 } as Record<string, number>,
+  values: { wood: 1, stone: 1.4, grain: 1, fruit: 1, meat: 1.8, fish: 1.2, pearls: 14, herbs: 6, spices: 8, medicine: 10, carvedstone: 4 } as Record<string, number>,
   rate: [1.25, 1.7] as [number, number],
   /** Worth of a chicken brought home, and the most chickens one voyage brings. */
   chickenValue: 4,
@@ -979,3 +981,10 @@ export const SAVE = {
 
 /** Medicinal gardens supply the existing herb stores; treatment requires a completed garden. */
 export const HERBALIST = { processSeconds: 180, medicineCap: 40, sickSeconds: 60, mauledSeconds: 90 };
+
+/** The founding fire, huts and the workshop remain available during the first village stage. */
+export const needsStonemason = (key: BuildingKey): boolean => !['campfire', 'hut', 'stonemason'].includes(key);
+export const masonryCost = (cost: { wood: number; stone: number; belief: number; carvedStone?: number }) =>
+  ({ ...cost, ...(cost.stone > 0 ? { carvedStone: cost.carvedStone ?? Math.ceil(cost.stone / 4) } : {}) });
+for (const def of Object.values(BUILDINGS)) if (needsStonemason(def.key)) def.cost = masonryCost(def.cost);
+export const STONEMASON = { batchSeconds: 60, input: 4, output: 2, cap: 200 };
