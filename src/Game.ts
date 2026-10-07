@@ -116,6 +116,12 @@ export interface Settings {
   dayNight: boolean;
   /** Random rain and storms. */
   weather: boolean;
+  /**
+   * Island movement: trees, bushes, flowers, grass and crops swaying, coral and sea plants
+   * swaying, leaves blowing across the ground and spray bursting over the sea rocks. Off holds
+   * the scenery still (calmer, and a little lighter on the device).
+   */
+  motion: boolean;
   /** Chunky pixel-art rendering. */
   pixel: boolean;
   /** God mode only: buildings and upgrades finish the moment they are placed. */
@@ -725,6 +731,9 @@ export class Game {
       this.powers.update(dt, realDt, this.rig.target);
       // Add the gentle gust after weather sets its base wind, without accumulating it.
       FX.uWind.value += this.breeze.strength;
+      // Island movement off: nothing sways (the wind still sounds the same).
+      const wind = FX.uWind.value;
+      if (!this.settings.motion) FX.uWind.value = 0;
       this.raining = this.powers.raining;
       const L = this.audio.listener;
       const tg = this.rig.target;
@@ -735,7 +744,7 @@ export class Game {
       L.zoom = this.rig.cur.dist;
       L.coast = ci >= 0 ? Math.max(0, 1 - this.world.distWater[ci] / 14) : 1;
       L.forest = this.world.sampleField(this.world.forest, tg.x, tg.z);
-      L.wind = FX.uWind.value;
+      L.wind = wind;
       L.night = this.lighting.state.night;
       L.rain = this.powers.rainAmt;
       this.audio.update(realDt);
@@ -833,7 +842,7 @@ export class Game {
   }
 
   private loadSettings(preset: PresetName): Settings {
-    const def: Settings = { preset, dof: true, dofStrength: RENDER.dof.strength, volume: 0.7, music: 0.5, muted: false, fps: false, showMap: false, autoQuality: true, shadows: true, dayNight: true, weather: true, pixel: false, instantBuild: false, renderScale: 1 };
+    const def: Settings = { preset, dof: true, dofStrength: RENDER.dof.strength, volume: 0.7, music: 0.5, muted: false, fps: false, showMap: false, autoQuality: true, shadows: true, dayNight: true, weather: true, motion: true, pixel: false, instantBuild: false, renderScale: 1 };
     try {
       const s = JSON.parse(localStorage.getItem(SAVE.settingsKey) ?? 'null');
       if (s) return { ...def, ...s };
@@ -879,6 +888,9 @@ export class Game {
       this.resize();
     }
     this.powers.randomWeather = s.weather;
+    this.breeze.still = !s.motion;
+    this.coastRocks.calm = !s.motion;
+    this.seaStacks.calm = !s.motion;
     if (!s.weather && was.weather) this.powers.clearWeather();
     this.applied = { ...s };
     this.post.dofEnabled = s.dof && !this.explorer?.active;
