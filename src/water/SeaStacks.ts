@@ -345,9 +345,13 @@ export class SeaStacks {
     });
   }
 
+  /** Island movement off: no surf bursting up the stacks (spray already in the air settles). */
+  calm = false;
+
   update(dt: number, time: number, water: Water): void {
     if (dt <= 0) return;
     for (const u of this.surf) {
+      if (this.calm) continue;
       u.cool -= dt;
       const m = u.site.main;
       // Only animated when near and on screen.
