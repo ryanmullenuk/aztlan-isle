@@ -2108,14 +2108,24 @@ export class Game {
     const hidden: THREE.Object3D[] = [];
     const culled: THREE.Object3D[] = [];
     const empty: THREE.InstancedMesh[] = [];
+    const dark: THREE.Light[] = [];
     try {
+      // Lights that are out of play (themselves or a parent hidden) stay out while warming up.
       this.scene.traverse((o) => {
-        if (!o.visible) { hidden.push(o); o.visible = true; }
+        if (!(o as THREE.Light).isLight || !o.visible) return;
+        for (let p: THREE.Object3D | null = o.parent; p; p = p.parent) if (!p.visible) { dark.push(o as THREE.Light); break; }
+      });
+      this.scene.traverse((o) => {
+        // Lights stay as they are: shaders are compiled for the number of lights in view, so
+        // warming up with extra lights switched on would leave every material to recompile
+        // (a hitch) the first time it is drawn in play.
+        if (!o.visible && !(o as THREE.Light).isLight) { hidden.push(o); o.visible = true; }
         // Off-screen things too: each must actually be drawn once.
         if (o.frustumCulled) { culled.push(o); o.frustumCulled = false; }
         const m = o as THREE.InstancedMesh;
         if (m.isInstancedMesh && m.count === 0 && m.instanceMatrix.count > 0) { empty.push(m); m.count = 1; }
       });
+      for (const l of dark) l.visible = false;
       this.renderer.compile(this.scene, this.rig.camera);
       this.render(0);
     } catch {
@@ -2124,6 +2134,7 @@ export class Game {
       for (const o of hidden) o.visible = false;
       for (const o of culled) o.frustumCulled = true;
       for (const m of empty) m.count = 0;
+      for (const l of dark) l.visible = true;
     }
   }
 }
