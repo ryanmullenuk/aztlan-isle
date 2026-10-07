@@ -26,7 +26,7 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = ''):
 const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${Math.floor(n)}`);
 
 const BUILD_ICON: Record<BuildingKey, string> = {
-  stonemason: 'b_stonemason', herbalist: 'b_herbalist', herbalgarden: 'b_herbalgarden',
+  market: 'b_market', stonemason: 'b_stonemason', herbalist: 'b_herbalist', herbalgarden: 'b_herbalgarden',
   campfire: 'belief', hut: 'b_hut', home: 'b_home', temple: 'b_temple', greattemple: 'b_greattemple', farm: 'b_farm', butcher: 'b_butcher',
   woodstore: 'b_woodstore', grainstore: 'b_grainstore', warroom: 'b_warroom', jetty: 'b_jetty',
   maizefarm: 'b_maize', chinampa: 'b_chinampa', smokehouse: 'b_smoke',
@@ -1164,7 +1164,7 @@ export class UI {
         <div class="actions"><button class="btn small" data-a="capture" ${free && (!d.needsPen || hasPen) ? '' : 'disabled'}>${ICONS.harvest} ${label}</button></div>
         <p class="muted small">Tip: select an islander first, then tap an animal to send them after it.</p>`;
     } else if (b) {
-      key = `b${b.id}|${Math.floor(g.eco.goods.carvedstone)}|${g.buildings.constructionRequirement('home')}|${g.buildings.list.filter(x=>x.key==='stonemason' && x.complete).map(x=>x.tier).join(',')}|${Math.floor(g.eco.food)}|${b.key === 'tradedock' ? g.trade.visitKey(b) + '|' + g.voyage.key() + '|' + JSON.stringify(g.eco.goods) : ''}|${b.key === 'greathall' ? JSON.stringify(g.colony.hallCount(b)) : ''}|${b.key === 'healer' ? g.colony.patients(b).map((p) => `${p.id}:${p.condition}:${Math.ceil(p.conditionT / 60)}:${p.task?.slot}:${g.colony.canCure(p)}`).join(',') + JSON.stringify(g.eco.goods) : ''}|${b.key === 'watchtower' ? `${g.defence.stats(b).shots}|${g.defence.stats(b).kills}|` : ''}${b.key === 'kennel' ? `${g.dogs.alive.length}|${g.dogs.alive.filter((d) => d.puppy).length}|${Math.ceil(b.breedT)}|${Math.ceil(b.breedCool / 5)}|${b.dogRole}|${Math.floor(g.eco.food / 4)}|` : ''}${b.key === 'herbalist' || b.key === 'stonemason' ? JSON.stringify(g.eco.goods) : ''}|${b.complete}|${Math.round(b.progress * 50)}|${b.tier}|${b.residents.length}|${b.upgrading}|${Math.round(b.growth * 20)}|${b.boats.length}|${b.boatBuild > 0}|${b.training.length}|${Math.floor(g.eco.res.wood / 5)}|${Math.floor(g.eco.res.stone / 5)}|${Math.floor(g.eco.res.belief / 5)}`;
+      key = `b${b.id}|${Math.floor(g.eco.goods.carvedstone)}|${g.buildings.constructionRequirement('home')}|${g.buildings.list.filter(x=>x.key==='stonemason' && x.complete).map(x=>x.tier).join(',')}|${Math.floor(g.eco.food)}|${b.key === 'tradedock' || b.key === 'market' ? g.trade.visitKey(b) + '|' + g.voyage.key() + '|' + JSON.stringify(g.eco.goods) : ''}|${b.key === 'greathall' ? JSON.stringify(g.colony.hallCount(b)) : ''}|${b.key === 'healer' ? g.colony.patients(b).map((p) => `${p.id}:${p.condition}:${Math.ceil(p.conditionT / 60)}:${p.task?.slot}:${g.colony.canCure(p)}`).join(',') + JSON.stringify(g.eco.goods) : ''}|${b.key === 'watchtower' ? `${g.defence.stats(b).shots}|${g.defence.stats(b).kills}|` : ''}${b.key === 'kennel' ? `${g.dogs.alive.length}|${g.dogs.alive.filter((d) => d.puppy).length}|${Math.ceil(b.breedT)}|${Math.ceil(b.breedCool / 5)}|${b.dogRole}|${Math.floor(g.eco.food / 4)}|` : ''}${b.key === 'market' ? JSON.stringify(b.marketStock) : ''}|${b.key === 'herbalist' || b.key === 'stonemason' ? JSON.stringify(g.eco.goods) : ''}|${b.complete}|${Math.round(b.progress * 50)}|${b.tier}|${b.residents.length}|${b.upgrading}|${Math.round(b.growth * 20)}|${b.boats.length}|${b.boatBuild > 0}|${b.training.length}|${Math.floor(g.eco.res.wood / 5)}|${Math.floor(g.eco.res.stone / 5)}|${Math.floor(g.eco.res.belief / 5)}`;
       html = this.buildingHtml(b);
     }
     if (!force && key === this.infoKey) return;
@@ -1188,6 +1188,10 @@ export class UI {
     }
     const workers = g.colony.list.filter((i) => i.workplace === b.id && b.complete);
     if (b.complete && b.def.workers) body += `<div class="kv"><span>Workers</span><b>${workers.map((w) => w.name).join(', ') || 'None yet'}</b></div>`;
+    if (b.key === 'market' && b.complete) {
+      const stock = Object.entries(b.marketStock).filter(([,n]) => n > 0).map(([k,n]) => `${icon(k)} ${Math.floor(Math.min(n, g.eco.res[k as ResourceKey]))}`).join(' · ');
+      body += `<div class="kv"><span>Goods displayed</span><b>${stock || 'Waiting for surplus deliveries'}</b></div><p class="muted small">Market keepers bring surplus from the stores. Visiting canoes offer exchanges at the nearest accessible shore; accept offers here. Displayed goods remain part of your village inventory.</p>`;
+    }
     if (b.key === 'stonemason' && b.complete) body += `<div class="kv"><span>Carved stone in store</span><b>${Math.floor(g.eco.goods.carvedstone)}</b></div><p class="muted small">Each stonemason turns 4 raw stone into 2 carved stone per minute of work. Workshop upgrade ${b.tier - 1} / 3. ${b.tier === 1 ? 'Houses and village buildings unlocked.' : b.tier === 2 ? 'Temples unlocked.' : b.tier === 3 ? 'Great Pyramid upgrades unlocked.' : 'Great Temple unlocked.'}</p>`;
     if (b.key === 'herbalist' && b.complete) body += this.bar('Making medicine', b.growth, 'good') + `<div class="kv"><span>Delivered herb bundles</span><b>${Math.floor(g.eco.goods.herbs)}</b></div><div class="kv"><span>Medicine in store</span><b>${Math.floor(g.eco.goods.medicine)}</b></div><p class="muted small">One herb bundle → one medicine every three game minutes. ${b.stock > 0 ? 'Processing a herb bundle.' : g.eco.goods.medicine >= 40 ? 'Medicine store full.' : 'Waiting for herbs from a Herbal Garden.'}</p>`;
     if (b.key === 'herbalgarden' && b.complete) body += `<p class="muted small">Farmers harvest these beds and deliver herbs to a completed Herbalist’s Garden.${g.buildings.of('herbalist').length ? '' : ' Build a Herbalist’s Garden to receive the harvest.'}</p>`;
@@ -1207,17 +1211,19 @@ export class UI {
       const ships = g.trade.of(b);
       const docked = ships.filter((s) => s.state === 'docked').length;
       body += `<div class="kv"><span>Trade boats</span><b>${ships.length ? `${docked} moored · ${ships.length - docked} at sea` : 'None yet'}${b.boatBuild > 0 ? ` (building ${Math.round((b.boatBuild / TRADE.boatBuildSeconds) * 100)}%)` : ''}</b></div>`;
+    }
+    if ((b.key === 'tradedock' || b.key === 'market') && b.complete) {
       // Visiting traders moored at the dock, with their bargains.
       const v = g.trade.visiting(b);
       if (v) {
         const goods = (r: Partial<Record<ResourceKey, number>>) => (Object.entries(r) as [ResourceKey, number][]).map(([key, n]) => `<span class="tg">${icon(key)} ${n}</span>`).join(' ');
         const rows = v.deals.map((d, k) => {
-          const why = g.trade.whyNot(d);
+          const why = g.trade.whyNot(d, b);
           const btn = d.taken ? '<span class="muted small">Traded</span>' : `<button class="btn small" data-a="visit${k}" ${why ? 'disabled' : ''} title="${why ?? ''}">Accept</button>${why ? ` <span class="muted small">${why}</span>` : ''}`;
           return `<div class="trow"><span class="tgive">${goods(d.give)}</span><span class="tarrow">→</span><span class="tget">${goods(d.get)}</span><span class="tbtns">${btn}</span></div>`;
         }).join('');
         body += `<div class="sec-h">${ICONS.boat} Visiting traders</div>
-          <p class="muted small">Traders from ${v.from} are moored here (leaving in about ${Math.max(1, Math.ceil(v.timer / 60))} min). You give the goods on the left for those on the right.</p>
+          <p class="muted small">Traders from ${v.from} ${b.key === 'market' ? 'have stopped at the nearby shoreline' : 'are moored here'} (leaving in about ${Math.max(1, Math.ceil(v.timer / 60))} min). You give the goods on the left for those on the right.</p>
           <div class="trows">${rows}</div>`;
       }
     }

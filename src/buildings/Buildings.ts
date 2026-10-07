@@ -57,6 +57,8 @@ export class Building {
   // Farm
   growth = 0;
   stock = 0;
+  /** Goods displayed for exchange; included in the village stockpile, not extra resources. */
+  marketStock: Partial<Record<import('../config').ResourceKey, number>> = {};
   tendTimer = 0;
   blessTimer = 0;
   crops: THREE.Mesh | null = null;
@@ -304,7 +306,7 @@ export class BuildingSystem {
    * on the shoreline). Everything else keeps a one-square path clear all round.
    */
   private static open(key: BuildingKey): boolean {
-    return key === 'torch' || isFarm(key) || key === 'jetty' || key === 'tradedock';
+    return key === 'torch' || key === 'market' || isFarm(key) || key === 'jetty' || key === 'tradedock';
   }
 
   /**
@@ -450,7 +452,7 @@ export class BuildingSystem {
     if (paved) this.terrain.updateWear();
     const wood = this.veg.clearArea(cx, cz, b.w, b.d);
     this.eco.add('wood', wood);
-    if (key === 'torch') this.world.passableBuildings.add(b.id);
+    if (key === 'torch' || key === 'market') this.world.passableBuildings.add(b.id);
     if (isFarm(key)) {
       this.world.passableBuildings.add(b.id);
       for (let z = cz; z < cz + b.d; z++) for (let x = cx; x < cx + b.w; x++) this.world.soil[this.world.idx(x, z)] = 1;
@@ -564,7 +566,7 @@ export class BuildingSystem {
       this.demolitions.push(demolition);
       this.group.add(demolition.group);
     } else clear();
-    if (b.key === 'torch') this.world.passableBuildings.delete(b.id);
+    if (b.key === 'torch' || b.key === 'market') this.world.passableBuildings.delete(b.id);
     if (isFarm(b.key)) {
       this.world.passableBuildings.delete(b.id);
       for (let z = b.cz; z < b.cz + b.d; z++) for (let x = b.cx; x < b.cx + b.w; x++) this.world.soil[this.world.idx(x, z)] = 0;
@@ -609,6 +611,7 @@ export class BuildingSystem {
       case 'firepit': return models.firepitModel();
       case 'kennel': return models.kennelModel();
       case 'greathall': return models.greatHallModel();
+      case 'market': return models.marketSquareModel();
       case 'stonemason': return models.stonemasonModel(b.tier);
       case 'herbalgarden': return models.herbalGardenModel();
       case 'herbalist': return models.herbalistModel();

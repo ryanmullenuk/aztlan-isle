@@ -253,7 +253,7 @@ export const ECONOMY = {
   varietyHappiness: 0.05,
 };
 
-export type BuildingKey = 'campfire' | 'hut' | 'home' | 'temple' | 'greattemple' | 'farm' | 'maizefarm' | 'chinampa' | 'butcher' | 'smokehouse' | 'woodstore' | 'grainstore' | 'warroom' | 'jetty' | 'torch' | 'bonfire' | 'firepit' | 'well' | 'tradedock' | 'kennel' | 'greathall' | 'pigpen' | 'chickenpen' | 'healer' | 'herbalist' | 'herbalgarden' | 'stonemason' | 'watchtower';
+export type BuildingKey = 'campfire' | 'hut' | 'home' | 'temple' | 'greattemple' | 'farm' | 'maizefarm' | 'chinampa' | 'butcher' | 'smokehouse' | 'woodstore' | 'grainstore' | 'warroom' | 'jetty' | 'torch' | 'bonfire' | 'firepit' | 'well' | 'tradedock' | 'kennel' | 'greathall' | 'pigpen' | 'chickenpen' | 'healer' | 'herbalist' | 'herbalgarden' | 'stonemason' | 'market' | 'watchtower';
 
 export interface BuildingDef {
   key: BuildingKey;
@@ -279,6 +279,7 @@ export interface BuildingDef {
 export const BUILDINGS: Record<BuildingKey, BuildingDef> = {
   campfire: { key: 'campfire', name: 'Tribal Fire', description: 'The heart of the tribe. Stores a little of everything.', size: [2, 2], cost: { wood: 0, stone: 0, belief: 0 }, buildTime: 1, builders: 1, workers: 0, placeable: false },
   hut: { key: 'hut', name: 'Hut', description: 'Level 1 house: a small adobe home for 2 islanders.', size: [2, 2], cost: { wood: 12, stone: 0, belief: 0 }, buildTime: 22, builders: 2, workers: 0, housing: 2, upgradeTo: 'home', placeable: true },
+  market: { key: 'market', name: 'Market Square', description: 'Sandstone stalls and woven awnings around an open courtyard. Two market keepers carry surplus food, wood and stone here from the stores. Visiting canoes stop at the nearest accessible shore and offer occasional exchanges. Accept their bargains from this square’s card.', size: [5, 5], cost: { wood: 36, stone: 24, belief: 0 }, buildTime: 55, builders: 3, workers: 2, placeable: true },
   stonemason: { key: 'stonemason', name: 'Stonemason’s Workshop', description: 'Stone blocks, unfinished carvings and tools beneath a shaded timber workspace. Two stonemasons turn 4 raw stone into 2 carved stone per minute of work. Complete this workshop to unlock houses and village buildings. Three further upgrades unlock Temples, Great Pyramid upgrades and the Great Temple. Carved stone is required for stone buildings and house or temple upgrades.', size: [4, 3], cost: { wood: 24, stone: 12, belief: 0 }, buildTime: 40, builders: 2, workers: 2, maxTier: 4, placeable: true },
   home: { key: 'home', name: 'Family House', description: 'Adobe family house (level 2, 4 people). Upgrade it up to level 5 for 16. A couple in any house may have one child, who plays around the village.', size: [3, 3], cost: { wood: 26, stone: 14, belief: 0 }, buildTime: 45, builders: 3, workers: 0, housing: 4, maxTier: 4, placeable: true },
   temple: { key: 'temple', name: 'Temple', description: 'Stepped pyramid that generates Belief. Upgrade twice to raise the Great Pyramid.', size: [4, 4], cost: { wood: 20, stone: 36, belief: 20 }, buildTime: 70, builders: 4, workers: 2, maxTier: 3, placeable: true },
@@ -995,3 +996,5 @@ export const STONEMASON = {
     { cost: { wood: 110, stone: 140, food: 120, belief: 0 }, time: 120, unlock: 'Great Temple' },
   ],
 };
+
+export const MARKET = { batch: 8, stallCap: 32, foodReserve: 30, foodPerIslander: 4, woodReserve: 40, stoneReserve: 30 };

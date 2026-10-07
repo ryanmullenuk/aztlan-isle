@@ -72,3 +72,11 @@ test('Great Temple and retained prayer progress survive a shared island file', a
   invalid.save.islanders[0].greatTemplePrayer = 300;
   assert.throws(() => parseIslandFile(JSON.stringify(invalid)));
 });
+
+test('market deliveries and market keeper assignments survive a shared island file',async()=>{
+ const save=snapshot();save.buildings[0].key='market';save.buildings[0].tier=1;save.buildings[0].marketStock={wood:16,grain:8};save.islanders[0].role='merchant';
+ const restored=parseIslandFile(await islandFile(save).text());
+ assert.deepEqual(restored.buildings[0].marketStock,{wood:16,grain:8});assert.equal(restored.islanders[0].role,'merchant');
+ const invalid=JSON.parse(await islandFile(save).text());invalid.save.buildings[0].marketStock.wood=33;
+ assert.throws(()=>parseIslandFile(JSON.stringify(invalid)));
+});

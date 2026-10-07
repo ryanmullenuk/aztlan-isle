@@ -49,6 +49,7 @@ export function parseIslandFile(raw: string): SaveData {
         !Number.isInteger(b.tier) || b.tier < 1 || b.tier > 10 || b.boats < 0 || b.boats > 100 ||
         typeof b.complete !== 'boolean' || typeof b.upgrading !== 'boolean') return fail();
     for (const k of ['breed', 'cool', 'guard']) if (b[k] !== undefined && !number(b[k])) return fail();
+    if (b.marketStock !== undefined && (!obj(b.marketStock) || !Object.entries(b.marketStock).every(([key,n]) => ['wood','stone','grain','fruit','meat','fish'].includes(key) && number(n) && (n as number) >= 0 && (n as number) <= 32))) return fail();
     ids.add(b.id);
   }
   const islanderKeys = ['id', 'name', 'gender', 'child', 'age', 'x', 'z', 'hunger', 'rest', 'happy', 'role', 'manualRole', 'workplace', 'home', 'skin', 'cloth', 'cloth2', 'headdress', 'jewel', 'warrior', 'heading', 'condition', 'conditionT', 'greatTemplePrayer'];
@@ -57,7 +58,7 @@ export function parseIslandFile(raw: string): SaveData {
     if (!fields(i, ['id', 'age', 'x', 'z', 'hunger', 'rest', 'happy', 'workplace', 'home', 'skin', 'cloth', 'cloth2', 'headdress', 'heading']) ||
         !Number.isInteger(i.id) || ids.has(i.id) || !label(i.name) || !['m', 'f'].includes(i.gender) || typeof i.child !== 'boolean' ||
         typeof i.manualRole !== 'boolean' || typeof i.jewel !== 'boolean' || ![null, 'jaguar', 'eagle'].includes(i.warrior) ||
-        !['idle', 'builder', 'woodcutter', 'miner', 'gatherer', 'farmer', 'priest', 'fisher', 'butcher', 'smoker', 'mason', 'warrior', 'archer'].includes(i.role)) return fail();
+        !['idle', 'builder', 'woodcutter', 'miner', 'gatherer', 'farmer', 'priest', 'fisher', 'butcher', 'smoker', 'mason', 'merchant', 'warrior', 'archer'].includes(i.role)) return fail();
     // Health (optional: older files have none, and the healthy save none).
     if ((i.condition !== undefined && !['well', 'sick', 'mauled'].includes(i.condition)) ||
         (i.conditionT !== undefined && (!number(i.conditionT) || i.conditionT < 0))) return fail();

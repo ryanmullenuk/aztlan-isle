@@ -2557,3 +2557,35 @@ export function stonemasonModel(tier = 1): BuildingModel {
   }
   return { finished:b.build(), torches:[], height:1.9 };
 }
+
+/** Open trading courtyard, with woven shade and three sandstone stalls. */
+export function marketSquareModel(): BuildingModel {
+  const b = new GeoBuilder();
+  b.add(P.rbox(4.7,0.08,4.7,0.025,1), {color:c(0xbda787)}, M.t(0,0.04,0));
+  // Broad paving leaves an uncluttered central gathering area.
+  for(let x=-1;x<=1;x++)for(let z=-1;z<=1;z++) b.add(P.rbox(0.57,0.018,0.57,0.009,1), {color:(x+z)%2?K.stone:K.plaster}, M.t(x*0.6,0.09,z*0.6));
+  const stall=(x:number,z:number,angle:number,accent:THREE.Color)=>{
+    const matrix=M.t(x,0,z,0,angle);
+    const part=(g:THREE.BufferGeometry,color:THREE.Color,m:THREE.Matrix4,leaf=0)=>b.add(g,{color,leaf},matrix.clone().multiply(m));
+    part(P.rbox(1.65,0.62,0.6,0.04,1),K.stoneDark,M.t(0,0.39,0));
+    part(P.rbox(1.73,0.08,0.68,0.018,1),K.stone,M.t(0,0.73,0));
+    for(const sx of [-0.79,0.79])part(P.cyl(0.038,0.045,1.55,6),K.timber,M.t(sx,0.85,-0.18));
+    part(P.box(1.85,0.06,0.065),K.timberDark,M.t(0,1.57,-0.18));
+    for(let k=0;k<6;k++)part(P.box(1.9/6,0.04,1.06),k%3===0?accent:K.thatch,M.t(-0.95+(k+.5)*1.9/6,1.60,-0.04,0.12),0.2);
+    part(P.box(1.9,0.095,0.028),accent,M.t(0,1.51,0.49));
+    for(let k=0;k<3;k++) {
+      const sx=-0.50+k*0.5;
+      part(P.cyl(0.13,0.10,0.17,8),k%2?AD.pot:K.rope,M.t(sx,0.87,0));
+      part(P.cyl(0.14,0.14,0.025,8),k%2?K.terracotta:K.thatchDark,M.t(sx,0.96,0));
+      if(k%2===0)for(let j=0;j<3;j++)part(P.sphere(0.045,0),j%2?c(0x9b533d):c(0xb9a058),M.t(sx+(j-1)*0.05,0.99,0));
+    }
+    part(P.uvSphere(0.18,8,5),AD.pot,M.t(-0.65,0.29,0.53,0,0,0,1,1.15,1));
+    part(P.cyl(0.09,0.12,0.07,8),K.terracotta,M.t(-0.65,0.51,0.53));
+  };
+  stall(0,-1.75,0,K.terracotta);
+  stall(-1.75,0.10,Math.PI/2,K.jade);
+  stall(1.75,0.10,-Math.PI/2,K.terracotta);
+  for(const x of [-1.1,1.1])pottedPlant(b,x,0.08,1.82,1.15);
+  const torches=[torchPole(b,-2.1,1.98,0.9,0.08),torchPole(b,2.1,1.98,0.9,0.08)];
+  return{finished:b.build(),torches,height:1.75};
+}

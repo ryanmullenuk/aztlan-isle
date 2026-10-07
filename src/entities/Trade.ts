@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { Where } from '../ui/where';
-import { ResourceKey, TRADE, TradeOffer } from '../config';
+import { FOOD_KEYS, MARKET, ResourceKey, TRADE, TradeOffer } from '../config';
 import { Building, BuildingSystem } from '../buildings/Buildings';
 import { Economy } from '../economy/Economy';
 import { GeoBuilder, M, P } from '../render/GeoBuilder';
@@ -36,6 +36,7 @@ interface Visitor extends Vessel {
   timer: number;
   from: string;
   deals: VisitorDeal[];
+  landing: {x:number; z:number; out:number; approach:{x:number;z:number}};
 }
 
 /** Trade boats are bigger than canoes; visiting traders' boats bigger still. */
@@ -59,16 +60,18 @@ function cargoGeometry(): THREE.BufferGeometry {
 }
 
 /** The visitors' deck: clay jars and bright bales, and a forked gold-and-teal pennant. */
-function visitorCargoGeometry(): THREE.BufferGeometry {
+function visitorCargoGeometry(canoe = false): THREE.BufferGeometry {
   const b = new GeoBuilder();
   for (const [x, z] of [[-0.09, -0.2], [0.09, -0.28], [0, -0.45]]) {
     b.add(P.uvSphere(0.1, 8, 6), { color: 0xb5653a }, M.t(x, 0.3, z, 0, 0, 0, 1, 1.3, 1));
     b.add(P.cyl(0.04, 0.05, 0.08, 6), { color: 0x9a5230 }, M.t(x, 0.45, z));
   }
   b.add(P.rbox(0.22, 0.16, 0.22, 0.03), { color: 0x138a8a }, M.t(0, 0.26, -0.66, 0, 0.3, 0));
+  if (!canoe) {
   // Two pennant tails, gold over teal.
   b.add(P.box(0.02, 0.06, 0.38), { color: 0xe0b43c, sway: 0.6 }, M.t(0, 1.29, 0.16));
   b.add(P.box(0.02, 0.05, 0.3), { color: 0x138a8a, sway: 0.6 }, M.t(0, 1.2, 0.2));
+  }
   return b.build();
 }
 
@@ -88,6 +91,9 @@ export class TradeFleet {
   private cargoGeo = cargoGeometry();
   private visitorHull = boatGeometry(true, VISITOR_LOOK);
   private visitorCargo = visitorCargoGeometry();
+  private canoeHull = boatGeometry(false, VISITOR_LOOK);
+  private canoeCargo = visitorCargoGeometry(true);
+  population: () => number = () => 0;
   private mat = patchStylised(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, metalness: 0, side: THREE.DoubleSide }));
   /** Seconds to the next visit (counts only while there is a finished Trade Dock). */
   private visitIn = between(TRADE.visitors.every);
@@ -178,6 +184,14 @@ export class TradeFleet {
   }
 
   update(dt: number, time: number): void {
+    // Village consumption/construction can reuse displayed goods. Retire those displays promptly.
+    const available={...this.eco.res};
+    let food=Math.max(0,this.eco.food-Math.max(MARKET.foodReserve,this.population()*MARKET.foodPerIslander));
+    for(const market of this.bld.of('market')) for(const key of ['wood','stone',...FOOD_KEYS] as ResourceKey[]) {
+      const limit=key==='wood'?Math.max(0,available.wood-MARKET.woodReserve):key==='stone'?Math.max(0,available.stone-MARKET.stoneReserve):Math.min(available[key],food);
+      const n=Math.max(0,Math.min(market.marketStock[key]??0,limit));
+      market.marketStock[key]=n;available[key]-=n;if(FOOD_KEYS.includes(key)) food-=n;
+    }
     for (const d of this.bld.of('tradedock')) {
       if (d.boatBuild > 0) {
         d.boatBuild += dt;
@@ -249,10 +263,32 @@ export class TradeFleet {
     return this.boats.berth(dock, Math.max(0, k), 1.3, 0.5, TRADE.berthOut);
   }
 
+  private visitorBerth(v: Visitor, dock: Building) {
+    return dock.key === 'market' ? v.landing : this.berth(dock, VISITOR_SLOT);
+  }
+
+  /** Find a shoreline once per visit; the cached landing avoids scanning the island each frame. */
+  private marketLanding(market: Building): Visitor['landing'] | null {
+    const w=this.world, island=w.isle[w.cellIndexAt(market.x,market.z)];
+    let best:Visitor['landing']|null=null, score=Infinity;
+    for(let cz=1;cz<w.N-1;cz++) for(let cx=1;cx<w.N-1;cx++) {
+      const i=w.idx(cx,cz); if(w.layer[i]>0) continue;
+      for(const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+        const j=w.idx(cx-dx,cz-dz);
+        if(!w.isLandCell(j)||w.isle[j]!==island||w.occ[j]||w.blocked(j)) continue;
+        const x=w.centerX(cx)+dx*.5,z=w.centerZ(cz)+dz*.5;
+        const value=(x-market.x)**2+(z-market.z)**2-(w.sandy[j]?4:0);
+        if(value>=score||![0,.5,1,1.5,2,2.5,3].every(t=>this.boats.open(x+dx*t,z+dz*t))) continue;
+        score=value;best={x,z,out:Math.atan2(dx,dz),approach:{x:x+dx*3,z:z+dz*3}};
+      }
+    }
+    return best;
+  }
+
   // ---------------- Visiting traders ----------------
 
   private updateVisitors(dt: number, time: number, traffic: Hull[]): void {
-    const docks = this.bld.of('tradedock').filter((d) => d.complete);
+    const docks = [...this.bld.of('tradedock'), ...this.bld.of('market').filter(d=>Object.values(d.marketStock).some(n=>n!>=5))].filter((d) => d.complete);
     if (docks.length && !this.visitors.length) {
       this.visitIn -= dt;
       if (this.visitIn <= 0) this.visitIn = this.sendVisitor(docks[Math.floor(Math.random() * docks.length)]) ? between(TRADE.visitors.every) : TRADE.visitors.retry;
@@ -265,13 +301,13 @@ export class TradeFleet {
       let moving = false;
       if (v.state === 'in') {
         if (v.mooring) {
-          if (this.boats.berthStep(v, me, this.berth(dock, VISITOR_SLOT), dt, traffic)) {
+          if (this.boats.berthStep(v, me, this.visitorBerth(v, dock), dt, traffic)) {
             // Moored: they lay out their wares.
             v.mooring = false;
             v.state = 'moored';
             v.timer = between(TRADE.visitors.stay);
-            v.deals = visitorDeals(this.eco.res);
-            this.notify(`Traders from ${v.from} have arrived at the Trade Dock with goods to trade.`, { x: dock.x, z: dock.z });
+            v.deals = visitorDeals(dock.key === 'market' ? Object.fromEntries(Object.keys(this.eco.res).map(k=>[k,Math.min(this.eco.res[k as ResourceKey],dock.marketStock[k as ResourceKey]??0)])) as Record<ResourceKey,number> : this.eco.res);
+            this.notify(`Traders from ${v.from} have arrived ${dock.key === 'market' ? 'near the Market Square' : 'at the Trade Dock'} with goods to trade.`, { x: dock.x, z: dock.z });
           }
         } else {
           v.idx = this.boats.sailPath(v, me, v.path, v.idx, TRADE.boatSpeed * 0.9, dt, traffic);
@@ -279,7 +315,7 @@ export class TradeFleet {
           if (v.idx >= v.path.length) v.mooring = true;
         }
       } else if (v.state === 'moored') {
-        const at = this.berth(dock, VISITOR_SLOT);
+        const at = this.visitorBerth(v, dock);
         v.x = at.x;
         v.z = at.z;
         v.heading = at.out;
@@ -302,15 +338,16 @@ export class TradeFleet {
 
   /** A foreign boat appears out at sea and makes for the dock. False if there's no way in. */
   private sendVisitor(dock: Building): boolean {
-    const at = this.berth(dock, VISITOR_SLOT);
+    const at = dock.key === 'market' ? this.marketLanding(dock) : this.berth(dock, VISITOR_SLOT);
+    if (!at) return false;
     if (!this.boats.open(at.x, at.z)) return false;
     const from = this.boats.openSea(at.approach.x, at.approach.z, at.out + (Math.random() - 0.5) * 1.4);
     const path = this.boats.waterPath(from.x, from.z, at.approach.x, at.approach.z);
     if (!path) return false;
     const mesh = new THREE.Group();
-    const hull = new THREE.Mesh(this.visitorHull, this.mat);
+    const hull = new THREE.Mesh(dock.key === 'market' ? this.canoeHull : this.visitorHull, this.mat);
     hull.castShadow = true;
-    const cargo = new THREE.Mesh(this.visitorCargo, this.mat);
+    const cargo = new THREE.Mesh(dock.key === 'market' ? this.canoeCargo : this.visitorCargo, this.mat);
     cargo.castShadow = true;
     mesh.add(hull, cargo);
     mesh.scale.setScalar(BOAT_SCALE * VISITOR_SCALE);
@@ -318,14 +355,14 @@ export class TradeFleet {
     const first = path[0] ?? at.approach;
     this.visitors.push({
       dock: dock.id, mesh, state: 'in', mooring: false, path, idx: 0, x: from.x, z: from.z, heading: Math.atan2(first.x - from.x, first.z - from.z), speed: 0,
-      ride: newRide(), wakeAcc: 0, timer: 0, from: traderHome(), deals: [],
+      ride: newRide(), wakeAcc: 0, timer: 0, from: traderHome(), deals: [], landing: at,
     });
     return true;
   }
 
   /** Time to go: straight out from the dock, then away over the horizon. */
   private sendAway(v: Visitor, dock: Building): void {
-    const at = this.berth(dock, VISITOR_SLOT);
+    const at = this.visitorBerth(v, dock);
     const far = this.boats.openSea(at.approach.x, at.approach.z, at.out + (Math.random() - 0.5) * 1.4);
     v.path = [at.approach, ...(this.boats.waterPath(at.approach.x, at.approach.z, far.x, far.z, true) ?? [])];
     v.idx = 0;
@@ -340,19 +377,27 @@ export class TradeFleet {
   }
 
   /** Can the village pay for this bargain? */
-  canAccept(deal: VisitorDeal): boolean {
-    return !this.whyNot(deal);
+  canAccept(deal: VisitorDeal, dock?: Building): boolean {
+    return !this.whyNot(deal, dock);
   }
 
   /**
    * Why a bargain can't be struck right now (null if it can): not enough to give, or no room in the
    * stores for what comes back (counting the room the goods given away free up).
    */
-  whyNot(deal: VisitorDeal): string | null {
+  whyNot(deal: VisitorDeal, dock?: Building): string | null {
     if (deal.taken) return 'Already traded';
     const give = Object.entries(deal.give) as [ResourceKey, number][];
     const lacking = give.filter(([k, n]) => this.eco.res[k] < n).map(([k]) => k);
     if (lacking.length) return `Not enough ${lacking.join(' or ')}`;
+    if (dock?.key === 'market') {
+      if (give.some(([k,n])=>(dock.marketStock[k]??0)<n)) return 'Waiting for surplus deliveries';
+      if (!this.eco.godMode) {
+        const after = (k:ResourceKey) => this.eco.res[k]-(deal.give[k]??0)+(deal.get[k]??0);
+        for (const k of ['wood','stone'] as const) if (give.some(([g])=>g===k) && after(k)<(k==='wood'?MARKET.woodReserve:MARKET.stoneReserve)) return `Keep the village ${k} reserve`;
+        if (give.some(([k])=>FOOD_KEYS.includes(k)) && FOOD_KEYS.reduce((n,k)=>n+after(k),0)<Math.max(MARKET.foodReserve,this.population()*MARKET.foodPerIslander)) return 'Keep the village food reserve';
+      }
+    }
     if (this.eco.godMode) return null;
     const e = this.eco;
     const freed = (pred: (k: ResourceKey) => boolean) => give.filter(([k]) => pred(k)).reduce((s, [, n]) => s + n, 0);
@@ -377,9 +422,9 @@ export class TradeFleet {
     const deal = v?.deals[k];
     if (!v || !deal) return 'The traders have gone.';
     if (deal.taken) return 'That bargain has already been struck.';
-    const why = this.whyNot(deal);
-    if (why) return `${why}: build more stores or use up some goods first.`;
-    for (const [key, n] of Object.entries(deal.give) as [ResourceKey, number][]) this.eco.res[key] -= n;
+    const why = this.whyNot(deal, dock);
+    if (why) return why+'.';
+    for (const [key, n] of Object.entries(deal.give) as [ResourceKey, number][]) { this.eco.res[key] -= n; if (dock.key === 'market') dock.marketStock[key] = Math.max(0,(dock.marketStock[key]??0)-n); }
     let short = false;
     for (const [key, n] of Object.entries(deal.get) as [ResourceKey, number][]) if (this.eco.add(key, n) < n) short = true;
     deal.taken = true;
@@ -391,7 +436,7 @@ export class TradeFleet {
   /** Changes whenever the dock card's visitor section should be redrawn. */
   visitKey(dock: Building): string {
     const v = this.visiting(dock);
-    return v ? `${v.from}|${v.deals.map((d) => (d.taken ? 't' : this.canAccept(d) ? 'y' : 'n')).join('')}|${Math.ceil(v.timer / 30)}` : '';
+    return v ? `${v.from}|${v.deals.map((d) => (d.taken ? 't' : this.canAccept(d,dock) ? 'y' : 'n')).join('')}|${Math.ceil(v.timer / 30)}` : '';
   }
 }
 

@@ -337,6 +337,7 @@ export class Game {
     this.boats = new Boats(this.world, this.water, this.buildings, this.colony, this.eco, this.wildlife, this.veg);
     this.scene.add(this.boats.group);
     this.trade = new TradeFleet(this.world, this.water, this.buildings, this.eco, this.boats);
+    this.trade.population = () => this.colony.list.length;
     this.scene.add(this.trade.group);
     this.voyage = new Voyages(this.world, this.buildings, this.eco, this.boats, this.colony);
     this.scene.add(this.voyage.group);
@@ -524,6 +525,7 @@ export class Game {
     this.powers.onStormEnd = (calmed) => this.stormPassed(calmed);
     this.buildings.onRemove = (b) => {
       this.wildlife.releasePen(b.id);
+      if (b.key === 'market') this.trade.removeDock(b);
       if (b.key === 'tradedock') {
         this.trade.removeDock(b);
         this.voyage.removeDock(b);

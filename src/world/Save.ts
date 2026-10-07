@@ -29,6 +29,7 @@ export interface SaveData {
     upgrading: boolean; growth: number; stock: number; boats: number; bless: number;
     /** Kennel: litter timer, breeding rest, dog role (1 = guard). */
     breed?: number; cool?: number; guard?: number;
+    marketStock?: Partial<Record<ResourceKey, number>>;
   }[];
   islanders: Partial<Islander>[];
   schools: number[];
@@ -124,6 +125,7 @@ export function serialize(g: Game): SaveData {
     buildings: g.buildings.list.map((b) => ({
       id: b.id, key: b.key, cx: b.cx, cz: b.cz, rot: b.rot, complete: b.complete, progress: b.progress, tier: b.tier,
       upgrading: b.upgrading, growth: b.growth, stock: b.stock, boats: b.key === 'tradedock' ? b.tradeBoats : b.boats.length, bless: b.blessTimer,
+      ...(b.key === 'market' ? { marketStock: { ...b.marketStock } } : {}),
       ...(b.key === 'kennel' ? { breed: b.breedT, cool: b.breedCool, guard: b.dogRole === 'guard' ? 1 : 0 } : {}),
     })),
     islanders: g.colony.list.map((i) => ({
@@ -199,6 +201,7 @@ export function applyRest(g: Game, d: SaveData): void {
   for (const b of d.buildings) {
     const nb = g.buildings.restore(b.key, b.cx, b.cz, b.rot, b);
     idMap.set(b.id, nb.id);
+    if (b.key === 'market') nb.marketStock = { ...(b.marketStock ?? {}) };
     if (b.key === 'jetty' && b.boats > 0) g.boats?.restore(nb, b.boats);
     if (b.key === 'tradedock') for (let k = 0; k < (b.boats ?? 0); k++) g.trade?.launch(nb);
     if (b.key === 'farm' || b.key === 'butcher' || b.key === 'pigpen' || b.key === 'chickenpen') g.wildlife?.registerPen(nb);

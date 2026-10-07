@@ -2,7 +2,7 @@ import { ResourceKey } from '../config';
 
 export type Gender = 'm' | 'f';
 
-export type Role = 'idle' | 'builder' | 'woodcutter' | 'miner' | 'gatherer' | 'farmer' | 'priest' | 'fisher' | 'butcher' | 'smoker' | 'mason' | 'warrior';
+export type Role = 'idle' | 'builder' | 'woodcutter' | 'miner' | 'gatherer' | 'farmer' | 'priest' | 'fisher' | 'butcher' | 'smoker' | 'mason' | 'merchant' | 'warrior';
 
 export const ROLE_LABEL: Record<Role, string> = {
   idle: 'Resting',
@@ -13,6 +13,7 @@ export const ROLE_LABEL: Record<Role, string> = {
   farmer: 'Farmer',
   smoker: 'Smokehouse keeper',
   mason: 'Stonemason',
+  merchant: 'Market keeper',
   priest: 'Priest',
   fisher: 'Fisher',
   butcher: 'Butcher',
@@ -52,7 +53,7 @@ export const CONDITION_LABEL: Record<Condition, string> = {
 
 /** A task is a small state machine the AI steps through. */
 export interface Task {
-  kind: 'chop' | 'mine' | 'gather' | 'deliver' | 'build' | 'farm' | 'pray' | 'eat' | 'sleep' | 'wander' | 'patrol' | 'butcher' | 'fish' | 'train' | 'goto' | 'follow' | 'capture' | 'spearfish' | 'smoke' | 'bonfire' | 'flee' | 'hall' | 'heal' | 'mason';
+  kind: 'chop' | 'mine' | 'gather' | 'deliver' | 'build' | 'farm' | 'pray' | 'eat' | 'sleep' | 'wander' | 'patrol' | 'butcher' | 'fish' | 'train' | 'goto' | 'follow' | 'capture' | 'spearfish' | 'smoke' | 'bonfire' | 'flee' | 'hall' | 'heal' | 'mason' | 'market';
   stage: number;
   /** Plant id, building id or islander id depending on kind. */
   target: number;
@@ -97,7 +98,7 @@ export interface Islander {
   /** Building the islander works at (farm, temple, jetty...). -1 = none. */
   workplace: number;
   home: number;
-  carry: { kind: CarryKind; res: ResourceKey | 'herbs'; n: number } | null;
+  carry: { kind: CarryKind; res: ResourceKey | 'herbs'; n: number; market?: number } | null;
   /** Gathering from a tall plant (reach up) or a bush (bend down). */
   reachHigh?: boolean;
   task: Task | null;
