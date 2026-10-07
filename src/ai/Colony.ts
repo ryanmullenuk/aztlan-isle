@@ -1,7 +1,7 @@
 import { needsSelfCare } from './GroupSelection';
 import * as THREE from 'three';
 import type { Where } from '../ui/where';
-import { ECONOMY, FARM, FOOD_KEYS, ISLANDER, JETTY, NAMES, ResourceKey, TEMPLE, WARRIOR, FARM_TYPES, isFarm, SMOKE, COMFORTS, PATHS, GREAT_HALL, HEALTH, TIME } from '../config';
+import { ECONOMY, FARM, FOOD_KEYS, ISLANDER, JETTY, NAMES, ResourceKey, TEMPLE, WARRIOR, FARM_TYPES, isFarm, SMOKE, COMFORTS, PATHS, GREAT_HALL, HEALTH, HERBALIST, TIME } from '../config';
 import { Building, BuildingSystem } from '../buildings/Buildings';
 import { HALL, HEAL } from '../buildings/models';
 import { Economy } from '../economy/Economy';
@@ -2203,6 +2203,15 @@ export class Colony {
     isl.speed = 0;
     isl.path = null;
     isl.pathPending = false;
+    if (this.bld.list.some(b => b.key === 'herbalist' && b.complete && !b.upgrading) && this.eco.goods.herbs >= 1) {
+      t.care = (t.care ?? 0) + dt;
+      const duration = isl.condition === 'mauled' ? HERBALIST.mauledSeconds : HERBALIST.sickSeconds;
+      if (t.care >= duration) {
+        this.eco.goods.herbs -= 1;
+        this.heal(isl);
+        return;
+      }
+    }
     const k = t.slot ?? -1;
     if (k >= 0) {
       const bed = HEAL.beds[k];

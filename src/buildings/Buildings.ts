@@ -1,6 +1,7 @@
 import { Demolition } from './Demolition';
 import { villageFire, fireEmbers } from './VillageFire';
 import * as THREE from 'three';
+import { growMedicinalHerbs } from './Herbalist';
 import { BUILDINGS, BuildingDef, BuildingKey, ECONOMY, FARM, HOMES, JETTY, TEMPLE, FARM_TYPES, isFarm } from '../config';
 import { Economy, Cost } from '../economy/Economy';
 import { buildingMaterial, canopyMaterial, fireMaterial, flameMaterial, FX } from '../render/materials';
@@ -586,6 +587,7 @@ export class BuildingSystem {
       case 'firepit': return models.firepitModel();
       case 'kennel': return models.kennelModel();
       case 'greathall': return models.greatHallModel();
+      case 'herbalist': return models.herbalistModel();
       case 'healer': return models.healingCentreModel();
       case 'well': return models.wellModel();
       case 'butcher': return models.butcherModel(sw, sd);
@@ -890,6 +892,7 @@ export class BuildingSystem {
     this.demolitions = this.demolitions.filter(effect => !effect.update(dt));
     for (const b of this.list) {
       if (!b.complete) continue;
+      if (b.key === 'herbalist') growMedicinalHerbs(b, this.eco, dt);
       if (b.bell) {
         // Swinging hard while it rings, settling as it stops.
         b.ring = Math.max(0, b.ring - dt);

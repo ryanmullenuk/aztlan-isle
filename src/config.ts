@@ -253,7 +253,7 @@ export const ECONOMY = {
   varietyHappiness: 0.05,
 };
 
-export type BuildingKey = 'campfire' | 'hut' | 'home' | 'temple' | 'greattemple' | 'farm' | 'maizefarm' | 'chinampa' | 'butcher' | 'smokehouse' | 'woodstore' | 'grainstore' | 'warroom' | 'jetty' | 'torch' | 'bonfire' | 'firepit' | 'well' | 'tradedock' | 'kennel' | 'greathall' | 'pigpen' | 'chickenpen' | 'healer' | 'watchtower';
+export type BuildingKey = 'campfire' | 'hut' | 'home' | 'temple' | 'greattemple' | 'farm' | 'maizefarm' | 'chinampa' | 'butcher' | 'smokehouse' | 'woodstore' | 'grainstore' | 'warroom' | 'jetty' | 'torch' | 'bonfire' | 'firepit' | 'well' | 'tradedock' | 'kennel' | 'greathall' | 'pigpen' | 'chickenpen' | 'healer' | 'herbalist' | 'watchtower';
 
 export interface BuildingDef {
   key: BuildingKey;
@@ -291,6 +291,7 @@ export const BUILDINGS: Record<BuildingKey, BuildingDef> = {
   firepit: { key: 'firepit', name: 'Cooking Firepit', description: 'A large stone hearth with roaring flames. Islanders gather and dance here at night; roasted meat also makes meals more filling.', size: [2, 2], cost: { wood: 12, stone: 8, belief: 0 }, buildTime: 18, builders: 1, workers: 0, placeable: true },
   well: { key: 'well', name: 'Well', description: 'A stone well of fresh, cool water with a little tiled roof. Villagers living nearby are happier.', size: [2, 2], cost: { wood: 6, stone: 20, belief: 0 }, buildTime: 25, builders: 2, workers: 0, placeable: true },
   greathall: { key: 'greathall', name: 'Great Hall', description: 'A raised stone hall under a striped canopy, with fire braziers and a bronze bell. Idle villagers come to rest on its benches; when a jaguar is spotted the bell rings and everyone runs to the hall or home for sanctuary.', size: [7, 7], cost: { wood: 70, stone: 60, belief: 20 }, buildTime: 110, builders: 5, workers: 0, placeable: true },
+  herbalist: { key: 'herbalist', name: 'Herbalist’s Garden', description: 'Raised medicinal beds, clay pots and drying herbs beside an adobe shelter. Grows one herb bundle every two game minutes. Supplies Healing Centres for automatic treatment: one minute for sickness, ninety seconds for wounds, using one bundle per patient.', size: [4, 4], cost: { wood: 30, stone: 18, belief: 0 }, buildTime: 45, builders: 2, workers: 0, placeable: true },
   healer: { key: 'healer', name: 'Healing Centre', description: 'A walled sandstone courtyard with four beds and a herb table under a striped awning. The sick and the injured come here to be cared for: cure them with food before their time runs out.', size: [5, 5], cost: { wood: 40, stone: 30, belief: 0 }, buildTime: 60, builders: 3, workers: 0, placeable: true },
   kennel: { key: 'kennel', name: 'Dog Kennel', description: 'A timber-and-adobe dog house with a shaded run. Village dogs sleep here, raise puppies and bark the alarm when a jaguar comes near. Each kennel holds up to 3 dogs.', size: [2, 2], cost: { wood: 18, stone: 6, belief: 0 }, buildTime: 20, builders: 2, workers: 0, placeable: true },
   smokehouse: { key: 'smokehouse', name: 'Smokehouse', description: 'Smokes raw fish and meat over a slow fire: 4 raw become 7 preserved (burns a little wood). Also stores food.', size: [3, 3], cost: { wood: 20, stone: 10, belief: 0 }, buildTime: 30, builders: 2, workers: 1, foodCap: 40, placeable: true },
@@ -972,3 +973,6 @@ export const SAVE = {
   settingsKey: 'aztec-isle-settings-v1',
   tutorialKey: 'aztec-isle-tutorial-v1',
 };
+
+/** Medicinal gardens supply the existing herb stores; treatment requires a completed garden. */
+export const HERBALIST = { growSeconds: 120, herbCap: 40, sickSeconds: 60, mauledSeconds: 90 };

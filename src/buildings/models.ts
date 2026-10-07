@@ -2259,3 +2259,43 @@ export function arrowGeometry(): THREE.BufferGeometry {
   a.add(P.box(0.002, 0.03, 0.07), { color: K.white }, M.t(0, 0, -0.22));
   return a.build();
 }
+
+/** Medicinal courtyard: raised stone beds, potted plants and an adobe drying shelter. */
+export function herbalistModel(): BuildingModel {
+  const b = new GeoBuilder();
+  const rng = new RNG(814);
+  b.add(P.rbox(3.7, 0.08, 3.7, 0.025, 1), { color: c(0xbca47f) }, M.t(0, 0.04, 0));
+  baseBand(b, 1.45, 1.12, -0.75, -1.04, 0.18);
+  adobeBlock(b, 1.45, 1.12, 1.12, -0.75, 0.08, -1.04);
+  tealDoor(b, -0.8, 0.09, -0.47, 0.35, 0.68);
+  adobeWindow(b, -0.03, 0.8, -1.0, true, 0.17, 0.23);
+  awning(b, -0.72, 1.03, -0.44, 1.35, 0.52, true);
+  const herb = (x: number, y: number, z: number, size: number, flowers: boolean) => {
+    b.add(P.cyl(0.009, 0.012, size, 4), { color: c(0x597746) }, M.t(x, y + size / 2, z));
+    for (let k = 0; k < 5; k++) {
+      const a = k * 2.4;
+      b.add(P.uvSphere(size * 0.24, 5, 3), { color: k % 2 ? c(0x738e56) : c(0x426950), leaf: 1, sway: 0.2 }, M.t(x + Math.cos(a) * size * 0.16, y + size * (0.25 + k * 0.12), z + Math.sin(a) * size * 0.16, 0, a, 0.5, 1.5, 0.35, 0.7));
+    }
+    if (flowers) b.add(P.sphere(0.035, 0), { color: c(0xb79bb7), leaf: 1, sway: 0.25 }, M.t(x, y + size, z));
+  };
+  for (const x of [-1.0, 0.65]) for (const z of [0.3, 1.15]) {
+    b.add(P.rbox(1.05, 0.23, 0.65, 0.025, 1), { color: K.stoneDark }, M.t(x, 0.16, z));
+    b.add(P.box(0.90, 0.024, 0.50), { color: c(0x68513d) }, M.t(x, 0.282, z));
+    for (let row = 0; row < 2; row++) for (let col = 0; col < 4; col++) herb(x - 0.34 + col * 0.22, 0.30, z - 0.13 + row * 0.26, rng.range(0.21, 0.34), row === 1);
+  }
+  // Open drying frame beside the shelter, with individual tied herb bundles.
+  for (const x of [0.25, 1.55]) b.add(P.cyl(0.035, 0.045, 1.25, 6), { color: K.timber }, M.t(x, 0.7, -1.15));
+  b.add(P.box(1.4, 0.065, 0.06), { color: K.timberDark }, M.t(0.9, 1.28, -1.15));
+  for (let k = 0; k < 5; k++) {
+    const x = 0.4 + k * 0.25;
+    b.add(P.cyl(0.008, 0.008, 0.18, 4), { color: K.rope }, M.t(x, 1.16, -1.15));
+    for (let j = 0; j < 3; j++) b.add(P.cone(0.045, 0.24, 5), { color: c(j % 2 ? 0x78815b : 0x596b47), sway: 0.1, leaf: 1 }, M.t(x + (j - 1) * 0.036, 0.98, -1.15, Math.PI, 0, (j - 1) * 0.12));
+  }
+  for (const [x, z] of [[1.5, -0.45], [1.55, 0.05], [-1.6, -0.28]]) {
+    b.add(P.cyl(0.15, 0.10, 0.23, 9), { color: AD.pot }, M.t(x, 0.20, z));
+    b.add(P.cyl(0.16, 0.16, 0.045, 9), { color: K.terracotta }, M.t(x, 0.30, z));
+    b.add(P.cyl(0.12, 0.12, 0.015, 9), { color: K.mud }, M.t(x, 0.33, z));
+    herb(x, 0.34, z, 0.33, false);
+  }
+  return { finished: b.build(), torches: [torchPole(b, -1.65, 1.62, 0.7, 0.08)], height: 1.38 };
+}

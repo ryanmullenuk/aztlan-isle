@@ -68,6 +68,8 @@ export interface Task {
   slot?: number;
   route?: { x: number; z: number }[];
   step?: number;
+  /** Game seconds spent receiving herbal treatment in the Healing Centre. */
+  care?: number;
 }
 
 export interface Islander {

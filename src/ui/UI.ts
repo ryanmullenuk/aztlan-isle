@@ -26,6 +26,7 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = ''):
 const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${Math.floor(n)}`);
 
 const BUILD_ICON: Record<BuildingKey, string> = {
+  herbalist: 'b_herbalist',
   campfire: 'belief', hut: 'b_hut', home: 'b_home', temple: 'b_temple', greattemple: 'b_greattemple', farm: 'b_farm', butcher: 'b_butcher',
   woodstore: 'b_woodstore', grainstore: 'b_grainstore', warroom: 'b_warroom', jetty: 'b_jetty',
   maizefarm: 'b_maize', chinampa: 'b_chinampa', smokehouse: 'b_smoke',
@@ -1148,7 +1149,7 @@ export class UI {
         <div class="actions"><button class="btn small" data-a="capture" ${free && (!d.needsPen || hasPen) ? '' : 'disabled'}>${ICONS.harvest} ${label}</button></div>
         <p class="muted small">Tip: select an islander first, then tap an animal to send them after it.</p>`;
     } else if (b) {
-      key = `b${b.id}|${b.key === 'tradedock' ? g.trade.visitKey(b) + '|' + g.voyage.key() + '|' + JSON.stringify(g.eco.goods) : ''}|${b.key === 'greathall' ? JSON.stringify(g.colony.hallCount(b)) : ''}|${b.key === 'healer' ? g.colony.patients(b).map((p) => `${p.id}:${p.condition}:${Math.ceil(p.conditionT / 60)}:${p.task?.slot}:${g.colony.canCure(p)}`).join(',') + JSON.stringify(g.eco.goods) : ''}|${b.key === 'watchtower' ? `${g.defence.stats(b).shots}|${g.defence.stats(b).kills}|` : ''}${b.key === 'kennel' ? `${g.dogs.alive.length}|${g.dogs.alive.filter((d) => d.puppy).length}|${Math.ceil(b.breedT)}|${Math.ceil(b.breedCool / 5)}|${b.dogRole}|${Math.floor(g.eco.food / 4)}|` : ''}${b.complete}|${Math.round(b.progress * 50)}|${b.tier}|${b.residents.length}|${b.upgrading}|${Math.round(b.growth * 20)}|${b.boats.length}|${b.boatBuild > 0}|${b.training.length}|${Math.floor(g.eco.res.wood / 5)}|${Math.floor(g.eco.res.stone / 5)}|${Math.floor(g.eco.res.belief / 5)}`;
+      key = `b${b.id}|${b.key === 'tradedock' ? g.trade.visitKey(b) + '|' + g.voyage.key() + '|' + JSON.stringify(g.eco.goods) : ''}|${b.key === 'greathall' ? JSON.stringify(g.colony.hallCount(b)) : ''}|${b.key === 'healer' ? g.colony.patients(b).map((p) => `${p.id}:${p.condition}:${Math.ceil(p.conditionT / 60)}:${p.task?.slot}:${g.colony.canCure(p)}`).join(',') + JSON.stringify(g.eco.goods) : ''}|${b.key === 'watchtower' ? `${g.defence.stats(b).shots}|${g.defence.stats(b).kills}|` : ''}${b.key === 'kennel' ? `${g.dogs.alive.length}|${g.dogs.alive.filter((d) => d.puppy).length}|${Math.ceil(b.breedT)}|${Math.ceil(b.breedCool / 5)}|${b.dogRole}|${Math.floor(g.eco.food / 4)}|` : ''}${b.key === 'herbalist' ? Math.floor(g.eco.goods.herbs) : ''}|${b.complete}|${Math.round(b.progress * 50)}|${b.tier}|${b.residents.length}|${b.upgrading}|${Math.round(b.growth * 20)}|${b.boats.length}|${b.boatBuild > 0}|${b.training.length}|${Math.floor(g.eco.res.wood / 5)}|${Math.floor(g.eco.res.stone / 5)}|${Math.floor(g.eco.res.belief / 5)}`;
       html = this.buildingHtml(b);
     }
     if (!force && key === this.infoKey) return;
@@ -1172,6 +1173,8 @@ export class UI {
     }
     const workers = g.colony.list.filter((i) => i.workplace === b.id && b.complete);
     if (b.complete && b.def.workers) body += `<div class="kv"><span>Workers</span><b>${workers.map((w) => w.name).join(', ') || 'None yet'}</b></div>`;
+    if (b.key === 'herbalist' && b.complete) body += this.bar('Medicinal herbs growing', b.growth, 'good') + `<div class="kv"><span>Herb bundles in store</span><b>${Math.floor(g.eco.goods.herbs)} / 40</b></div><p class="muted small">One bundle every two game minutes. Patients receive automatic herbal treatment at Healing Centres.</p>`;
+    if (b.key === 'healer' && b.complete && g.buildings.of('herbalist').length) body += `<p class="muted small">Herbal treatment: 60 seconds for sickness, 90 seconds for wounds. One herb bundle per patient; treatment pauses when herbs run out.</p>`;
     if (b.key === 'smokehouse' && b.complete) body += `<div class="kv"><span>Smoking</span><b>${b.tendTimer > 0 ? 'Fire lit, racks full' : g.eco.res.fish >= SMOKE.input || g.eco.res.meat >= SMOKE.input ? 'Waiting for a keeper' : 'Needs raw fish or meat'}</b></div><p class="muted small">${SMOKE.input} raw fish or meat + ${SMOKE.wood} wood → ${SMOKE.output} smoked.</p>`;
     if (FARM_TYPES[b.key] && b.complete) body += this.bar(b.growth >= 1 ? 'Ready to harvest' : `${FARM_TYPES[b.key]!.label} growing ${Math.round(b.growth * 100)}%`, b.growth, 'good') + (b.blessTimer > 0 ? '<div class="kv"><span>Blessed</span><b>Growing faster</b></div>' : '');
     if (b.key === 'greattemple' && b.complete) {
