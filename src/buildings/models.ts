@@ -2349,6 +2349,40 @@ export function stonemasonModel(tier = 1): BuildingModel {
   for(const [x,y,w,h] of [[-0.98,0.72,0.20,0.035],[-0.9,0.82,0.035,0.22],[-0.81,0.91,0.20,0.035]]) b.add(P.box(w,h,0.018), { color: K.stoneDark }, M.t(x,y,-0.45));
   for(let k=0;k<6;k++) b.add(P.rbox(0.42,0.26,0.4,0.025,1), { color: k%2?K.stone:K.stoneDark }, M.t(0.6+(k%3)*0.42,0.23+Math.floor(k/3)*0.26,-0.8));
   for(let k=0;k<24;k++) b.add(P.sphere(rng.range(0.025,0.065),0), { color: k%2?K.stone:K.stoneDark }, M.t(rng.range(-1.5,1.5),0.12,rng.range(0.25,1.3),0,rng.range(0,6),0,1,0.45,0.8));
+  if (tier >= 2) {
+    // Temple craft: stone footings and better dressed work surfaces.
+    for (const x of [-1.6, 1.6]) for (const z of [-1.1, 0.65]) {
+      b.add(P.rbox(0.24, 0.32, 0.24, 0.025, 1), { color: K.stone }, M.t(x, 0.25, z));
+      b.add(P.box(0.27, 0.045, 0.27), { color: K.stoneDark }, M.t(x, 0.43, z));
+    }
+    for (const x of [-0.7, 0.7]) {
+      b.add(P.rbox(1.02, 0.055, 0.62, 0.015, 1), { color: K.stone }, M.t(x, 0.67, 0.9));
+      for (const sx of [-1, 1]) b.add(P.box(0.035, 0.16, 0.018), { color: K.terracotta }, M.t(x + sx * 0.33, 0.41, 1.183));
+    }
+  }
+  if (tier >= 3) {
+    // Pyramid craft: a restrained painted roof edge, braced frame and a chisel rack.
+    b.add(P.box(3.48, 0.11, 0.055), { color: K.terracotta }, M.t(0, 1.72, 0.80));
+    b.add(P.box(3.48, 0.025, 0.060), { color: K.plaster }, M.t(0, 1.77, 0.804));
+    for (const x of [-1.6, 1.6]) {
+      b.add(P.box(0.07, 0.45, 0.07), { color: K.timberDark }, M.t(x - Math.sign(x) * 0.13, 1.53, 0.65, 0, 0, Math.sign(x) * 0.65));
+      b.add(P.cyl(0.079, 0.079, 0.07, 6), { color: K.jade }, M.t(x, 0.72, 0.65));
+    }
+    b.add(P.box(0.48, 0.06, 0.10), { color: K.timberDark }, M.t(-1.6, 1.10, -0.4));
+    for (let k = 0; k < 4; k++) b.add(P.cyl(0.012, 0.018, 0.22, 5), { color: c(0x79776c) }, M.t(-1.78 + k * 0.12, 1.23, -0.4));
+  }
+  if (tier >= 4) {
+    // Great Temple craft: fine stepped carvings and modest mineral/gold inlays.
+    for (const x of [-1.6, 1.6]) b.add(P.rbox(0.21, 0.085, 0.21, 0.015, 1), { color: K.stone }, M.t(x, 1.81, 0.65));
+    for (const x of [-1.15, 0, 1.15]) {
+      b.add(P.box(0.36, 0.13, 0.025), { color: K.stone }, M.t(x, 1.72, 0.835));
+      b.add(P.box(0.22, 0.028, 0.030), { color: K.gold }, M.t(x, 1.69, 0.851));
+      b.add(P.box(0.12, 0.028, 0.030), { color: K.jade }, M.t(x, 1.73, 0.851));
+    }
+    b.add(P.rbox(0.48, 0.10, 0.46, 0.012, 1), { color: K.stone }, M.t(0.1, 0.17, -0.58));
+    b.add(P.rbox(0.33, 0.10, 0.31, 0.012, 1), { color: K.stone }, M.t(0.1, 0.27, -0.58));
+    b.add(P.rbox(0.17, 0.13, 0.16, 0.012, 1), { color: K.terracotta }, M.t(0.1, 0.385, -0.58));
+  }
   // Completed training stages are shown as carved sandstone tablets at the rear of the yard.
   for (let k = 0; k < Math.min(3, tier - 1); k++) {
     const x = -0.45 + k * 0.48;
