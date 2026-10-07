@@ -411,6 +411,12 @@ export class UI {
       const def = BUILDINGS[key];
       const cost = [def.cost.wood ? `${icon('wood')}${def.cost.wood}` : '', def.cost.stone ? `${icon('stone')}${def.cost.stone}` : '', def.cost.belief ? `${icon('belief')}${def.cost.belief}` : ''].join('');
       const b = el('button', 'bm-item', `<span class="bm-ic">${ICONS[BUILD_ICON[key]]}</span><span class="bm-nm">${def.name}</span><span class="bm-cost">${cost}</span>`);
+      b.setAttribute('aria-label', def.name);
+      if (key === 'herbalgarden' || key === 'herbalist') {
+        const purpose = el('span', 'bm-purpose');
+        purpose.textContent = key === 'herbalgarden' ? 'Grow herbs' : 'Make medicine';
+        b.querySelector('.bm-nm')?.after(purpose);
+      }
       b.onclick = () => this.game.startPlacing(key);
       this.addTip(b, `<b>${def.name}</b><br>${def.description}<br><span class="c">${cost || 'Free'} · ${def.size[0]}×${def.size[1]}</span>`);
       grid.appendChild(b);

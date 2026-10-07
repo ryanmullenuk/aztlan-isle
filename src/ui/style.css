@@ -698,3 +698,5 @@ p.warn { color: #ffb08a; }
 .toast { font-size: 11px; line-height: 1.35; padding: 7px 10px; max-width: min(290px, 100%); box-sizing: border-box; }
 .alert-panel { font-size: 11px; line-height: 1.4; }
 .bm-nm { white-space: normal; line-height: 1.2; text-align: center; }
+
+.bm-purpose { font-size: 10px; line-height: 1.2; color: var(--gold, #e8b84a); }
