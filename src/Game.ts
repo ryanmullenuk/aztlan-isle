@@ -100,6 +100,9 @@ export interface GameOptions {
   /** Textured islander models (null = procedural figures). */
 }
 
+/** Share of the resolution drawn while the camera is moving. */
+const MOTION_RES = 0.7;
+
 export interface Settings {
   preset: PresetName;
   dof: boolean;
@@ -128,6 +131,8 @@ export interface Settings {
   instantBuild: boolean;
   /** Share of the preset's resolution actually rendered (auto quality lowers it on slow devices). */
   renderScale: number;
+  /** Draw at a lower resolution while the camera moves, sharpening the moment it stops. */
+  motionRes: boolean;
 }
 
 /** Minimal interface the UI and colony use for sound (implemented by the audio engine). */
@@ -842,7 +847,7 @@ export class Game {
   }
 
   private loadSettings(preset: PresetName): Settings {
-    const def: Settings = { preset, dof: true, dofStrength: RENDER.dof.strength, volume: 0.7, music: 0.5, muted: false, fps: false, showMap: false, autoQuality: true, shadows: true, dayNight: true, weather: true, motion: true, pixel: false, instantBuild: false, renderScale: 1 };
+    const def: Settings = { preset, dof: true, dofStrength: RENDER.dof.strength, volume: 0.7, music: 0.5, muted: false, fps: false, showMap: false, autoQuality: true, shadows: true, dayNight: true, weather: true, motion: true, pixel: false, instantBuild: false, renderScale: 1, motionRes: true };
     try {
       const s = JSON.parse(localStorage.getItem(SAVE.settingsKey) ?? 'null');
       if (s) return { ...def, ...s };
@@ -855,7 +860,7 @@ export class Game {
   /** Render resolution: device pixels capped by the preset, or ~380 px tall in pixel style. */
   private pixelRatio(): number {
     if (this.settings.pixel) return Math.min(1, Math.max(0.18, RENDER.pixelStyleHeight / Math.max(1, window.innerHeight)));
-    const scale = Math.min(1, Math.max(0.5, this.settings.renderScale || 1));
+    const scale = Math.min(1, Math.max(0.5, this.settings.renderScale || 1)) * (this.lowRes ? MOTION_RES : 1);
     return Math.min(window.devicePixelRatio, RENDER.presets[this.preset ?? this.settings.preset].pixelRatio) * scale;
   }
 
@@ -2010,6 +2015,8 @@ export class Game {
     this.turtles.update(dt);
     this.gators.update(dt);
     this.defence.update(dt);
+    this.buildings.camPos.copy(this.rig.camera.position);
+    this.buildings.lodDist = RENDER.presets[this.preset].lodDist;
     this.buildings.update(dt, t, ls.night, this.time.seasonIndex, this.raining, this.rig.target);
     this.updateSettlers(dt);
     this.updateIntroCamera(realDt);
@@ -2091,7 +2098,35 @@ export class Game {
     }
   }
 
+  /** Drawing at the lower moving resolution, and how long the camera has been still. */
+  private lowRes = false;
+  private stillFor = 0;
+  private lastCam = new THREE.Matrix4();
+
+  /**
+   * While the camera pans, zooms or turns, draw fewer pixels (motion hides the softness and the
+   * frame rate holds up); once it has been still for a moment, switch back to full sharpness. The
+   * switch itself costs a few milliseconds, so it happens only when movement starts and stops.
+   */
+  private motionResolution(realDt: number): void {
+    const cam = this.rig.camera;
+    cam.updateMatrixWorld();
+    const e = cam.matrixWorld.elements, l = this.lastCam.elements;
+    let change = 0;
+    for (let i = 0; i < 16; i++) change = Math.max(change, Math.abs(e[i] - l[i]));
+    this.lastCam.copy(cam.matrixWorld);
+    // Translation is in world units: compare it against how far out the camera is.
+    const moved = change > 0.0015 * Math.max(1, cam.position.distanceTo(this.rig.target) * 0.05);
+    this.stillFor = moved ? 0 : this.stillFor + realDt;
+    const want = this.settings.motionRes && !this.settings.pixel && this.playing && (moved || (this.lowRes && this.stillFor < 0.25));
+    if (want === this.lowRes) return;
+    this.lowRes = want;
+    this.renderer.setPixelRatio(this.pixelRatio());
+    this.resize();
+  }
+
   private render(realDt: number): void {
+    this.motionResolution(realDt);
     frameShadows(this.renderer);
     const focus = this.rig.camera.position.distanceTo(this.rig.target);
     this.post.render(realDt, focus, this.lighting.state.night);
