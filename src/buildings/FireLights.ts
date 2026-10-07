@@ -105,8 +105,9 @@ export class FireLights {
       if (l.level === 0 && !l.want) l.key = null;
       const ph = l.phase;
       const f = 1 + 0.07 * Math.sin(time * 2.1 + ph) + 0.05 * Math.sin(time * 3.3 + ph * 1.3) + 0.03 * Math.sin(time * 5.9 + ph * 0.7);
+      // Only ever dimmed, never hidden: changing how many lights are visible makes every lit
+      // material recompile its shader (a visible hitch at dusk and dawn).
       l.light.intensity = dusk * l.level * (l.big ? 3.2 : 1.9) * f;
-      l.light.visible = l.light.intensity > 0.001;
     }
   }
 
