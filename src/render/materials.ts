@@ -225,10 +225,46 @@ function patchBuilding(mat: THREE.MeshStandardMaterial): THREE.MeshStandardMater
   mat.onBeforeCompile = (shader, r) => {
     prev.call(mat, shader, r);
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vBldW;\nvarying vec3 vBldN;\nvarying float vBldBase;')
+      .replace(
+        '#include <common>',
+        `#include <common>
+        varying vec3 vBldW;
+        varying vec3 vBldN;
+        varying float vBldBase;
+        float bvHash(vec3 p) {
+          p = fract(p * 0.1031);
+          p += dot(p, p.zyx + 31.32);
+          return fract((p.x + p.y) * p.z);
+        }
+        float bvNoise(vec3 p) {
+          vec3 i = floor(p), f = fract(p);
+          vec3 u = f * f * (3.0 - 2.0 * f);
+          return mix(
+            mix(mix(bvHash(i), bvHash(i + vec3(1, 0, 0)), u.x), mix(bvHash(i + vec3(0, 1, 0)), bvHash(i + vec3(1, 1, 0)), u.x), u.y),
+            mix(mix(bvHash(i + vec3(0, 0, 1)), bvHash(i + vec3(1, 0, 1)), u.x), mix(bvHash(i + vec3(0, 1, 1)), bvHash(i + vec3(1, 1, 1)), u.x), u.y),
+            u.z);
+        }`
+      )
       .replace(
         '#include <project_vertex>',
-        `#include <project_vertex>
+        `#ifndef USE_INSTANCING
+        // Hand-built, not machined: walls lean a little this way and that, rooflines and parapets
+        // sag and hump, and long faces wander. A smooth field over the model's own coordinates (so
+        // touching parts move together and nothing cracks open), seeded by where the building
+        // stands, growing with height so the footings stay planted. Plants and anything that sways
+        // in the wind are left alone (so leaves stay on their stems).
+        if (aVeg.x == 0.0 && aVeg.y < 0.5) {
+          vec3 bs = vec3(modelMatrix[3].x, 0.0, modelMatrix[3].z) * 0.37;
+          float hgt = max(transformed.y, 0.0);
+          float up = smoothstep(0.02, 0.45, hgt);
+          vec3 lp = transformed + bs;
+          vec2 lean = vec2(bvNoise(lp * 0.55 + 3.1), bvNoise(lp * 0.55 + 17.3)) - 0.5;
+          vec2 wav = vec2(bvNoise(lp * 2.3 + 8.7), bvNoise(lp * 2.3 - 4.2)) - 0.5;
+          transformed.xz += lean * 0.06 * min(hgt, 3.0) + wav * 0.03 * up;
+          transformed.y += (bvNoise(lp * 1.4 + 21.0) - 0.5) * 0.045 * up;
+        }
+        #endif
+        #include <project_vertex>
         {
           vec4 bw = vec4(transformed, 1.0);
           vec3 bn = objectNormal;
@@ -260,16 +296,29 @@ function patchBuilding(mat: THREE.MeshStandardMaterial): THREE.MeshStandardMater
           vec2 u = f * f * (3.0 - 2.0 * f);
           return mix(mix(bHash(i), bHash(i + vec2(1.0, 0.0)), u.x), mix(bHash(i + vec2(0.0, 1.0)), bHash(i + vec2(1.0, 1.0)), u.x), u.y);
         }
-        // Staggered block courses: x = mortar coverage (0..1), y = per-block random, z = distance to nearest joint.
-        vec3 bBlocks(vec2 p, vec2 size, float jitter, float mortarW, float pw) {
+        // Hand-laid block courses. x = mortar coverage (0..1), y and w = per-block randoms, z = distance
+        // to the nearest joint. Courses wander and differ in height, every course has its own block
+        // length and every joint is nudged, blocks are a little out of square with rounded, chipped
+        // arrises, and the mortar fattens and thins along the joints.
+        vec4 bBlocks(vec2 p, vec2 size, float mortarW, float pw) {
           vec2 q = p / size;
+          q.y += (bNoise(vec2(q.x * 0.23, 3.7)) - 0.5) * 0.6;
+          q.y += (bNoise(vec2(1.9, q.y * 0.41)) - 0.5) * 0.7;
           float row = floor(q.y);
-          q.x += fract(row * 0.5) + (bHash(vec2(row, 7.13)) - 0.5) * jitter;
-          vec2 id = floor(q);
+          float len = mix(0.7, 1.35, bHash(vec2(row, 2.9)));
+          q.x = q.x / len + bHash(vec2(row, 7.13)) * 3.0;
+          q.x += (bNoise(vec2(q.x * 0.9, row * 1.7)) - 0.5) * 0.55;
+          vec2 id = vec2(floor(q.x), row);
           vec2 f = fract(q);
-          vec2 e = min(f, 1.0 - f) * size;
-          float d = min(e.x, e.y);
-          return vec3(1.0 - smoothstep(mortarW, mortarW + pw * 1.5, d), bHash(id + vec2(3.7, 11.1)), d);
+          float r1 = bHash(id + vec2(3.7, 11.1)), r2 = bHash(id + vec2(9.2, 1.3));
+          f.y += (f.x - 0.5) * (r2 - 0.5) * 0.3;
+          vec2 sz = size * vec2(len, 1.0);
+          vec2 e = min(f, 1.0 - f) * sz;
+          float cr = mix(0.25, 0.6, r1) * min(sz.x, sz.y) * 0.35;
+          float d = min(min(e.x, e.y), cr - length(max(vec2(cr) - e, 0.0)));
+          d += (bNoise(p * 38.0 + r1 * 17.0) - 0.5) * size.y * 0.16;
+          float mw = mortarW * mix(0.55, 1.9, bNoise(p * 7.0 + 2.3));
+          return vec4(1.0 - smoothstep(mw, mw + pw * 1.5, d), r1, d, r2);
         }`
       )
       .replace(
@@ -325,6 +374,12 @@ function patchBuilding(mat: THREE.MeshStandardMaterial): THREE.MeshStandardMater
           float hb = vBldW.y - vBldBase;
           m *= mix(1.0, mix(0.84, 1.0, smoothstep(-0.02, 0.3, hb)), (wallW * 0.85 + 0.15) * wAll);
           float desat = 0.0;
+          // Hairline cracks wandering across walls here and there, and damp stains low down.
+          float ck = abs(bNoise(suv * vec2(2.6, 1.6) + 40.0) - 0.5);
+          float crack = (1.0 - smoothstep(0.004, 0.012 + pw * 0.6, ck)) * smoothstep(0.62, 0.72, bNoise(suv * 0.7 + 9.0));
+          m *= 1.0 - crack * 0.22 * wallW * wAll * fadeFine * (1.0 - thatchW);
+          float damp = smoothstep(0.35, 0.0, hb + (bNoise(suv * vec2(3.0, 0.5)) - 0.5) * 0.35);
+          m *= 1.0 - damp * 0.08 * wallW * wAll * (1.0 - thatchW);
 
           float mudW = max(adobeW, plasterW) * wAll;
           if (mudW > 0.01) {
@@ -334,11 +389,16 @@ function patchBuilding(mat: THREE.MeshStandardMaterial): THREE.MeshStandardMater
             float patchM = smoothstep(thr - 0.03, thr + 0.03, pn);
             float rim = smoothstep(thr - 0.04, thr, pn) * (1.0 - smoothstep(thr, thr + 0.05, pn));
             vec2 bp = suv + (n2 - 0.5) * vec2(0.012, 0.006);
-            vec3 bk = bBlocks(bp, vec2(0.16, 0.08), 0.35, 0.0045, pw);
+            vec4 bk = bBlocks(bp, vec2(0.16, 0.08), 0.0045, pw);
             float bricks = wallW * fadeFine * (1.0 - patchM) * max(adobeW, plasterW * 0.45) * wAll;
-            m *= 1.0 - bk.x * 0.18 * bricks;
-            m *= 1.0 + (bk.y - 0.5) * 0.1 * bricks;
-            m *= 1.0 - (1.0 - smoothstep(0.0, 0.018, bk.z)) * 0.04 * bricks;
+            m *= 1.0 - bk.x * 0.2 * bricks;
+            m *= 1.0 + (bk.y - 0.5) * 0.18 * bricks;
+            // Pillowed faces, darker toward their worn edges.
+            m *= 1.0 - (1.0 - smoothstep(0.0, 0.02, bk.z)) * 0.07 * bricks;
+            // Odd bricks: darker replacements, pale sun-bleached ones, a few sunk deep in shadow.
+            m *= 1.0 - step(0.9, bk.w) * 0.14 * bricks;
+            m *= 1.0 + step(bk.w, 0.07) * 0.1 * bricks;
+            m *= 1.0 - step(0.82, bk.y) * step(bk.w, 0.25) * 0.2 * bricks;
             float tone = mix(0.95, 1.05, step(0.5, bNoise(suv * 0.9 + 11.0)));
             m *= mix(1.0, tone, patchM * mudW);
             m *= 1.0 - rim * 0.06 * mudW;
@@ -347,11 +407,14 @@ function patchBuilding(mat: THREE.MeshStandardMaterial): THREE.MeshStandardMater
           float stW = stoneW * wAll * max(wallW, topW);
           if (stW > 0.01) {
             vec2 sz = mix(vec2(0.42, 0.22), vec2(0.42, 0.34), topW);
-            vec3 sb = bBlocks(suv + (n1 - 0.5) * 0.02, sz, 0.6, 0.0045, pw);
+            vec4 sb = bBlocks(suv + (n1 - 0.5) * 0.04, sz, 0.006, pw);
             float sw = stW * fadeStone;
-            m *= 1.0 - sb.x * 0.12 * sw;
-            m *= 1.0 + (sb.y - 0.5) * 0.09 * sw;
-            m *= 1.0 + (smoothstep(0.0, 0.05, sb.z) - 0.5) * 0.05 * sw;
+            m *= 1.0 - sb.x * 0.16 * sw;
+            m *= 1.0 + (sb.y - 0.5) * 0.15 * sw;
+            // Dressed by hand: domed faces, and a few weathered or newer blocks.
+            m *= 1.0 + (smoothstep(0.0, 0.06, sb.z) - 0.5) * 0.08 * sw;
+            m *= 1.0 - step(0.88, sb.w) * 0.1 * sw;
+            m *= 1.0 + step(sb.w, 0.08) * 0.08 * sw;
             m *= 1.0 + (bNoise(suv * 22.0) - 0.5) * 0.08 * stW * fadeFine;
           }
           float thW = thatchW * wAll;
@@ -375,7 +438,7 @@ function patchBuilding(mat: THREE.MeshStandardMaterial): THREE.MeshStandardMater
         }`
       );
   };
-  mat.customProgramCacheKey = () => 'building-sandstone-v2';
+  mat.customProgramCacheKey = () => 'building-handmade-v3';
   return mat;
 }
 

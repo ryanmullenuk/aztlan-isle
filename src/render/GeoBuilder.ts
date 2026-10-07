@@ -282,6 +282,18 @@ export function tube(points: THREE.Vector3[], radius: (t: number) => number, rad
   return g;
 }
 
+/** Turn a tube's faces to face outwards (tube() winds them inwards, which only thin stems get away with). */
+export function outward(g: THREE.BufferGeometry): THREE.BufferGeometry {
+  const I = g.index!;
+  for (let i = 0; i < I.count; i += 3) {
+    const a = I.getX(i + 1);
+    I.setX(i + 1, I.getX(i + 2));
+    I.setX(i + 2, a);
+  }
+  g.computeVertexNormals();
+  return g;
+}
+
 /** Flat-shaded (faceted) copy of a geometry: every triangle gets its own normal. */
 export function facet(g: THREE.BufferGeometry): THREE.BufferGeometry {
   const ng = g.index ? g.toNonIndexed() : g.clone();
