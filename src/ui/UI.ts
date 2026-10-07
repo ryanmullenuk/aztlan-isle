@@ -1,6 +1,6 @@
 import { serialize } from '../world/Save';
 import { islandFile, parseIslandFile, downloadIsland, MAX_ISLAND_FILE_BYTES } from '../world/IslandFile';
-import { DEFENCE, DOGS, GOODS, GOOD_KEYS, GoodKey, VOYAGE, FAUNA, PATHS, BUILDINGS, BuildingKey, CAMERA, JETTY, MILESTONES, PresetName, SAVE, SPECIES, WARRIOR, FARM_TYPES, SMOKE, TRADE, TradeOffer, ResourceKey } from '../config';
+import { DEFENCE, DOGS, GOODS, GOOD_KEYS, GoodKey, VOYAGE, FAUNA, PATHS, BUILDINGS, BuildingKey, CAMERA, JETTY, MILESTONES, PresetName, SAVE, SPECIES, WARRIOR, FARM_TYPES, SMOKE, STONEMASON, TRADE, TradeOffer, ResourceKey } from '../config';
 import { MONKEY_BASE } from '../entities/Monkeys';
 import { DOG_BASE } from '../entities/Dogs';
 import { JAG_BASE } from '../entities/Jaguars';
@@ -1164,7 +1164,7 @@ export class UI {
         <div class="actions"><button class="btn small" data-a="capture" ${free && (!d.needsPen || hasPen) ? '' : 'disabled'}>${ICONS.harvest} ${label}</button></div>
         <p class="muted small">Tip: select an islander first, then tap an animal to send them after it.</p>`;
     } else if (b) {
-      key = `b${b.id}|${Math.floor(g.eco.goods.carvedstone)}|${g.buildings.constructionRequirement('home')}|${b.key === 'tradedock' ? g.trade.visitKey(b) + '|' + g.voyage.key() + '|' + JSON.stringify(g.eco.goods) : ''}|${b.key === 'greathall' ? JSON.stringify(g.colony.hallCount(b)) : ''}|${b.key === 'healer' ? g.colony.patients(b).map((p) => `${p.id}:${p.condition}:${Math.ceil(p.conditionT / 60)}:${p.task?.slot}:${g.colony.canCure(p)}`).join(',') + JSON.stringify(g.eco.goods) : ''}|${b.key === 'watchtower' ? `${g.defence.stats(b).shots}|${g.defence.stats(b).kills}|` : ''}${b.key === 'kennel' ? `${g.dogs.alive.length}|${g.dogs.alive.filter((d) => d.puppy).length}|${Math.ceil(b.breedT)}|${Math.ceil(b.breedCool / 5)}|${b.dogRole}|${Math.floor(g.eco.food / 4)}|` : ''}${b.key === 'herbalist' || b.key === 'stonemason' ? JSON.stringify(g.eco.goods) : ''}|${b.complete}|${Math.round(b.progress * 50)}|${b.tier}|${b.residents.length}|${b.upgrading}|${Math.round(b.growth * 20)}|${b.boats.length}|${b.boatBuild > 0}|${b.training.length}|${Math.floor(g.eco.res.wood / 5)}|${Math.floor(g.eco.res.stone / 5)}|${Math.floor(g.eco.res.belief / 5)}`;
+      key = `b${b.id}|${Math.floor(g.eco.goods.carvedstone)}|${g.buildings.constructionRequirement('home')}|${g.buildings.list.filter(x=>x.key==='stonemason' && x.complete).map(x=>x.tier).join(',')}|${Math.floor(g.eco.food)}|${b.key === 'tradedock' ? g.trade.visitKey(b) + '|' + g.voyage.key() + '|' + JSON.stringify(g.eco.goods) : ''}|${b.key === 'greathall' ? JSON.stringify(g.colony.hallCount(b)) : ''}|${b.key === 'healer' ? g.colony.patients(b).map((p) => `${p.id}:${p.condition}:${Math.ceil(p.conditionT / 60)}:${p.task?.slot}:${g.colony.canCure(p)}`).join(',') + JSON.stringify(g.eco.goods) : ''}|${b.key === 'watchtower' ? `${g.defence.stats(b).shots}|${g.defence.stats(b).kills}|` : ''}${b.key === 'kennel' ? `${g.dogs.alive.length}|${g.dogs.alive.filter((d) => d.puppy).length}|${Math.ceil(b.breedT)}|${Math.ceil(b.breedCool / 5)}|${b.dogRole}|${Math.floor(g.eco.food / 4)}|` : ''}${b.key === 'herbalist' || b.key === 'stonemason' ? JSON.stringify(g.eco.goods) : ''}|${b.complete}|${Math.round(b.progress * 50)}|${b.tier}|${b.residents.length}|${b.upgrading}|${Math.round(b.growth * 20)}|${b.boats.length}|${b.boatBuild > 0}|${b.training.length}|${Math.floor(g.eco.res.wood / 5)}|${Math.floor(g.eco.res.stone / 5)}|${Math.floor(g.eco.res.belief / 5)}`;
       html = this.buildingHtml(b);
     }
     if (!force && key === this.infoKey) return;
@@ -1188,7 +1188,7 @@ export class UI {
     }
     const workers = g.colony.list.filter((i) => i.workplace === b.id && b.complete);
     if (b.complete && b.def.workers) body += `<div class="kv"><span>Workers</span><b>${workers.map((w) => w.name).join(', ') || 'None yet'}</b></div>`;
-    if (b.key === 'stonemason' && b.complete) body += `<div class="kv"><span>Carved stone in store</span><b>${Math.floor(g.eco.goods.carvedstone)}</b></div><p class="muted small">Each stonemason turns 4 raw stone into 2 carved stone per minute of work. Unlocks all buildings and stone upgrades.</p>`;
+    if (b.key === 'stonemason' && b.complete) body += `<div class="kv"><span>Carved stone in store</span><b>${Math.floor(g.eco.goods.carvedstone)}</b></div><p class="muted small">Each stonemason turns 4 raw stone into 2 carved stone per minute of work. Workshop upgrade ${b.tier - 1} / 3. ${b.tier === 1 ? 'Houses and village buildings unlocked.' : b.tier === 2 ? 'Temples unlocked.' : b.tier === 3 ? 'Great Pyramid upgrades unlocked.' : 'Great Temple unlocked.'}</p>`;
     if (b.key === 'herbalist' && b.complete) body += this.bar('Making medicine', b.growth, 'good') + `<div class="kv"><span>Delivered herb bundles</span><b>${Math.floor(g.eco.goods.herbs)}</b></div><div class="kv"><span>Medicine in store</span><b>${Math.floor(g.eco.goods.medicine)}</b></div><p class="muted small">One herb bundle → one medicine every three game minutes. ${b.stock > 0 ? 'Processing a herb bundle.' : g.eco.goods.medicine >= 40 ? 'Medicine store full.' : 'Waiting for herbs from a Herbal Garden.'}</p>`;
     if (b.key === 'herbalgarden' && b.complete) body += `<p class="muted small">Farmers harvest these beds and deliver herbs to a completed Herbalist’s Garden.${g.buildings.of('herbalist').length ? '' : ' Build a Herbalist’s Garden to receive the harvest.'}</p>`;
     if (b.key === 'healer' && b.complete) body += `<p class="muted small">Medicine treatment: 60 seconds for sickness, 90 seconds for wounds. One medicine per patient; treatment pauses when medicine runs out.</p>`;
@@ -1258,11 +1258,11 @@ export class UI {
     if (b.complete && (b.key === 'pigpen' || b.key === 'chickenpen')) actions += `<button class="btn small" data-a="roundup">${ICONS.people} ROUND UP</button><p class="muted small">Send idle adults to catch ${b.key === 'pigpen' ? 'pigs' : 'chickens'} and bring them to this pen.</p>`;
     if (b.key === 'greathall' && b.complete) actions += `<button class="btn small" data-a="bell">${ICONS.bell} Ring the bell (drill)</button>`;
     const up = g.buildings.canUpgrade(b);
-    if (b.complete && !b.upgrading && (b.key === 'hut' || (b.key === 'home' && b.tier < (b.def.maxTier ?? 1)) || (b.key === 'temple' && b.tier < 3))) {
+    if (b.complete && !b.upgrading && (b.key === 'hut' || (b.key === 'home' && b.tier < (b.def.maxTier ?? 1)) || (b.key === 'temple' && b.tier < 3) || (b.key === 'stonemason' && b.tier < 4))) {
       const c = up.cost;
       const next = [4, 7, 12, 16][b.key === 'hut' ? 0 : b.tier];
-      const label = b.key === 'hut' ? 'Upgrade to level 2 (4 people)' : b.key === 'home' ? `Upgrade to level ${b.tier + 2} (${next} people)` : b.tier === 2 ? 'Raise the Great Pyramid' : 'Upgrade temple';
-      actions += `<button class="btn small" data-a="upgrade" ${up.ok ? '' : 'disabled'} title="${up.reason}">${ICONS.upgrade} ${label} <span class="c">${c.wood ? icon('wood') + c.wood : ''} ${c.stone ? icon('stone') + c.stone : ''} ${c.belief ? icon('belief') + c.belief : ''} ${c.carvedStone ? icon('carvedstone') + c.carvedStone : ''}</span></button>`;
+      const label = b.key === 'stonemason' ? `Workshop upgrade ${b.tier}: ${STONEMASON.upgrades[b.tier - 1].unlock}` : b.key === 'hut' ? 'Upgrade to level 2 (4 people)' : b.key === 'home' ? `Upgrade to level ${b.tier + 2} (${next} people)` : b.tier === 2 ? 'Raise the Great Pyramid' : 'Upgrade temple';
+      actions += `<button class="btn small" data-a="upgrade" ${up.ok ? '' : 'disabled'} title="${up.reason}">${ICONS.upgrade} ${label} <span class="c">${c.wood ? icon('wood') + c.wood : ''} ${c.stone ? icon('stone') + c.stone : ''} ${c.belief ? icon('belief') + c.belief : ''} ${c.carvedStone ? icon('carvedstone') + c.carvedStone : ''} ${c.food ? icon('grain') + c.food + ' food' : ''}</span></button>`;
     }
     if (b.key === 'jetty' && b.complete) {
       const c = JETTY.boatCost;

@@ -1,6 +1,6 @@
 import { ECONOMY, FOOD_KEYS, GoodKey, ResourceKey, TEMPLE } from '../config';
 
-export type Cost = { wood: number; stone: number; belief: number; carvedStone?: number };
+export type Cost = { wood: number; stone: number; belief: number; carvedStone?: number; food?: number };
 
 /** Global stockpile. Physical delivery is simulated by carriers; this tracks the totals and capacities. */
 export class Economy {
@@ -40,7 +40,7 @@ export class Economy {
 
   canAfford(c: Cost): boolean {
     if (this.godMode) return true;
-    return this.res.wood >= c.wood && this.res.stone >= c.stone && this.res.belief >= c.belief && this.goods.carvedstone >= (c.carvedStone ?? 0);
+    return this.res.wood >= c.wood && this.res.stone >= c.stone && this.res.belief >= c.belief && this.goods.carvedstone >= (c.carvedStone ?? 0) && this.food >= (c.food ?? 0);
   }
 
   spend(c: Cost): boolean {
@@ -50,6 +50,13 @@ export class Economy {
     this.res.stone -= c.stone;
     this.res.belief -= c.belief;
     this.goods.carvedstone -= c.carvedStone ?? 0;
+    let food = c.food ?? 0;
+    for (const key of [...FOOD_KEYS].sort((a,b) => this.res[b] - this.res[a])) {
+      const take = Math.min(food, this.res[key]);
+      this.res[key] -= take;
+      food -= take;
+      if (food <= 0) break;
+    }
     return true;
   }
 
@@ -58,6 +65,7 @@ export class Economy {
     this.add('stone', Math.floor(c.stone * frac));
     this.add('belief', Math.floor(c.belief * frac));
     this.goods.carvedstone += Math.floor((c.carvedStone ?? 0) * frac);
+    this.add('grain', Math.floor((c.food ?? 0) * frac));
   }
 
   /** Take one meal. Returns the food type eaten (variety-weighted), or null. */

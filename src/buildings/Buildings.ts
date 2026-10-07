@@ -2,7 +2,7 @@ import { Demolition } from './Demolition';
 import { villageFire, fireEmbers } from './VillageFire';
 import * as THREE from 'three';
 import { processMedicine } from './Herbalist';
-import { needsStonemason, masonryCost } from '../config';
+import { needsStonemason, masonryCost, STONEMASON } from '../config';
 import { BUILDINGS, BuildingDef, BuildingKey, ECONOMY, FARM, HOMES, JETTY, TEMPLE, FARM_TYPES, isFarm } from '../config';
 import { Economy, Cost } from '../economy/Economy';
 import { buildingMaterial, canopyMaterial, fireMaterial, flameMaterial, FX } from '../render/materials';
@@ -280,8 +280,12 @@ export class BuildingSystem {
    * as free and it costs nothing.
    */
   constructionRequirement(key: BuildingKey): string {
-    return !this.eco.godMode && needsStonemason(key) && !this.list.some(b => b.key === 'stonemason' && b.complete && !b.upgrading)
-      ? 'Complete a Stonemason’s Workshop first' : '';
+    if (this.eco.godMode || !needsStonemason(key)) return '';
+    const tier = Math.max(0, ...this.list.filter(b => b.key === 'stonemason' && b.complete).map(b => b.tier));
+    if (tier === 0) return 'Complete a Stonemason’s Workshop first';
+    if (key === 'temple' && tier < 2) return 'Stonemason upgrade 1 required: unlock Temples';
+    if (key === 'greattemple' && tier < 4) return 'Stonemason upgrade 3 required: unlock the Great Temple';
+    return '';
   }
 
   canPlace(key: BuildingKey, cx: number, cz: number, rot: number, moving?: Building): { ok: boolean; reason: string } {
@@ -469,10 +473,16 @@ export class BuildingSystem {
   /** Upgrade a hut into a home, or a temple to the next tier. */
   canUpgrade(b: Building): { ok: boolean; reason: string; cost: Cost } {
     if (!b.complete || b.upgrading) return { ok: false, reason: 'Busy', cost: { wood: 0, stone: 0, belief: 0 } };
-    if (!this.eco.godMode && !this.list.some(x => x.key === 'stonemason' && x.complete && !x.upgrading)) return { ok: false, reason: 'Complete a Stonemason’s Workshop first', cost: { wood: 0, stone: 0, belief: 0 } };
+    if (b.key === 'stonemason') {
+      const next = STONEMASON.upgrades[b.tier - 1];
+      if (!next) return { ok: false, reason: 'Fully upgraded', cost: { wood: 0, stone: 0, belief: 0 } };
+      return this.eco.canAfford(next.cost) ? { ok: true, reason: '', cost: next.cost } : { ok: false, reason: 'Not enough wood, stone or food', cost: next.cost };
+    }
+    if (!this.eco.godMode && !this.list.some(x => x.key === 'stonemason' && x.complete)) return { ok: false, reason: 'Complete a Stonemason’s Workshop first', cost: { wood: 0, stone: 0, belief: 0 } };
     if (b.key === 'temple') {
       if (b.tier >= (b.def.maxTier ?? 1)) return { ok: false, reason: 'Already the Great Pyramid', cost: { wood: 0, stone: 0, belief: 0 } };
       const cost = masonryCost(this.eco.templeUpgradeCost(b.tier + 1));
+      if (!this.eco.godMode && !this.list.some(x => x.key === 'stonemason' && x.complete && x.tier >= 3)) return { ok: false, reason: 'Stonemason upgrade 2 required: unlock Great Pyramid upgrades', cost };
       return this.eco.canAfford(cost) ? { ok: true, reason: '', cost } : { ok: false, reason: 'Not enough resources', cost };
     }
     if (b.key === 'home') {
@@ -498,7 +508,7 @@ export class BuildingSystem {
   upgrade(b: Building): Building | null {
     const chk = this.canUpgrade(b);
     if (!chk.ok) return null;
-    if (b.key === 'temple' || b.key === 'home') {
+    if (b.key === 'temple' || b.key === 'home' || b.key === 'stonemason') {
       this.eco.spend(chk.cost);
       b.upgrading = true;
       b.progress = 0;
@@ -599,7 +609,7 @@ export class BuildingSystem {
       case 'firepit': return models.firepitModel();
       case 'kennel': return models.kennelModel();
       case 'greathall': return models.greatHallModel();
-      case 'stonemason': return models.stonemasonModel();
+      case 'stonemason': return models.stonemasonModel(b.tier);
       case 'herbalgarden': return models.herbalGardenModel();
       case 'herbalist': return models.herbalistModel();
       case 'healer': return models.healingCentreModel();
@@ -775,7 +785,7 @@ export class BuildingSystem {
 
   /** Called by builders every frame they work. */
   addProgress(b: Building, dt: number): void {
-    const time = b.upgrading ? (b.key === 'home' ? HOMES.upgradeTime[b.tier + 1] : TEMPLE.upgradeTime[b.tier + 1]) : b.def.buildTime;
+    const time = b.upgrading ? (b.key === 'stonemason' ? (STONEMASON.upgrades[b.tier - 1]?.time ?? b.def.buildTime) : b.key === 'home' ? HOMES.upgradeTime[b.tier + 1] : TEMPLE.upgradeTime[b.tier + 1]) : b.def.buildTime;
     b.progress = Math.min(1, b.progress + dt / time);
     if (b.progress >= 1) this.finish(b);
     else this.updateStageVisuals(b);

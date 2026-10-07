@@ -2330,7 +2330,7 @@ function medicinalCrops(ripe: boolean): THREE.BufferGeometry {
 }
 
 /** Shaded carving yard: substantial stone workpieces, chips and an unfinished glyph pillar. */
-export function stonemasonModel(): BuildingModel {
+export function stonemasonModel(tier = 1): BuildingModel {
   const b = new GeoBuilder(), rng = new RNG(912);
   b.add(P.rbox(3.7, 0.10, 2.8, 0.025, 1), { color: c(0xbba587) }, M.t(0, 0.05, 0));
   for (const x of [-1.6,1.6]) for (const z of [-1.1,0.65]) b.add(P.cyl(0.065,0.075,1.7,6), { color: K.timber }, M.t(x,0.95,z));
@@ -2349,5 +2349,12 @@ export function stonemasonModel(): BuildingModel {
   for(const [x,y,w,h] of [[-0.98,0.72,0.20,0.035],[-0.9,0.82,0.035,0.22],[-0.81,0.91,0.20,0.035]]) b.add(P.box(w,h,0.018), { color: K.stoneDark }, M.t(x,y,-0.45));
   for(let k=0;k<6;k++) b.add(P.rbox(0.42,0.26,0.4,0.025,1), { color: k%2?K.stone:K.stoneDark }, M.t(0.6+(k%3)*0.42,0.23+Math.floor(k/3)*0.26,-0.8));
   for(let k=0;k<24;k++) b.add(P.sphere(rng.range(0.025,0.065),0), { color: k%2?K.stone:K.stoneDark }, M.t(rng.range(-1.5,1.5),0.12,rng.range(0.25,1.3),0,rng.range(0,6),0,1,0.45,0.8));
+  // Completed training stages are shown as carved sandstone tablets at the rear of the yard.
+  for (let k = 0; k < Math.min(3, tier - 1); k++) {
+    const x = -0.45 + k * 0.48;
+    b.add(P.rbox(0.40, 0.65, 0.10, 0.02, 1), { color: K.stone }, M.t(x, 1.22, -1.1));
+    for (let step = 0; step < k + 2; step++) b.add(P.box(0.30 - step * 0.055, 0.045, 0.018), { color: K.stoneDark }, M.t(x, 1.05 + step * 0.09, -1.04));
+    b.add(P.box(0.08, 0.18, 0.02), { color: K.terracotta }, M.t(x, 1.12, -1.03));
+  }
   return { finished:b.build(), torches:[], height:1.9 };
 }

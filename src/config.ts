@@ -279,7 +279,7 @@ export interface BuildingDef {
 export const BUILDINGS: Record<BuildingKey, BuildingDef> = {
   campfire: { key: 'campfire', name: 'Tribal Fire', description: 'The heart of the tribe. Stores a little of everything.', size: [2, 2], cost: { wood: 0, stone: 0, belief: 0 }, buildTime: 1, builders: 1, workers: 0, placeable: false },
   hut: { key: 'hut', name: 'Hut', description: 'Level 1 house: a small adobe home for 2 islanders.', size: [2, 2], cost: { wood: 12, stone: 0, belief: 0 }, buildTime: 22, builders: 2, workers: 0, housing: 2, upgradeTo: 'home', placeable: true },
-  stonemason: { key: 'stonemason', name: 'Stonemason’s Workshop', description: 'Stone blocks, unfinished carvings and tools beneath a shaded timber workspace. Two stonemasons turn 4 raw stone into 2 carved stone per minute of work. Complete this workshop to unlock buildings beyond Huts. Carved stone is required for stone buildings and house or temple upgrades.', size: [4, 3], cost: { wood: 24, stone: 12, belief: 0 }, buildTime: 40, builders: 2, workers: 2, placeable: true },
+  stonemason: { key: 'stonemason', name: 'Stonemason’s Workshop', description: 'Stone blocks, unfinished carvings and tools beneath a shaded timber workspace. Two stonemasons turn 4 raw stone into 2 carved stone per minute of work. Complete this workshop to unlock houses and village buildings. Three further upgrades unlock Temples, Great Pyramid upgrades and the Great Temple. Carved stone is required for stone buildings and house or temple upgrades.', size: [4, 3], cost: { wood: 24, stone: 12, belief: 0 }, buildTime: 40, builders: 2, workers: 2, maxTier: 4, placeable: true },
   home: { key: 'home', name: 'Family House', description: 'Adobe family house (level 2, 4 people). Upgrade it up to level 5 for 16. A couple in any house may have one child, who plays around the village.', size: [3, 3], cost: { wood: 26, stone: 14, belief: 0 }, buildTime: 45, builders: 3, workers: 0, housing: 4, maxTier: 4, placeable: true },
   temple: { key: 'temple', name: 'Temple', description: 'Stepped pyramid that generates Belief. Upgrade twice to raise the Great Pyramid.', size: [4, 4], cost: { wood: 20, stone: 36, belief: 20 }, buildTime: 70, builders: 4, workers: 2, maxTier: 3, placeable: true },
   greattemple: { key: 'greattemple', name: 'Great Temple', description: 'A monumental twin-shrine sanctuary, four times the Great Pyramid footprint. Each worshipper earns 1 Belief per 5 minutes of prayer; progress is kept between visits.', size: [8, 8], cost: { wood: 160, stone: 480, belief: 200 }, buildTime: 240, builders: 8, workers: 12, placeable: true },
@@ -987,4 +987,11 @@ export const needsStonemason = (key: BuildingKey): boolean => !['campfire', 'hut
 export const masonryCost = (cost: { wood: number; stone: number; belief: number; carvedStone?: number }) =>
   ({ ...cost, ...(cost.stone > 0 ? { carvedStone: cost.carvedStone ?? Math.ceil(cost.stone / 4) } : {}) });
 for (const def of Object.values(BUILDINGS)) if (needsStonemason(def.key)) def.cost = masonryCost(def.cost);
-export const STONEMASON = { batchSeconds: 60, input: 4, output: 2, cap: 200 };
+export const STONEMASON = {
+  batchSeconds: 60, input: 4, output: 2, cap: 200,
+  upgrades: [
+    { cost: { wood: 40, stone: 40, food: 40, belief: 0 }, time: 60, unlock: 'Temples' },
+    { cost: { wood: 70, stone: 80, food: 80, belief: 0 }, time: 90, unlock: 'Great Pyramid upgrades' },
+    { cost: { wood: 110, stone: 140, food: 120, belief: 0 }, time: 120, unlock: 'Great Temple' },
+  ],
+};

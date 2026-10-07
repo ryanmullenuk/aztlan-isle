@@ -447,6 +447,10 @@ export class Colony {
     for (const i of workers) {
       if (i.workplace >= 0) {
         const b = this.bld.byId(i.workplace);
+        if (b?.key === 'stonemason' && b.complete) {
+          if (b.upgrading && i.role === 'mason') i.role = 'builder';
+          else if (!b.upgrading && i.role === 'builder') i.role = 'mason';
+        }
         const valid = b && (i.role === 'builder' ? !b.complete || b.upgrading : b.complete);
         if (!valid) {
           i.workplace = -1;
