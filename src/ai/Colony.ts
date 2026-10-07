@@ -391,7 +391,7 @@ export class Colony {
       isl.workplace = b.id;
       return `${isl.name} will help build the ${b.label}.`;
     }
-    const map: Partial<Record<string, Role>> = { farm: 'farmer', maizefarm: 'farmer', chinampa: 'farmer', temple: 'priest', greattemple: 'priest', jetty: 'fisher', butcher: 'butcher', smokehouse: 'smoker', woodstore: 'woodcutter', grainstore: 'gatherer' };
+    const map: Partial<Record<string, Role>> = { farm: 'farmer', maizefarm: 'farmer', chinampa: 'farmer', herbalgarden: 'farmer', temple: 'priest', greattemple: 'priest', jetty: 'fisher', butcher: 'butcher', smokehouse: 'smoker', woodstore: 'woodcutter', grainstore: 'gatherer' };
     if (b.key === 'warroom') {
       isl.manualRole = false;
       return this.trainWarrior(b, this.rnd() < 0.5 ? 'jaguar' : 'eagle', isl) ? `${isl.name} is training as a warrior.` : 'Not enough resources to train a warrior.';
@@ -691,6 +691,11 @@ export class Colony {
     if (isl.hunger < ISLANDER.eatThreshold && this.eco.food >= 1) {
       const store = this.bld.nearestStore(isl.x, isl.z, true);
       if (store) return this.setTask(isl, 'eat', store.id, store.door.x, store.door.z);
+    }
+    if (isl.carry?.res === 'herbs') {
+      this.deliver(isl);
+      if (!isl.task) isl.think = 5;
+      return;
     }
     // Evenings: gather round a bonfire to sing and tell stories before bed.
     const hr = this.time.hour;
@@ -1078,6 +1083,12 @@ export class Colony {
 
   private deliver(isl: Islander): void {
     if (!isl.carry) return;
+    if (isl.carry.res === 'herbs') {
+      const processor = this.bld.list.filter(b => b.key === 'herbalist' && b.complete && !b.upgrading)
+        .sort((a,b) => Math.hypot(a.x-isl.x,a.z-isl.z)-Math.hypot(b.x-isl.x,b.z-isl.z))[0];
+      if (processor) this.setTask(isl, 'deliver', processor.id, processor.door.x, processor.door.z);
+      return;
+    }
     const food = FOOD_KEYS.includes(isl.carry.res);
     const store = this.bld.nearestStore(isl.x, isl.z, food);
     if (!store) {
@@ -1204,11 +1215,18 @@ export class Colony {
         }
         const r = this.travel(isl, dt, t.x, t.z, { allowBuilding: b.id, goalRadius: 1 });
         if (r === 'failed') {
-          isl.carry = null;
+          if (isl.carry.res !== 'herbs') isl.carry = null;
           return this.fail(isl);
         }
         if (r !== 'arrived') return;
-        this.eco.add(isl.carry.res, isl.carry.n);
+        if (isl.carry.res === 'herbs') {
+          if (b.key !== 'herbalist' || !b.complete || b.upgrading) {
+            this.releaseTask(isl);
+            this.deliver(isl);
+            return;
+          }
+          this.eco.goods.herbs += isl.carry.n;
+        } else this.eco.add(isl.carry.res, isl.carry.n);
         this.hooks.sfx?.('drop', isl.x, isl.z);
         isl.carry = null;
         this.releaseTask(isl);
@@ -1262,6 +1280,7 @@ export class Colony {
         t.timer -= dt;
         if (t.timer > 0) return;
         if (harvesting) {
+          if (f.key === 'herbalgarden' && !this.bld.list.some(b => b.key === 'herbalist' && b.complete && !b.upgrading)) return this.releaseTask(isl);
           if (f.growth >= 1) {
             f.stock += FARM_TYPES[f.key]?.yield ?? FARM.grainYield;
             f.growth = 0;
@@ -1269,7 +1288,7 @@ export class Colony {
           }
           const n = Math.min(f.stock, ISLANDER.carryAmount * 2);
           f.stock -= n;
-          isl.carry = { kind: 'grain', res: 'grain', n };
+          isl.carry = f.key === 'herbalgarden' ? { kind: 'herbs', res: 'herbs', n } : { kind: 'grain', res: 'grain', n };
           this.releaseTask(isl);
           this.deliver(isl);
         } else this.releaseTask(isl);
@@ -2045,13 +2064,13 @@ export class Colony {
     isl.think = 0;
   }
 
-  /** Can herbs or spices brought home by a voyage cure them (one bundle or pouch)? */
-  canCureWith(isl: Islander, good: 'herbs' | 'spices'): boolean {
+  /** Can medicine or spices cure them (one bundle or pouch)? */
+  canCureWith(isl: Islander, good: 'medicine' | 'spices'): boolean {
     return isl.condition !== 'well' && this.eco.goods[good] >= 1;
   }
 
-  /** Cure an islander with herbs or spices instead of food. */
-  cureWith(isl: Islander, good: 'herbs' | 'spices'): boolean {
+  /** Cure an islander with medicine or spices instead of food. */
+  cureWith(isl: Islander, good: 'medicine' | 'spices'): boolean {
     if (!this.canCureWith(isl, good)) return false;
     this.eco.goods[good] -= 1;
     this.heal(isl);
@@ -2203,11 +2222,11 @@ export class Colony {
     isl.speed = 0;
     isl.path = null;
     isl.pathPending = false;
-    if (this.bld.list.some(b => b.key === 'herbalist' && b.complete && !b.upgrading) && this.eco.goods.herbs >= 1) {
+    if (this.eco.goods.medicine >= 1) {
       t.care = (t.care ?? 0) + dt;
       const duration = isl.condition === 'mauled' ? HERBALIST.mauledSeconds : HERBALIST.sickSeconds;
       if (t.care >= duration) {
-        this.eco.goods.herbs -= 1;
+        this.eco.goods.medicine -= 1;
         this.heal(isl);
         return;
       }

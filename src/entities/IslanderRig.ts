@@ -421,7 +421,7 @@ export function isElder(isl: { id: number; child: boolean }): boolean {
 /** Built-in body parts, no longer drawn (the character models are the bodies). */
 const BODY = new Set<string>(['pelvis', 'chest', 'head', 'uarm', 'farm', 'thigh', 'shin'].flatMap((b) => [`${b}_m`, `${b}_f`]));
 const TOOLS = ['axe', 'pick', 'hoe', 'spear', 'hammer'] as const;
-const LOADS: Record<string, PartKey> = { log: 'log', stone: 'stone', fruit: 'basket', grain: 'sack', fish: 'fish', meat: 'meat', chicken: 'chicken' };
+const LOADS: Record<string, PartKey> = { log: 'log', stone: 'stone', fruit: 'basket', grain: 'sack', herbs: 'basket', fish: 'fish', meat: 'meat', chicken: 'chicken' };
 /** Ankle height (metres) the planted foot keeps, and the knee's radius when kneeling. */
 const FOOT_H = 0.1;
 const KNEE_R = 0.06;

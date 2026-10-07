@@ -29,7 +29,7 @@ export const TOOLS: ToolDef[] = [
   { id: 'calm', name: 'Calm', icon: 'calm', hint: 'Calm storms or an active volcano.', cost: POWERS.calm.cost },
 ];
 
-export const BUILD_MENU: BuildingKey[] = ['hut', 'home', 'farm', 'maizefarm', 'chinampa', 'woodstore', 'grainstore', 'smokehouse', 'firepit', 'well', 'bonfire', 'torch', 'temple', 'greattemple', 'greathall', 'healer', 'herbalist', 'butcher', 'pigpen', 'chickenpen', 'kennel', 'jetty', 'tradedock', 'warroom', 'watchtower'];
+export const BUILD_MENU: BuildingKey[] = ['hut', 'home', 'farm', 'maizefarm', 'chinampa', 'woodstore', 'grainstore', 'smokehouse', 'firepit', 'well', 'bonfire', 'torch', 'temple', 'greattemple', 'greathall', 'healer', 'herbalgarden', 'herbalist', 'butcher', 'pigpen', 'chickenpen', 'kennel', 'jetty', 'tradedock', 'warroom', 'watchtower'];
 
 /** The land-shaping tools, offered together in the Terrain slot's popup. */
 export const TERRAIN_TOOLS: ToolId[] = ['raise', 'lower', 'flatten'];

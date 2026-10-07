@@ -26,7 +26,7 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = ''):
 const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${Math.floor(n)}`);
 
 const BUILD_ICON: Record<BuildingKey, string> = {
-  herbalist: 'b_herbalist',
+  herbalist: 'b_herbalist', herbalgarden: 'b_herbalgarden',
   campfire: 'belief', hut: 'b_hut', home: 'b_home', temple: 'b_temple', greattemple: 'b_greattemple', farm: 'b_farm', butcher: 'b_butcher',
   woodstore: 'b_woodstore', grainstore: 'b_grainstore', warroom: 'b_warroom', jetty: 'b_jetty',
   maizefarm: 'b_maize', chinampa: 'b_chinampa', smokehouse: 'b_smoke',
@@ -146,9 +146,9 @@ export class UI {
     const grid = el('div', 'panel resgrid inventory-panel hidden');
     grid.id = 'inventory-panel';
     grid.setAttribute('aria-label', 'Island inventory');
-    for (const k of ['people', 'wood', 'stone', 'grain', 'fruit', 'meat', 'fish', 'pearls', 'herbs', 'spices']) {
+    for (const k of ['people', 'wood', 'stone', 'grain', 'fruit', 'meat', 'fish', 'pearls', 'herbs', 'spices', 'medicine']) {
       const r = el('div', 'res', icon(k));
-      r.title = k === 'people' ? 'Islanders (housed / total)' : k === 'pearls' ? 'Pearls: found on beaches and in fishing catches; worth a lot on a voyage' : k === 'herbs' || k === 'spices' ? `${k[0].toUpperCase() + k.slice(1)}: brought home by voyages; cure the sick and injured at a Healing Centre` : k[0].toUpperCase() + k.slice(1);
+      r.title = k === 'people' ? 'Islanders (housed / total)' : k === 'pearls' ? 'Pearls: found on beaches and in fishing catches; worth a lot on a voyage' : k === 'herbs' ? 'Herbs: harvested at Herbal Gardens and delivered for processing into medicine' : k === 'medicine' ? 'Medicine: made by Herbalists; treats patients at Healing Centres' : k === 'spices' ? 'Spices: brought home by voyages; cure the sick and injured at a Healing Centre' : k[0].toUpperCase() + k.slice(1);
       const v = el('span', 'v');
       r.appendChild(v);
       this.resEls[k] = v;
@@ -683,7 +683,7 @@ export class UI {
         <li>Plant a garden: open <b>Flora</b> (4), pick <b>Flowers</b>, <b>Bushes</b> or <b>Shrubs &amp; ferns</b> and hold and drag over open ground, like laying a path. Plants pop up as you go, each stroke in its own colours. <b>Dig up plants</b> clears them again. It's free, and just for looks. (No need to harvest: your islanders fell, mine and pick by themselves.)</li>
         <li><b>Trees</b> (in Flora) plants real trees by dragging, for a little Belief each: they burst up out of the ground, grow wood for your woodcutters (and regrow from the stump), and fruit trees feed your gatherers.</li>
         <li><b>Pearls</b> wash up on the beaches in open oysters (tap one, or a villager walking by picks it up), and fishers sometimes find one in their catch.</li>
-        <li>A finished <b>Trade Dock</b> can build the great <b>voyage ship</b>. Tap the ship, load goods with − and + (pearls fetch the most), and set sail with two villagers. Out past the horizon it may meet storms (calm them with Belief from the dock's card in time!), raiders, good markets or a green island. It comes home with chickens, <b>herbs</b> and <b>spices</b> (which cure the sick and injured at a Healing Centre) and goods, and waits under a green orb for you to unload. Some voyages never come back. A green orb over a visiting trader's boat means bargains are on offer.</li>
+        <li>A finished <b>Trade Dock</b> can build the great <b>voyage ship</b>. Tap the ship, load goods with − and + (pearls fetch the most), and set sail with two villagers. Out past the horizon it may meet storms (calm them with Belief from the dock's card in time!), raiders, good markets or a green island. It comes home with chickens, <b>herbs</b> (processed into medicine at a Herbalist’s Garden) and <b>spices</b> (which cure the sick and injured at a Healing Centre) and goods, and waits under a green orb for you to unload. Some voyages never come back. A green orb over a visiting trader's boat means bargains are on offer.</li>
         <li>Idle villagers help build by day without being asked. Give them a job yourself and they keep to it.</li>
         <li>Felled trees lie where they fall until woodcutters have carried all their wood home, a load at a time, then sink into the ground and later regrow from the stump.</li>
         <li>When the <b>volcano</b> starts smoking you have five minutes before it erupts. Tap it and use <b>Calm</b> (50 Belief) to settle it and reassure your people.</li>
@@ -1149,7 +1149,7 @@ export class UI {
         <div class="actions"><button class="btn small" data-a="capture" ${free && (!d.needsPen || hasPen) ? '' : 'disabled'}>${ICONS.harvest} ${label}</button></div>
         <p class="muted small">Tip: select an islander first, then tap an animal to send them after it.</p>`;
     } else if (b) {
-      key = `b${b.id}|${b.key === 'tradedock' ? g.trade.visitKey(b) + '|' + g.voyage.key() + '|' + JSON.stringify(g.eco.goods) : ''}|${b.key === 'greathall' ? JSON.stringify(g.colony.hallCount(b)) : ''}|${b.key === 'healer' ? g.colony.patients(b).map((p) => `${p.id}:${p.condition}:${Math.ceil(p.conditionT / 60)}:${p.task?.slot}:${g.colony.canCure(p)}`).join(',') + JSON.stringify(g.eco.goods) : ''}|${b.key === 'watchtower' ? `${g.defence.stats(b).shots}|${g.defence.stats(b).kills}|` : ''}${b.key === 'kennel' ? `${g.dogs.alive.length}|${g.dogs.alive.filter((d) => d.puppy).length}|${Math.ceil(b.breedT)}|${Math.ceil(b.breedCool / 5)}|${b.dogRole}|${Math.floor(g.eco.food / 4)}|` : ''}${b.key === 'herbalist' ? Math.floor(g.eco.goods.herbs) : ''}|${b.complete}|${Math.round(b.progress * 50)}|${b.tier}|${b.residents.length}|${b.upgrading}|${Math.round(b.growth * 20)}|${b.boats.length}|${b.boatBuild > 0}|${b.training.length}|${Math.floor(g.eco.res.wood / 5)}|${Math.floor(g.eco.res.stone / 5)}|${Math.floor(g.eco.res.belief / 5)}`;
+      key = `b${b.id}|${b.key === 'tradedock' ? g.trade.visitKey(b) + '|' + g.voyage.key() + '|' + JSON.stringify(g.eco.goods) : ''}|${b.key === 'greathall' ? JSON.stringify(g.colony.hallCount(b)) : ''}|${b.key === 'healer' ? g.colony.patients(b).map((p) => `${p.id}:${p.condition}:${Math.ceil(p.conditionT / 60)}:${p.task?.slot}:${g.colony.canCure(p)}`).join(',') + JSON.stringify(g.eco.goods) : ''}|${b.key === 'watchtower' ? `${g.defence.stats(b).shots}|${g.defence.stats(b).kills}|` : ''}${b.key === 'kennel' ? `${g.dogs.alive.length}|${g.dogs.alive.filter((d) => d.puppy).length}|${Math.ceil(b.breedT)}|${Math.ceil(b.breedCool / 5)}|${b.dogRole}|${Math.floor(g.eco.food / 4)}|` : ''}${b.key === 'herbalist' ? JSON.stringify(g.eco.goods) : ''}|${b.complete}|${Math.round(b.progress * 50)}|${b.tier}|${b.residents.length}|${b.upgrading}|${Math.round(b.growth * 20)}|${b.boats.length}|${b.boatBuild > 0}|${b.training.length}|${Math.floor(g.eco.res.wood / 5)}|${Math.floor(g.eco.res.stone / 5)}|${Math.floor(g.eco.res.belief / 5)}`;
       html = this.buildingHtml(b);
     }
     if (!force && key === this.infoKey) return;
@@ -1173,8 +1173,9 @@ export class UI {
     }
     const workers = g.colony.list.filter((i) => i.workplace === b.id && b.complete);
     if (b.complete && b.def.workers) body += `<div class="kv"><span>Workers</span><b>${workers.map((w) => w.name).join(', ') || 'None yet'}</b></div>`;
-    if (b.key === 'herbalist' && b.complete) body += this.bar('Medicinal herbs growing', b.growth, 'good') + `<div class="kv"><span>Herb bundles in store</span><b>${Math.floor(g.eco.goods.herbs)} / 40</b></div><p class="muted small">One bundle every two game minutes. Patients receive automatic herbal treatment at Healing Centres.</p>`;
-    if (b.key === 'healer' && b.complete && g.buildings.of('herbalist').length) body += `<p class="muted small">Herbal treatment: 60 seconds for sickness, 90 seconds for wounds. One herb bundle per patient; treatment pauses when herbs run out.</p>`;
+    if (b.key === 'herbalist' && b.complete) body += this.bar('Making medicine', b.growth, 'good') + `<div class="kv"><span>Delivered herb bundles</span><b>${Math.floor(g.eco.goods.herbs)}</b></div><div class="kv"><span>Medicine in store</span><b>${Math.floor(g.eco.goods.medicine)}</b></div><p class="muted small">One herb bundle → one medicine every three game minutes. ${b.stock > 0 ? 'Processing a herb bundle.' : g.eco.goods.medicine >= 40 ? 'Medicine store full.' : 'Waiting for herbs from a Herbal Garden.'}</p>`;
+    if (b.key === 'herbalgarden' && b.complete) body += `<p class="muted small">Farmers harvest these beds and deliver herbs to a completed Herbalist’s Garden.${g.buildings.of('herbalist').length ? '' : ' Build a Herbalist’s Garden to receive the harvest.'}</p>`;
+    if (b.key === 'healer' && b.complete) body += `<p class="muted small">Medicine treatment: 60 seconds for sickness, 90 seconds for wounds. One medicine per patient; treatment pauses when medicine runs out.</p>`;
     if (b.key === 'smokehouse' && b.complete) body += `<div class="kv"><span>Smoking</span><b>${b.tendTimer > 0 ? 'Fire lit, racks full' : g.eco.res.fish >= SMOKE.input || g.eco.res.meat >= SMOKE.input ? 'Waiting for a keeper' : 'Needs raw fish or meat'}</b></div><p class="muted small">${SMOKE.input} raw fish or meat + ${SMOKE.wood} wood → ${SMOKE.output} smoked.</p>`;
     if (FARM_TYPES[b.key] && b.complete) body += this.bar(b.growth >= 1 ? 'Ready to harvest' : `${FARM_TYPES[b.key]!.label} growing ${Math.round(b.growth * 100)}%`, b.growth, 'good') + (b.blessTimer > 0 ? '<div class="kv"><span>Blessed</span><b>Growing faster</b></div>' : '');
     if (b.key === 'greattemple' && b.complete) {
@@ -1227,7 +1228,7 @@ export class UI {
       for (const p of pts) {
         const cost = g.colony.cureCost(p);
         body += `<div class="kv"><span><button class="btn small ghost" data-a="patient:${p.id}" title="Select ${p.name}">${p.name}</button></span><b>${this.healthText(p)}</b></div>
-          <div class="actions" style="margin-top:2px"><button class="btn small" data-a="cure:${p.id}" ${g.colony.canCure(p) ? '' : 'disabled'}>Cure <span class="c">${cost ? `${cost} food` : 'free'}</span></button>${(['herbs', 'spices'] as const).filter((k) => g.eco.goods[k] >= 1).map((k) => `<button class="btn small" data-a="cure${k}:${p.id}" title="Cure with ${GOODS[k].one} brought home by a voyage">${icon(k)} Cure <span class="c">1 ${k === 'herbs' ? 'herbs' : 'spice'}</span></button>`).join('')}</div>`;
+          <div class="actions" style="margin-top:2px"><button class="btn small" data-a="cure:${p.id}" ${g.colony.canCure(p) ? '' : 'disabled'}>Cure <span class="c">${cost ? `${cost} food` : 'free'}</span></button>${(['medicine', 'spices'] as const).filter((k) => g.eco.goods[k] >= 1).map((k) => `<button class="btn small" data-a="cure${k}:${p.id}" title="Cure with ${GOODS[k].one}">${icon(k)} Cure <span class="c">1 ${k === 'medicine' ? 'medicine' : 'spice'}</span></button>`).join('')}</div>`;
       }
     }
     if (b.key === 'warroom' && b.complete) body += `<div class="kv"><span>Warriors</span><b>${g.colony.list.filter((i) => i.warrior).length}${b.training.length ? ` (+${b.training.length} training)` : ''}</b></div>`;
@@ -1309,8 +1310,8 @@ export class UI {
     }
     if (b) {
       if (a.startsWith('patient:')) g.select({ islander: Number(a.slice(8)) });
-      if (a.startsWith('cureherbs:') || a.startsWith('curespices:')) {
-        const good = a.startsWith('cureherbs:') ? 'herbs' : 'spices';
+      if (a.startsWith('curemedicine:') || a.startsWith('curespices:')) {
+        const good = a.startsWith('curemedicine:') ? 'medicine' : 'spices';
         const p = g.colony.byId(Number(a.slice(a.indexOf(':') + 1)));
         if (p && g.colony.cureWith(p, good)) this.toast(`${p.name} is cured with ${GOODS[good].one} and will go back to work.`);
         else this.toast(`No ${good} left.`, 'warn');

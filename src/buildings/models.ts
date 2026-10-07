@@ -668,7 +668,8 @@ export function farmModel(w: number, d: number, kind: 'veg' | 'maize' = 'veg'): 
 }
 
 /** Crops for each farm type (scaled vertically by growth); `ripe` colours the harvest. */
-export function cropModel(w: number, d: number, ripe: boolean, crop: 'veg' | 'maize' | 'chinampa' = 'maize'): THREE.BufferGeometry {
+export function cropModel(w: number, d: number, ripe: boolean, crop: 'veg' | 'maize' | 'chinampa' | 'herbs' = 'maize'): THREE.BufferGeometry {
+  if (crop === 'herbs') return medicinalCrops(ripe);
   if (crop === 'veg') return vegCrops(w, d, ripe);
   if (crop === 'chinampa') return chinampaCrops(w, d, ripe);
   return maizeCrops(w, d, ripe);
@@ -2270,18 +2271,11 @@ export function herbalistModel(): BuildingModel {
   tealDoor(b, -0.8, 0.09, -0.47, 0.35, 0.68);
   adobeWindow(b, -0.03, 0.8, -1.0, true, 0.17, 0.23);
   awning(b, -0.72, 1.03, -0.44, 1.35, 0.52, true);
-  const herb = (x: number, y: number, z: number, size: number, flowers: boolean) => {
-    b.add(P.cyl(0.009, 0.012, size, 4), { color: c(0x597746) }, M.t(x, y + size / 2, z));
-    for (let k = 0; k < 5; k++) {
-      const a = k * 2.4;
-      b.add(P.uvSphere(size * 0.24, 5, 3), { color: k % 2 ? c(0x738e56) : c(0x426950), leaf: 1, sway: 0.2 }, M.t(x + Math.cos(a) * size * 0.16, y + size * (0.25 + k * 0.12), z + Math.sin(a) * size * 0.16, 0, a, 0.5, 1.5, 0.35, 0.7));
-    }
-    if (flowers) b.add(P.sphere(0.035, 0), { color: c(0xb79bb7), leaf: 1, sway: 0.25 }, M.t(x, y + size, z));
-  };
+
   for (const x of [-1.0, 0.65]) for (const z of [0.3, 1.15]) {
     b.add(P.rbox(1.05, 0.23, 0.65, 0.025, 1), { color: K.stoneDark }, M.t(x, 0.16, z));
     b.add(P.box(0.90, 0.024, 0.50), { color: c(0x68513d) }, M.t(x, 0.282, z));
-    for (let row = 0; row < 2; row++) for (let col = 0; col < 4; col++) herb(x - 0.34 + col * 0.22, 0.30, z - 0.13 + row * 0.26, rng.range(0.21, 0.34), row === 1);
+    for (let row = 0; row < 2; row++) for (let col = 0; col < 4; col++) medicinalPlant(b, x - 0.34 + col * 0.22, 0.30, z - 0.13 + row * 0.26, rng.range(0.21, 0.34), row === 1);
   }
   // Open drying frame beside the shelter, with individual tied herb bundles.
   for (const x of [0.25, 1.55]) b.add(P.cyl(0.035, 0.045, 1.25, 6), { color: K.timber }, M.t(x, 0.7, -1.15));
@@ -2295,7 +2289,42 @@ export function herbalistModel(): BuildingModel {
     b.add(P.cyl(0.15, 0.10, 0.23, 9), { color: AD.pot }, M.t(x, 0.20, z));
     b.add(P.cyl(0.16, 0.16, 0.045, 9), { color: K.terracotta }, M.t(x, 0.30, z));
     b.add(P.cyl(0.12, 0.12, 0.015, 9), { color: K.mud }, M.t(x, 0.33, z));
-    herb(x, 0.34, z, 0.33, false);
+    medicinalPlant(b, x, 0.34, z, 0.33, false);
   }
   return { finished: b.build(), torches: [torchPole(b, -1.65, 1.62, 0.7, 0.08)], height: 1.38 };
+}
+
+function medicinalPlant(b: GeoBuilder, x: number, y: number, z: number, size: number, flowers: boolean, bloom = 0xb79bb7): void {
+    b.add(P.cyl(0.009, 0.012, size, 4), { color: c(0x597746) }, M.t(x, y + size / 2, z));
+    for (let k = 0; k < 5; k++) {
+      const a = k * 2.4;
+      b.add(P.uvSphere(size * 0.24, 5, 3), { color: k % 2 ? c(0x738e56) : c(0x426950), leaf: 1, sway: 0.2 }, M.t(x + Math.cos(a) * size * 0.16, y + size * (0.25 + k * 0.12), z + Math.sin(a) * size * 0.16, 0, a, 0.5, 1.5, 0.35, 0.7));
+    }
+    if (flowers) b.add(P.sphere(0.035, 0), { color: c(bloom), leaf: 1, sway: 0.25 }, M.t(x, y + size, z));
+  }
+
+/** Smaller, open farming plot; the same medicinal foliage as the drying courtyard. */
+export function herbalGardenModel(): BuildingModel {
+  const b = new GeoBuilder();
+  b.add(P.rbox(2.8, 0.07, 2.8, 0.02, 1), { color: c(0xbca47f) }, M.t(0, 0.035, 0));
+  for (const x of [-0.66, 0.66]) for (const z of [-0.66, 0.66]) {
+    b.add(P.rbox(1.08, 0.20, 0.95, 0.025, 1), { color: K.stoneDark }, M.t(x, 0.14, z));
+    b.add(P.box(0.94, 0.018, 0.81), { color: c(0x68513d) }, M.t(x, 0.248, z));
+  }
+  b.add(P.cyl(0.11, 0.08, 0.18, 8), { color: AD.pot }, M.t(0, 0.13, 1.23));
+  b.add(P.box(0.28, 0.02, 0.17), { color: K.timber }, M.t(0, 0.09, -1.22));
+  return { finished: b.build(), torches: [], height: 0.65 };
+}
+
+function medicinalCrops(ripe: boolean): THREE.BufferGeometry {
+  const b = new GeoBuilder();
+  const colours = [0xb29ac5, 0xc594a0, 0xd4ba71, 0xe0d9bd];
+  let bed = 0;
+  for (const x of [-0.66, 0.66]) for (const z of [-0.66, 0.66]) {
+    for (let row = 0; row < 3; row++) for (let col = 0; col < 4; col++) {
+      medicinalPlant(b, x - 0.33 + col * 0.22, 0.26, z - 0.27 + row * 0.27, 0.26 + (col % 2) * 0.065, ripe, colours[bed]);
+    }
+    bed++;
+  }
+  return b.build();
 }

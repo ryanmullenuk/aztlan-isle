@@ -38,7 +38,7 @@ export type Anim =
 
 export type Tool = 'none' | 'axe' | 'pick' | 'hoe' | 'spear' | 'hammer';
 
-export type CarryKind = ResourceKey | 'log' | 'chicken';
+export type CarryKind = ResourceKey | 'log' | 'chicken' | 'herbs';
 
 /** Health: well, fallen sick, or mauled by a jaguar or alligator (the last two need curing). */
 export type Condition = 'well' | 'sick' | 'mauled';
@@ -96,7 +96,7 @@ export interface Islander {
   /** Building the islander works at (farm, temple, jetty...). -1 = none. */
   workplace: number;
   home: number;
-  carry: { kind: CarryKind; res: ResourceKey; n: number } | null;
+  carry: { kind: CarryKind; res: ResourceKey | 'herbs'; n: number } | null;
   /** Gathering from a tall plant (reach up) or a bush (bend down). */
   reachHigh?: boolean;
   task: Task | null;

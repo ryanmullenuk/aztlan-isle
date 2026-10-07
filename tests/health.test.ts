@@ -134,14 +134,14 @@ test('herbs and spices from a voyage cure the sick and injured instead of food',
   colony.afflict(a, 'sick');
   colony.afflict(b, 'mauled');
   const food = eco.food;
-  assert.equal(colony.canCureWith(a, 'herbs'), false);
-  eco.goods.herbs = 1;
+  assert.equal(colony.canCureWith(a, 'medicine'), false);
+  eco.goods.medicine = 1;
   eco.goods.spices = 1;
-  assert.ok(colony.cureWith(a, 'herbs'));
+  assert.ok(colony.cureWith(a, 'medicine'));
   assert.ok(colony.cureWith(b, 'spices'));
   assert.equal(a.condition, 'well');
   assert.equal(b.condition, 'well');
-  assert.equal(eco.goods.herbs, 0);
+  assert.equal(eco.goods.medicine, 0);
   assert.equal(eco.goods.spices, 0);
   assert.equal(eco.food, food, 'no food spent');
 });
