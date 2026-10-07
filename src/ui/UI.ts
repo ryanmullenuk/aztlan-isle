@@ -538,6 +538,7 @@ export class UI {
       <label class="row">Shadows <input type="checkbox" data-k="shadows"></label>
       <label class="row">Day and night cycle <input type="checkbox" data-k="dayNight"></label>
       <label class="row">Weather (rain and storms) <input type="checkbox" data-k="weather"></label>
+      <label class="row">Island movement (swaying plants, blowing leaves, sea spray) <input type="checkbox" data-k="motion"></label>
       <label class="row">Pixel style <input type="checkbox" data-k="pixel"></label>
       <label class="row">Tilt-shift depth of field <input type="checkbox" data-k="dof"></label>
       <label class="row">Blur strength <input type="range" min="0" max="2" step="0.05" data-k="dofStrength"></label>
