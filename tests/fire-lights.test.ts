@@ -39,4 +39,6 @@ test('firelight: every fire glows, real lights stay with their fires and fade ra
   for (let i = 0; i < 30; i++) F.update(1 / 30, 6 + i / 30, 0, fires, target);
   assert.equal(F.glowMat.uniforms.uNight.value, 0);
   assert.ok(F.lights.every((l: any) => l.light.intensity === 0));
+  // Dimmed, never hidden: a change in the number of visible lights recompiles every lit shader.
+  assert.ok(F.lights.every((l: any) => l.light.visible), 'a light was hidden');
 });
