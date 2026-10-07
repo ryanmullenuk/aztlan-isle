@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { shadowProxy } from '../render/ShadowLayer';
 import { RENDER, VEG, PresetName } from '../config';
-import { stylisedMaterial, stylisedMaterialDouble, treeMaterial, treeMaterialDouble } from '../render/materials';
+import { fadingMaterial, setFadeFar, stylisedMaterial, stylisedMaterialDouble, treeMaterial, treeMaterialDouble } from '../render/materials';
 import { RNG } from '../world/rng';
 import { FINE } from './detail';
 import { TREE_POP, springPop } from './pop';
@@ -78,7 +78,13 @@ interface BatchDef {
 }
 
 interface ChunkMesh {
+  /** The plants near enough for their full (or mid-distance) shape. */
   mesh: THREE.InstancedMesh;
+  /**
+   * The same chunk's plants that are far away, drawn with the low-detail shape. Each plant moves
+   * between the two on its own distance, so detail changes tree by tree, never a whole chunk.
+   */
+  far?: THREE.InstancedMesh;
   /** Low-detail stand-in casting this chunk's shadows (trees and bushes); the mesh casts none. */
   shadow?: THREE.InstancedMesh;
   ids: number[];
@@ -96,6 +102,7 @@ interface ChunkMesh {
 const PLANTABLE: PlantKind[] = ['palm', 'broadleaf', 'banana', 'apple'];
 
 const _m = new THREE.Matrix4();
+const _p2 = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _s = new THREE.Vector3();
 const _p = new THREE.Vector3();
@@ -140,6 +147,8 @@ export class Vegetation {
    */
   private fine = new Map<string, { mesh: THREE.InstancedMesh; shadow?: THREE.InstancedMesh; ids: number[] }>();
   private nearIds = new Set<number>();
+  /** Plants drawn with their low-detail shape (beyond the shape LOD distance). */
+  private farIds = new Set<number>();
   private fineDirty = false;
   private C = VEG.chunks;
   private lodTimer = 0;
@@ -512,7 +521,9 @@ export class Vegetation {
     const def = this.defs.get(key)!;
     // Tall trees get the see-through material (they fade when in the way at close zoom).
     const tall = /^(palm|broadleaf|banana|apple1)/.test(key);
-    const mat = tall ? (def.double ? treeMaterialDouble() : treeMaterial()) : def.double ? stylisedMaterialDouble() : stylisedMaterial();
+    let mat = tall ? (def.double ? treeMaterialDouble() : treeMaterial()) : def.double ? stylisedMaterialDouble() : stylisedMaterial();
+    // Plants hidden with distance shrink away one by one rather than a whole chunk vanishing.
+    if (def.cull > 0) mat = fadingMaterial(mat, `cull${def.cull}`);
     const mesh = new THREE.InstancedMesh(def.hi, mat, Math.max(1, cap));
     mesh.castShadow = def.shadow && !def.lo;
     mesh.receiveShadow = true;
@@ -528,9 +539,11 @@ export class Vegetation {
     };
     ids.forEach((id, slot) => (this.plants[id].slots[key] = slot));
     mesh.setColorAt(0, new THREE.Color(1, 1, 1));
+    if (def.lo) mesh.geometry = def.mid ?? def.hi;
+    cm.far = this.makeFar(cm, Math.max(1, cap));
     this.chunks.set(`${key}|${chunk}`, cm);
+    cm.bounds = true;
     this.writeChunk(cm, key);
-    mesh.computeBoundingSphere();
     this.group.add(mesh);
     this.attachShadow(cm);
     return cm;
@@ -564,9 +577,28 @@ export class Vegetation {
     old.dispose();
     this.group.add(mesh);
     cm.mesh = mesh;
+    if (cm.far) {
+      this.group.remove(cm.far);
+      cm.far.dispose();
+      cm.far = this.makeFar(cm, cap);
+    }
     cm.dirty = true;
     cm.bounds = true;
     this.attachShadow(cm);
+  }
+
+  /** The far-away half of a chunk (low-detail shape, casting its own cheap shadow). */
+  private makeFar(cm: ChunkMesh, cap: number): THREE.InstancedMesh | undefined {
+    if (!cm.def.lo) return undefined;
+    const far = new THREE.InstancedMesh(cm.def.lo, cm.mesh.material, cap);
+    far.castShadow = cm.def.shadow;
+    far.receiveShadow = true;
+    far.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    far.setColorAt(0, new THREE.Color(1, 1, 1));
+    far.count = 0;
+    far.visible = false;
+    this.group.add(far);
+    return far;
   }
 
   /** Give a newly added plant an instance in the mesh for one of its shapes. */
@@ -872,26 +904,42 @@ export class Vegetation {
 
   /** Upload a chunk, packing visible instances to the front so hidden ones cost nothing. */
   private writeChunk(cm: ChunkMesh, key: string): void {
-    let n = 0;
+    let n = 0, nf = 0;
     const col = new THREE.Color();
+    const far = cm.far;
     for (let slot = 0; slot < cm.ids.length; slot++) {
       const p = this.plants[cm.ids[slot]];
       if (cm.def.mid && this.nearIds.has(p.id)) continue;
       this.plantMatrix(p, key, _m);
       if (_m.elements[0] === 0 && _m.elements[5] === 0) continue;
-      cm.mesh.setMatrixAt(n, _m);
-      cm.mesh.setColorAt(n, this.tint(p, key, col));
-      n++;
+      if (far && this.farIds.has(p.id)) {
+        far.setMatrixAt(nf, _m);
+        far.setColorAt(nf, this.tint(p, key, col));
+        nf++;
+      } else {
+        cm.mesh.setMatrixAt(n, _m);
+        cm.mesh.setColorAt(n, this.tint(p, key, col));
+        n++;
+      }
     }
     cm.mesh.count = n;
     // Empty batches (stumps where nothing is felled, mined-out rocks) are skipped by the renderer.
-    cm.empty = n === 0;
-    cm.mesh.visible = !cm.empty && cm.inRange !== false;
+    cm.empty = n + nf === 0;
+    cm.mesh.visible = n > 0 && cm.inRange !== false;
     cm.mesh.instanceMatrix.needsUpdate = true;
     if (cm.mesh.instanceColor) cm.mesh.instanceColor.needsUpdate = true;
+    if (far) {
+      far.count = nf;
+      far.visible = nf > 0 && cm.inRange !== false;
+      far.instanceMatrix.needsUpdate = true;
+      if (far.instanceColor) far.instanceColor.needsUpdate = true;
+    }
     cm.dirty = false;
-    if (cm.bounds) {
-      cm.mesh.computeBoundingSphere();
+    if (cm.bounds || !cm.mesh.boundingSphere) {
+      // Bounds of every plant in the chunk (near, far or in the detail layer), so neither half is
+      // culled while some of its plants are on screen.
+      cm.mesh.boundingSphere = this.chunkSphere(cm, key);
+      if (far) far.boundingSphere = cm.mesh.boundingSphere;
       cm.bounds = false;
     }
     if (cm.shadow) {
@@ -899,6 +947,54 @@ export class Vegetation {
       cm.shadow.visible = cm.mesh.visible;
       cm.shadow.boundingSphere = cm.mesh.boundingSphere;
     }
+  }
+
+  /**
+   * Each plant with a low-detail shape switches to it on its own distance from the camera (a
+   * little further out than it switches back, so one on the edge does not flicker).
+   */
+  private pickFar(camPos: THREE.Vector3, shapeLod: number): void {
+    const out2 = (shapeLod * 1.08) ** 2, in2 = (shapeLod * 0.92) ** 2;
+    for (const p of this.plants) {
+      if (p.state === PlantState.Gone) continue;
+      const dx = p.x - camPos.x, dy = p.y - camPos.y, dz = p.z - camPos.z;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      const was = this.farIds.has(p.id);
+      const now = was ? d2 > in2 : d2 > out2;
+      if (now === was) continue;
+      if (now) this.farIds.add(p.id);
+      else this.farIds.delete(p.id);
+      for (const key of Object.keys(p.slots)) {
+        if (key === 'contact') continue;
+        const cm = this.chunks.get(`${key}|${p.chunk}`);
+        if (cm?.far) cm.dirty = true;
+      }
+    }
+  }
+
+  /** A sphere round all of a chunk's plants (whatever detail they are drawn at). */
+  private chunkSphere(cm: ChunkMesh, key: string): THREE.Sphere {
+    const geo = cm.def.hi;
+    if (!geo.boundingSphere) geo.computeBoundingSphere();
+    const gs = geo.boundingSphere!;
+    const box = new THREE.Box3();
+    const c = new THREE.Vector3();
+    let any = false;
+    for (const id of cm.ids) {
+      const p = this.plants[id];
+      this.plantMatrix(p, key, _m);
+      if (_m.elements[0] === 0 && _m.elements[5] === 0) continue;
+      const sc = Math.max(_s.setFromMatrixScale(_m).x, _s.y, _s.z);
+      c.copy(gs.center).applyMatrix4(_m);
+      const r = gs.radius * sc;
+      box.expandByPoint(_p2.set(c.x - r, c.y - r, c.z - r));
+      box.expandByPoint(_p2.set(c.x + r, c.y + r, c.z + r));
+      any = true;
+    }
+    const sphere = new THREE.Sphere();
+    if (any) box.getBoundingSphere(sphere);
+    else sphere.set(cm.center.clone(), 0.01);
+    return sphere;
   }
 
   /** Choose the nearest plants of each detailed type for the full-detail layer. */
@@ -1257,24 +1353,28 @@ export class Vegetation {
     if (this.lodTimer <= 0) {
       this.lodTimer = 0.25;
       const size = this.world.N / this.C;
+      for (const def of this.defs.values()) if (def.cull > 0) this.fadeFar(def, lodDist * def.cull);
       for (const cm of this.chunks.values()) {
         // Distance from the camera to the nearest point of the chunk.
         const dx = Math.max(0, Math.abs(cm.center.x - camPos.x) - size / 2);
         const dz = Math.max(0, Math.abs(cm.center.z - camPos.z) - size / 2);
         const d = Math.hypot(dx, dz, camPos.y - camTarget.y);
-        const far = d > shapeLod;
-        if (cm.def.lo) {
-          const g = far ? cm.def.lo : cm.def.mid ?? cm.def.hi;
-          if (cm.mesh.geometry !== g) cm.mesh.geometry = g;
-        }
+        // Skipped only once the whole chunk is beyond the fade (its plants have all shrunk away).
         cm.inRange = cm.def.cull === 0 || d < lodDist * cm.def.cull;
-        cm.mesh.visible = cm.inRange && !cm.empty;
+        cm.mesh.visible = cm.inRange && cm.mesh.count > 0;
+        if (cm.far) {
+          cm.far.visible = cm.inRange && cm.far.count > 0;
+          if (cm.def.shadow) cm.far.castShadow = d < lodDist * (cm.def.cull > 0 ? Math.min(1.4, cm.def.cull * 0.68) : 1.4);
+        }
+        // Shadows stop before the plants start shrinking (the shadow copy does not shrink).
+        const shadowTo = lodDist * (cm.def.cull > 0 ? Math.min(1.4, cm.def.cull * 0.68) : 1.4);
         if (cm.shadow) {
           cm.shadow.visible = cm.mesh.visible;
-          cm.shadow.castShadow = d < lodDist * 1.4;
-        } else if (cm.def.shadow) cm.mesh.castShadow = d < lodDist * 1.4;
+          cm.shadow.castShadow = d < shadowTo;
+        } else if (cm.def.shadow) cm.mesh.castShadow = d < shadowTo;
       }
       this.pickNear(camPos, lodDist * VEG.fineDetail * (this.ultra ? 1.35 : 1));
+      this.pickFar(camPos, shapeLod);
     }
 
     for (const [k, cm] of this.chunks) {
@@ -1284,6 +1384,12 @@ export class Vegetation {
     if (this.contactDirty) this.writeContact();
   }
   private growAcc = 0;
+  private fadeFarSet = new Map<string, number>();
+  private fadeFar(def: { key: string; cull: number }, far: number): void {
+    if (this.fadeFarSet.get(def.key) === far) return;
+    this.fadeFarSet.set(def.key, far);
+    for (const cm of this.chunks.values()) if (cm.def === def) { setFadeFar(cm.mesh.material as THREE.Material, far); break; }
+  }
 
   /** Big canopy trees for monkeys: position, canopy height and radius (world units). */
   canopyTrees(): { id: number; x: number; y: number; z: number; mid: number; top: number; r: number }[] {
