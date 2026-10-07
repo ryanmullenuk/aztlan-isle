@@ -13,8 +13,11 @@ import { RNG } from '../world/rng';
 import * as models from './models';
 
 /** Flame size per building; fires are visible only from dusk until dawn. */
+/** Triangles smaller than this (m²) are left out of a building's far-away model. */
+const LOD_MIN_AREA = 0.002;
 const FLAME_SCALE: Partial<Record<BuildingKey, number>> = { campfire: 0.85, bonfire: 1, firepit: 0.9, torch: 1.25, greathall: 3.0, watchtower: 1.1, greattemple: 1.5 };
 import { Particles } from '../render/Particles';
+import { GeoBuilder } from '../render/GeoBuilder';
 import { FireLights, FireSpot } from './FireLights';
 
 /** Door direction per rotation (door faces +z at rot 0). */
@@ -63,6 +66,10 @@ export class Building {
   tendTimer = 0;
   blessTimer = 0;
   crops: THREE.Mesh | null = null;
+  /** The finished model at full detail (the mesh shows a simpler copy when far away). */
+  finishedHi: THREE.BufferGeometry | null = null;
+  /** Far from the camera: drawn with the simpler model and crops. */
+  lodFar = false;
   // Stores
   fills: THREE.Mesh[] = [];
   // Jetty
@@ -154,6 +161,90 @@ export class Building {
  * Placement rules, ghost previews, staged construction visuals (foundation → scaffolding → finished),
  * temple tiers, farm growth, storage fill visuals and night-time torches.
  */
+/** Simpler copies of models and crops for buildings far from the camera. */
+const LO_GEOS = new WeakMap<THREE.BufferGeometry, THREE.BufferGeometry>();
+/** Far-away crops are shared between farms like their full crops. */
+const CROP_LOS = new Set<THREE.BufferGeometry>();
+
+/**
+ * A building model for far away: the same vertices without its smallest triangles (pots, trim,
+ * pegs and other details too small to see from there), so it costs no extra memory.
+ */
+export function modelLo(hi: THREE.BufferGeometry): THREE.BufferGeometry {
+  let lo = LO_GEOS.get(hi);
+  if (lo) return lo;
+  const P = hi.getAttribute('position');
+  const I = hi.index;
+  const n = I ? I.count / 3 : P.count / 3;
+  const keep: number[] = [];
+  const a = new THREE.Vector3(), b2 = new THREE.Vector3(), c = new THREE.Vector3();
+  for (let t = 0; t < n; t++) {
+    const i0 = I ? I.getX(t * 3) : t * 3, i1 = I ? I.getX(t * 3 + 1) : t * 3 + 1, i2 = I ? I.getX(t * 3 + 2) : t * 3 + 2;
+    a.fromBufferAttribute(P, i0);
+    b2.fromBufferAttribute(P, i1).sub(a);
+    c.fromBufferAttribute(P, i2).sub(a);
+    if (b2.cross(c).length() * 0.5 >= LOD_MIN_AREA) keep.push(i0, i1, i2);
+  }
+  lo = new THREE.BufferGeometry();
+  for (const [name, attr] of Object.entries(hi.attributes)) lo.setAttribute(name, attr);
+  lo.setIndex(keep);
+  lo.boundingSphere = hi.boundingSphere;
+  lo.boundingBox = hi.boundingBox;
+  LO_GEOS.set(hi, lo);
+  return lo;
+}
+
+/**
+ * Crops for far away: the field cut into small squares, each one lump the height and colour of
+ * the plants in it (a few hundred triangles instead of thousands of leaves).
+ */
+export function cropLo(hi: THREE.BufferGeometry): THREE.BufferGeometry {
+  let lo = LO_GEOS.get(hi);
+  if (lo) return lo;
+  const P = hi.getAttribute('position'), C = hi.getAttribute('color'), V = hi.getAttribute('aVeg');
+  const cell = 0.32;
+  const cells = new Map<string, { x: number; z: number; xx: number; zz: number; top: number; r: number; g: number; b: number; w: number; n: number }>();
+  for (let i = 0; i < P.count; i++) {
+    const x = P.getX(i), y = P.getY(i), z = P.getZ(i);
+    const k = `${Math.floor(x / cell)},${Math.floor(z / cell)}`;
+    let e = cells.get(k);
+    if (!e) cells.set(k, (e = { x: 0, z: 0, xx: 0, zz: 0, top: 0, r: 0, g: 0, b: 0, w: 0, n: 0 }));
+    e.x += x; e.z += z; e.xx += x * x; e.zz += z * z; e.top = Math.max(e.top, y); e.n++;
+    // Leaves make up most of what is seen from afar: they count for more than cobs and stems.
+    const wgt = V && V.getY(i) > 0.5 ? 4 : 1;
+    if (C) { e.r += C.getX(i) * wgt; e.g += C.getY(i) * wgt; e.b += C.getZ(i) * wgt; e.w += wgt; }
+  }
+  const gb = new GeoBuilder();
+  const lump = new THREE.IcosahedronGeometry(0.5, 0);
+  for (const e of cells.values()) {
+    if (e.n < 6 || e.top < 0.03) continue;
+    const h = e.top * 0.85;
+    const mx = e.x / e.n, mz = e.z / e.n;
+    // As wide as the plants in this square actually spread (soil shows between thin rows).
+    const sx = Math.min(cell, 2.2 * Math.sqrt(Math.max(0, e.xx / e.n - mx * mx)));
+    const sz = Math.min(cell, 2.2 * Math.sqrt(Math.max(0, e.zz / e.n - mz * mz)));
+    const w = Math.max(1e-6, e.w);
+    // A solid lump catches more sun than thin leaves seen edge-on: a shade darker to match.
+    gb.add(lump, { color: new THREE.Color(e.r / w, e.g / w, e.b / w).multiplyScalar(0.72), leaf: 1 }, new THREE.Matrix4().compose(
+      new THREE.Vector3(mx, h / 2, mz), new THREE.Quaternion(), new THREE.Vector3(Math.max(0.05, sx), h, Math.max(0.05, sz))));
+  }
+  lo = gb.build();
+  LO_GEOS.set(hi, lo);
+  CROP_LOS.add(lo);
+  return lo;
+}
+
+/** Swap in a building's new finished model (an upgrade), freeing the old one and its simple copy. */
+function replaceFinished(b: Building, geo: THREE.BufferGeometry): void {
+  const old = b.finishedHi ?? b.finished.geometry;
+  const lo = LO_GEOS.get(old);
+  old.dispose();
+  lo?.dispose();
+  LO_GEOS.delete(old);
+  b.finishedHi = geo;
+  b.finished.geometry = b.lodFar ? modelLo(geo) : geo;
+}
+
 export class BuildingSystem {
   readonly group = new THREE.Group();
   private demolitions: Demolition[] = [];
@@ -186,6 +277,10 @@ export class BuildingSystem {
   private fireSpots: FireSpot[] = [];
   private spotTimer = 0;
   private cropGeos = new Map<string, THREE.BufferGeometry>();
+  private lodTimer = 0;
+  /** Camera position and the preset's detail distance (set by the game each frame). */
+  readonly camPos = new THREE.Vector3(0, 1e4, 0);
+  lodDist = 60;
   /** Chimney and rack smoke from smokehouses. */
   private smoke = new Particles(360, 0xc9c2ba, 0.6);
   private smokeAcc = 0;
@@ -532,8 +627,7 @@ export class BuildingSystem {
     if (d.tier > 1) {
       b.tier = d.tier;
       const model = this.modelFor(b);
-      b.finished.geometry.dispose();
-      b.finished.geometry = model.finished;
+      replaceFinished(b, model.finished);
       this.setTorches(b, model.torches);
     }
     b.growth = d.growth;
@@ -572,6 +666,13 @@ export class BuildingSystem {
     }
     if (refund) this.eco.refund(b.def.cost, 0.5);
     this.group.remove(b.group);
+    // Free the full model too when the simple copy is showing (the copy goes with it).
+    if (b.finishedHi && b.finished.geometry !== b.finishedHi) {
+      const lo = b.finished.geometry;
+      b.finished.geometry = b.finishedHi;
+      lo.dispose();
+      LO_GEOS.delete(b.finishedHi);
+    }
     b.group.traverse((o) => {
       if ((o as THREE.Mesh).isMesh && (o as THREE.Mesh).geometry && !this.sharedGeo((o as THREE.Mesh).geometry)) (o as THREE.Mesh).geometry.dispose();
     });
@@ -580,7 +681,7 @@ export class BuildingSystem {
   }
 
   private sharedGeo(g: THREE.BufferGeometry): boolean {
-    return g === this.flameGeo || g === this.bellGeo || this.logGeos.includes(g) || this.stoneGeos.includes(g) || this.basketGeos.includes(g) || [...this.cropGeos.values()].includes(g);
+    return g === this.flameGeo || g === this.bellGeo || CROP_LOS.has(g) || this.logGeos.includes(g) || this.stoneGeos.includes(g) || this.basketGeos.includes(g) || [...this.cropGeos.values()].includes(g);
   }
 
   /** Where a building's animal pen is: the butcher's on its +x half, the vegetable farm's chicken run in its front corner, the pig and chicken pens' open yards. */
@@ -634,6 +735,8 @@ export class BuildingSystem {
     b.group.position.set(b.x, b.y, b.z);
     b.group.rotation.y = (b.rot * Math.PI) / 2;
     b.finished = new THREE.Mesh(model.finished, mat);
+    b.finishedHi = model.finished;
+    b.lodFar = false;
     b.finished.castShadow = true;
     b.finished.receiveShadow = true;
     b.foundation = new THREE.Mesh(models.foundationGeometry(sw, sd), mat);
@@ -764,6 +867,20 @@ export class BuildingSystem {
   }
 
 
+  /** Buildings far from the camera switch to their simpler models (with some slack, so none flickers). */
+  private updateLod(): void {
+    const enter = this.lodDist * 0.75, leave = this.lodDist * 0.65;
+    for (const b of this.list) {
+      if (!b.finished || !b.finishedHi) continue;
+      const d = this.camPos.distanceTo(b.group.position);
+      const far = b.lodFar ? d > leave : d > enter;
+      if (far === b.lodFar) continue;
+      b.lodFar = far;
+      b.finished.geometry = far ? modelLo(b.finishedHi) : b.finishedHi;
+      // Crops follow on the next farm update (they also change as they grow and ripen).
+    }
+  }
+
   private cropGeo(w: number, d: number, ripe: boolean, crop: 'veg' | 'maize' | 'chinampa' | 'herbs'): THREE.BufferGeometry {
     const k = `${w}x${d}${ripe}${crop}`;
     let g = this.cropGeos.get(k);
@@ -813,8 +930,7 @@ export class BuildingSystem {
       b.upgrading = false;
       b.tier++;
       const model = this.modelFor(b);
-      b.finished.geometry.dispose();
-      b.finished.geometry = model.finished;
+      replaceFinished(b, model.finished);
       this.setTorches(b, model.torches);
       b.scaffold.geometry.dispose();
       b.scaffold.geometry = models.scaffoldGeometry(b.def.size[0], b.def.size[1], model.height + 1);
@@ -931,6 +1047,11 @@ export class BuildingSystem {
 
   update(dt: number, time: number, night: number, seasonIndex: number, raining: boolean, camTarget: THREE.Vector3): void {
     this.demolitions = this.demolitions.filter(effect => !effect.update(dt));
+    this.lodTimer -= dt;
+    if (this.lodTimer <= 0) {
+      this.lodTimer = 0.25;
+      this.updateLod();
+    }
     for (const b of this.list) {
       if (!b.complete) continue;
       if (b.key === 'herbalist') processMedicine(b, this.eco, dt);
@@ -956,7 +1077,8 @@ export class BuildingSystem {
         }
         if (b.crops) {
           const ripe = b.growth >= 0.85;
-          const g = this.cropGeo(b.def.size[0], b.def.size[1], ripe, ft.crop);
+          const full = this.cropGeo(b.def.size[0], b.def.size[1], ripe, ft.crop);
+          const g = b.lodFar ? cropLo(full) : full;
           if (b.crops.geometry !== g) b.crops.geometry = g;
           b.crops.visible = b.growth > 0.02;
           b.crops.scale.y = 0.12 + 0.88 * b.growth;
