@@ -700,3 +700,6 @@ p.warn { color: #ffb08a; }
 .bm-nm { white-space: normal; line-height: 1.2; text-align: center; }
 
 .bm-purpose { font-size: 10px; line-height: 1.2; color: var(--gold, #e8b84a); }
+
+.placement-controls {display:flex;gap:8px;justify-content:center;pointer-events:auto;max-width:100%;flex-wrap:wrap;}
+.placement-controls .btn {min-height:44px;min-width:76px;border:1px solid var(--gold);background:transparent;}

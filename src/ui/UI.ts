@@ -57,6 +57,7 @@ export class UI {
   private info!: HTMLDivElement;
   private toasts!: HTMLDivElement;
   private hint!: HTMLDivElement;
+  private placementControls!: HTMLDivElement;
   private tooltip!: HTMLDivElement;
   private speedBtns: HTMLButtonElement[] = [];
   private pauseBtn!: HTMLButtonElement;
@@ -308,6 +309,11 @@ export class UI {
   private buildBottom(): void {
     const bottom = el('div', 'bottom');
     this.hint = el('div', 'hint hidden');
+    this.placementControls=el('div','placement-controls hidden');
+    const place=el('button','btn','Place'),rotate=el('button','btn','Rotate'),cancel=el('button','btn','Cancel');
+    place.onclick=()=>this.game.confirmPlacement();rotate.onclick=()=>this.game.rotatePlacement();cancel.onclick=()=>this.game.cancelPlacement();
+    this.placementControls.append(place,rotate,cancel);
+    bottom.appendChild(this.placementControls);
     // Shown until the village is founded, in case the campfire placement is closed.
     this.foundBtn = el('button', 'btn found-btn hidden', `${ICONS.belief} Place campfire`) as HTMLButtonElement;
     this.foundBtn.onclick = () => this.game.promptCampfire();
@@ -971,6 +977,7 @@ export class UI {
         else this.renderTrade();
       }
     }
+    this.placementControls.classList.toggle('hidden',!g0.placing || !g0.touchPlacementActive);
     this.foundBtn.classList.toggle('hidden', !(g0.awaitingFire && g0.colony.list.length > 0 && g0.placing !== 'campfire'));
     this.timer -= dt;
     if (this.timer <= 0) {

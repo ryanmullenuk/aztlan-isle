@@ -8,6 +8,8 @@ export interface InputHandlers {
   onCancel(): void;
   /** Whether a left-drag should go to the active tool (sculpting) instead of panning. */
   wantsToolDrag(): boolean;
+  wantsPlacementDrag?(): boolean;
+  onPlacementDrag?(sx:number,sy:number):void;
   onToolDragStart(sx: number, sy: number): void;
   onToolDrag(sx: number, sy: number): void;
   onToolDragEnd(): void;
@@ -39,7 +41,7 @@ export class Input {
   clear(): void { this.keys.clear(); this.pointers.clear(); this.gesture = null; this.dragging = 'none'; this.hover.active = false; }
   private pointers = new Map<number, PointerInfo>();
   private keys = new Set<string>();
-  private dragging: 'none' | 'pan' | 'tool' | 'rotate' | 'orbit' = 'none';
+  private dragging: 'none' | 'pan' | 'tool' | 'rotate' | 'orbit' | 'placement' = 'none';
   private gesture: { dist: number; angle: number; mx: number; my: number } | null = null;
   private moved = false;
   /** Latest pointer screen position (for cursor-reactive wildlife). */
@@ -94,6 +96,9 @@ export class Input {
       // Middle-drag, or Alt/Shift + left-drag, rotates the view; right-drag rotates and tilts.
       if (e.button === 1 || (e.button === 0 && (e.altKey || e.shiftKey))) this.dragging = 'rotate';
       else if (e.button === 2) this.dragging = 'orbit';
+      else if(e.pointerType!=='mouse' && this.h.wantsPlacementDrag?.()){
+        this.dragging='placement';this.h.onPlacementDrag?.(e.clientX,e.clientY);
+      }
       else if (this.h.wantsToolDrag()) {
         this.dragging = 'tool';
         this.h.onToolDragStart(e.clientX, e.clientY);
@@ -113,7 +118,7 @@ export class Input {
 
   private move = (e: PointerEvent) => {
     if (!this.enabled) return;
-    if (e.pointerType === 'mouse' || this.pointers.size === 0) {
+    if (e.pointerType === 'mouse') {
       this.hover = { x: e.clientX, y: e.clientY, active: true };
       this.h.onHover(e.clientX, e.clientY);
     }
@@ -134,11 +139,12 @@ export class Input {
       this.rig.rotate(-da);
       // Two-finger drag: up/down tilts the view, sideways pans.
       const dmx = g.mx - this.gesture.mx, dmy = g.my - this.gesture.my;
-      this.rig.tilt(-dmy * CAMERA.tiltSpeed);
-      this.rig.panPixels(dmx, 0, this.el.clientHeight);
+      if(this.h.wantsPlacementDrag?.())this.rig.panPixels(dmx,dmy,this.el.clientHeight);
+      else {this.rig.tilt(-dmy * CAMERA.tiltSpeed);this.rig.panPixels(dmx,0,this.el.clientHeight);}
       this.gesture = g;
       return;
     }
+    if(this.dragging==='placement'){this.h.onPlacementDrag?.(e.clientX,e.clientY);return;}
     if (this.dragging === 'pan' && this.moved) this.rig.panPixels(dx, dy, this.el.clientHeight);
     else if (this.dragging === 'rotate' && this.moved) this.rig.rotate(-dx * CAMERA.dragRotateSpeed);
     else if (this.dragging === 'orbit' && this.moved) {
@@ -156,7 +162,7 @@ export class Input {
     const quick = performance.now() - p.t < 450;
     if (this.pointers.size === 0) {
       if (this.dragging === 'tool') this.h.onToolDragEnd();
-      if (!this.moved && !this.gesture) {
+      if (e.type!=='pointercancel' && this.dragging!=='placement' && !this.moved && !this.gesture) {
         if (p.button === 2) this.h.onCancel();
         else if (quick || p.type === 'mouse') this.h.onTap(p.x, p.y);
       }

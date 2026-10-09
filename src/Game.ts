@@ -451,6 +451,8 @@ export class Game {
 
     this.input = new Input(canvas, this.rig, {
       onTap: (x, y) => this.onTap(x, y),
+      wantsPlacementDrag: () => !!this.placing,
+      onPlacementDrag: (x,y) => {this.touchPlacement=true;this.onHover(x,y);},
       onCancel: () => this.cancel(),
       wantsToolDrag: () => this.tool === 'raise' || this.tool === 'lower' || this.tool === 'flatten' || this.tool === 'harvest' || PAINT_TOOLS.includes(this.tool),
       onToolDragStart: (x, y) => this.toolDrag(x, y, true),
@@ -1074,6 +1076,7 @@ export class Game {
     this.placeRot = b.rot;
     this.ui.setHint(`Tap to move the <b>${b.label}</b> · <b>R</b> rotates · right-click or Esc cancels`);
     if (this.hoverPoint) this.updateGhost(this.hoverPoint);
+    this.initialiseTouchPreview();
   }
 
   private endMove(): void {
@@ -1094,12 +1097,23 @@ export class Game {
     this.audio?.sfx('place', b.x, b.z);
   }
 
+  touchPlacement = false;
+  get touchPlacementActive():boolean {return this.touchPlacement || (typeof matchMedia==='function' && matchMedia('(pointer: coarse)').matches);}
+  confirmPlacement():void {if(this.placing && this.hoverPoint)this.onTap(0,0,this.hoverPoint.clone());}
+  rotatePlacement():void {this.placeRot=(this.placeRot+1)%4;if(this.hoverPoint)this.updateGhost(this.hoverPoint);}
+  cancelPlacement():void {this.cancel();}
+  private initialiseTouchPreview():void {
+    if(!this.touchPlacementActive)return;
+    const r=this.canvas.getBoundingClientRect();this.onHover(r.left+r.width/2,r.top+r.height*.45);
+  }
+
   startPlacing(key: BuildingKey): void {
     this.audio?.sfx('click');
     this.tool = 'build';
     this.placing = key;
     this.ui.setHint(`Place the <b>${BUILDINGS[key].name}</b> on flat land · <b>R</b> rotates · right-click or Esc cancels`);
     if (this.hoverPoint) this.updateGhost(this.hoverPoint);
+    this.initialiseTouchPreview();
   }
 
   select(s: { islander?: number; building?: number; animal?: number } | null): void {
@@ -1144,6 +1158,7 @@ export class Game {
     if (!this.placing) return;
     const [cx, cz, rot] = this.footprintAt(p, this.placing);
     const res = this.buildings.showGhost(this.placing, cx, cz, rot, this.moving ?? undefined);
+    if(this.touchPlacementActive){this.ui.setHint(`${!res.ok?'<b>'+res.reason+'</b> · ':''}Drag to position · two fingers move the view · tap <b>Place</b> to confirm`);return;}
     if (!res.ok && res.reason) this.ui.setHint(`<b>${res.reason}</b> · R rotates · Esc cancels`);
     else if (this.moving) this.ui.setHint(`Tap to move the <b>${this.moving.label}</b> here · <b>R</b> rotates · right-click or Esc cancels`);
     else if (this.placing === 'campfire') this.ui.setHint('Tap to light the <b>campfire</b> here: your village will grow around it');
@@ -1167,8 +1182,8 @@ export class Game {
     }
   }
 
-  private onTap(x: number, y: number): void {
-    const p = this.pickGround(x, y);
+  private onTap(x: number, y: number, preview?:THREE.Vector3): void {
+    const p = preview ?? this.pickGround(x, y);
     if (p) {
       this.cursorWorld.copy(p);
       this.cursorActive = true;
@@ -1176,7 +1191,7 @@ export class Game {
     if (this.placing) {
       if (!p) return;
       const [cx, cz, rot] = this.footprintAt(p, this.placing);
-      const ok = this.buildings.canPlace(this.placing, cx, cz, rot);
+      const ok = this.buildings.canPlace(this.placing, cx, cz, rot, this.moving ?? undefined);
       if (!ok.ok) {
         this.ui.toast(ok.reason, 'warn');
         this.audio?.sfx('deny');
