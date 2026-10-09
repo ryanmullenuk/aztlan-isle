@@ -1834,14 +1834,14 @@ export const HALL = {
   stairHalf: 0.7,
   stairFoot: 3.5,
   /** Seats (hip position; seated villagers face -z, toward the dais). */
-  seats: [-1.05, -0.35, 0.35, 1.05].flatMap((z) => [-1.25, -0.85, -0.45, 0.45, 0.85, 1.25].map((x) => ({ x, z }))),
+  seats: Array.from({length:10},(_,row)=>-1.65+row*0.39).flatMap(z=>[-2.05,-1.65,-1.25,-0.85,-0.45,0.45,0.85,1.25,1.65,2.05].map(x=>({x,z}))),
   /** Standing room along the front terrace and the sides (facing the middle). */
   stands: [
     ...[-1.6, -0.95, 0.95, 1.6].map((x) => ({ x, z: 2.2 })),
     ...[-1.6, -0.55, 0.55, 1.6].flatMap((z) => [{ x: -2.25, z }, { x: 2.25, z }]),
   ],
   /** Where the bell hangs from the front canopy beam (its pivot). */
-  bell: new THREE.Vector3(0, 0.5 + 1.24, 1.95),
+  bell: new THREE.Vector3(0, 2.55, 2.48),
   /** Floor height at a local point: the platform top, the stair, else the ground. */
   floorY(lx: number, lz: number): number {
     const H = HALL.h, E = HALL.edge;
@@ -1925,17 +1925,13 @@ function sunBanner(b: GeoBuilder, m: THREE.Matrix4, w: number, h: number): void 
 /** The Great Hall's bronze bell with its clapper (pivot at the top, hanging down -y). */
 export function hallBellGeometry(): THREE.BufferGeometry {
   const b = new GeoBuilder();
-  const pts = [
-    [0.0, 0], [0.035, 0], [0.05, -0.02], [0.06, -0.07], [0.075, -0.13], [0.11, -0.19], [0.12, -0.2], [0.0, -0.2],
-  ].map(([x, y]) => new THREE.Vector2(x, y));
-  const bronze = c(0xb5832e);
-  // Hung on a short rope below the beam, bigger than life so it reads from the usual camera.
-  const S = 1.6, drop = 0.1;
-  b.add(P.cyl(0.012, 0.012, drop, 4), { color: K.rope }, M.t(0, -drop / 2, 0));
-  b.add(new THREE.LatheGeometry(pts, 12), { color: bronze }, M.t(0, -drop, 0, 0, 0, 0, S));
-  b.add(P.cyl(0.12 * S, 0.12 * S, 0.02, 12), { color: c(0xd9a54a) }, M.t(0, -drop - 0.19 * S, 0));
-  b.add(P.box(0.05, 0.05, 0.05), { color: K.timberDark }, M.t(0, -drop + 0.01, 0));
-  b.add(P.sphere(0.04, 0), { color: c(0x5a4630) }, M.t(0, -drop - 0.21 * S, 0));
+  const pts=[[0.055,-.08],[.12,-.1],[.15,-.2],[.18,-.38],[.27,-.52],[.29,-.55],[.29,-.59],[.245,-.59],[.225,-.53],[.14,-.36],[.11,-.19],[.055,-.15]].map(([x,y])=>new THREE.Vector2(x,y));
+  b.add(new THREE.LatheGeometry(pts,20),{color:c(0xb58a42)},M.t(0,0,0));
+  for(const y of [-.22,-.5])b.add(new THREE.TorusGeometry(y===-.22?.16:.255,.018,5,20),{color:K.gold},M.t(0,y,0,Math.PI/2));
+  b.add(P.box(.42,.09,.12),{color:K.timberDark},M.t(0,-.04,0));
+  b.add(P.cyl(.018,.018,.48,6),{color:c(0x514535)},M.t(0,-.34,0));
+  b.add(P.sphere(.052,1),{color:c(0x65503a)},M.t(0,-.6,0));
+  b.add(P.cyl(.012,.012,.75,5),{color:K.rope},M.t(.18,-.85,0));
   return b.build();
 }
 
@@ -2029,7 +2025,7 @@ export function greatHallModel(): BuildingModel {
     }
   }
   // Canopy: six timber posts, beams, and a low striped gable roof with a red fascia and gold studs.
-  const PX = 1.75, PZ = [-1.9, 0, 1.9], CH = H + 1.3;
+  const PX = 2.45, PZ = [-1.9, 0, 1.9], CH = H + 1.3;
   for (const sx of [-1, 1]) {
     for (const z of PZ) {
       b.add(P.box(0.13, 1.3, 0.13), { color: K.timberDark }, M.t(sx * PX, H + 0.65, z));
@@ -2037,9 +2033,9 @@ export function greatHallModel(): BuildingModel {
     }
     b.add(P.box(0.14, 0.12, 4.2), { color: K.timber }, M.t(sx * PX, CH, 0));
   }
-  for (const z of PZ) b.add(P.box(3.7, 0.1, 0.12), { color: K.timber }, M.t(0, CH - 0.02, z));
+  for (const z of PZ) b.add(P.box(5.05, 0.1, 0.12), { color: K.timber }, M.t(0, CH - 0.02, z));
   const roof = new GeoBuilder();
-  const RW = 2.25, RL = 4.8, rise2 = 0.32, slope = Math.atan2(rise2, RW);
+  const RW = 2.6, RL = 4.8, rise2 = 0.32, slope = Math.atan2(rise2, RW);
   const bands = 12;
   for (const sx of [-1, 1]) {
     for (let k = 0; k < bands; k++) {
@@ -2054,10 +2050,10 @@ export function greatHallModel(): BuildingModel {
   roof.add(P.box(0.12, 0.1, RL + 0.1), { color: K.gold }, M.t(0, CH + 0.1 + rise2 + 0.03, 0));
   for (const sz of [-1, 1]) roof.add(P.box(2 * RW + 0.1, 0.1, 0.06), { color: c(0x9e2c22) }, M.t(0, CH + 0.06, sz * (RL / 2 + 0.01)));
   // Benches in rows (facing the dais), each a plank on two legs.
-  for (const z of [-1.05, -0.35, 0.35, 1.05]) {
+  for (const z of [...new Set(HALL.seats.map(p=>p.z))]) {
     for (const sx of [-1, 1]) {
-      b.add(P.box(1.25, 0.04, 0.17), { color: K.timber }, M.t(sx * 0.85, H + 0.12, z - 0.03));
-      for (const lx of [0.32, 1.38]) b.add(P.box(0.05, 0.11, 0.13), { color: K.timberDark }, M.t(sx * lx, H + 0.055, z - 0.03));
+      b.add(P.box(1.95, 0.04, 0.17), { color: K.timber }, M.t(sx * 1.25, H + 0.12, z - 0.03));
+      for (const lx of [0.4, 2.1]) b.add(P.box(0.05, 0.11, 0.13), { color: K.timberDark }, M.t(sx * lx, H + 0.055, z - 0.03));
     }
   }
   // Dais at the back: a low step, a carved stela with a great golden sun, and two pots of ferns.
@@ -2103,8 +2099,10 @@ export function greatHallModel(): BuildingModel {
     sunBanner(b, M.t(x, 1.2, z + 0.03), 0.3, 0.6);
   }
   // Bell frame under the front beam (the bell itself swings separately).
-  b.add(P.box(0.05, 0.1, 0.05), { color: K.timberDark }, M.t(0, HALL.bell.y + 0.04, HALL.bell.z));
-  return { finished: b.build(), torches, height: 2.4, canopy: roof.build() };
+  for(const x of [-.55,.55])b.add(P.box(.12,2.15,.14),{color:K.timberDark},M.t(x,H+1.075,HALL.bell.z));
+  b.add(P.box(1.32,.16,.2),{color:K.timber},M.t(0,HALL.bell.y+.1,HALL.bell.z));
+  for(const x of [-.55,.55])b.add(P.box(.15,.08,.17),{color:K.gold},M.t(x,HALL.bell.y-.05,HALL.bell.z));
+  return { finished: b.build(), torches, height: 2.75, canopy: roof.build() };
 }
 
 // ---------------- Healing Centre ----------------

@@ -1250,7 +1250,7 @@ export class UI {
     }
     if (b.key === 'greathall' && b.complete) {
       const h = g.colony.hallCount(b);
-      body += `<div class="kv"><span>Resting</span><b>${h.resting}</b></div>
+      body += `<div class="kv"><span>Seats</span><b>100</b></div><div class="kv"><span>Resting</span><b>${h.resting}</b></div>
         <div class="kv"><span>Sheltering</span><b>${h.sheltering}</b></div>
         <div class="kv"><span>Room for</span><b>${HALL.seats.length} seated, ${HALL.stands.length} standing</b></div>`;
     }

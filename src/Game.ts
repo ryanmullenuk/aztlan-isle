@@ -1,3 +1,4 @@
+import { pickBuilding } from './buildings/Picking';
 import { Progression } from './economy/Progression';
 import { idleForGroup, IdleGroupTap } from './ai/GroupSelection';
 import { Volcano, VOLCANO_COST, VOLCANO_HAPPINESS } from './entities/Volcano';
@@ -1273,6 +1274,24 @@ export class Game {
 
   private selectAt(x: number, y: number, p: THREE.Vector3 | null): void {
     const rect = this.canvas.getBoundingClientRect();
+    this.rig.camera.updateMatrixWorld();
+    this.ndc.set((x-rect.left)/rect.width*2-1,-(y-rect.top)/rect.height*2+1);
+    this.ray.setFromCamera(this.ndc,this.rig.camera);
+    const cell=p?this.world.cellIndexAt(p.x,p.z):-1;
+    const pickedBuilding=pickBuilding(this.ray,this.buildings.list,p) ?? (cell>=0?this.buildings.at(cell):undefined) ?? this.jettyAt(p);
+    if(pickedBuilding){
+      const b=pickedBuilding;
+      this.groupTap.clear();
+      if(this.selectedIslanders.size>0){
+        const people=[...this.selectedIslanders].map(id=>this.colony.byId(id)).filter((i):i is Islander=>!!i);
+        const count=this.colony.assignGroup(people,b,null);
+        this.ui.toast(count?`${count} islanders assigned to ${b.label}.`:'No available work or storage space for this group.',count?'info':'warn');
+      }else if(this.selectedIslander>=0 && this.colony.byId(this.selectedIslander) && !this.colony.byId(this.selectedIslander)!.child){
+        this.ui.toast(this.colony.assign(this.colony.byId(this.selectedIslander)!,b,null));
+      }else this.select({building:b.id});
+      this.audio?.sfx('select',b.x,b.z);
+      return;
+    }
     // A pearl oyster on the beach: tapping it finds the pearl.
     if (this.pearls.tap(this.rig.camera, x, y, rect)) return;
     // The voyage ship (or a green orb over goods or bargains waiting): its Trade Dock's card.
@@ -1343,25 +1362,19 @@ export class Game {
         return;
       }
     }
-    const cell = p ? this.world.cellIndexAt(p.x, p.z) : -1;
-    const b = (cell >= 0 ? this.buildings.at(cell) : undefined) ?? this.jettyAt(p);
+
     if (this.selectedIslanders.size > 0) {
       const plant = p ? this.veg.findNearest(p.x, p.z, 2, q => this.veg.isChoppable(q) || this.veg.isMineable(q) || this.veg.hasFruit(q)) : null;
-      if (b || (plant && p && Math.hypot(plant.x - p.x, plant.z - p.z) < 1.5)) {
+      if (plant && p && Math.hypot(plant.x - p.x, plant.z - p.z) < 1.5) {
         const people = [...this.selectedIslanders].map(id => this.colony.byId(id)).filter((i): i is Islander => !!i);
-        const count = this.colony.assignGroup(people, b ?? null, b ? null : plant);
-        this.ui.toast(count ? `${count} islanders assigned to ${b ? b.label : plant?.kind === 'rock' ? 'collect stone' : plant && (plant.kind === 'apple' || plant.kind === 'banana') ? 'gather fruit' : 'collect wood'}.` : 'No available work or storage space for this group.', count ? 'info' : 'warn');
+        const count = this.colony.assignGroup(people, null, plant);
+        this.ui.toast(count ? `${count} islanders assigned to ${plant?.kind === 'rock' ? 'collect stone' : plant && (plant.kind === 'apple' || plant.kind === 'banana') ? 'gather fruit' : 'collect wood'}.` : 'No available work or storage space for this group.', count ? 'info' : 'warn');
         this.audio?.sfx('click');
         return;
       }
     }
     // With an islander selected, clicking a building or resource assigns them to it.
     if (current && !current.child) {
-      if (b) {
-        this.ui.toast(this.colony.assign(current, b, null));
-        this.audio?.sfx('click');
-        return;
-      }
       if (p) {
         const plant = this.veg.findNearest(p.x, p.z, 2, (q) => this.veg.isChoppable(q) || this.veg.isMineable(q) || this.veg.hasFruit(q));
         if (plant && Math.hypot(plant.x - p.x, plant.z - p.z) < 1.5) {
@@ -1370,11 +1383,6 @@ export class Game {
           return;
         }
       }
-    }
-    if (b) {
-      this.select({ building: b.id });
-      this.audio?.sfx('select', b.x, b.z);
-      return;
     }
     this.select(null);
   }

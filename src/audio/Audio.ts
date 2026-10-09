@@ -408,7 +408,7 @@ export class AudioEngine {
       // The Great Hall's bronze bell: three slow strikes, each a cluster of inharmonic partials
       // (hum, fundamental, minor third, fifth, octave, upper) ringing down at their own rates.
       case 'bell': {
-        const f = 330;
+        const f = 220;
         const partials: [number, number, number][] = [[0.5, 0.1, 4.5], [1, 0.14, 3.2], [1.19, 0.07, 2.4], [1.5, 0.05, 2.0], [2, 0.06, 1.7], [2.74, 0.035, 1.1], [3.76, 0.02, 0.7]];
         for (let hit = 0; hit < 3; hit++) {
           const t0 = t + hit * 1.15;
@@ -424,7 +424,7 @@ export class AudioEngine {
             o.start(t0);
             o.stop(t0 + dur + 0.05);
           }
-          burst('bandpass', 2400, 3, 0.05, 0.12, undefined, hit * 1.15);
+          burst('bandpass', 1600, 2, 0.035, 0.08, undefined, hit * 1.15);
         }
         break;
       }
