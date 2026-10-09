@@ -44,3 +44,42 @@ test('variant geometry preserves the original body, rig and texture without chan
   variant.geometry.dispose();base.geometry.dispose();before.dispose();expanded.dispose();
  }
 });
+
+test('variants keep the original legs, boots and clothes untouched, and colour the new hair from the hair texel', () => {
+ for (const gender of ['m','f'] as const) {
+  const base=baseModel();
+  // A leg below the knee and a hair cap, beside the chest block.
+  const leg=new THREE.BoxGeometry(.1,.4,.1).translate(.15,.25,0).toNonIndexed(), cap=new THREE.BoxGeometry(.25,.1,.25).translate(0,1.7,0).toNonIndexed();
+  const body=base.geometry.toNonIndexed();
+  const merged=new THREE.BufferGeometry();
+  const all=[body,leg,cap], hairUv=new THREE.Vector2(.61,.07);
+  for (const name of Object.keys(body.attributes)) {
+   const arrays=all.map((g,gi)=>{
+    const a=g.getAttribute(name);
+    if(a&&!(name==='uv'&&gi===2)) return Array.from(a.array);
+    const n=g.getAttribute('position').count, size=body.getAttribute(name).itemSize, out=new Array(n*size).fill(0);
+    if(name==='aHairB'&&gi===2) out.fill(1);
+    if(name==='uv'&&gi===2) for(let i=0;i<n;i++){out[i*2]=hairUv.x;out[i*2+1]=hairUv.y;}
+    if(name==='aSkinW') for(let i=0;i<n;i++) out[i*4]=1;
+    if(name==='color') out.fill(1);
+    return out;
+   });
+   merged.setAttribute(name,new THREE.Float32BufferAttribute(arrays.flat(),body.getAttribute(name).itemSize));
+  }
+  base.geometry=merged;
+  const variant=characterVariant(base,gender,new THREE.Vector2(.9,.9));
+  const P=variant.geometry.getAttribute('position'), U=variant.geometry.getAttribute('uv'), H=variant.geometry.getAttribute('aHairB');
+  // Every leg vertex is still there, unmoved.
+  const lp=leg.getAttribute('position');
+  for (let i=0;i<lp.count;i++) {
+   let found=false;
+   for (let j=0;j<P.count&&!found;j++) if(Math.abs(P.getX(j)-lp.getX(i))<1e-6&&Math.abs(P.getY(j)-lp.getY(i))<1e-6&&Math.abs(P.getZ(j)-lp.getZ(i))<1e-6) found=true;
+   assert.ok(found,'a leg vertex moved or went missing');
+  }
+  // The old hair cap is gone; the new hair samples the hair texel.
+  let hairVerts=0;
+  for (let i=0;i<P.count;i++) if (H.getX(i)===1) { hairVerts++; assert.ok(Math.abs(U.getX(i)-hairUv.x)<1e-6 && Math.abs(U.getY(i)-hairUv.y)<1e-6, `uv ${U.getX(i)},${U.getY(i)} at ${P.getY(i)}`); }
+  assert.ok(hairVerts>100);
+  variant.geometry.dispose();
+ }
+});

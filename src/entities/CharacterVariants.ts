@@ -12,39 +12,39 @@ export function characterModelKey(person: {id:number;gender:'m'|'f';appearance?:
   return person.gender==='f' && style==='flower' ? 'f_flower' : person.gender==='m' && style==='loosehair' ? 'm_loosehair' : person.gender;
 }
 
-/** Both variants reuse the original body, UVs, 19 joints, skin weights and inverse bind frames. */
+/**
+ * Both variants reuse the original body, UVs, normals, 19 joints, skin weights and inverse bind
+ * frames: the clothes, legs and boots are exactly the original's. Only the hair is replaced, with
+ * a faceted hairstyle skinned to the head.
+ */
 export function characterVariant(base: GlbModel, gender:'m'|'f', whiteUv:THREE.Vector2): GlbModel {
   const geo=base.geometry.index ? base.geometry.toNonIndexed() : base.geometry.clone();
-  const p=geo.getAttribute('position'), uv=geo.getAttribute('uv'), hair=geo.getAttribute('aHairB'), J=base.joint;
+  const p=geo.getAttribute('position'), hair=geo.getAttribute('aHairB'), J=base.joint;
   const kept:number[]=[];
   for(let k=0;k<p.count;k+=3) {
     const ids=[k,k+1,k+2], y=ids.reduce((n,i)=>n+p.getY(i),0)/3;
     // Keep the original face and beard as well as the body; only the hairstyle changes.
     const oldHair=ids.filter(i=>hair.getX(i)>.5 && hair.getX(i)<1.5).length;
     if(y>J.chest.y-.18 && oldHair>=1) continue;
-    // Boots end at the ankles. The replacement feet bind to those same foot bones.
-    if(y<.115)continue;
     kept.push(...ids);
-    // Per-face UVs avoid sampling across the texture atlas at the boot/skin boundary.
-    if(y<.55)for(const i of ids){uv.setXY(i,base.skinUv.x,base.skinUv.y);hair.setX(i,0);}
   }
   geo.setIndex(kept);
-  for(let i=0;i<p.count;i++) if(p.getY(i)<.43) {
-    const side=p.getX(i)>=0?'L':'R', ankle=J[`foot${side}`], knee=J[`shin${side}`];
-    const t=THREE.MathUtils.clamp((p.getY(i)-ankle.y)/(knee.y-ankle.y),0,1);
-    const x=THREE.MathUtils.lerp(ankle.x,knee.x,t), z=THREE.MathUtils.lerp(ankle.z,knee.z,t);
-    p.setX(i,x+(p.getX(i)-x)*.83);p.setZ(i,z+(p.getZ(i)-z)*.8);
-  }
-  geo.computeVertexNormals();
-  // Merge accessories into the body draw, with their weights fixed to the existing head/foot bones.
+  // Hair takes its colour from the model's own hair texel (white vertex colour, slightly shaded per
+  // piece), so elders' grey and white hair is drawn on the new hairstyles as on the original's.
+  let hairUv=whiteUv;
+  const uvAttr=geo.getAttribute('uv');
+  for(let i=0;i<hair.count;i++) if(hair.getX(i)>.5&&hair.getX(i)<1.5){hairUv=new THREE.Vector2(uvAttr.getX(i),uvAttr.getY(i));break;}
   const pieces:THREE.BufferGeometry[]=[geo.toNonIndexed()];geo.dispose();
-  const brown=0x30221b, lightBrown=0x3d2b20;
+  const brown=-1, darkBrown=-2, lightBrown=-3;
+  const shade:Record<number,number>={[-1]:1,[-2]:0.82,[-3]:1.18};
   const add=(shape:THREE.BufferGeometry,at:THREE.Vector3,scale:THREE.Vector3,color:number|null,bone=BI.head,tag=0,rz=0)=>{
     shape.scale(scale.x,scale.y,scale.z).rotateZ(rz).translate(at.x,at.y,at.z);
     const g=shape.index?shape.toNonIndexed():shape;if(g!==shape)shape.dispose();
+    // Flat normals: faceted like the rest of the low-poly character.
     g.computeVertexNormals();const n=g.getAttribute('position').count;
-    const C=new THREE.Color(color??0xffffff),rgb=new Float32Array(n*3),U=new Float32Array(n*2),si=new Float32Array(n*4),sw=new Float32Array(n*4);
-    const tex=color===null?base.skinUv:whiteUv;
+    const isHair=color!==null&&color<0;
+    const C=isHair?new THREE.Color(1,1,1).multiplyScalar(shade[color!]):new THREE.Color(color??0xffffff),rgb=new Float32Array(n*3),U=new Float32Array(n*2),si=new Float32Array(n*4),sw=new Float32Array(n*4);
+    const tex=color===null?base.skinUv:isHair?hairUv:whiteUv;
     for(let i=0;i<n;i++){rgb.set([C.r,C.g,C.b],i*3);U.set([tex.x,tex.y],i*2);si[i*4]=bone;sw[i*4]=1;}
     g.setAttribute('color',new THREE.Float32BufferAttribute(rgb,3));g.setAttribute('uv',new THREE.Float32BufferAttribute(U,2));
     g.setAttribute('aSkinI',new THREE.Float32BufferAttribute(si,4));g.setAttribute('aSkinW',new THREE.Float32BufferAttribute(sw,4));
@@ -53,35 +53,54 @@ export function characterVariant(base: GlbModel, gender:'m'|'f', whiteUv:THREE.V
     pieces.push(g);
   };
   const ellipsoid=(x:number,y:number,z:number,sx:number,sy:number,sz:number,color:number|null,tag=0,bone=BI.head)=>add(new THREE.IcosahedronGeometry(1,1),new THREE.Vector3(x,y,z),new THREE.Vector3(sx,sy,sz),color,bone,tag);
+  /**
+   * A shell of hair round the head: a slice of a sphere from `t0` to `t1` (0 = crown, 1 = under
+   * the chin), open over the face by `gap` radians, flaring out below the ears by `flare` and
+   * waving in `waves` locks round the head.
+   */
+  const shell=(t0:number,t1:number,gap:number,r:THREE.Vector3,at:THREE.Vector3,color:number,flare=0,waves=0,stretch=1)=>{
+    const g=new THREE.SphereGeometry(1,16,7,Math.PI/2+gap/2,Math.PI*2-gap,t0*Math.PI,(t1-t0)*Math.PI);
+    const q=g.getAttribute('position');
+    for(let i=0;i<q.count;i++){
+      const x=q.getX(i),y=q.getY(i),z=q.getZ(i);
+      const below=Math.max(0,-y), a=Math.atan2(z,x);
+      const k=(1+flare*below*below)*(1+(waves?0.07*Math.sin(a*waves)*below:0));
+      q.setXYZ(i,x*k,y<0?y*stretch:y,z*k);
+    }
+    add(g,at,r,color,BI.head,1);
+  };
   const cy=J.head.y+.105, cz=J.head.z;
-  // Skin under the former hair cap closes the back of the head, behind the retained face.
-  ellipsoid(0,cy,cz-.03,.115,.161,.081,null);
-  // Scalp across the crown and down the back; the front remains a featureless face.
-  add(new THREE.SphereGeometry(1,10,5,0,Math.PI*2,0,Math.PI*.52),new THREE.Vector3(0,cy+.09,cz-.025),new THREE.Vector3(.143,.116,.124),brown,BI.head,1);
-  ellipsoid(0,cy+.007,cz-.076,.132,.154,.075,brown,1);
+  // Skin under the former hair closes the back of the head, kept well inside the new hair.
+  ellipsoid(0,cy-.005,cz-.045,.1,.15,.07,null);
+  const R=new THREE.Vector3(.142,.15,.13), C=new THREE.Vector3(0,cy+.03,cz-.03);
   if(gender==='f') {
+    // Her face is a plate further forward than his (the original's long hair made the back of her
+    // head): the new hair is centred further forward and deeper, round it.
+    C.z=cz+.03;R.set(.15,.152,.165);
+    // A smooth crown down to the ears, a little lower at the nape, the face left open; the crown
+    // reaches a little further forward, over the top of the face.
+    shell(0,.36,0,new THREE.Vector3(R.x,R.y,.185),C,brown);
+    shell(.3,.7,1.25,R.clone().multiplyScalar(.99),C,darkBrown,.35,0,1.05);
+    // Locks falling past each cheek frame the face (as the original's long hair does).
+    for(const side of [-1,1]) ellipsoid(side*.125,cy-.035,cz+.1,.034,.105,.055,darkBrown,1);
+    // A soft fringe swept across the top of the face to the parting.
+    ellipsoid(.015,cy+.135,cz+.12,.105,.05,.075,brown,1);
     // Gathered high bun with a pink tie and five faceted hibiscus petals.
-    ellipsoid(0,cy+.244,cz-.06,.098,.086,.077,brown,1);
-    add(new THREE.TorusGeometry(.058,.012,4,9),new THREE.Vector3(0,cy+.196,cz-.021),new THREE.Vector3(1,1,.65),0xd56488);
+    ellipsoid(0,cy+.185,cz-.055,.088,.08,.075,brown,1);
+    add(new THREE.TorusGeometry(.055,.012,4,9),new THREE.Vector3(0,cy+.145,cz-.045),new THREE.Vector3(1,1,.6),0xd56488);
     // A swept side lock frames the temple rather than a straight fringe.
-    ellipsoid(-.105,cy+.087,cz+.017,.045,.078,.073,lightBrown,1);
-    const flower=new THREE.Vector3(-.122,cy+.129,cz+.08);
+    ellipsoid(-.12,cy+.06,cz+.08,.04,.07,.06,lightBrown,1);
+    const flower=new THREE.Vector3(-.152,cy+.11,cz+.07);
     for(let k=0;k<5;k++) {
       const a=k*Math.PI*2/5;
-      add(new THREE.IcosahedronGeometry(1,0),new THREE.Vector3(flower.x+Math.sin(a)*.033,flower.y+Math.cos(a)*.033,flower.z),new THREE.Vector3(.025,.039,.012),k%2?0xe66b81:0xf18696,BI.head,0,-a);
+      add(new THREE.IcosahedronGeometry(1,0),new THREE.Vector3(flower.x-.004,flower.y+Math.cos(a)*.03,flower.z+Math.sin(a)*.03),new THREE.Vector3(.012,.036,.024),k%2?0xe66b81:0xf18696,BI.head,0,0);
     }
-    ellipsoid(flower.x,flower.y,flower.z+.014,.014,.015,.012,0xe9b831);
+    ellipsoid(flower.x-.01,flower.y,flower.z,.012,.014,.013,0xe9b831);
   } else {
-    // Loose hair to the neck, with overlapping faceted waves rather than a tied topknot.
-    for(const side of [-1,1])for(let k=0;k<3;k++)ellipsoid(side*(.126+k*.004),cy+.07-k*.072,cz-.056,.043,.061,.073,k%2?lightBrown:brown,1);
-
-  }
-  // Toe shapes keep the feet visibly barefoot while following the unchanged ankle rig.
-  for(const side of ['L','R'] as const) {
-    const foot=J[`foot${side}`],sign=side==='L'?1:-1;
-    ellipsoid(foot.x,.126,foot.z,.045,.068,.047,null,0,BI[`foot${side}`]);
-    ellipsoid(foot.x,.059,foot.z+.034,.058,.051,.104,null,0,BI[`foot${side}`]);
-    for(let k=0;k<5;k++)ellipsoid(foot.x+sign*(k-2)*.018,.032,foot.z+.123-k*.005,.014,.023,.033-k*.003,null,0,BI[`foot${side}`]);
+    // Shoulder-length loose hair: a crown, then wavy locks falling round the back and sides to
+    // the neck, parted over the brow with the face open.
+    shell(0,.36,0,R,C,brown);
+    shell(.3,.78,1.7,R.clone().multiplyScalar(1.02),C,darkBrown,.9,7,1.35);
   }
   const geometry=mergeGeometries(pieces)!;for(const g of pieces)g.dispose();
   geometry.computeBoundingSphere();

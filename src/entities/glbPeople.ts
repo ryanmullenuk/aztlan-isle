@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { characterVariant, type CharacterModelKey } from './CharacterVariants';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 /**
  * The two islander characters (public/models/islander_male.glb / islander_female.glb, each with a
@@ -99,7 +100,7 @@ function segDist(p: THREE.Vector3, a: THREE.Vector3, b: THREE.Vector3): number {
  * swinging forward carries the hem with it instead of poking through. Hair (flagged by `hair`) hangs
  * from the head, handing over to the chest down the back, so raised arms don't drag it.
  */
-function autoSkin(P: THREE.BufferAttribute, index: ArrayLike<number>, rig: (typeof RIGS)['m'], hair: Uint8Array): { si: Float32Array; sw: Float32Array } {
+function autoSkin(P: THREE.BufferAttribute, index: ArrayLike<number>, rig: (typeof RIGS)['m'], hair: Uint8Array, skirtFollow = 0.55): { si: Float32Array; sw: Float32Array } {
   const v = (p: V3) => new THREE.Vector3(p[0], p[1], p[2]);
   const J = rig.joint;
   type Seg = { b: number; a: THREE.Vector3; e: THREE.Vector3; r: number; side: number; kind: 'torso' | 'head' | 'arm' | 'shoulder' | 'leg' };
@@ -228,7 +229,7 @@ function autoSkin(P: THREE.BufferAttribute, index: ArrayLike<number>, rig: (type
     const dLeg = Math.min(segDist(p, thighL.a, thighL.e), segDist(p, thighR.a, thighR.e));
     const dArm = Math.min(...armIdx.map((k) => (allowed(segs[k]) ? dist[k][u] : Infinity)));
     if (p.y < hipY + 0.02 && p.y > kneeY + 0.06 && dLeg > 0.085 && dArm > dist[0][u]) {
-      const t = THREE.MathUtils.clamp((hipY - p.y) / (hipY - hemY), 0, 1) * 0.55;
+      const t = THREE.MathUtils.clamp((hipY - p.y) / (hipY - hemY), 0, 1) * skirtFollow;
       const list: [number, number][] = [[BI.hips, 1 - t]];
       if (Math.abs(p.x) < 0.05) list.push([BI.thighL, t * 0.5], [BI.thighR, t * 0.5]);
       else list.push([p.x > 0 ? BI.thighL : BI.thighR, t]);
@@ -324,6 +325,68 @@ function hairMask(P: THREE.BufferAttribute, uv: THREE.BufferAttribute, map: THRE
   return out;
 }
 
+/**
+ * The women's skirt is a front and a back panel, open at the hips: from the side, and with every
+ * stride, the bare thigh showed between them. This wrap closes it: an elliptical tube of the same
+ * cream cloth, just inside the panels, from under the waistband to a gold hem level with theirs,
+ * flaring a little. The top rides the hips; lower down each side follows its thigh more and more,
+ * the front and back middle shared, so it moves with the legs without letting them through.
+ */
+function underskirt(P: THREE.BufferAttribute, UV: THREE.BufferAttribute, J: Record<BoneName, THREE.Vector3>): THREE.BufferGeometry {
+  // From under the waistband to a little below the panels' hem, nearer the knee.
+  const hipY = J.hips.y, topY = hipY + 0.01, hemY = J.shinL.y + 0.075, cz = 0.065;
+  // Texture coordinates of the skirt's cream cloth (middle of the back panel) and its gold hem.
+  const uvAt = (x: number, y: number, z: number) => {
+    let best = Infinity, at = 0;
+    for (let i = 0; i < P.count; i++) {
+      const d = (P.getX(i) - x) ** 2 + (P.getY(i) - y) ** 2 + (P.getZ(i) - z) ** 2;
+      if (d < best) { best = d; at = i; }
+    }
+    return [UV.getX(at), UV.getY(at)];
+  };
+  const cream = uvAt(0.04, hipY - 0.17, -0.12), gold = uvAt(0.04, J.shinL.y + 0.165, -0.12);
+  const rows: { y: number; uv: number[] }[] = [
+    { y: topY, uv: cream }, { y: hipY - 0.1, uv: cream }, { y: hipY - 0.2, uv: cream }, { y: hemY + 0.12, uv: cream },
+    { y: hemY + 0.035, uv: cream }, { y: hemY + 0.03, uv: gold }, { y: hemY - 0.01, uv: gold },
+  ];
+  const seg = 18;
+  const pos: number[] = [], nor: number[] = [], uv: number[] = [], si: number[] = [], sw: number[] = [];
+  for (const r of rows) {
+    const t = THREE.MathUtils.clamp((topY - r.y) / (topY - hemY), 0, 1);
+    const rx = THREE.MathUtils.lerp(0.2, 0.25, t), rz = THREE.MathUtils.lerp(0.128, 0.165, t);
+    const follow = t * 0.82;
+    for (let k = 0; k <= seg; k++) {
+      const a = (k / seg) * Math.PI * 2;
+      const x = Math.sin(a) * rx, z = cz + Math.cos(a) * rz;
+      pos.push(x, r.y, z);
+      const n = new THREE.Vector3(Math.sin(a) / rx, 0.12, Math.cos(a) / rz).normalize();
+      nor.push(n.x, n.y, n.z);
+      uv.push(r.uv[0], r.uv[1]);
+      const left = THREE.MathUtils.smoothstep(x / rx, -0.35, 0.35);
+      si.push(BI.hips, BI.thighL, BI.thighR, 0);
+      sw.push(1 - follow, follow * left, follow * (1 - left), 0);
+    }
+  }
+  const idx: number[] = [];
+  for (let r = 0; r < rows.length - 1; r++) for (let k = 0; k < seg; k++) {
+    const a = r * (seg + 1) + k, b = a + seg + 1;
+    idx.push(a, b, a + 1, a + 1, b, b + 1);
+  }
+  const n = pos.length / 3;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(n * 3).fill(1), 3));
+  g.setAttribute('aVeg', new THREE.Float32BufferAttribute(new Float32Array(n * 2), 2));
+  g.setAttribute('aMat', new THREE.Float32BufferAttribute(new Float32Array(n), 1));
+  g.setAttribute('aHairB', new THREE.Float32BufferAttribute(new Float32Array(n), 1));
+  g.setAttribute('aSkinI', new THREE.Float32BufferAttribute(si, 4));
+  g.setAttribute('aSkinW', new THREE.Float32BufferAttribute(sw, 4));
+  g.setIndex(idx);
+  return g;
+}
+
 async function loadOne(loader: GLTFLoader, g: 'm' | 'f'): Promise<GlbModel> {
   const url = (u: string) => new URL(u, document.baseURI).href;
   const [gltf, map] = await Promise.all([loader.loadAsync(url(FILES[g].mesh)), new THREE.TextureLoader().loadAsync(url(FILES[g].tex))]);
@@ -365,9 +428,11 @@ async function loadOne(loader: GLTFLoader, g: 'm' | 'f'): Promise<GlbModel> {
   const tris = src.index ? Array.from(src.index.array as ArrayLike<number>) : Array.from({ length: P.count }, (_, i) => i);
   // Twice: the second time without the arm-to-body bridges, so no weight leaks across them.
   const armpit = joint.upper_armL.y - 0.12;
-  const first = autoSkin(P, tris, rig, hair);
+  // The women's skirt panels follow the thighs more closely, so a striding leg stays under them.
+  const follow = g === 'f' ? 0.8 : 0.55;
+  const first = autoSkin(P, tris, rig, hair, follow);
   const kept = cutBridges(P, tris, first.si, first.sw, armpit);
-  const { si, sw } = autoSkin(P, kept, rig, hair);
+  const { si, sw } = autoSkin(P, kept, rig, hair, follow);
   snapArms(P, si, sw, armpit);
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', P);
@@ -402,10 +467,11 @@ async function loadOne(loader: GLTFLoader, g: 'm' | 'f'): Promise<GlbModel> {
   geometry.setAttribute('aSkinI', new THREE.Float32BufferAttribute(si, 4));
   geometry.setAttribute('aSkinW', new THREE.Float32BufferAttribute(sw, 4));
   geometry.setIndex(cutBridges(P, kept, si, sw, armpit));
-  geometry.computeBoundingSphere();
+  const body = g === 'f' ? mergeGeometries([geometry, underskirt(P, UV, joint)])! : geometry;
+  body.computeBoundingSphere();
   const tip = new THREE.Vector3(...rig.tipL);
   return {
-    geometry,
+    geometry: body,
     map,
     skinUv,
     hat: rig.hat,
