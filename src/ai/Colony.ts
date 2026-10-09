@@ -452,7 +452,7 @@ export class Colony {
           if (b.upgrading && i.role === 'mason') i.role = 'builder';
           else if (!b.upgrading && i.role === 'builder') i.role = 'mason';
         }
-        const valid = b && (i.role === 'builder' ? !b.complete || b.upgrading : b.complete);
+        const valid = b && (i.role === 'builder' ? (!b.complete || b.upgrading) && !this.bld.waitingForMaterials?.(b) : b.complete);
         if (!valid) {
           i.workplace = -1;
           if (i.manualRole && i.role === 'builder') i.manualRole = false;
@@ -466,6 +466,7 @@ export class Colony {
 
     const slots: { b: Building; role: Role; n: number }[] = [];
     for (const b of this.bld.list) {
+      if (this.bld.waitingForMaterials?.(b)) continue;
       if (!b.complete || b.upgrading) slots.push({ b, role: 'builder', n: b.def.builders });
       else if (isFarm(b.key)) slots.push({ b, role: 'farmer', n: b.def.workers });
       else if (b.key === 'market') slots.push({ b, role: 'merchant', n: b.def.workers });
@@ -894,7 +895,7 @@ export class Colony {
       case 'builder': {
         let site = isl.workplace >= 0 ? this.bld.byId(isl.workplace) : undefined;
         if (!site || (site.complete && !site.upgrading)) {
-          site = this.bld.list.filter((b) => !b.complete || b.upgrading).sort((a, b) => (a.x - fromX) ** 2 + (a.z - fromZ) ** 2 - ((b.x - fromX) ** 2 + (b.z - fromZ) ** 2))[0];
+          site = this.bld.list.filter((b) => (!b.complete || b.upgrading) && !this.bld.waitingForMaterials?.(b)).sort((a, b) => (a.x - fromX) ** 2 + (a.z - fromZ) ** 2 - ((b.x - fromX) ** 2 + (b.z - fromZ) ** 2))[0];
         }
         if (!site) return false;
         // Stand around the edge of the site.
@@ -1268,7 +1269,7 @@ export class Colony {
       }
       case 'build': {
         const b = this.bld.byId(t.target);
-        if (!b || (b.complete && !b.upgrading)) return this.releaseTask(isl);
+        if (!b || (b.complete && !b.upgrading) || this.bld.waitingForMaterials?.(b)) return this.releaseTask(isl);
         isl.tool = 'hammer';
         if (t.stage < 2) {
           const r = this.travel(isl, dt, t.x, t.z, { goalRadius: 1 });
@@ -1322,6 +1323,7 @@ export class Colony {
           }
           const n = Math.min(f.stock, ISLANDER.carryAmount * 2);
           f.stock -= n;
+          if(n>0 && f.key!=='herbalgarden') this.bld.recordProgress?.('harvest');
           isl.carry = f.key === 'herbalgarden' ? { kind: 'herbs', res: 'herbs', n } : { kind: 'grain', res: 'grain', n };
           this.releaseTask(isl);
           this.deliver(isl);
@@ -1406,6 +1408,7 @@ export class Colony {
         }
         this.faceTo(isl, tp.x - isl.x, tp.z - isl.z, dt);
         isl.anim = 'pray';
+        if(tp.key==='temple') this.bld.recordPrayer?.(dt);
         if (tp.key === 'greattemple') {
           const elapsed = (isl.greatTemplePrayer ?? 0) + dt;
           const offerings = Math.floor((elapsed + 1e-8) / TEMPLE.greatPrayerSeconds);

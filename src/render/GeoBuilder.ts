@@ -115,6 +115,8 @@ export class GeoBuilder {
     return this.pos.length / 3;
   }
 
+  get indexCount(): number { return this.idx.length; }
+
   build(): THREE.BufferGeometry {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));

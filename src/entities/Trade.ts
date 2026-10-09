@@ -428,6 +428,7 @@ export class TradeFleet {
     let short = false;
     for (const [key, n] of Object.entries(deal.get) as [ResourceKey, number][]) if (this.eco.add(key, n) < n) short = true;
     deal.taken = true;
+    this.bld?.recordProgress?.('trade');
     // Everything traded: they pack up and leave soon after.
     if (v.deals.every((d) => d.taken)) v.timer = Math.min(v.timer, TRADE.visitors.leaveAfterDeals);
     return `You traded ${goodsText(deal.give)} for ${goodsText(deal.get)}${short ? ' (your stores could not hold it all)' : ''}.`;

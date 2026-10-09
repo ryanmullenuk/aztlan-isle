@@ -406,6 +406,7 @@ export class UI {
     x.onclick = () => this.game.setTool('select');
     head.appendChild(x);
     this.buildMenu.appendChild(head);
+    const goals=el('p','muted small');goals.dataset.progression='';this.buildMenu.appendChild(goals);
     const grid = el('div', 'bm-grid');
     for (const key of BUILD_MENU) {
       const def = BUILDINGS[key];
@@ -550,7 +551,8 @@ export class UI {
       <label class="row">Show FPS <input type="checkbox" data-k="fps"></label>
       <label class="row godrow hidden">Instant build and upgrade <input type="checkbox" data-k="instantBuild"></label>
       <div class="obtns">
-        <button class="obtn red" data-a="new">${ICONS.o_new}<span>New game</span></button>
+        <button class="obtn red" data-a="new">${ICONS.o_new}<span>New normal game</span></button>
+        <button class="obtn" data-a="sandbox"><span>New Sandbox · unlimited resources</span></button>
         <button class="obtn gold" data-a="save">${ICONS.o_save}<span>Save</span></button>
         <button class="obtn green" data-a="tutorial">${ICONS.o_tutorial}<span>Tutorial</span></button>
         <button class="obtn cyan" data-a="help">${ICONS.o_help}<span>How to play</span></button>
@@ -609,6 +611,9 @@ export class UI {
     });
     card.querySelector<HTMLButtonElement>('[data-a="new"]')!.onclick = () => {
       if (confirm('Start again from the beginning? Your progress on this island will be lost.')) this.game.newIsland();
+    };
+    card.querySelector<HTMLButtonElement>('[data-a="sandbox"]')!.onclick = () => {
+      if (confirm('Start a new Sandbox with all buildings unlocked and unlimited resources? Your current island will be replaced.')) this.game.newIsland(true);
     };
     card.querySelector<HTMLButtonElement>('[data-a="save"]')!.onclick = () => {
       this.game.save();
@@ -1047,10 +1052,12 @@ export class UI {
     this.speedBtns.forEach((b, i) => b.classList.toggle('on', !t.paused && t.speed === i + 1));
     this.buildMenu.classList.toggle('hidden', g.tool !== 'build' || !!g.placing);
     if (!this.buildMenu.classList.contains('hidden')) {
+      const goals=this.buildMenu.querySelector('[data-progression]');if(goals)goals.textContent=g.progression.summary;
       for (const [key, b] of this.buildItems) {
         const reason = g.buildings.constructionRequirement(key);
         b.classList.toggle('dim', !!reason || !e.canAfford(BUILDINGS[key].cost));
         b.title = reason || BUILDINGS[key].name;
+        let lock=b.querySelector('.bm-lock');if(!lock){lock=el('span','bm-purpose bm-lock');b.appendChild(lock);}lock.textContent=reason;
         b.setAttribute('aria-disabled', String(!!reason));
       }
     }
@@ -1166,7 +1173,7 @@ export class UI {
         <div class="actions"><button class="btn small" data-a="capture" ${free && (!d.needsPen || hasPen) ? '' : 'disabled'}>${ICONS.harvest} ${label}</button></div>
         <p class="muted small">Tip: select an islander first, then tap an animal to send them after it.</p>`;
     } else if (b) {
-      key = `b${b.id}|${Math.floor(g.eco.goods.carvedstone)}|${g.buildings.constructionRequirement('home')}|${g.buildings.list.filter(x=>x.key==='stonemason' && x.complete).map(x=>x.tier).join(',')}|${Math.floor(g.eco.food)}|${b.key === 'tradedock' || b.key === 'market' ? g.trade.visitKey(b) + '|' + g.voyage.key() + '|' + JSON.stringify(g.eco.goods) : ''}|${b.key === 'greathall' ? JSON.stringify(g.colony.hallCount(b)) : ''}|${b.key === 'healer' ? g.colony.patients(b).map((p) => `${p.id}:${p.condition}:${Math.ceil(p.conditionT / 60)}:${p.task?.slot}:${g.colony.canCure(p)}`).join(',') + JSON.stringify(g.eco.goods) : ''}|${b.key === 'watchtower' ? `${g.defence.stats(b).shots}|${g.defence.stats(b).kills}|` : ''}${b.key === 'kennel' ? `${g.dogs.alive.length}|${g.dogs.alive.filter((d) => d.puppy).length}|${Math.ceil(b.breedT)}|${Math.ceil(b.breedCool / 5)}|${b.dogRole}|${Math.floor(g.eco.food / 4)}|` : ''}${b.key === 'market' ? JSON.stringify(b.marketStock) : ''}|${b.key === 'herbalist' || b.key === 'stonemason' ? JSON.stringify(g.eco.goods) : ''}|${b.complete}|${Math.round(b.progress * 50)}|${b.tier}|${b.residents.length}|${b.upgrading}|${Math.round(b.growth * 20)}|${b.boats.length}|${b.boatBuild > 0}|${b.training.length}|${Math.floor(g.eco.res.wood / 5)}|${Math.floor(g.eco.res.stone / 5)}|${Math.floor(g.eco.res.belief / 5)}`;
+      key = `b${b.id}|${Math.floor(g.eco.goods.carvedstone)}|${g.progression.summary}|${g.buildings.constructionRequirement('home')}|${g.buildings.list.filter(x=>x.key==='stonemason' && x.complete).map(x=>x.tier).join(',')}|${Math.floor(g.eco.food)}|${b.key === 'tradedock' || b.key === 'market' ? g.trade.visitKey(b) + '|' + g.voyage.key() + '|' + JSON.stringify(g.eco.goods) : ''}|${b.key === 'greathall' ? JSON.stringify(g.colony.hallCount(b)) : ''}|${b.key === 'healer' ? g.colony.patients(b).map((p) => `${p.id}:${p.condition}:${Math.ceil(p.conditionT / 60)}:${p.task?.slot}:${g.colony.canCure(p)}`).join(',') + JSON.stringify(g.eco.goods) : ''}|${b.key === 'watchtower' ? `${g.defence.stats(b).shots}|${g.defence.stats(b).kills}|` : ''}${b.key === 'kennel' ? `${g.dogs.alive.length}|${g.dogs.alive.filter((d) => d.puppy).length}|${Math.ceil(b.breedT)}|${Math.ceil(b.breedCool / 5)}|${b.dogRole}|${Math.floor(g.eco.food / 4)}|` : ''}${b.key === 'market' ? JSON.stringify(b.marketStock) : ''}|${b.key === 'herbalist' || b.key === 'stonemason' ? JSON.stringify(g.eco.goods) : ''}|${b.complete}|${Math.round(b.progress * 50)}|${b.tier}|${b.residents.length}|${b.upgrading}|${Math.round(b.growth * 20)}|${b.boats.length}|${b.boatBuild > 0}|${b.training.length}|${Math.floor(g.eco.res.wood / 5)}|${Math.floor(g.eco.res.stone / 5)}|${Math.floor(g.eco.res.belief / 5)}`;
       html = this.buildingHtml(b);
     }
     if (!force && key === this.infoKey) return;
@@ -1181,6 +1188,7 @@ export class UI {
   private buildingHtml(b: Building): string {
     const g = this.game;
     let body = '';
+    if(b.key==='greattemple'&&!b.complete){const names=['Foundations','Terraces','Stairs','Shrines'];const phase=Math.min(3,Math.floor(b.progress*4));body+=`<p>${names[phase]} · Phase ${phase+1}/4</p><p class="muted small">Each phase: 40 wood · 120 stone · 30 carved stone · 50 Belief. Builders pause until the next phase can be supplied.</p>`;}
     if (!b.complete) body += `${this.bar(`Building ${Math.round(b.progress * 100)}%`, b.progress, 'good')}<div class="kv"><span>Builders</span><b>${b.builders.size} / ${b.def.builders}</b></div>`;
     else if (b.upgrading) body += `${this.bar(`Upgrading ${Math.round(b.progress * 100)}%`, b.progress, 'good')}`;
     if (b.complete && b.def.housing) {
@@ -1272,6 +1280,7 @@ export class UI {
       const label = b.key === 'stonemason' ? `Workshop upgrade ${b.tier}: ${STONEMASON.upgrades[b.tier - 1].unlock}` : b.key === 'hut' ? 'Upgrade to level 2 (4 people)' : b.key === 'home' ? `Upgrade to level ${b.tier + 2} (${next} people)` : b.tier === 2 ? 'Raise the Great Pyramid' : 'Upgrade temple';
       actions += `<button class="btn small" data-a="upgrade" ${up.ok ? '' : 'disabled'} title="${up.reason}">${ICONS.upgrade} ${label} <span class="c">${c.wood ? icon('wood') + c.wood : ''} ${c.stone ? icon('stone') + c.stone : ''} ${c.belief ? icon('belief') + c.belief : ''} ${c.carvedStone ? icon('carvedstone') + c.carvedStone : ''} ${c.food ? icon('grain') + c.food + ' food' : ''}</span></button>`;
     }
+    if(!up.ok && up.reason && ['hut','home','temple','stonemason'].includes(b.key)) actions+=`<p class="muted small">${up.reason}</p>`;
     if (b.key === 'jetty' && b.complete) {
       const c = JETTY.boatCost;
       actions += `<button class="btn small" data-a="boat" ${b.boats.length + (b.boatBuild > 0 ? 1 : 0) < JETTY.maxBoats && g.eco.canAfford(c) ? '' : 'disabled'}>${ICONS.boat} Build boat <span class="c">${icon('wood')}${c.wood}</span></button>`;

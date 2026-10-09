@@ -1,3 +1,4 @@
+import { Progression } from './economy/Progression';
 import { idleForGroup, IdleGroupTap } from './ai/GroupSelection';
 import { Volcano, VOLCANO_COST, VOLCANO_HAPPINESS } from './entities/Volcano';
 import { Explore } from './render/Explore';
@@ -50,7 +51,7 @@ import { softenMapEdge } from './world/mapEdge';
 import { shapeWaterfall } from './world/waterfallSite';
 import { Bridges } from './buildings/Bridges';
 import { TradeFleet } from './entities/Trade';
-import { GOD_NAME, randomIslandName } from './world/names';
+import { randomIslandName } from './world/names';
 import { FAUNA, GREAT_HALL, SPECIES, TIME } from './config';
 import { MONKEY_BASE } from './entities/Monkeys';
 import { DOG_BASE, Dogs } from './entities/Dogs';
@@ -220,6 +221,7 @@ export class Game {
   followId = -1;
   stats = { sculpted: 0, marked: 0, boats: 0 };
   milestones = new Set<string>();
+  readonly progression = new Progression(()=>({buildings:this.buildings.list,population:this.colony.list.length,food:this.eco.food,carved:this.eco.goods.carvedstone,sandbox:this.eco.godMode,milestones:this.milestones}));
   /** -1, 0 or 1 while a rotate button is held. */
   rotateHold = 0;
   private defaultYaw = 0;
@@ -275,6 +277,9 @@ export class Game {
     this.veg.growIslets(growIslets(this.world));
     this.veg.build();
     const save = readSave(opts.seed);
+    if (!save) {
+      try { this.eco.godMode = localStorage.getItem(SAVE.key + '-mode') === 'sandbox'; } catch { /* normal mode */ }
+    }
     if (save) applyWorld(this.world, save);
     // The waterfall's cliff, basin and rim (after the save, so old saves get them too).
     shapeWaterfall(this.world);
@@ -328,6 +333,11 @@ export class Game {
     this.healers = new Healers(this.buildings);
     this.scene.add(this.rig3d.group);
     this.sculptor = new Sculptor(this.world, this.terrain, this.water, this.veg, this.eco);
+    this.buildings.earnedWorkshopTier = () => this.progression.workshopTier;
+    this.buildings.progressionRequirement = key => this.progression.requirement(key);
+    this.buildings.progressionUpgrade = b => this.progression.upgradeRequirement(b);
+    this.buildings.recordProgress = event => this.progression.record(event);
+    this.buildings.recordPrayer = seconds => this.progression.pray(seconds);
     this.buildings.onComplete = (b) => this.onBuildingComplete(b);
     this.buildings.instantBuild = () => this.eco.godMode && this.settings.instantBuild;
 
@@ -765,29 +775,11 @@ export class Game {
   /** The player's name for their island (saved with the game). */
   islandName = randomIslandName();
 
-  /** Rename the island. (The secret test name unlocks unlimited resources.) */
+  /** Naming an island never changes its game mode. */
   setIslandName(name: string): { god: boolean; changed: boolean } {
-    const n = name.trim().slice(0, 32) || this.islandName;
-    const god = n.toUpperCase() === GOD_NAME;
-    const was = this.eco.godMode;
-    this.islandName = n;
-    this.eco.godMode = god;
-    if (was && !god) {
-      // Back to normal: stores return to their real size and anything over it is lost.
-      this.buildings.recomputeCaps();
-      const e = this.eco;
-      e.res.wood = Math.min(e.res.wood, e.woodCap);
-      e.res.stone = Math.min(e.res.stone, e.woodCap);
-      e.res.belief = Math.min(e.res.belief, e.beliefCap);
-      const food = e.food;
-      if (food > e.foodCap) for (const k of ['grain', 'fruit', 'meat', 'fish'] as const) e.res[k] = Math.floor((e.res[k] / food) * e.foodCap);
-    }
-    try {
-      document.title = god ? 'Aztlan Isle' : `${n} · Aztlan Isle`;
-    } catch {
-      /* no document */
-    }
-    return { god, changed: god !== was };
+    this.islandName = name.trim().slice(0, 32) || this.islandName;
+    try { document.title = `${this.islandName} · Aztlan Isle`; } catch { /* no document */ }
+    return {god:this.eco.godMode,changed:false};
   }
 
   /** Waiting for the player to choose the village site (no campfire yet). */
@@ -1705,8 +1697,9 @@ export class Game {
     this.reloadIsland();
   }
 
-  newIsland(): void {
+  newIsland(sandbox = false): void {
     try {
+      localStorage.setItem(SAVE.key + '-mode', sandbox ? 'sandbox' : 'normal');
       localStorage.removeItem(SAVE.key);
     } catch {
       this.ui.toast('Your saved island could not be cleared. Please free browser storage and try again.', 'warn');
@@ -2071,6 +2064,7 @@ export class Game {
     this.milestoneTimer -= realDt;
     if (this.milestoneTimer <= 0) {
       this.milestoneTimer = 1;
+      this.progression.refresh();
       this.checkMilestones();
     }
     this.ui.update(realDt);

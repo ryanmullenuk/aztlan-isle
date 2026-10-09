@@ -527,8 +527,10 @@ export function greatTempleModel(): BuildingModel {
     }
   };
   b.add(P.box(7.95,0.12,7.95),{color:shade},M.t(0,0.06,0));
+  const phases=[b.indexCount];
   terrace(7.8,6.6,0.12,1.72);
   terrace(5.9,4.8,1.96,1.72);
+  phases.push(b.indexCount);
   const H=3.8;
   // Separate flights follow each sloping face, with a level landing on the terrace.
   // Keeping every tread outside the masonry avoids the terraces cutting through the stairs.
@@ -550,6 +552,7 @@ export function greatTempleModel(): BuildingModel {
     b.add(P.box(width,0.035,0.36),{color:stone},m.clone().multiply(M.t(0,1.974,3.145)));
   };
   stair(0,1.45); stair(Math.PI/2,0.7); stair(-Math.PI/2,0.7);
+  phases.push(b.indexCount);
   const shrine = (x:number,col:THREE.Color) => {
     const z=-0.55, w=1.58;
     b.add(P.cyl(1.25/Math.SQRT2,w/Math.SQRT2,1.55,4),{color:masonry},M.t(x,H+0.775,z,0,Math.PI/4,0));
@@ -594,7 +597,9 @@ export function greatTempleModel(): BuildingModel {
     const side=i%2?1:-1,x=side*r.range(3.55,3.83),z=r.range(-3.65,3.55);
     b.add(lumpy(P.sphere(0.14,0),0.18,i),{color:shade},M.t(x,0.14,z,0,r.next()*6,0,1.3,0.8,1));
   }
-  return {finished:b.build(),torches,height:H+2.48};
+  phases.push(b.indexCount);
+  const finished=b.build();finished.userData.constructionPhases=phases;
+  return {finished,torches,height:H+2.48};
 }
 
 /** Farm: fence with a gate, a small shelter and a scarecrow. Crops are a separate mesh. */

@@ -71,7 +71,7 @@ test('lost graphics context stops autosaves', () => {
 test('New game shows a restart screen and navigates without destroying the graphics context', () => {
   const h = harness(); const order: string[] = [];
   const oldStorage = globalThis.localStorage, oldLocation = globalThis.location;
-  globalThis.localStorage = { removeItem: () => { order.push('clear'); } } as any;
+  globalThis.localStorage = { setItem() {}, removeItem: () => { order.push('clear'); } } as any;
   globalThis.location = { pathname: '/aztlan-isle/', replace: (url: string) => {
     assert.equal(h.released(), 0);
     const screen = document.getElementById('restart-screen') as any;
@@ -90,7 +90,7 @@ test('New game shows a restart screen and navigates without destroying the graph
 test('a failed save removal leaves the current game running instead of freezing it', () => {
   const h = harness(); let notified = false;
   const oldStorage = globalThis.localStorage;
-  globalThis.localStorage = { removeItem: () => { throw new Error('storage denied'); } } as any;
+  globalThis.localStorage = { setItem() {}, removeItem: () => { throw new Error('storage denied'); } } as any;
   h.g.ui = { toast: () => { notified = true; } };
   try {
     h.g.newIsland();
@@ -104,7 +104,7 @@ test('a failed save removal leaves the current game running instead of freezing 
 test('a render-loop cleanup error cannot prevent New game navigating', () => {
   const h = harness(); let navigated = false;
   const oldStorage = globalThis.localStorage, oldLocation = globalThis.location, oldWarn = console.warn;
-  globalThis.localStorage = { removeItem() {} } as any;
+  globalThis.localStorage = { setItem() {}, removeItem() {} } as any;
   globalThis.location = { pathname: '/aztlan-isle/', replace: () => { navigated = true; } } as any;
   h.g.renderer.setAnimationLoop = () => { throw new Error('driver cleanup failed'); };
   console.warn = () => {};
@@ -114,4 +114,20 @@ test('a render-loop cleanup error cannot prevent New game navigating', () => {
     assert.ok(document.getElementById('restart-screen'));
     assert.equal(h.g.noSave, true);
   } finally { globalThis.localStorage = oldStorage; globalThis.location = oldLocation; console.warn = oldWarn; }
+});
+
+
+test('renaming no longer changes the game mode',()=>{
+  const g=Object.create(Game.prototype) as any;
+  g.eco={godMode:false};g.islandName='Test';
+  g.setIslandName('GODMODE');assert.equal(g.eco.godMode,false);
+  g.eco.godMode=true;g.setIslandName('Another island');assert.equal(g.eco.godMode,true);
+});
+
+test('new Sandbox explicitly saves its mode before reloading',()=>{
+  const old=globalThis.localStorage,events:string[]=[];
+  const g=Object.create(Game.prototype) as any;g.reloadIsland=()=>events.push('reload');
+  globalThis.localStorage={setItem:(key:string,value:string)=>events.push(value),removeItem:()=>events.push('clear')} as any;
+  try {g.newIsland(true);assert.deepEqual(events,['sandbox','clear','reload']);}
+  finally {globalThis.localStorage=old;}
 });

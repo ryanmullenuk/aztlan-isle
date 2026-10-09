@@ -1162,6 +1162,7 @@ export class Boats {
           b.rower.visible = false;
           const crew = b.crew;
           b.crew = null;
+          if (crew && b.catch > 0) this.bld.recordProgress?.('harvest');
           if (crew) this.colony.disembark(crew, b.catch, j.door.x, j.door.z);
           // Now and then an oyster in the catch holds a pearl.
           if (b.catch > 0 && Math.random() < PEARLS.fishChance) this.onPearl?.(crew, j.door.x, j.door.z);

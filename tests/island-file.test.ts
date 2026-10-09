@@ -86,3 +86,17 @@ test('new character appearances survive sharing and unsupported appearance value
  const restored=parseIslandFile(await islandFile(save).text());assert.equal(restored.islanders[0].appearance,'flower');
  const bad=JSON.parse(await islandFile(save).text());bad.save.islanders[0].appearance='invalid';assert.throws(()=>parseIslandFile(JSON.stringify(bad)));
 });
+
+
+test('progression mode, achievements and monument phase payments survive sharing', async () => {
+  const save=snapshot();save.progression={prayer:145,sandbox:false};
+  save.milestones.push('progress:stage:5','progress:mason:2');
+  save.buildings[0].key='greattemple';save.buildings[0].monumentPaid=2;
+  const restored=parseIslandFile(await islandFile(save).text());
+  assert.deepEqual(restored.progression,save.progression);assert.equal(restored.buildings[0].monumentPaid,2);
+  assert.ok(restored.milestones.includes('progress:mason:2'));
+  for(const invalid of [{prayer:-1,sandbox:false},{prayer:301,sandbox:false},{prayer:0,sandbox:'yes'}]) {
+    const bad=JSON.parse(await islandFile(save).text());bad.save.progression=invalid;
+    assert.throws(()=>parseIslandFile(JSON.stringify(bad)));
+  }
+});

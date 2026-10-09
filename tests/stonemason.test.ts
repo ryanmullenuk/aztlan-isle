@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { BUILDINGS, masonryCost } from '../src/config';
+import { BUILDINGS, masonryCost, needsStonemason } from '../src/config';
 import { Building, BuildingSystem } from '../src/buildings/Buildings';
 import { stonemasonModel } from '../src/buildings/models';
 import { Economy } from '../src/economy/Economy';
@@ -17,11 +17,11 @@ function setup() {
   return{eco,workshop,system};
 }
 
-test('only huts and the workshop are unlocked before a completed workshop; god mode and relocation remain available',()=>{
+test('survival buildings are available before masonry; advanced construction needs a completed workshop',()=>{
   const {eco,workshop,system}=setup();
   assert.equal(system.constructionRequirement('hut'),'');
   assert.equal(system.constructionRequirement('stonemason'),'');
-  for(const key of BUILD_MENU.filter(k=>!['hut','stonemason'].includes(k))) assert.match(system.constructionRequirement(key),/Stonemason/);
+  for(const key of BUILD_MENU.filter(needsStonemason)) assert.match(system.constructionRequirement(key),/Stonemason/);
   assert.match(BuildingSystem.prototype.canPlace.call(system,'home',0,0,0).reason,/Stonemason/);
   workshop.complete=true; assert.equal(system.constructionRequirement('home'),'');
   assert.match(system.constructionRequirement('temple'),/upgrade 1/);

@@ -1,3 +1,4 @@
+import { GOD_NAME } from './names';
 import type { VolcanoSave } from '../entities/Volcano';
 import { BuildingKey, GOOD_KEYS, GoodKey, ResourceKey, SAVE } from '../config';
 import type { Game } from '../Game';
@@ -9,6 +10,7 @@ import { regrowSavedIslets } from './islets';
 /** Compact save format. The island is regenerated from the seed; only changes are stored. */
 export interface SaveData {
   v: 1;
+  progression?: {prayer:number; sandbox:boolean};
   seed: number;
   savedAt: number;
   time: { elapsed: number; day: number; t: number; speed: number };
@@ -29,6 +31,7 @@ export interface SaveData {
     upgrading: boolean; growth: number; stock: number; boats: number; bless: number;
     /** Kennel: litter timer, breeding rest, dog role (1 = guard). */
     breed?: number; cool?: number; guard?: number;
+    monumentPaid?: number;
     marketStock?: Partial<Record<ResourceKey, number>>;
   }[];
   islanders: Partial<Islander>[];
@@ -109,6 +112,7 @@ export function serialize(g: Game): SaveData {
   const layerU = new Uint8Array(w.layer.buffer.slice(0));
   return {
     v: 1,
+    ...(g.progression ? {progression:{prayer:g.progression.prayer,sandbox:g.eco.godMode}} : {}),
     seed: w.seed,
     savedAt: Date.now(),
     time: { elapsed: g.time.elapsed, day: g.time.day, t: g.time.t, speed: g.time.speed },
@@ -123,6 +127,7 @@ export function serialize(g: Game): SaveData {
     logs: g.veg.serializeLogs(),
     layout: 1,
     buildings: g.buildings.list.map((b) => ({
+      ...(b.monumentPaid!==undefined ? {monumentPaid:b.monumentPaid} : {}),
       id: b.id, key: b.key, cx: b.cx, cz: b.cz, rot: b.rot, complete: b.complete, progress: b.progress, tier: b.tier,
       upgrading: b.upgrading, growth: b.growth, stock: b.stock, boats: b.key === 'tradedock' ? b.tradeBoats : b.boats.length, bless: b.blessTimer,
       ...(b.key === 'market' ? { marketStock: { ...b.marketStock } } : {}),
@@ -182,6 +187,7 @@ export function applyWorld(w: World, d: SaveData): void {
 
 /** Step 2 of loading: plants, buildings, islanders, economy and time. */
 export function applyRest(g: Game, d: SaveData): void {
+  g.eco.godMode = d.progression?.sandbox ?? (d.name?.toUpperCase() === GOD_NAME);
   if (d.name) g.setIslandName(d.name);
   // Planted trees first: their states follow the island's own plants in the saved list.
   g.veg.restorePlanted(d.trees ?? []);
@@ -200,6 +206,7 @@ export function applyRest(g: Game, d: SaveData): void {
   const idMap = new Map<number, number>();
   for (const b of d.buildings) {
     const nb = g.buildings.restore(b.key, b.cx, b.cz, b.rot, b);
+    nb.monumentPaid = b.monumentPaid;
     idMap.set(b.id, nb.id);
     if (b.key === 'market') nb.marketStock = { ...(b.marketStock ?? {}) };
     if (b.key === 'jetty' && b.boats > 0) g.boats?.restore(nb, b.boats);
@@ -230,6 +237,7 @@ export function applyRest(g: Game, d: SaveData): void {
   g.time.t = d.time.t;
   g.time.speed = d.time.speed || 1;
   for (const m of d.milestones) g.milestones.add(m);
+  if(g.progression){g.progression.prayer=d.progression?.prayer??0;if(!d.progression)g.progression.migrate();}
   Object.assign(g.stats, d.stats);
   g.rig.jumpTo(d.camera.x, d.camera.z, d.camera.dist, d.camera.yaw);
   if (g.wildlife && d.animals) g.wildlife.animals.restore(d.animals, idMap);

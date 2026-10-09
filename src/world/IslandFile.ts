@@ -41,6 +41,7 @@ export function parseIslandFile(raw: string): SaveData {
   if (!obj(d.world) || !['layer', 'sandy', 'forest', 'rocky', 'wear', 'path', 'bridge', 'canal']
       .every(k => bytes(d.world[k], WORLD.size * WORLD.size)) || !bytes(d.plants)) return fail();
   if (!list(d.buildings, 10000) || !list(d.islanders, 10000) || !list(d.schools, 10000) || !d.schools.every(number)) return fail();
+  if(d.progression!==undefined && (!obj(d.progression)||!number(d.progression.prayer)||d.progression.prayer<0||d.progression.prayer>300||typeof d.progression.sandbox!=='boolean'))return fail();
   const ids = new Set<number>();
   for (const b of d.buildings) {
     if (!fields(b, ['id', 'cx', 'cz', 'rot', 'progress', 'tier', 'growth', 'stock', 'boats', 'bless']) ||
@@ -49,6 +50,7 @@ export function parseIslandFile(raw: string): SaveData {
         !Number.isInteger(b.tier) || b.tier < 1 || b.tier > 10 || b.boats < 0 || b.boats > 100 ||
         typeof b.complete !== 'boolean' || typeof b.upgrading !== 'boolean') return fail();
     for (const k of ['breed', 'cool', 'guard']) if (b[k] !== undefined && !number(b[k])) return fail();
+    if (b.monumentPaid!==undefined && (!Number.isInteger(b.monumentPaid)||b.monumentPaid<1||b.monumentPaid>4)) return fail();
     if (b.marketStock !== undefined && (!obj(b.marketStock) || !Object.entries(b.marketStock).every(([key,n]) => ['wood','stone','grain','fruit','meat','fish'].includes(key) && number(n) && (n as number) >= 0 && (n as number) <= 32))) return fail();
     ids.add(b.id);
   }

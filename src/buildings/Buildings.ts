@@ -61,6 +61,8 @@ export class Building {
   // Farm
   growth = 0;
   stock = 0;
+  /** Paid monument phases; undefined means a legacy site paid its full cost up front. */
+  monumentPaid?: number;
   /** Goods displayed for exchange; included in the village stockpile, not extra resources. */
   marketStock: Partial<Record<import('../config').ResourceKey, number>> = {};
   tendTimer = 0;
@@ -289,6 +291,11 @@ export class BuildingSystem {
   private basketGeos = [models.basketGeometry(0), models.basketGeometry(1), models.basketGeometry(2)];
   private bellGeo = models.hallBellGeometry();
   /** Called when a building completes (for milestones, sounds, AI). */
+  earnedWorkshopTier: () => number = () => 0;
+  progressionRequirement: (key: BuildingKey) => string = () => '';
+  progressionUpgrade: (b: Building) => string = () => '';
+  recordProgress: (event:string) => void = () => {};
+  recordPrayer: (seconds:number) => void = () => {};
   onComplete: (b: Building) => void = () => {};
   /** Called when a building is removed (pens release animals, etc.). */
   onRemove: (b: Building) => void = () => {};
@@ -375,8 +382,9 @@ export class BuildingSystem {
    * as free and it costs nothing.
    */
   constructionRequirement(key: BuildingKey): string {
+    if (!this.eco.godMode) { const reason=this.progressionRequirement?.(key); if(reason)return reason; }
     if (this.eco.godMode || !needsStonemason(key)) return '';
-    const tier = Math.max(0, ...this.list.filter(b => b.key === 'stonemason' && b.complete).map(b => b.tier));
+    const tier = Math.max(this.earnedWorkshopTier?.() ?? 0, ...this.list.filter(b => b.key === 'stonemason' && b.complete).map(b => b.tier));
     if (tier === 0) return 'Complete a Stonemason’s Workshop first';
     if (key === 'temple' && tier < 2) return 'Stonemason upgrade 1 required: unlock Temples';
     if (key === 'greattemple' && tier < 4) return 'Stonemason upgrade 3 required: unlock the Great Temple';
@@ -532,6 +540,7 @@ export class BuildingSystem {
     }
     const b = new Building(this.nextId++, key, cx, cz, rot, this.world.layer[this.world.idx(cx, cz)], this.world);
     if (!instant) this.eco.spend(def.cost);
+    if (key === 'greattemple') b.monumentPaid = instant ? 4 : 1;
     let paved = false;
     for (let z = cz; z < cz + b.d; z++) for (let x = cx; x < cx + b.w; x++) {
       const i = this.world.idx(x, z);
@@ -567,17 +576,19 @@ export class BuildingSystem {
 
   /** Upgrade a hut into a home, or a temple to the next tier. */
   canUpgrade(b: Building): { ok: boolean; reason: string; cost: Cost } {
+    const progression = this.progressionUpgrade?.(b);
+    if (progression) return {ok:false,reason:progression,cost:{wood:0,stone:0,belief:0}};
     if (!b.complete || b.upgrading) return { ok: false, reason: 'Busy', cost: { wood: 0, stone: 0, belief: 0 } };
     if (b.key === 'stonemason') {
       const next = STONEMASON.upgrades[b.tier - 1];
       if (!next) return { ok: false, reason: 'Fully upgraded', cost: { wood: 0, stone: 0, belief: 0 } };
       return this.eco.canAfford(next.cost) ? { ok: true, reason: '', cost: next.cost } : { ok: false, reason: 'Not enough wood, stone or food', cost: next.cost };
     }
-    if (!this.eco.godMode && !this.list.some(x => x.key === 'stonemason' && x.complete)) return { ok: false, reason: 'Complete a Stonemason’s Workshop first', cost: { wood: 0, stone: 0, belief: 0 } };
+    if (!this.eco.godMode && !(this.earnedWorkshopTier?.() || this.list.some(x => x.key === 'stonemason' && x.complete))) return { ok: false, reason: 'Complete a Stonemason’s Workshop first', cost: { wood: 0, stone: 0, belief: 0 } };
     if (b.key === 'temple') {
       if (b.tier >= (b.def.maxTier ?? 1)) return { ok: false, reason: 'Already the Great Pyramid', cost: { wood: 0, stone: 0, belief: 0 } };
       const cost = masonryCost(this.eco.templeUpgradeCost(b.tier + 1));
-      if (!this.eco.godMode && !this.list.some(x => x.key === 'stonemason' && x.complete && x.tier >= 3)) return { ok: false, reason: 'Stonemason upgrade 2 required: unlock Great Pyramid upgrades', cost };
+      if (!this.eco.godMode && !((this.earnedWorkshopTier?.() ?? 0) >= 3 || this.list.some(x => x.key === 'stonemason' && x.complete && x.tier >= 3))) return { ok: false, reason: 'Stonemason upgrade 2 required: unlock Great Pyramid upgrades', cost };
       return this.eco.canAfford(cost) ? { ok: true, reason: '', cost } : { ok: false, reason: 'Not enough resources', cost };
     }
     if (b.key === 'home') {
@@ -664,7 +675,7 @@ export class BuildingSystem {
       for (let z = b.cz; z < b.cz + b.d; z++) for (let x = b.cx; x < b.cx + b.w; x++) this.world.soil[this.world.idx(x, z)] = 0;
       this.terrain.updateWear();
     }
-    if (refund) this.eco.refund(b.def.cost, 0.5);
+    if (refund) this.eco.refund(b.def.cost, 0.5 * (b.key==='greattemple' ? (b.monumentPaid??4) : 1));
     this.group.remove(b.group);
     // Free the full model too when the simple copy is showing (the copy goes with it).
     if (b.finishedHi && b.finished.geometry !== b.finishedHi) {
@@ -873,7 +884,7 @@ export class BuildingSystem {
     for (const b of this.list) {
       if (!b.finished || !b.finishedHi) continue;
       const d = this.camPos.distanceTo(b.group.position);
-      const far = b.lodFar ? d > leave : d > enter;
+      const far = b.key==='greattemple' && !b.complete ? false : b.lodFar ? d > leave : d > enter;
       if (far === b.lodFar) continue;
       b.lodFar = far;
       b.finished.geometry = far ? modelLo(b.finishedHi) : b.finishedHi;
@@ -898,6 +909,7 @@ export class BuildingSystem {
       b.scaffold.visible = false;
       b.finished.visible = true;
       b.finished.scale.y = 1;
+      if(b.key==='greattemple') b.finished.geometry.setDrawRange(0,Infinity);
       for (const t of b.torches) t.flame.visible = true;
       return;
     }
@@ -908,6 +920,16 @@ export class BuildingSystem {
       return;
     }
     const p = b.progress;
+    if (b.key==='greattemple' && b.finishedHi?.userData.constructionPhases) {
+      const ranges=b.finishedHi.userData.constructionPhases as number[];
+      const phase=Math.min(3,Math.floor(p*4)), fraction=p*4-phase;
+      const start=phase===0?0:ranges[phase-1];
+      b.finishedHi.setDrawRange(0,start+Math.floor((ranges[phase]-start)*fraction/3)*3);
+      b.finished.geometry=b.finishedHi;b.lodFar=false;b.finished.visible=true;b.finished.scale.y=1;
+      b.foundation.visible=p<0.25;b.scaffold.visible=p<1;
+      for(const t of b.torches)t.flame.visible=false;
+      return;
+    }
     b.foundation.visible = p < 0.35;
     b.scaffold.visible = p >= 0.12 && p < 1;
     b.finished.visible = p >= 0.3;
@@ -917,10 +939,21 @@ export class BuildingSystem {
     for (const f of b.fills) f.visible = false;
   }
 
+  waitingForMaterials(b: Building): boolean {
+    return b.key==='greattemple' && !b.complete && b.monumentPaid!==undefined && b.monumentPaid<4 && b.progress>=b.monumentPaid/4 && !this.eco.canAfford(b.def.cost);
+  }
+
   /** Called by builders every frame they work. */
   addProgress(b: Building, dt: number): void {
     const time = b.upgrading ? (b.key === 'stonemason' ? (STONEMASON.upgrades[b.tier - 1]?.time ?? b.def.buildTime) : b.key === 'home' ? HOMES.upgradeTime[b.tier + 1] : TEMPLE.upgradeTime[b.tier + 1]) : b.def.buildTime;
-    b.progress = Math.min(1, b.progress + dt / time);
+    let next = Math.min(1, b.progress + dt / time);
+    if(b.key==='greattemple' && !b.complete && b.monumentPaid!==undefined) {
+      while(next>b.monumentPaid/4 && b.monumentPaid<4) {
+        if(!this.eco.spend(b.def.cost)){next=b.monumentPaid/4;break;}
+        b.monumentPaid++;
+      }
+    }
+    b.progress = next;
     if (b.progress >= 1) this.finish(b);
     else this.updateStageVisuals(b);
   }
