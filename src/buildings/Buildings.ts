@@ -2,7 +2,7 @@ import { Demolition } from './Demolition';
 import { villageFire, fireEmbers } from './VillageFire';
 import * as THREE from 'three';
 import { processMedicine } from './Herbalist';
-import { needsStonemason, masonryCost, STONEMASON } from '../config';
+import { needsStonemason, masonryCost, STONEMASON, BOAT_WORKSHOP } from '../config';
 import { BUILDINGS, BuildingDef, BuildingKey, ECONOMY, FARM, HOMES, JETTY, TEMPLE, FARM_TYPES, isFarm } from '../config';
 import { Economy, Cost } from '../economy/Economy';
 import { buildingMaterial, canopyMaterial, fireMaterial, flameMaterial, FX } from '../render/materials';
@@ -78,6 +78,7 @@ export class Building {
   dockX = 0;
   dockZ = 0;
   boatBuild = 0;
+  boatSail = false;
   boatsWanted = 0;
   boats: number[] = [];
   /** Trade boats moored at a Trade Dock. */
@@ -381,6 +382,12 @@ export class BuildingSystem {
    * Can this building go here? `moving` is a building being moved or rotated: its own cells count
    * as free and it costs nothing.
    */
+  boatRequirement(level: number): string {
+    if(this.eco.godMode)return '';
+    const tier=Math.max(0,...this.list.filter(b=>b.key==='boatworkshop'&&b.complete).map(b=>b.tier));
+    return tier>=level?'':level===1?'Complete a coastal Boat Workshop first':level===2?'Research larger boats at the Boat Workshop (level 2)':'Research trade boats at the Boat Workshop (level 3)';
+  }
+
   constructionRequirement(key: BuildingKey): string {
     if (!this.eco.godMode) { const reason=this.progressionRequirement?.(key); if(reason)return reason; }
     if (this.eco.godMode || !needsStonemason(key)) return '';
@@ -427,6 +434,15 @@ export class BuildingSystem {
     return !!W.occ[i] || W.layer[i] !== layer || !Number.isNaN(W.riverY[i]);
   }
 
+  nearSea(cx:number,cz:number,w:number,d:number):boolean {
+    for(let z=cz-6;z<cz+d+6;z++)for(let x=cx-6;x<cx+w+6;x++) {
+      if(!this.world.inBounds(x,z))continue;
+      const dx=Math.max(cx-x,0,x-(cx+w-1)),dz=Math.max(cz-z,0,z-(cz+d-1));
+      if(dx*dx+dz*dz<=36 && this.world.layer[this.world.idx(x,z)]<=0)return true;
+    }
+    return false;
+  }
+
   private siteCheck(key: BuildingKey, cx: number, cz: number, rot: number, movingB?: Building): { ok: boolean; reason: string } {
     const moving = !!movingB;
     const def = BUILDINGS[key];
@@ -447,6 +463,7 @@ export class BuildingSystem {
       return { ok: false, reason: 'Needs flat land: sculpt it level first' };
     }
     if ((key === 'jetty' || key === 'tradedock') && this.jettyWater(cx, cz, rot) < JETTY.length - 2) return { ok: false, reason: `A ${key === 'jetty' ? 'jetty' : 'trade dock'} must face open water at the shore` };
+    if (key === 'boatworkshop' && !this.nearSea(cx,cz,w,d)) return {ok:false,reason:'Build the Boat Workshop on dry land within 6 paces of the sea'};
     if (key === 'chinampa' && this.waterAround(cx, cz, w, d) < 4) return { ok: false, reason: 'A chinampa must be built right beside water (river, pool or shore)' };
     // Room to grow and walk: a hut keeps the flat 3×3 it will become a Home on, and buildings keep
     // a clear square all round so islanders and animals can always get past (and upgrades fit).
@@ -579,10 +596,10 @@ export class BuildingSystem {
     const progression = this.progressionUpgrade?.(b);
     if (progression) return {ok:false,reason:progression,cost:{wood:0,stone:0,belief:0}};
     if (!b.complete || b.upgrading) return { ok: false, reason: 'Busy', cost: { wood: 0, stone: 0, belief: 0 } };
-    if (b.key === 'stonemason') {
-      const next = STONEMASON.upgrades[b.tier - 1];
+    if (b.key === 'stonemason' || b.key === 'boatworkshop') {
+      const next = (b.key==='boatworkshop'?BOAT_WORKSHOP:STONEMASON).upgrades[b.tier - 1];
       if (!next) return { ok: false, reason: 'Fully upgraded', cost: { wood: 0, stone: 0, belief: 0 } };
-      return this.eco.canAfford(next.cost) ? { ok: true, reason: '', cost: next.cost } : { ok: false, reason: 'Not enough wood, stone or food', cost: next.cost };
+      return this.eco.canAfford(next.cost) ? { ok: true, reason: '', cost: next.cost } : { ok: false, reason: b.key==='boatworkshop'?'Not enough wood, stone, food or Belief':'Not enough wood, stone or food', cost: next.cost };
     }
     if (!this.eco.godMode && !(this.earnedWorkshopTier?.() || this.list.some(x => x.key === 'stonemason' && x.complete))) return { ok: false, reason: 'Complete a Stonemason’s Workshop first', cost: { wood: 0, stone: 0, belief: 0 } };
     if (b.key === 'temple') {
@@ -614,7 +631,7 @@ export class BuildingSystem {
   upgrade(b: Building): Building | null {
     const chk = this.canUpgrade(b);
     if (!chk.ok) return null;
-    if (b.key === 'temple' || b.key === 'home' || b.key === 'stonemason') {
+    if (b.key === 'temple' || b.key === 'home' || b.key === 'stonemason' || b.key === 'boatworkshop') {
       this.eco.spend(chk.cost);
       b.upgrading = true;
       b.progress = 0;
@@ -722,6 +739,7 @@ export class BuildingSystem {
       case 'kennel': return models.kennelModel();
       case 'greathall': return models.greatHallModel();
       case 'market': return models.marketSquareModel();
+      case 'boatworkshop': return models.boatWorkshopModel(b.tier);
       case 'stonemason': return models.stonemasonModel(b.tier);
       case 'herbalgarden': return models.herbalGardenModel();
       case 'herbalist': return models.herbalistModel();
@@ -945,7 +963,7 @@ export class BuildingSystem {
 
   /** Called by builders every frame they work. */
   addProgress(b: Building, dt: number): void {
-    const time = b.upgrading ? (b.key === 'stonemason' ? (STONEMASON.upgrades[b.tier - 1]?.time ?? b.def.buildTime) : b.key === 'home' ? HOMES.upgradeTime[b.tier + 1] : TEMPLE.upgradeTime[b.tier + 1]) : b.def.buildTime;
+    const time = b.upgrading ? (b.key === 'boatworkshop' ? (BOAT_WORKSHOP.upgrades[b.tier-1]?.time ?? b.def.buildTime) : b.key === 'stonemason' ? (STONEMASON.upgrades[b.tier - 1]?.time ?? b.def.buildTime) : b.key === 'home' ? HOMES.upgradeTime[b.tier + 1] : TEMPLE.upgradeTime[b.tier + 1]) : b.def.buildTime;
     let next = Math.min(1, b.progress + dt / time);
     if(b.key==='greattemple' && !b.complete && b.monumentPaid!==undefined) {
       while(next>b.monumentPaid/4 && b.monumentPaid<4) {

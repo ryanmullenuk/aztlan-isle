@@ -2,7 +2,7 @@ import { needsStonemason, type BuildingKey } from '../config';
 import type { Building } from '../buildings/Buildings';
 
 export const STAGES=['First landing','Small settlement','Skilled village','Community','Worship','Prosperity','Monumental settlement'] as const;
-export const BUILD_STAGE:Partial<Record<BuildingKey,number>>={woodstore:2,grainstore:2,jetty:1,pigpen:2,chickenpen:2,stonemason:3,home:3,maizefarm:3,chinampa:3,well:3,smokehouse:3,butcher:3,herbalgarden:3,herbalist:3,healer:3,bonfire:3,firepit:2,market:4,greathall:4,kennel:4,watchtower:4,warroom:5,temple:5,tradedock:6,greattemple:7};
+export const BUILD_STAGE:Partial<Record<BuildingKey,number>>={boatworkshop:1,woodstore:2,grainstore:2,jetty:1,pigpen:2,chickenpen:2,stonemason:3,home:3,maizefarm:3,chinampa:3,well:3,smokehouse:3,butcher:3,herbalgarden:3,herbalist:3,healer:3,bonfire:3,firepit:2,market:4,greathall:4,kennel:4,watchtower:4,warroom:5,temple:5,tradedock:6,greattemple:7};
 export interface ProgressState {buildings:Building[];population:number;food:number;carved:number;sandbox:boolean;milestones:Set<string>}
 /** Permanent achievements are stored with the island's milestones. Costs still apply each time. */
 export class Progression {
@@ -37,7 +37,7 @@ export class Progression {
  requirement(key:BuildingKey){if(this.state().sandbox)return '';const stage=BUILD_STAGE[key]??1;if(stage<=this.stage)return '';return `${STAGES[stage-1]}: ${this.missing(stage).join(' · ')}`;}
  upgradeRequirement(b:Building){
   if(this.state().sandbox || (b.key==='stonemason'&&b.tier>=4) || (b.key==='temple'&&b.tier>=3) || (b.key==='home'&&b.tier>=4))return '';
-  const stage=b.key==='stonemason'?b.tier+4:b.key==='temple'?6:b.key==='home'?Math.min(6,b.tier+3):b.key==='hut'?3:1;
+  const stage=b.key==='boatworkshop'?(b.tier===1?3:b.tier===2?6:1):b.key==='stonemason'?b.tier+4:b.key==='temple'?6:b.key==='home'?Math.min(6,b.tier+3):b.key==='hut'?3:1;
   return stage<=this.stage?'':`${STAGES[stage-1]}: ${this.missing(stage).join(' · ')}`;
  }
  get summary(){if(this.state().sandbox)return 'Sandbox · All buildings unlocked';const s=this.stage;return `${STAGES[s-1]}${s<7?' → '+STAGES[s]+': '+this.missing(s+1).join(' · '):' · All settlement stages earned'}`;}

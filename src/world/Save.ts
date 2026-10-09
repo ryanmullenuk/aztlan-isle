@@ -32,6 +32,9 @@ export interface SaveData {
     /** Kennel: litter timer, breeding rest, dog role (1 = guard). */
     breed?: number; cool?: number; guard?: number;
     monumentPaid?: number;
+    boatBuild?: number;
+    boatSail?: boolean;
+    boatSails?: boolean[];
     marketStock?: Partial<Record<ResourceKey, number>>;
   }[];
   islanders: Partial<Islander>[];
@@ -130,6 +133,8 @@ export function serialize(g: Game): SaveData {
       ...(b.monumentPaid!==undefined ? {monumentPaid:b.monumentPaid} : {}),
       id: b.id, key: b.key, cx: b.cx, cz: b.cz, rot: b.rot, complete: b.complete, progress: b.progress, tier: b.tier,
       upgrading: b.upgrading, growth: b.growth, stock: b.stock, boats: b.key === 'tradedock' ? b.tradeBoats : b.boats.length, bless: b.blessTimer,
+      ...(['jetty','tradedock'].includes(b.key) ? {boatBuild:b.boatBuild??0,boatSail:b.boatSail??false} : {}),
+      ...(b.key==='jetty' && g.boats ? {boatSails:g.boats.list.filter(x=>x.jetty===b.id).map(x=>x.sail)} : {}),
       ...(b.key === 'market' ? { marketStock: { ...b.marketStock } } : {}),
       ...(b.key === 'kennel' ? { breed: b.breedT, cool: b.breedCool, guard: b.dogRole === 'guard' ? 1 : 0 } : {}),
     })),
@@ -207,9 +212,10 @@ export function applyRest(g: Game, d: SaveData): void {
   for (const b of d.buildings) {
     const nb = g.buildings.restore(b.key, b.cx, b.cz, b.rot, b);
     nb.monumentPaid = b.monumentPaid;
+    nb.boatBuild = b.boatBuild??0;nb.boatSail=b.boatSail??false;
     idMap.set(b.id, nb.id);
     if (b.key === 'market') nb.marketStock = { ...(b.marketStock ?? {}) };
-    if (b.key === 'jetty' && b.boats > 0) g.boats?.restore(nb, b.boats);
+    if (b.key === 'jetty' && b.boats > 0) g.boats?.restore(nb, b.boats, b.boatSails);
     if (b.key === 'tradedock') for (let k = 0; k < (b.boats ?? 0); k++) g.trade?.launch(nb);
     if (b.key === 'farm' || b.key === 'butcher' || b.key === 'pigpen' || b.key === 'chickenpen') g.wildlife?.registerPen(nb);
     if (b.key === 'kennel') {

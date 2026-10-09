@@ -2594,3 +2594,60 @@ export function marketSquareModel(): BuildingModel {
   const torches=[torchPole(b,-2.1,1.98,0.9,0.08),torchPole(b,2.1,1.98,0.9,0.08)];
   return{finished:b.build(),torches,height:1.75};
 }
+
+/** Coastal adobe boatyard: an open-front shelter and a ribbed hull on trestles. */
+export function boatWorkshopModel(tier=1):BuildingModel {
+  const b=new GeoBuilder(), rng=new RNG(417), sand=c(0xc6ac83), plaster=c(0xd7bd91);
+  b.add(P.rbox(3.9,.10,3.9,.035,1),{color:sand},M.t(0,.05,0));
+  // Broad adobe shelter at the rear, open towards the boat-building court.
+  for(const x of [-1.55,1.55]) b.add(P.rbox(.28,1.75,1.65,.05,1),{color:plaster},M.t(x,.95,-.96));
+  b.add(P.rbox(3.2,1.75,.24,.05,1),{color:K.adobe},M.t(0,.95,-1.69));
+  b.add(P.rbox(3.48,.18,1.96,.04,1),{color:K.stone},M.t(0,1.89,-.93));
+  b.add(P.box(3.38,.12,.12),{color:K.red},M.t(0,1.83,.02));
+  for(const x of [-1.35,-.68,0,.68,1.35]) b.add(P.cyl(.055,.065,2.05,6),{color:K.timberDark},M.t(x,1.77,-.88,Math.PI/2));
+  // Recessed wall niches, jars, stacked planks and a shaded workbench.
+  for(const x of [-.85,.85]) {
+    b.add(P.box(.42,.48,.026),{color:K.timberDark},M.t(x,1.12,-1.553));
+    b.add(P.box(.5,.065,.2),{color:K.stoneDark},M.t(x,.86,-1.48));
+  }
+  b.add(P.box(1.65,.1,.5),{color:K.timber},M.t(0,.73,-1.12));
+  for(const x of [-.65,.65])for(const z of [-1.27,-.98])b.add(P.box(.08,.58,.08),{color:K.timberDark},M.t(x,.4,z));
+  for(let i=0;i<5;i++)b.add(P.box(.13,.06,1.25),{color:i%2?K.timber:K.timberDark},M.t(1.3,.16+i*.055,.65,0,.08));
+  for(const x of [-1.4,-1.05])b.add(P.cyl(.10,.15,.31,8),{color:K.terracotta},M.t(x,.26,-.8));
+  // Half-built hull runs across the foreground: exposed U-shaped timber ribs.
+  for(const x of [-.85,.85]) {
+    b.add(P.box(.12,.35,1.0),{color:K.timberDark},M.t(x,.27,.87));
+    b.add(P.box(.28,.07,1.12),{color:K.timber},M.t(x,.47,.87));
+  }
+  b.add(P.box(2.55,.09,.12),{color:K.timberDark},M.t(0,.5,.87));
+  for(let i=0;i<9;i++) {
+    const x=-1.2+i*.3,beam=.43*(1-Math.pow(Math.abs(x)/1.5,2));
+    for(const side of [-1,1]){
+      b.add(P.box(.065,.11,beam),{color:K.timber},M.t(x,.58,.87+side*beam*.42,side*.5));
+      b.add(P.box(.07,.38,.065),{color:K.timber},M.t(x,.78,.87+side*beam,side*-.18));
+    }
+    // Planking on the far side only leaves the ribs and keel clearly exposed.
+    if(i<8)b.add(P.box(.34,.19,.055),{color:i%2?K.timber:K.timberDark},M.t(x+.15,.8,.87-beam));
+  }
+  for(const x of [-1.3,1.3]) b.add(P.box(.08,.55,.10),{color:K.timberDark},M.t(x,.72,.87,0,0,x>0?-.25:.25));
+  for(let i=0;i<14;i++)b.add(P.box(.10,.012,.025),{color:K.timber},M.t(rng.range(-1.4,1.35),.11,rng.range(1.35,1.8),0,rng.range(0,6)));
+  // Adze on the bench, paddles against the adobe wall.
+  b.add(P.box(.035,.04,.4),{color:K.timberDark},M.t(.1,.81,-1.1,0,.5));
+  b.add(P.box(.16,.065,.11),{color:K.stoneDark},M.t(.18,.82,-.96));
+  for(const x of [-1.25,1.22]) {
+    b.add(P.cyl(.02,.025,1.25,5),{color:K.timber},M.t(x,.78,-1.38,0,0,.12));
+    b.add(P.box(.17,.35,.04),{color:K.timber},M.t(x-.07,.32,-1.38,0,0,.12));
+  }
+  if(tier>=2){
+    for(const x of [-1.48,1.48])b.add(P.cyl(.055,.06,1.42,6),{color:K.timberDark},M.t(x,.82,.23));
+    for(let i=0;i<7;i++)b.add(P.box(2.96/7,.04,.58),{color:i%2?K.plaster:K.red},M.t(-1.48+(i+.5)*2.96/7,1.57,.19,.12));
+    b.add(P.cyl(.09,.09,1.25,8),{color:K.plaster},M.t(.65,.27,-.45,0,0,Math.PI/2));
+  }
+  if(tier>=3){
+    b.add(P.box(.65,.06,.48),{color:K.plaster},M.t(.4,.82,-1.11));
+    for(let i=0;i<3;i++)b.add(P.box(.4,.33,.34),{color:K.timber},M.t(-1.45,.27+i*.33,.25));
+    b.add(P.box(.7,.38,.06),{color:K.blue},M.t(0,1.5,-1.52));
+    b.add(P.box(.42,.06,.07),{color:K.gold},M.t(0,1.46,-1.475));
+  }
+  return {finished:b.build(),torches:[],height:2.02};
+}

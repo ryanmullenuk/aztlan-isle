@@ -50,6 +50,9 @@ export function parseIslandFile(raw: string): SaveData {
         !Number.isInteger(b.tier) || b.tier < 1 || b.tier > 10 || b.boats < 0 || b.boats > 100 ||
         typeof b.complete !== 'boolean' || typeof b.upgrading !== 'boolean') return fail();
     for (const k of ['breed', 'cool', 'guard']) if (b[k] !== undefined && !number(b[k])) return fail();
+    if(b.boatBuild!==undefined && (!number(b.boatBuild)||b.boatBuild<0||b.boatBuild>1000))return fail();
+    if(b.boatSail!==undefined && typeof b.boatSail!=='boolean')return fail();
+    if(b.boatSails!==undefined && (!list(b.boatSails,100)||b.boatSails.length!==b.boats||!b.boatSails.every((x:unknown)=>typeof x==='boolean')))return fail();
     if (b.monumentPaid!==undefined && (!Number.isInteger(b.monumentPaid)||b.monumentPaid<1||b.monumentPaid>4)) return fail();
     if (b.marketStock !== undefined && (!obj(b.marketStock) || !Object.entries(b.marketStock).every(([key,n]) => ['wood','stone','grain','fruit','meat','fish'].includes(key) && number(n) && (n as number) >= 0 && (n as number) <= 32))) return fail();
     ids.add(b.id);

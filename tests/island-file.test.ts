@@ -100,3 +100,15 @@ test('progression mode, achievements and monument phase payments survive sharing
     assert.throws(()=>parseIslandFile(JSON.stringify(bad)));
   }
 });
+
+
+test('boat workshop research and the chosen boats survive shared saves',async()=>{
+ const save=snapshot();save.buildings[0].key='boatworkshop';save.buildings[0].tier=2;
+ const workshop=parseIslandFile(await islandFile(save).text());assert.equal(workshop.buildings[0].tier,2);
+ save.buildings[0].key='jetty';save.buildings[0].tier=1;save.buildings[0].boats=2;
+ save.buildings[0].boatSails=[false,true];save.buildings[0].boatBuild=12;save.buildings[0].boatSail=true;
+ const jetty=parseIslandFile(await islandFile(save).text());assert.deepEqual(jetty.buildings[0].boatSails,[false,true]);
+ assert.equal(jetty.buildings[0].boatBuild,12);assert.equal(jetty.buildings[0].boatSail,true);
+ const bad=JSON.parse(await islandFile(save).text());bad.save.buildings[0].boatSails=[true];
+ assert.throws(()=>parseIslandFile(JSON.stringify(bad)));
+});

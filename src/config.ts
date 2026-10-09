@@ -253,7 +253,7 @@ export const ECONOMY = {
   varietyHappiness: 0.05,
 };
 
-export type BuildingKey = 'campfire' | 'hut' | 'home' | 'temple' | 'greattemple' | 'farm' | 'maizefarm' | 'chinampa' | 'butcher' | 'smokehouse' | 'woodstore' | 'grainstore' | 'warroom' | 'jetty' | 'torch' | 'bonfire' | 'firepit' | 'well' | 'tradedock' | 'kennel' | 'greathall' | 'pigpen' | 'chickenpen' | 'healer' | 'herbalist' | 'herbalgarden' | 'stonemason' | 'market' | 'watchtower';
+export type BuildingKey = 'boatworkshop' | 'campfire' | 'hut' | 'home' | 'temple' | 'greattemple' | 'farm' | 'maizefarm' | 'chinampa' | 'butcher' | 'smokehouse' | 'woodstore' | 'grainstore' | 'warroom' | 'jetty' | 'torch' | 'bonfire' | 'firepit' | 'well' | 'tradedock' | 'kennel' | 'greathall' | 'pigpen' | 'chickenpen' | 'healer' | 'herbalist' | 'herbalgarden' | 'stonemason' | 'market' | 'watchtower';
 
 export interface BuildingDef {
   key: BuildingKey;
@@ -280,6 +280,7 @@ export const BUILDINGS: Record<BuildingKey, BuildingDef> = {
   campfire: { key: 'campfire', name: 'Tribal Fire', description: 'The heart of the tribe. Stores a little of everything.', size: [2, 2], cost: { wood: 0, stone: 0, belief: 0 }, buildTime: 1, builders: 1, workers: 0, placeable: false },
   hut: { key: 'hut', name: 'Hut', description: 'Level 1 house: a small adobe home for 2 islanders.', size: [2, 2], cost: { wood: 12, stone: 0, belief: 0 }, buildTime: 22, builders: 2, workers: 0, housing: 2, upgradeTo: 'home', placeable: true },
   market: { key: 'market', name: 'Market Square', description: 'Sandstone stalls and woven awnings around an open courtyard. Two market keepers carry surplus food, wood and stone here from the stores. Visiting canoes stop at the nearest accessible shore and offer occasional exchanges. Accept their bargains from this square’s card.', size: [5, 5], cost: { wood: 36, stone: 24, belief: 0 }, buildTime: 55, builders: 3, workers: 2, placeable: true },
+  boatworkshop: { key: 'boatworkshop', name: 'Boat Workshop', description: 'A coastal adobe boatyard with a half-built hull. Complete it to build canoes at Fishing Jetties. Research larger fishing boats, then trade boats. Must stand on dry land near the sea.', size: [4, 4], cost: { wood: 24, stone: 8, belief: 0 }, buildTime: 40, builders: 2, workers: 0, maxTier: 3, placeable: true },
   stonemason: { key: 'stonemason', name: 'Stonemason’s Workshop', description: 'Stone blocks, unfinished carvings and tools beneath a shaded timber workspace. Two stonemasons turn 4 raw stone into 2 carved stone per minute of work. Complete this workshop to enable masonry; settlement milestones unlock houses and advanced village buildings. Three further upgrades unlock Temples, Great Pyramid upgrades and the Great Temple. Carved stone is required for stone buildings and house or temple upgrades.', size: [4, 3], cost: { wood: 24, stone: 12, belief: 0 }, buildTime: 40, builders: 2, workers: 2, maxTier: 4, placeable: true },
   home: { key: 'home', name: 'Family House', description: 'Adobe family house (level 2, 4 people). Upgrade it up to level 5 for 16. A couple in any house may have one child, who plays around the village.', size: [3, 3], cost: { wood: 26, stone: 14, belief: 0 }, buildTime: 45, builders: 3, workers: 0, housing: 4, maxTier: 4, placeable: true },
   temple: { key: 'temple', name: 'Temple', description: 'Stepped pyramid that generates Belief. Upgrade twice to raise the Great Pyramid.', size: [4, 4], cost: { wood: 20, stone: 36, belief: 20 }, buildTime: 70, builders: 4, workers: 2, maxTier: 3, placeable: true },
@@ -984,7 +985,7 @@ export const SAVE = {
 export const HERBALIST = { processSeconds: 180, medicineCap: 40, sickSeconds: 60, mauledSeconds: 90 };
 
 /** The founding fire, huts and the workshop remain available during the first village stage. */
-export const needsStonemason = (key: BuildingKey): boolean => !['campfire', 'hut', 'stonemason', 'farm', 'woodstore', 'grainstore', 'jetty', 'pigpen', 'chickenpen', 'torch', 'firepit'].includes(key);
+export const needsStonemason = (key: BuildingKey): boolean => !['boatworkshop', 'campfire', 'hut', 'stonemason', 'farm', 'woodstore', 'grainstore', 'jetty', 'pigpen', 'chickenpen', 'torch', 'firepit'].includes(key);
 export const masonryCost = (cost: { wood: number; stone: number; belief: number; carvedStone?: number }) =>
   ({ ...cost, ...(cost.stone > 0 ? { carvedStone: cost.carvedStone ?? Math.ceil(cost.stone / 4) } : {}) });
 for (const def of Object.values(BUILDINGS)) if (needsStonemason(def.key)) def.cost = masonryCost(def.cost);
@@ -998,3 +999,11 @@ export const STONEMASON = {
 };
 
 export const MARKET = { batch: 8, stallCap: 32, foodReserve: 30, foodPerIslander: 4, woodReserve: 40, stoneReserve: 30 };
+
+export const BOAT_WORKSHOP = {
+  upgrades: [
+    {cost:{wood:40,stone:16,food:24,belief:0},time:90,unlock:'Larger fishing boats'},
+    {cost:{wood:70,stone:30,food:50,belief:20},time:150,unlock:'Trade boats'},
+  ],
+  largeCost:{wood:28,stone:4,belief:0},
+};

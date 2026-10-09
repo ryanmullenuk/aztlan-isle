@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BOATS, JETTY, PEARLS } from '../config';
+import { BOATS, JETTY, PEARLS, BOAT_WORKSHOP } from '../config';
 import { Building, BuildingSystem } from '../buildings/Buildings';
 import { Colony } from '../ai/Colony';
 import { Economy } from '../economy/Economy';
@@ -531,9 +531,11 @@ export class Boats {
   }
 
   /** Start building a boat at a jetty (pays the cost). */
-  order(j: Building): boolean {
+  order(j: Building, sail = false): boolean {
+    if(j.key!=='jetty' || this.bld.boatRequirement(sail?2:1))return false;
     if (!j.complete || j.boatBuild > 0 || j.boats.length >= JETTY.maxBoats) return false;
-    if (!this.eco.spend(JETTY.boatCost)) return false;
+    if (!this.eco.spend(sail?BOAT_WORKSHOP.largeCost:JETTY.boatCost)) return false;
+    j.boatSail = sail;
     j.boatBuild = 0.001;
     return true;
   }
@@ -555,7 +557,8 @@ export class Boats {
     net.add(disc, floats);
     net.visible = false;
     mesh.add(hull, rower);
-    mesh.scale.setScalar(BOAT_SCALE);
+    mesh.scale.setScalar(BOAT_SCALE * (sail?1.18:1));
+    rower.scale.setScalar(sail?1/1.18:1);
     this.group.add(mesh, net);
     const slot = j.boats.length;
     j.boats.push(0);
@@ -818,7 +821,7 @@ export class Boats {
   /** Every hull on the water this frame: fishing boats, settlers' canoes, trade boats and visitors. */
   traffic(): Hull[] {
     const out: Hull[] = [];
-    for (const b of this.list) out.push({ x: b.x, z: b.z, heading: b.heading, half: HULL_HALF, beam: HULL_BEAM, speed: b.speed, pri: 10 + b.id, moored: b.state === 'docked' || (b.state === 'netting' && b.speed < 0.3), ref: b });
+    for (const b of this.list) out.push({ x: b.x, z: b.z, heading: b.heading, half: HULL_HALF*(b.sail?1.18:1), beam: HULL_BEAM*(b.sail?1.18:1), speed: b.speed, pri: 10 + b.id, moored: b.state === 'docked' || (b.state === 'netting' && b.speed < 0.3), ref: b });
     for (const a of this.arrivals) out.push({ x: a.x, z: a.z, heading: a.heading, half: HULL_HALF * 1.1, beam: HULL_BEAM * 1.1, speed: a.speed, pri: 0, moored: a.state === 'beached', ref: a });
     for (const f of this.fleets) for (const h of f()) out.push(h);
     return out;
@@ -1091,7 +1094,7 @@ export class Boats {
         j.boatBuild += dt;
         if (j.boatBuild >= JETTY.boatBuildSeconds) {
           j.boatBuild = 0;
-          this.spawn(j, j.boats.length % 2 === 1);
+          this.spawn(j, j.boatSail);
           this.sfx('complete', j.dockX, j.dockZ);
         }
       }
@@ -1206,8 +1209,8 @@ export class Boats {
       if (b.timer <= 0) {
         // Haul in: the catch comes aboard (up to what the hold takes).
         const s = b.school;
-        const room = JETTY.catchPerTrip - b.catch;
-        const n = s ? Math.max(0, Math.min(JETTY.catchPerCast, room, Math.floor(s.stock) - 2)) : 0;
+        const room = Math.floor(JETTY.catchPerTrip * (b.sail?1.5:1)) - b.catch;
+        const n = s ? Math.max(0, Math.min(JETTY.catchPerCast * (b.sail?1.5:1), room, Math.floor(s.stock) - 2)) : 0;
         if (s) s.stock -= n;
         b.catch += n;
         this.sfx('splash', b.x, b.z);
@@ -1232,9 +1235,9 @@ export class Boats {
       b.z = at.z;
       b.heading = at.out;
     }
-    if (moving) this.fx.wake(b, dt, HULL_HALF, HULL_BEAM, JETTY.boatSpeed);
+    if (moving) this.fx.wake(b, dt, HULL_HALF*(b.sail?1.18:1), HULL_BEAM*(b.sail?1.18:1), JETTY.boatSpeed);
     else b.wakeAcc = 0;
-    this.ride(b.mesh, b, time, dt, HULL_HALF, HULL_BEAM, b.state === 'docked' || b.mooring ? BOATS.mooredSway : 1);
+    this.ride(b.mesh, b, time, dt, HULL_HALF*(b.sail?1.18:1), HULL_BEAM*(b.sail?1.18:1), b.state === 'docked' || b.mooring ? BOATS.mooredSway : 1);
     b.paddlePhase += dt * (b.state === 'docked' || b.mooring ? 0 : b.state === 'netting' ? Math.min(3, b.speed * 3) : 3);
     b.rower.rotation.z = Math.sin(b.paddlePhase) * 0.25;
     // Net: thrown out beside the boat, lying spread while fishing, hauled in at the end of each cast.
@@ -1259,7 +1262,7 @@ export class Boats {
   }
 
   /** Restore boats for a jetty from a save. */
-  restore(j: Building, count: number): void {
-    for (let k = 0; k < count; k++) this.spawn(j, k % 2 === 1);
+  restore(j: Building, count: number, sails?: boolean[]): void {
+    for (let k = 0; k < count; k++) this.spawn(j, sails?.[k] ?? (k % 2 === 1));
   }
 }
