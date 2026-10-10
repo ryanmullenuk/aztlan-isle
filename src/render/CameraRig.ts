@@ -12,6 +12,8 @@ export class CameraRig {
   readonly target = new THREE.Vector3();
   goal = { x: 0, z: 0, dist: CAMERA.startDistance, yaw: CAMERA.startYaw, tilt: 0 };
   cur = { x: 0, z: 0, dist: CAMERA.startDistance, yaw: CAMERA.startYaw, tilt: 0 };
+  /** Wildlife focus: navigation orbits this point without moving the animal. */
+  cinematicTarget: THREE.Vector3 | null = null;
   private groundY = 0;
   boundRadius = 80;
 
@@ -27,6 +29,7 @@ export class CameraRig {
   }
 
   get pitch(): number {
+    if (this.cinematicTarget) return clamp(25 + this.cur.tilt, 10, 80) * Math.PI / 180;
     const t = smoothstep(CAMERA.minDistance, 70, this.cur.dist);
     // Zoomed right out the view turns to look almost straight down on the whole map.
     const top = smoothstep(CAMERA.maxDistance * 0.8, this.maxDist, this.cur.dist);
@@ -69,6 +72,11 @@ export class CameraRig {
 
   /** Pan by a screen-space pixel delta (drag). */
   panPixels(dx: number, dy: number, screenH: number): void {
+    if (this.cinematicTarget) {
+      this.rotate(-dx * CAMERA.dragRotateSpeed);
+      this.tilt(-dy * CAMERA.tiltSpeed);
+      return;
+    }
     const u = this.unitsPerPixel(screenH) * CAMERA.panSpeed;
     const yaw = this.cur.yaw;
     const rx = Math.cos(yaw), rz = -Math.sin(yaw);
@@ -84,6 +92,11 @@ export class CameraRig {
 
   /** Pan with keyboard: forward/right in [-1,1], scaled per second. */
   panKeys(fwd: number, right: number, dt: number): void {
+    if (this.cinematicTarget) {
+      this.rotate(-right * CAMERA.rotateSpeed * dt);
+      this.tilt(fwd * 40 * dt);
+      return;
+    }
     const yaw = this.goal.yaw;
     const speed = this.goal.dist * CAMERA.keyPanSpeed * dt;
     this.goal.x += (Math.cos(yaw) * right - Math.sin(yaw) * fwd) * speed;
@@ -96,12 +109,12 @@ export class CameraRig {
     const old = this.goal.dist;
     this.goal.dist = clamp(old * factor, CAMERA.minDistance, this.maxDist);
     this.saved = null;
-    if (toward) {
+    if (toward && !this.cinematicTarget) {
       const k = 1 - this.goal.dist / old;
       this.goal.x += (toward.x - this.goal.x) * k;
       this.goal.z += (toward.z - this.goal.z) * k;
     }
-    this.clampGoal();
+    if (!this.cinematicTarget) this.clampGoal();
   }
 
   rotate(d: number): void {
@@ -117,13 +130,17 @@ export class CameraRig {
   }
 
   update(dt: number): void {
+    if (this.cinematicTarget) {
+      this.goal.x = this.cinematicTarget.x;
+      this.goal.z = this.cinematicTarget.z;
+    }
     const k = 1 - Math.exp(-CAMERA.damping * dt);
     this.cur.x = lerp(this.cur.x, this.goal.x, k);
     this.cur.z = lerp(this.cur.z, this.goal.z, k);
     this.cur.dist = lerp(this.cur.dist, this.goal.dist, k);
     this.cur.yaw = lerp(this.cur.yaw, this.goal.yaw, k);
     this.cur.tilt = lerp(this.cur.tilt, this.goal.tilt, k);
-    const gy = Math.max(0, this.world.heightAt(this.cur.x, this.cur.z));
+    const gy = this.cinematicTarget ? this.cinematicTarget.y : Math.max(0, this.world.heightAt(this.cur.x, this.cur.z));
     this.groundY = lerp(this.groundY, gy, 1 - Math.exp(-3 * dt));
     this.apply();
   }
@@ -137,6 +154,10 @@ export class CameraRig {
       this.groundY + Math.sin(p) * d,
       this.cur.z + Math.cos(this.cur.yaw) * Math.cos(p) * d
     );
+    if (this.cinematicTarget) {
+      const floor = Math.max(0, this.world.heightAt(this.camera.position.x, this.camera.position.z)) + 0.8;
+      this.camera.position.y = Math.max(floor, this.camera.position.y);
+    }
     this.camera.lookAt(this.target);
     this.camera.updateMatrixWorld();
   }

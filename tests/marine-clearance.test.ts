@@ -6,7 +6,7 @@ import { marinePathClear } from '../src/entities/MarineClearance';
 import { Marine } from '../src/entities/Marine';
 import { generateIsland } from '../src/world/generator';
 import { growIslets } from '../src/world/islets';
-import { WORLD } from '../src/config';
+import { WORLD, MARINE } from '../src/config';
 import { placeSeaStacks, stackCells } from '../src/water/SeaStacks';
 
 const ctx = new Proxy({}, { get: (_, k) => k === 'createRadialGradient' || k === 'createLinearGradient' ? () => ({ addColorStop() {} }) : () => {} });
@@ -29,9 +29,9 @@ test('marine population has opposite adults and a calf; dolphin routes clear coa
   const [first, mother, calf] = m.whales;
   assert.ok(first.x * mother.x + first.z * mother.z < 0);
   assert.equal(calf.mother, mother);
-  assert.ok(first.length >= 7.8 * 0.9 && first.length <= 7.8 * 1.1);
-  assert.ok(mother.length >= 7.8 * 0.9 && mother.length <= 7.8 * 1.1);
-  assert.ok(Math.abs(calf.length - 7.8 * 0.48) < 1e-8);
+  assert.ok(first.length >= MARINE.whaleLength * 0.9 && first.length <= MARINE.whaleLength * 1.1);
+  assert.ok(mother.length >= MARINE.whaleLength * 0.9 && mother.length <= MARINE.whaleLength * 1.1);
+  assert.ok(Math.abs(calf.length - MARINE.whaleLength * 0.48) < 1e-8);
   assert.ok(calf.length < mother.length * 0.6);
   assert.ok(m.dolphins.length > 0);
   let splashes = 0;

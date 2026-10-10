@@ -703,3 +703,15 @@ p.warn { color: #ffb08a; }
 
 .placement-controls {display:flex;gap:8px;justify-content:center;pointer-events:auto;max-width:100%;flex-wrap:wrap;}
 .placement-controls .btn {min-height:44px;min-width:76px;border:1px solid var(--gold);background:transparent;}
+
+/* Passive cinematic wildlife view. Only its navigation controls remain available. */
+body.watching-wildlife #hud { visibility: hidden; pointer-events: none; }
+body.watching-wildlife #hud * { pointer-events: none !important; }
+.wildlife-button.ib { width: auto; min-width: 40px; height: auto; min-height: 40px; padding: 5px 7px; flex-direction: column; gap: 2px; }
+.wildlife-button span { font-size: 9px; line-height: 1.2; }
+.wildlife-ui { position: fixed; inset: 0; z-index: 40; pointer-events: none; color: #ffe08a; text-shadow: 0 2px 4px #000; }
+.wildlife-heading { position: absolute; top: calc(14px + var(--safe-t)); left: 12px; right: 12px; display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.wildlife-name { font-weight: bold; letter-spacing: 1px; }
+.wildlife-actions { display: flex; gap: 8px; }
+.wildlife-actions button { pointer-events: auto; touch-action: manipulation; }
+.wildlife-help { position: absolute; bottom: calc(18px + var(--safe-b)); left: 12px; right: 12px; text-align: center; font-size: 12px; }

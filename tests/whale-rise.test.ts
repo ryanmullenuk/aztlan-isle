@@ -45,7 +45,7 @@ test('only the head and the front of the back leave the water; it blows with its
   // At the blow the head (and the blowholes a little behind it) are well out of the water.
   const b = sampleRise(RISE_T.blow, 12);
   const head = b.y + 0.5 * Math.cos((b.pitch * Math.PI) / 180);
-  assert.ok(head > 0.12, `head at the blow ${head}`);
+  assert.ok(head * MARINE.whaleLength > 1.2, `head at the blow ${head}`);
   // On the dive the tail end rises above the surface.
   const f = sampleRise(RISE_T.flukes, 12);
   const tail = f.y - 0.5 * Math.cos((f.pitch * Math.PI) / 180);

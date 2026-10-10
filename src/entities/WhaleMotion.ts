@@ -80,8 +80,13 @@ export function sampleRise(t: number, lean = 12): RisePose {
   // A larger body needs a shallower dive arc above the fixed ocean floor. The smooth
   // lift is zero at both ends, preserving cruise depth and the flukes-up silhouette.
   const dive = THREE.MathUtils.clamp((tt - 7.7) / (13.2 - 7.7), 0, 1);
-  const lift = Math.max(0, 1 - RISE_TRAVEL_SCALE) * 0.46 * Math.sin(dive * Math.PI) ** 2;
-  return { y: value('y') + lift, h: value('h') * RISE_TRAVEL_SCALE, pitch: value('pitch'), roll: value('roll'), fin: value('fin'), arch: value('arch'), stroke: value('stroke') };
+  const lift = Math.max(0, 1 - RISE_TRAVEL_SCALE) * 0.52 * Math.sin(dive * Math.PI) ** 2;
+  // Preserve world-space cruise depth and vertical travel as the body grows.
+  // Reduce the dive angle to keep the longer tail above the fixed seabed.
+  const sizeScale = 7.8 / MARINE.whaleLength;
+  const angle = value('pitch') - 90;
+  const pitchScale = angle > 0 ? sizeScale ** 1.25 : Math.sqrt(sizeScale);
+  return { y: (value('y') + lift) * sizeScale, h: value('h') * RISE_TRAVEL_SCALE, pitch: 90 + angle * pitchScale, roll: value('roll'), fin: value('fin'), arch: value('arch'), stroke: value('stroke') };
 }
 
 /** Lowest point of a straight whale body (in whale lengths, relative to its centre) at a pitch. */

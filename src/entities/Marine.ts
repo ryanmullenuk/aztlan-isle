@@ -338,6 +338,8 @@ export class Marine {
   whales: Whale[] = [];
   private pods: Pod[] = [];
   private dolphins: Dolphin[] = [];
+  /** Read-only positions for the passive wildlife camera. */
+  get dolphinSubjects(): readonly Dolphin[] { return this.dolphins; }
   private dolphinMesh: THREE.InstancedMesh;
   private dolphinBend: THREE.InstancedBufferAttribute;
   private spray = new Particles(3200, 0xf2fcff);
@@ -885,8 +887,10 @@ export class Marine {
       if (Math.hypot(w.x, w.z) > this.world.half * 1.3) want = Math.sign(Marine.turnTo(P.yaw, Math.atan2(-w.x, -w.z))) * 0.4;
       // Each adult keeps its own side of the island; the calf stays alongside its mother.
       const follow = w.mother;
-      const homeX = follow ? follow.x + Math.cos(follow.pose.yaw) * 4.5 : w.route.x;
-      const homeZ = follow ? follow.z - Math.sin(follow.pose.yaw) * 4.5 : w.route.z;
+      // The enlarged calf trails in the adult's clear-water wake rather than cutting
+      // across the reef beside it. Spacing follows the mother's body length.
+      const homeX = follow ? follow.x - Math.sin(follow.pose.yaw) * follow.length * 0.55 + Math.cos(follow.pose.yaw) * follow.length * 0.2 : w.route.x;
+      const homeZ = follow ? follow.z - Math.cos(follow.pose.yaw) * follow.length * 0.55 - Math.sin(follow.pose.yaw) * follow.length * 0.2 : w.route.z;
       const homeDistance = Math.hypot(homeX - w.x, homeZ - w.z);
       if (follow || homeDistance > 45)
         want = THREE.MathUtils.clamp(Marine.turnTo(P.yaw, Math.atan2(homeX - w.x, homeZ - w.z)), -0.65, 0.65);

@@ -3,6 +3,7 @@ import { Progression } from './economy/Progression';
 import { idleForGroup, IdleGroupTap } from './ai/GroupSelection';
 import { Volcano, VOLCANO_COST, VOLCANO_HAPPINESS } from './entities/Volcano';
 import { Explore } from './render/Explore';
+import { WildlifeView, type WildlifeSubject } from './render/WildlifeView';
 import * as THREE from 'three';
 import type { Where } from './ui/where';
 import { PATHS, BUILDINGS, BuildingKey, CAMERA, ISLANDER, MILESTONES, POWERS, PresetName, RENDER, SAVE, isFarm, SETTLERS } from './config';
@@ -213,6 +214,7 @@ export class Game {
   placing: BuildingKey | null = null;
   private placeRot = 0;
   explorer?: Explore;
+  wildlifeView?: WildlifeView;
   selectedIslander = -1;
   readonly selectedIslanders = new Set<number>();
   private groupTap = new IdleGroupTap();
@@ -738,7 +740,7 @@ export class Game {
         cursorRay = ray;
       }
       // Panning / rotating / pinching the camera must not panic wildlife under the finger.
-      const calm = this.input.navigating;
+      const calm = this.input.navigating || !!this.wildlifeView?.active;
       this.wildlife.update(dt, { ray: calm ? null : cursorRay, ground: h.active && !calm && this.cursorActive ? this.cursorWorld : null, camTarget: this.rig.target }, this.colony.grid);
       void realDt;
       this.boats.update(dt, this.time.elapsed);
@@ -818,6 +820,7 @@ export class Game {
   promptCampfire(): void {
     if (this.buildings.hasCampfire) return;
     this.awaitingFire = true;
+    if (this.wildlifeView?.active) return;
     this.startPlacing('campfire');
     this.ui.setHint('Choose where to light the <b>campfire</b>: this is where your village begins. Pick open, flat land with room to grow.');
   }
@@ -1014,6 +1017,7 @@ export class Game {
   }
 
   toggleExplore(): void {
+    if (this.wildlifeView?.active) this.toggleWildlife();
     this.explorer ??= new Explore(this.rig, this.world, () => this.toggleExplore());
     if (this.explorer.active) {
       this.explorer.exit(); this.input.clear(); this.input.enabled = true;
@@ -1025,6 +1029,48 @@ export class Game {
     this.setTool('select'); this.select(null); this.followId = -1; this.introFollow = false; this.rotateHold = 0;
     this.input.clear(); this.input.enabled = false; this.cursorActive = false;
     this.post.dofEnabled = false;
+  }
+
+  toggleWildlife(): void {
+    if (this.wildlifeView?.active) {
+      this.wildlifeView.exit();
+      this.input.clear();
+      this.cursorActive = false;
+      if (this.awaitingFire && !this.boats.arriving) this.promptCampfire();
+      return;
+    }
+    if (this.explorer?.active) this.toggleExplore();
+    this.wildlifeView ??= new WildlifeView(this.rig, () => this.wildlifeSubjects(), () => this.toggleWildlife());
+    // Complete cancellation before changing modes, including a pending building move.
+    if (this.moving) this.endMove();
+    this.sculptor.end();
+    this.setTool('select'); this.select(null);
+    this.followId = -1; this.introFollow = false; this.rotateHold = 0;
+    this.ui.closePopups();
+    this.input.clear(); this.cursorActive = false;
+    if (!this.wildlifeView.enter()) this.ui.toast('No wildlife is available to follow.', 'warn');
+  }
+
+  private wildlifeSubjects(): WildlifeSubject[] {
+    const position = (x: number, y: number, z: number) => new THREE.Vector3(x, Math.max(0, y), z);
+    return [
+      ...this.wildlife.animals.list.map(a => ({
+        id: `animal-${a.id}`, name: a.sp.charAt(0).toUpperCase() + a.sp.slice(1), distance: Math.max(8, a.scale * 10),
+        position: () => a.alive && !a.heldBy ? position(a.x, a.y + 0.4 * a.scale, a.z) : null,
+      })),
+      ...this.wildlife.monkeys.list.map(m => ({
+        id: `monkey-${m.id}`, name: 'Spider monkey', distance: 10,
+        position: () => !m.dead ? position(m.x, m.y + 0.3, m.z) : null,
+      })),
+      ...this.marine.whales.map((w, i) => ({
+        id: `whale-${i}`, name: w.mother ? 'Humpback calf' : 'Humpback whale', distance: w.length * 3.5,
+        position: () => position(w.x, w.root.position.y, w.z),
+      })),
+      ...this.marine.dolphinSubjects.map((d, i) => ({
+        id: `dolphin-${i}`, name: 'Dolphin', distance: 14,
+        position: () => position(d.x, d.y, d.z),
+      })),
+    ];
   }
 
   // ---------------- Tools & selection ----------------
@@ -1125,6 +1171,7 @@ export class Game {
   }
 
   private cancel(): void {
+    if (this.wildlifeView?.active) { this.toggleWildlife(); return; }
     // The founding fire can't be cancelled; there is nowhere else to go.
     if (this.placing === 'campfire' && this.awaitingFire) return;
     if (this.moving) {
@@ -1166,6 +1213,7 @@ export class Game {
   }
 
   private onHover(x: number, y: number): void {
+    if (this.wildlifeView?.active) { this.cursorActive = false; return; }
     const p = this.pickGround(x, y);
     this.hoverPoint = p;
     this.cursorActive = !!p;
@@ -1183,6 +1231,7 @@ export class Game {
   }
 
   private onTap(x: number, y: number, preview?:THREE.Vector3): void {
+    if (this.wildlifeView?.active) return;
     const p = preview ?? this.pickGround(x, y);
     if (p) {
       this.cursorWorld.copy(p);
@@ -1666,6 +1715,10 @@ export class Game {
 
   private onKey(e: KeyboardEvent): void {
     const k = e.key.toLowerCase();
+    if (this.wildlifeView?.active) {
+      if (k === 'escape') this.toggleWildlife();
+      return;
+    }
     if (k >= '1' && k <= '9') {
       const t = TOOLBAR[parseInt(k, 10) - 1];
       if (t?.id === 'terrain') this.ui.toggleTerrain();
@@ -1963,6 +2016,7 @@ export class Game {
         this.rig.goal.z = f.z;
       } else if (!f) this.followId = -1;
     }
+    this.wildlifeView?.update();
     if (this.explorer?.active) this.explorer.update(realDt);
     else this.rig.update(realDt);
     // What the camera sees this frame: off-screen entities skip posing and drawing.
@@ -2024,9 +2078,9 @@ export class Game {
       if (this.stormRecall <= 0) this.stormShelter(false);
     }
     this.dogs.update(dt, this.time.isNight);
-    this.waterBirds.update(dt, this.time.hour, this.input.hover.active && !this.input.navigating && this.cursorActive ? this.cursorWorld : null);
-    this.butterflies.update(dt, realDt, ls.day, this.raining, this.input.hover.active && !this.input.navigating && this.cursorActive ? this.cursorWorld : null);
-    this.jellies.update(dt, this.input.hover.active && !this.input.navigating && this.cursorActive ? this.cursorWorld : null);
+    this.waterBirds.update(dt, this.time.hour, this.input.hover.active && !this.input.navigating && !this.wildlifeView?.active && this.cursorActive ? this.cursorWorld : null);
+    this.butterflies.update(dt, realDt, ls.day, this.raining, this.input.hover.active && !this.input.navigating && !this.wildlifeView?.active && this.cursorActive ? this.cursorWorld : null);
+    this.jellies.update(dt, this.input.hover.active && !this.input.navigating && !this.wildlifeView?.active && this.cursorActive ? this.cursorWorld : null);
     this.turtles.people = this.colony.grid;
     this.turtles.update(dt);
     this.gators.update(dt);

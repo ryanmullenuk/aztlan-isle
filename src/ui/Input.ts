@@ -94,7 +94,8 @@ export class Input {
       this.gesture = this.gestureState();
     } else if (this.pointers.size === 1) {
       // Middle-drag, or Alt/Shift + left-drag, rotates the view; right-drag rotates and tilts.
-      if (e.button === 1 || (e.button === 0 && (e.altKey || e.shiftKey))) this.dragging = 'rotate';
+      if (this.rig.cinematicTarget) this.dragging = 'orbit';
+      else if (e.button === 1 || (e.button === 0 && (e.altKey || e.shiftKey))) this.dragging = 'rotate';
       else if (e.button === 2) this.dragging = 'orbit';
       else if(e.pointerType!=='mouse' && this.h.wantsPlacementDrag?.()){
         this.dragging='placement';this.h.onPlacementDrag?.(e.clientX,e.clientY);

@@ -206,6 +206,10 @@ export class UI {
     explore.title = 'Explore at islander eye level';
     explore.setAttribute('aria-label', 'Explore island');
     explore.onclick = () => this.game.toggleExplore();
+    const wildlife = el('button', 'ib wildlife-button', `${ICONS.wildlife}<span>Wildlife</span>`);
+    wildlife.title = 'Follow a random creature in cinematic mode';
+    wildlife.setAttribute('aria-label', 'Watch wildlife');
+    wildlife.onclick = () => this.game.toggleWildlife();
     const views = el('div', 'view-controls');
     this.alertButton = el('button', 'ib alert-button', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v9"/><circle cx="12" cy="19" r="1"/></svg>');
     this.alertButton.setAttribute('aria-label', 'Alerts: none');
@@ -221,7 +225,7 @@ export class UI {
       this.alertButton.setAttribute('aria-expanded', String(open));
     };
     this.root.appendChild(this.alertPanel);
-    views.append(eye, explore, this.alertButton);
+    views.append(eye, explore, wildlife, this.alertButton);
     tr.append(over, gear, views);
     this.root.appendChild(tr);
     // Shown on its own while the interface is hidden: brings everything back.
