@@ -210,7 +210,7 @@ export class UI {
     explore.title = 'Explore at islander eye level';
     explore.setAttribute('aria-label', 'Explore island');
     explore.onclick = () => this.game.toggleExplore();
-    const wildlife = el('button', 'ib wildlife-button', `${ICONS.wildlife}<span>Wildlife</span>`);
+    const wildlife = el('button', 'ib wildlife-button', ICONS.wildlife);
     wildlife.title = 'Follow a random creature in cinematic mode';
     wildlife.setAttribute('aria-label', 'Watch wildlife');
     wildlife.onclick = () => this.game.toggleWildlife();
