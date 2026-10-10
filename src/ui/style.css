@@ -715,3 +715,12 @@ body.watching-wildlife #hud * { pointer-events: none !important; }
 .wildlife-actions { display: flex; gap: 8px; }
 .wildlife-actions button { pointer-events: auto; touch-action: manipulation; }
 .wildlife-help { position: absolute; bottom: calc(18px + var(--safe-b)); left: 12px; right: 12px; text-align: center; font-size: 12px; }
+
+.placement-controls { flex-direction: column; align-items: center; width: min(460px, calc(100vw - 24px)); padding: 10px; border: 1px solid var(--gold); border-radius: 12px; background: rgba(25, 25, 29, 0.94); box-sizing: border-box; }
+.placement-actions { display: flex; gap: 6px; width: 100%; }
+.placement-actions .btn { flex: 1; min-width: 0; padding: 8px 5px; font-size: 12px; }
+.placement-status { white-space: pre-line; text-align: center; font-size: 12px; line-height: 1.5; color: #9df08a; }
+.placement-status.invalid { color: #ff9d83; }
+.placement-actions .btn:disabled { opacity: 0.4; cursor: default; }
+
+.bottom.placing > .toolbar, .bottom.placing > .beliefbar { display: none; }

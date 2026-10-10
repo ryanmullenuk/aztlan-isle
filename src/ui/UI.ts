@@ -58,6 +58,10 @@ export class UI {
   private toasts!: HTMLDivElement;
   private hint!: HTMLDivElement;
   private placementControls!: HTMLDivElement;
+  private placementStatus!: HTMLDivElement;
+  private placementPlace!: HTMLButtonElement;
+  private placementRotate!: HTMLButtonElement;
+  private placementSnap!: HTMLButtonElement;
   private tooltip!: HTMLDivElement;
   private speedBtns: HTMLButtonElement[] = [];
   private pauseBtn!: HTMLButtonElement;
@@ -314,9 +318,19 @@ export class UI {
     const bottom = el('div', 'bottom');
     this.hint = el('div', 'hint hidden');
     this.placementControls=el('div','placement-controls hidden');
-    const place=el('button','btn','Place'),rotate=el('button','btn','Rotate'),cancel=el('button','btn','Cancel');
+    this.placementStatus = el('div', 'placement-status');
+    this.placementStatus.setAttribute('role', 'status');
+    this.placementStatus.setAttribute('aria-live', 'polite');
+    this.placementPlace = el('button', 'btn', 'Place') as HTMLButtonElement;
+    this.placementRotate = el('button', 'btn', 'Rotate 90°') as HTMLButtonElement;
+    this.placementSnap = el('button', 'btn', 'Snap: On') as HTMLButtonElement;
+    const place = this.placementPlace, rotate = this.placementRotate, cancel = el('button', 'btn', 'Cancel');
+    this.placementSnap.title = 'Snap to suitable ground within one square; grid alignment stays on';
+    this.placementSnap.onclick = () => this.game.togglePlacementSnap();
     place.onclick=()=>this.game.confirmPlacement();rotate.onclick=()=>this.game.rotatePlacement();cancel.onclick=()=>this.game.cancelPlacement();
-    this.placementControls.append(place,rotate,cancel);
+    const actions = el('div', 'placement-actions');
+    actions.append(place, rotate, this.placementSnap, cancel);
+    this.placementControls.append(this.placementStatus, actions);
     bottom.appendChild(this.placementControls);
     // Shown until the village is founded, in case the campfire placement is closed.
     this.foundBtn = el('button', 'btn found-btn hidden', `${ICONS.belief} Place campfire`) as HTMLButtonElement;
@@ -981,11 +995,31 @@ export class UI {
         else this.renderTrade();
       }
     }
-    this.placementControls.classList.toggle('hidden',!g0.placing || !g0.touchPlacementActive);
+    const placingOnTouch = !!g0.placing && g0.touchPlacementActive;
+    this.placementControls.classList.toggle('hidden', !placingOnTouch);
+    this.placementControls.parentElement?.classList.toggle('placing', placingOnTouch);
     this.foundBtn.classList.toggle('hidden', !(g0.awaitingFire && g0.colony.list.length > 0 && g0.placing !== 'campfire'));
     this.timer -= dt;
     if (this.timer <= 0) {
       this.timer = 0.25;
+      if (g0.placing && g0.touchPlacementActive) {
+        g0.refreshPlacement();
+        const status = g0.placementFeedback;
+        const ready = !!status?.ok;
+        const dock = g0.placing === 'jetty' || g0.placing === 'tradedock';
+        this.placementPlace.disabled = !ready;
+        this.placementPlace.textContent = g0.moving ? 'Move here' : 'Place';
+        this.placementRotate.disabled = dock;
+        this.placementRotate.textContent = dock ? 'Faces shore' : 'Rotate 90°';
+        this.placementSnap.disabled = dock;
+        this.placementSnap.textContent = `Snap: ${g0.placementSnap ? 'On' : 'Off'}`;
+        this.placementSnap.setAttribute('aria-pressed', String(g0.placementSnap));
+        this.placementStatus.classList.toggle('invalid', !ready);
+        const lines = [ready ? 'Ready to place' : status?.reason || 'Drag the building onto the island',
+          status?.slope || 'Slope: choose a position',
+          `${status?.snapped ? 'Snapped to nearby ground' : 'Aligned to grid'} · Green: footprint · Gold: expansion · Pale: walkway · Red: blocked`];
+        if (this.placementStatus.textContent !== lines.join('\n')) this.placementStatus.textContent = lines.join('\n');
+      }
       this.refresh(false);
     }
     // Compass needle points to the island's north as the camera turns.

@@ -257,8 +257,10 @@ export class BuildingSystem {
   private ghostKey: BuildingKey | null = null;
   private ghostRot = -1;
   private ghostMat = new THREE.MeshBasicMaterial({ color: 0x9df08a, transparent: true, opacity: 0.45, depthWrite: false });
+  private ghostOutlineGeo: THREE.BufferGeometry | null = null;
+  private ghostOutlineMat = new THREE.LineBasicMaterial({ color: 0x9df08a, depthTest: false, transparent: true, opacity: 0.95 });
   private ringGeo = new THREE.RingGeometry(0.5, 0.56, 4, 1).rotateX(-Math.PI / 2);
-  /** Ghost squares around the footprint: the walkway ring, and a hut's room to grow into a Home. */
+  /** Footprint squares, the walkway ring and a hut's room to grow into a Home. */
   private spaceMesh = (() => {
     const geo = new THREE.PlaneGeometry(0.86, 0.86).rotateX(-Math.PI / 2);
     const mat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.42, depthWrite: false });
@@ -355,7 +357,7 @@ export class BuildingSystem {
     let n = 0;
     for (let z = cz - 2; z < cz + d + 2; z++) {
       for (let x = cx - 2; x < cx + w + 2; x++) {
-        if (x >= cx && x < cx + w && z >= cz && z < cz + d) continue;
+        const footprint = x >= cx && x < cx + w && z >= cz && z < cz + d;
         if (!W.inBounds(x, z)) continue;
         const i = W.idx(x, z);
         if (W.layer[i] <= 0 || !Number.isNaN(W.riverY[i])) n++;
@@ -451,16 +453,20 @@ export class BuildingSystem {
     const [sw, sd] = def.size;
     const w = rot % 2 ? sd : sw, d = rot % 2 ? sw : sd;
     const f = this.world.isFlatFree(cx, cz, w, d);
-    if (!f.ok) {
+    let fixed = false;
+    for (let z = cz; z < cz + d; z++) for (let x = cx; x < cx + w; x++) {
+      if (this.world.inBounds(x, z) && this.world.blockFixed[this.world.idx(x, z)]) fixed = true;
+    }
+    if (!f.ok || fixed) {
       // Distinguish "not flat" from "occupied".
       for (let z = cz; z < cz + d; z++) for (let x = cx; x < cx + w; x++) {
-        if (!this.world.inBounds(x, z)) return { ok: false, reason: 'Out of bounds' };
+        if (!this.world.inBounds(x, z)) return { ok: false, reason: 'The footprint extends beyond the island: move it inward' };
         const i = this.world.idx(x, z);
         if (this.world.blockFixed[i]) return { ok: false, reason: 'A natural landmark occupies this ground' };
-        if (this.world.occ[i]) return { ok: false, reason: 'Something is already built here' };
-        if (this.world.layer[i] < 1 || !Number.isNaN(this.world.riverY[i])) return { ok: false, reason: 'Needs dry land' };
+        if (this.world.occ[i]) return { ok: false, reason: `Footprint overlaps ${this.byId(this.world.occ[i] - 1)?.label ?? 'an existing building'}: move it clear` };
+        if (this.world.layer[i] < 1 || !Number.isNaN(this.world.riverY[i])) return { ok: false, reason: 'Water or a river crosses the footprint: choose dry ground' };
       }
-      return { ok: false, reason: 'Needs flat land: sculpt it level first' };
+      return { ok: false, reason: 'The footprint crosses different ground heights: sculpt it level first' };
     }
     if ((key === 'jetty' || key === 'tradedock') && this.jettyWater(cx, cz, rot) < JETTY.length - 2) return { ok: false, reason: `A ${key === 'jetty' ? 'jetty' : 'trade dock'} must face open water at the shore` };
     if (key === 'boatworkshop' && !this.nearSea(cx,cz,w,d)) return {ok:false,reason:'Build the Boat Workshop on dry land within 6 paces of the sea'};
@@ -471,7 +477,7 @@ export class BuildingSystem {
     const layer = this.world.layer[this.world.idx(cx, cz)];
     for (let z = sp.z0; z < sp.z1; z++) for (let x = sp.x0; x < sp.x1; x++) {
       if (x < cx + w && z < cz + d) continue;
-      if (this.growBlocked(x, z, layer)) return { ok: false, reason: 'A hut needs a flat 3×3 area to grow into a Home later' };
+      if (this.growBlocked(x, z, layer)) return { ok: false, reason: 'The gold expansion area must stay level, dry and clear so this hut can grow into a Home' };
     }
     const nOpen = sp.m === 0;
     for (const e of this.list) {
@@ -479,10 +485,20 @@ export class BuildingSystem {
       const es = this.space(e.key, e.cx, e.cz, e.w, e.d);
       const gap = nOpen || es.m === 0 ? 0 : 1;
       if (sp.x0 - gap < es.x1 && sp.x1 + gap > es.x0 && sp.z0 - gap < es.z1 && sp.z1 + gap > es.z0) {
-        return { ok: false, reason: gap ? 'Leave a clear path (one square) around buildings' : `Leave room for the ${e.label.toLowerCase()} to grow` };
+        return { ok: false, reason: gap ? `Too close to ${e.label}: keep the pale walkway clear` : `The expansion area overlaps ${e.label}: leave room for it to grow` };
       }
     }
-    if (!moving && !this.eco.canAfford(def.cost)) return { ok: false, reason: 'Not enough resources' };
+    if (!moving && !this.eco.canAfford(def.cost)) {
+      const shortages: string[] = [];
+      const need = (label: string, required: number, available: number) => {
+        if (required > available) shortages.push(`${Math.ceil(required - available)} ${label}`);
+      };
+      need('wood', def.cost.wood, this.eco.res.wood);
+      need('stone', def.cost.stone, this.eco.res.stone);
+      need('belief', def.cost.belief, this.eco.res.belief);
+      need('carved stone', def.cost.carvedStone ?? 0, this.eco.goods.carvedstone);
+      return { ok: false, reason: `Need ${shortages.join(', ')} more to build` };
+    }
     return { ok: true, reason: '' };
   }
 
@@ -1017,6 +1033,7 @@ export class BuildingSystem {
     if (!key) {
       if (this.ghost) this.scene.remove(this.ghost);
       this.ghost = null;
+      this.ghostOutlineGeo?.dispose(); this.ghostOutlineGeo = null;
       this.ghostKey = null;
       this.spaceMesh.visible = false;
       return { ok: false, reason: '' };
@@ -1031,11 +1048,14 @@ export class BuildingSystem {
       m.renderOrder = 20;
       this.ghost.add(m);
       const [sw, sd] = BUILDINGS[key].size;
-      const ring = new THREE.Mesh(this.ringGeo, this.ghostMat);
-      ring.scale.set(sw * 1.41, 1, sd * 1.41);
-      ring.rotation.y = Math.PI / 4;
-      ring.position.y = 0.04;
-      this.ghost.add(ring);
+      this.ghostOutlineGeo?.dispose();
+      this.ghostOutlineGeo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(-sw / 2, 0.08, -sd / 2), new THREE.Vector3(sw / 2, 0.08, -sd / 2),
+        new THREE.Vector3(sw / 2, 0.08, sd / 2), new THREE.Vector3(-sw / 2, 0.08, sd / 2),
+      ]);
+      const outline = new THREE.LineLoop(this.ghostOutlineGeo, this.ghostOutlineMat);
+      outline.renderOrder = 22;
+      this.ghost.add(outline);
       this.scene.add(this.ghost);
       this.ghostKey = key;
       this.ghostRot = rot;
@@ -1049,13 +1069,14 @@ export class BuildingSystem {
     this.ghost!.position.set(cx + w / 2 - this.world.half, y + 0.02, cz + d / 2 - this.world.half);
     this.ghost!.rotation.y = (rot * Math.PI) / 2;
     this.ghostMat.color.setHex(res.ok ? 0x9df08a : 0xff7a5a);
+    this.ghostOutlineMat.color.copy(this.ghostMat.color);
     this.showSpace(key, cx, cz, w, d, moving);
     return res;
   }
 
   /**
-   * Lay the ghost squares: gold where a hut will grow into a Home, pale where the walkway runs,
-   * red on any square that is already taken.
+   * Show green footprint squares, gold expansion space and pale walkway clearance.
+   * Red squares identify water, uneven ground, landmarks or occupied space.
    */
   private showSpace(key: BuildingKey, cx: number, cz: number, w: number, d: number, moving?: Building): void {
     const W = this.world, m = this.spaceMesh;
@@ -1063,14 +1084,14 @@ export class BuildingSystem {
     const layer = W.inBounds(cx, cz) ? W.layer[W.idx(cx, cz)] : 1;
     let n = 0;
     for (let z = sp.z0 - sp.m; z < sp.z1 + sp.m; z++) for (let x = sp.x0 - sp.m; x < sp.x1 + sp.m; x++) {
-      if (x >= cx && x < cx + w && z >= cz && z < cz + d) continue;
+      const footprint = x >= cx && x < cx + w && z >= cz && z < cz + d;
       if (!W.inBounds(x, z) || n >= 128) continue;
       const i = W.idx(x, z);
-      if (W.layer[i] <= 0) continue; // open water: nothing to draw
+      if (W.layer[i] <= 0 && !footprint) continue;
       const grow = x < sp.x1 && z < sp.z1 && x >= sp.x0 && z >= sp.z0;
       const o = W.occ[i];
       const other = o && (!moving || o - 1 !== moving.id) ? this.byId(o - 1) : undefined;
-      let bad = grow ? !!other || W.layer[i] !== layer || !Number.isNaN(W.riverY[i]) : !!other && !BuildingSystem.open(other.key);
+      let bad = grow ? !!other || !!W.blockFixed[i] || W.layer[i] < 1 || W.layer[i] !== layer || !Number.isNaN(W.riverY[i]) : !!other && !BuildingSystem.open(other.key);
       if (!grow && !bad) {
         // A walkway square may not cut into a neighbouring hut's room to grow either.
         for (const e of this.list) {
@@ -1079,9 +1100,9 @@ export class BuildingSystem {
         }
       }
       const wx = x + 0.5 - W.half, wz = z + 0.5 - W.half;
-      this.spaceM4.makeTranslation(wx, W.heightAt(wx, wz) + 0.06, wz);
+      this.spaceM4.makeTranslation(wx, Math.max(0, W.heightAt(wx, wz)) + 0.06, wz);
       m.setMatrixAt(n, this.spaceM4);
-      m.setColorAt(n, this.spaceCol.setHex(bad ? 0xff6a4a : grow ? 0xf2c14e : 0xdff7e8));
+      m.setColorAt(n, this.spaceCol.setHex(bad ? 0xff6a4a : footprint ? 0x9df08a : grow ? 0xf2c14e : 0xdff7e8));
       n++;
     }
     m.count = n;

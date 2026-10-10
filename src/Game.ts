@@ -1,3 +1,4 @@
+import { snapPlacement, placementSlope } from './buildings/Placement';
 import { pickBuilding } from './buildings/Picking';
 import { Progression } from './economy/Progression';
 import { idleForGroup, IdleGroupTap } from './ai/GroupSelection';
@@ -1118,6 +1119,7 @@ export class Game {
     this.select(null);
     this.tool = 'build';
     this.placing = b.key;
+    this.placementFeedback = null;
     this.moving = b;
     this.placeRot = b.rot;
     this.ui.setHint(`Tap to move the <b>${b.label}</b> · <b>R</b> rotates · right-click or Esc cancels`);
@@ -1144,6 +1146,14 @@ export class Game {
   }
 
   touchPlacement = false;
+  placementSnap = true;
+  placementFeedback: { ok: boolean; reason: string; slope: string; snapped: boolean } | null = null;
+  togglePlacementSnap(): void {
+    this.placementSnap = !this.placementSnap;
+    if (this.hoverPoint) this.updateGhost(this.hoverPoint);
+  }
+  refreshPlacement(): void { if (this.placing && this.hoverPoint) this.updateGhost(this.hoverPoint); }
+
   get touchPlacementActive():boolean {return this.touchPlacement || (typeof matchMedia==='function' && matchMedia('(pointer: coarse)').matches);}
   confirmPlacement():void {if(this.placing && this.hoverPoint)this.onTap(0,0,this.hoverPoint.clone());}
   rotatePlacement():void {this.placeRot=(this.placeRot+1)%4;if(this.hoverPoint)this.updateGhost(this.hoverPoint);}
@@ -1157,6 +1167,7 @@ export class Game {
     this.audio?.sfx('click');
     this.tool = 'build';
     this.placing = key;
+    this.placementFeedback = null;
     this.ui.setHint(`Place the <b>${BUILDINGS[key].name}</b> on flat land · <b>R</b> rotates · right-click or Esc cancels`);
     if (this.hoverPoint) this.updateGhost(this.hoverPoint);
     this.initialiseTouchPreview();
@@ -1198,14 +1209,25 @@ export class Game {
     const cx = Math.round(p.x + this.world.half - w0 / 2);
     const cz = Math.round(p.z + this.world.half - d0 / 2);
     if (key === 'jetty' || key === 'tradedock') rot = this.buildings.jettyRot(cx, cz);
-    return [cx, cz, rot];
+    const site = { cx, cz, rot };
+    // Shore buildings choose their orientation from the coastline, rather than snapping inland.
+    const snapped = this.touchPlacementActive && this.placementSnap && key !== 'jetty' && key !== 'tradedock'
+      ? snapPlacement(site, s => this.buildings.canPlace(key, s.cx, s.cz, s.rot, this.moving ?? undefined).ok) : site;
+    return [snapped.cx, snapped.cz, snapped.rot];
   }
 
   private updateGhost(p: THREE.Vector3): void {
     if (!this.placing) return;
     const [cx, cz, rot] = this.footprintAt(p, this.placing);
     const res = this.buildings.showGhost(this.placing, cx, cz, rot, this.moving ?? undefined);
-    if(this.touchPlacementActive){this.ui.setHint(`${!res.ok?'<b>'+res.reason+'</b> · ':''}Drag to position · two fingers move the view · tap <b>Place</b> to confirm`);return;}
+    const [sw, sd] = BUILDINGS[this.placing].size;
+    const w = rot % 2 ? sd : sw, d = rot % 2 ? sw : sd;
+    const originalX = Math.round(p.x + this.world.half - w / 2), originalZ = Math.round(p.z + this.world.half - d / 2);
+    this.placementFeedback = { ...res, slope: placementSlope(this.world, cx, cz, w, d), snapped: cx !== originalX || cz !== originalZ };
+    if (this.touchPlacementActive) {
+      this.ui.setHint('Drag to position · two fingers move the view · Rotate turns 90°');
+      return;
+    }
     if (!res.ok && res.reason) this.ui.setHint(`<b>${res.reason}</b> · R rotates · Esc cancels`);
     else if (this.moving) this.ui.setHint(`Tap to move the <b>${this.moving.label}</b> here · <b>R</b> rotates · right-click or Esc cancels`);
     else if (this.placing === 'campfire') this.ui.setHint('Tap to light the <b>campfire</b> here: your village will grow around it');
@@ -1217,7 +1239,10 @@ export class Game {
     const p = this.pickGround(x, y);
     this.hoverPoint = p;
     this.cursorActive = !!p;
-    if (!p) return;
+    if (!p) {
+      if (this.placing) { this.placementFeedback = null; this.buildings.showGhost(null); }
+      return;
+    }
     this.cursorWorld.copy(p);
     if (this.placing) this.updateGhost(p);
     const sculpt = this.tool === 'raise' || this.tool === 'lower' || this.tool === 'flatten';
