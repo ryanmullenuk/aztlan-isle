@@ -1,3 +1,5 @@
+import { StormFire } from './buildings/StormFire';
+import { buildingSafe } from './buildings/BuildingCondition';
 import { snapPlacement, placementSlope } from './buildings/Placement';
 import { pickBuilding } from './buildings/Picking';
 import { Progression } from './economy/Progression';
@@ -208,6 +210,7 @@ export class Game {
   boats: Boats;
   marine: Marine;
   powers: Powers;
+  fires: StormFire;
   volcano!: Volcano;
   rng: RNG;
   settings: Settings;
@@ -418,6 +421,8 @@ export class Game {
     this.scene.add(this.defence.mesh);
     this.powers = new Powers(this.eco, this.buildings, this.lighting, this.water, this.time, () => this.rng.next());
     this.scene.add(this.powers.group);
+    this.fires = new StormFire(this.world, this.veg, this.eco, this.buildings, this.colony, () => this.rng.next());
+    this.scene.add(this.fires.group);
     this.audio = new AudioEngine();
     if (this.world.waterfall) this.audio.waterfall = { x: this.world.waterfall.x, y: this.world.waterfall.bottomY, z: this.world.waterfall.z };
     this.connectSystems();
@@ -469,6 +474,7 @@ export class Game {
     });
 
     this.ui = new UI(this);
+    if (save) this.fires.announceRestored();
     this.volcano.state.onErupt = () => { this.eco.res.belief = Math.max(0, this.eco.res.belief - 75); };
     this.volcano.notify = message => this.ui.toast(message, 'warn', () => ({ x: this.volcano.x, z: this.volcano.z }));
     // A new game (or a save from before anyone landed) starts with the arrival canoe.
@@ -551,6 +557,15 @@ export class Game {
     this.powers.isOpenSea = (x, z) => this.isOpenSea(x, z);
     this.powers.onStormStart = () => this.stormShelter(true);
     this.powers.onStormEnd = (calmed) => this.stormPassed(calmed);
+    this.fires.onStrike = (x, y, z) => this.powers.strikeLand(x, y, z);
+    this.fires.onAlert = (b, text) => this.ui?.toast(text, 'warn', () => {
+      if (!this.buildings.byId(b.id) || b.fire <= 0) return null;
+      return { x: b.x, z: b.z };
+    }, { key: `fire:${b.id}`, onView: () => this.select({ building: b.id }) });
+    this.colony.hooks.fireJob = isl => this.fires.job(isl);
+    this.colony.hooks.fireRouteFailed = (isl, well, fire) => this.fires.routeFailed(isl, well, fire);
+    this.colony.hooks.pourWater = b => this.fires.pour(b);
+    this.colony.hooks.fireDanger = () => this.hallAlert || this.jaguarThreat();
     this.buildings.onRemove = (b) => {
       this.wildlife.releasePen(b.id);
       if (b.key === 'market') this.trade.removeDock(b);
@@ -581,7 +596,7 @@ export class Game {
     const alarm = (x: number, z: number, r: number) => void this.colony.alarm(x, z, r);
     const danger = (j: Jaguar, by: 'dogs' | 'villagers') => {
       // With a Great Hall, its bell rings and the whole village makes for sanctuary.
-      const halls = this.buildings.list.filter((b) => b.key === 'greathall' && b.complete);
+      const halls = this.buildings.list.filter((b) => b.key === 'greathall' && buildingSafe(b));
       if (halls.length) {
         this.colony.sanctuary(j.x, j.z);
         this.hallClear = 0;
@@ -683,6 +698,7 @@ export class Game {
       // The first boat at each jetty is free.
       if (b.key === 'jetty' && b.boats.length === 0) b.boatBuild = 0.001;
     };
+    this.buildings.onRebuilt = b => this.completeHandler?.(b);
     this.boatHandler = (b) => {
       if (this.boats.order(b)) this.ui.toast('A new boat is being built at the jetty.');
       else this.ui.toast('Cannot build a boat right now.', 'warn');
@@ -751,6 +767,8 @@ export class Game {
       this.pearls.update(dt, this.time.elapsed, this.colony.grid);
       this.marine.update(dt, this.rig.target);
       this.powers.update(dt, realDt, this.rig.target);
+      this.fires.update(dt, this.powers.state);
+      this.fires.render(this.time.elapsed, this.rig.camera);
       // Add the gentle gust after weather sets its base wind, without accumulating it.
       FX.uWind.value += this.breeze.strength;
       // Island movement off: nothing sways (the wind still sounds the same).
@@ -1877,7 +1895,7 @@ export class Game {
    */
   private stormShelter(announce: boolean): boolean {
     this.stormRecall = POWERS.stormRecall;
-    const halls = this.buildings.list.filter((b) => b.key === 'greathall' && b.complete);
+    const halls = this.buildings.list.filter((b) => b.key === 'greathall' && buildingSafe(b));
     this.colony.shelterFromStorm();
     if (!announce) return false;
     const hall = halls[0];

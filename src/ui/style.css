@@ -823,3 +823,12 @@ body.watching-wildlife #hud * { pointer-events: none !important; }
 #hud .village-choice[aria-pressed="true"] { background: rgba(232, 184, 74, .12) !important; }
 #hud .village-toggle { text-transform: none; letter-spacing: 0; }
 .village-toggle[aria-expanded="true"] .inventory-chevron { transform: rotate(180deg); }
+
+.fire-condition, .fire-repair { display: block; width: 100%; height: 9px; border: 0; border-radius: 6px; overflow: hidden; margin: 8px 0; }
+.fire-condition { accent-color: #ef7a5a; }
+.fire-repair { accent-color: #8fd16a; }
+.fire-condition::-webkit-progress-bar, .fire-repair::-webkit-progress-bar { background: #403740; }
+.fire-condition::-webkit-progress-value { background: #ef7a5a; }
+.fire-repair::-webkit-progress-value { background: #8fd16a; }
+
+.fire-actions .btn { min-height: 44px; }

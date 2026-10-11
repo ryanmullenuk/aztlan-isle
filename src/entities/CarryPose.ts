@@ -32,7 +32,7 @@ export class CarryPose {
     // Find support contacts on the real mesh once, rather than guessing its radius each frame.
     const material = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
     const ray = new THREE.Raycaster();
-    for (const part of ['log','stone','basket','sack','fish','meat'] as PartKey[]) {
+    for (const part of ['log','stone','basket','sack','fish','meat','water'] as PartKey[]) {
       const geometry = parts[part]; geometry.computeBoundingBox();
       const box = geometry.boundingBox!;
       const spread = part === 'log' ? .31 : part === 'fish' ? .29 : part === 'stone' || part === 'meat' ? .06 : .1;

@@ -293,7 +293,7 @@ export const BUILDINGS: Record<BuildingKey, BuildingDef> = {
   torch: { key: 'torch', name: 'Torch', description: 'A tall torch on a post. Place it along paths or anywhere to light the village at night. Villagers can walk past it.', size: [1, 1], cost: { wood: 3, stone: 0, belief: 0 }, buildTime: 4, builders: 1, workers: 0, placeable: true },
   bonfire: { key: 'bonfire', name: 'Bonfire', description: 'A great stone-ringed fire with towering orange flames. In the evenings villagers gather here to sing and tell stories: they grow happier and the tribe gains Belief.', size: [3, 3], cost: { wood: 20, stone: 6, belief: 0 }, buildTime: 20, builders: 2, workers: 0, placeable: true },
   firepit: { key: 'firepit', name: 'Cooking Firepit', description: 'A large stone hearth with roaring flames. Islanders gather and dance here at night; roasted meat also makes meals more filling.', size: [2, 2], cost: { wood: 12, stone: 8, belief: 0 }, buildTime: 18, builders: 1, workers: 0, placeable: true },
-  well: { key: 'well', name: 'Well', description: 'A stone well of fresh, cool water with a little tiled roof. Villagers living nearby are happier.', size: [2, 2], cost: { wood: 6, stone: 20, belief: 0 }, buildTime: 25, builders: 2, workers: 0, placeable: true },
+  well: { key: 'well', name: 'Well', description: 'Provides fresh water for the village and supplies islanders fighting building fires. Keep a well nearby and accessible to help protect your buildings.', size: [2, 2], cost: { wood: 6, stone: 20, belief: 0 }, buildTime: 25, builders: 2, workers: 0, placeable: true },
   greathall: { key: 'greathall', name: 'Great Hall', description: 'A raised stone hall under a striped canopy, with fire braziers and a bronze bell. Seats up to 100 islanders on its benches; when a jaguar is spotted the bell rings and everyone runs to the hall or home for sanctuary.', size: [7, 7], cost: { wood: 70, stone: 60, belief: 20 }, buildTime: 110, builders: 5, workers: 0, placeable: true },
   herbalist: { key: 'herbalist', name: 'Herbalist’s Garden', description: 'An adobe shelter with drying herbs and clay pots. Processes one delivered herb bundle into one medicine every three game minutes. Medicine supplies automatic treatment at Healing Centres.', size: [4, 4], cost: { wood: 30, stone: 18, belief: 0 }, buildTime: 45, builders: 2, workers: 0, placeable: true },
   herbalgarden: { key: 'herbalgarden', name: 'Herbal Garden', description: 'A small garden of multicoloured medicinal plants. Two islanders tend and harvest its raised beds, then carry herbs to a completed Herbalist’s Garden for processing into medicine.', size: [3, 3], cost: { wood: 14, stone: 8, belief: 0 }, buildTime: 30, builders: 2, workers: 2, placeable: true },
@@ -1007,4 +1007,11 @@ export const BOAT_WORKSHOP = {
     {cost:{wood:70,stone:30,food:50,belief:20},time:150,unlock:'Trade boats'},
   ],
   largeCost:{wood:28,stone:4,belief:0},
+};
+
+/** Game-time storm hazards; two simultaneous fires and four firefighters at most. */
+export const BUILDING_FIRE = {
+  strikeSeconds: [22, 38] as const, buildingChance: .18, maxFires: 2, firefighters: 2,
+  damagePerSecond: .006, wetDamageMultiplier: .55, dryGrowth: .002, wetGrowth: .0005,
+  waterReduction: .45, retrySeconds: 20,
 };

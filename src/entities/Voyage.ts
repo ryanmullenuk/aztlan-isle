@@ -1,3 +1,4 @@
+import { buildingOperational } from '../buildings/BuildingCondition';
 import * as THREE from 'three';
 import type { Where } from '../ui/where';
 import { GOODS, GOOD_KEYS, GoodKey, ResourceKey, TRADE, VOYAGE } from '../config';
@@ -258,6 +259,7 @@ export class Voyages {
 
   /** Why the ship can't be built here now (null: it can). */
   whyNotBuild(dock: Building): string | null {
+    if (!buildingOperational(dock)) return 'Repair the Trade Dock before building ships';
     if (!dock.complete) return 'The Trade Dock is not finished yet';
     if (this.state !== 'none') return this.dock === dock.id ? 'This dock already has the voyage ship' : 'The island already has a voyage ship';
     if (!this.eco.canAfford(VOYAGE.shipCost)) return 'Not enough wood or stone';
@@ -319,6 +321,7 @@ export class Voyages {
     if (holdValue(this.hold) < VOYAGE.minValue) return 'Load more goods first';
     const dock = this.bld.byId(this.dock);
     if (!dock) return 'The Trade Dock is gone';
+    if (!buildingOperational(dock)) return 'Repair the Trade Dock before sailing';
     const c = this.pickCrew(dock);
     return typeof c === 'string' ? c : null;
   }
@@ -462,7 +465,7 @@ export class Voyages {
       if (!dock) {
         this.state = 'none';
         this.dock = -1;
-      } else {
+      } else if (buildingOperational(dock)) {
         this.build += dt;
         if (this.build >= VOYAGE.buildSeconds) {
           this.state = 'docked';

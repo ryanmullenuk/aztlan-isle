@@ -185,6 +185,16 @@ export class Powers {
     this.queueThunder(1.2 + this.rnd() * 1.8, false);
   }
 
+  /** Gameplay land strike; no ocean spray, and never triggered after Calm or while paused. */
+  strikeLand(x: number, y: number, z: number): void {
+    if (this.state !== 'storm' || this.time.paused) return;
+    const camera = this.camera;
+    if (!camera) return;
+    const distance = camera.position.distanceTo(_p.set(x, y + 10, z));
+    this.bolt.strike(x, y, z, 28, camera.position, this.rnd, Math.max(.45, 1 - distance / 160), false);
+    this.queueThunder(.2 + distance / 75, distance < 55);
+  }
+
   private queueThunder(delay: number, near: boolean): void {
     for (let i = 0; i < this.thunderT.length; i++) {
       if (this.thunderT[i] > 0) continue;

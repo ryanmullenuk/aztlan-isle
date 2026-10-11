@@ -1,3 +1,4 @@
+import { buildingOperational, buildingSafe } from './BuildingCondition';
 import { Demolition } from './Demolition';
 import { villageFire, fireEmbers } from './VillageFire';
 import * as THREE from 'three';
@@ -44,6 +45,13 @@ export class Building {
   z: number;
   y: number;
   complete = false;
+  integrity = 1;
+  fire = 0;
+  ruined = false;
+  repairing = false;
+  repairProgress = 0;
+  /** One alert for each continuous fire, retained across reloads. */
+  fireAlerted = false;
   /** Construction (or upgrade) progress 0..1. */
   progress = 0;
   tier = 1;
@@ -137,12 +145,13 @@ export class Building {
 
   /** Builders still wanted on the construction site. */
   get needsBuilders(): number {
-    if (this.complete && !this.upgrading) return 0;
+    if (this.fire > 0 || (this.ruined && !this.repairing) || (this.integrity < 1 && !this.repairing)) return 0;
+    if (this.complete && !this.upgrading && !this.repairing) return 0;
     return Math.max(0, this.def.builders - this.builders.size);
   }
 
   get housing(): number {
-    if (!this.complete) return 0;
+    if (!buildingSafe(this)) return 0;
     if (this.key === 'home') return HOMES.housing[Math.min(HOMES.housing.length, this.tier) - 1];
     return this.def.housing ?? 0;
   }
@@ -300,6 +309,7 @@ export class BuildingSystem {
   recordProgress: (event:string) => void = () => {};
   recordPrayer: (seconds:number) => void = () => {};
   onComplete: (b: Building) => void = () => {};
+  onRebuilt: (b: Building) => void = () => {};
   /** Called when a building is removed (pens release animals, etc.). */
   onRemove: (b: Building) => void = () => {};
 
@@ -319,7 +329,7 @@ export class BuildingSystem {
   }
 
   of(key: BuildingKey, completeOnly = true): Building[] {
-    return this.list.filter((b) => b.key === key && (!completeOnly || b.complete));
+    return this.list.filter((b) => b.key === key && (!completeOnly || buildingOperational(b)));
   }
 
   // ------------- Placement -------------
@@ -504,7 +514,7 @@ export class BuildingSystem {
 
   /** Buildings that can be turned or moved once placed (docks are tied to their shore). */
   canRelocate(b: Building): boolean {
-    return b.key !== 'jetty' && b.key !== 'tradedock';
+    return b.fire <= 0 && !b.ruined && !b.repairing && b.key !== 'jetty' && b.key !== 'tradedock';
   }
 
   /** Called after a building is moved or rotated (pens, paths, grass). */
@@ -613,7 +623,7 @@ export class BuildingSystem {
   canUpgrade(b: Building): { ok: boolean; reason: string; cost: Cost } {
     const progression = this.progressionUpgrade?.(b);
     if (progression) return {ok:false,reason:progression,cost:{wood:0,stone:0,belief:0}};
-    if (!b.complete || b.upgrading) return { ok: false, reason: 'Busy', cost: { wood: 0, stone: 0, belief: 0 } };
+    if (!buildingOperational(b) || b.upgrading) return { ok: false, reason: 'Busy', cost: { wood: 0, stone: 0, belief: 0 } };
     if (b.key === 'stonemason' || b.key === 'boatworkshop') {
       const next = (b.key==='boatworkshop'?BOAT_WORKSHOP:STONEMASON).upgrades[b.tier - 1];
       if (!next) return { ok: false, reason: 'Fully upgraded', cost: { wood: 0, stone: 0, belief: 0 } };
@@ -665,7 +675,7 @@ export class BuildingSystem {
   }
 
   /** Recreate a building from a save without paying or re-running completion effects. */
-  restore(key: BuildingKey, cx: number, cz: number, rot: number, d: { complete: boolean; progress: number; tier: number; upgrading: boolean; growth: number; stock: number; bless: number }): Building {
+  restore(key: BuildingKey, cx: number, cz: number, rot: number, d: { complete: boolean; progress: number; tier: number; upgrading: boolean; growth: number; stock: number; bless: number; integrity?: number; fire?: number; ruined?: boolean; repairing?: boolean; repairProgress?: number; fireAlerted?: boolean }): Building {
     const hook = this.onComplete;
     this.onComplete = () => {};
     const b = this.place(key, cx, cz, rot, true);
@@ -685,8 +695,40 @@ export class BuildingSystem {
       b.progress = d.progress;
       this.updateStageVisuals(b);
     }
+    b.integrity = Math.max(0, Math.min(1, d.integrity ?? 1));
+    b.fire = d.ruined ? 0 : Math.max(0, Math.min(1, d.fire ?? 0));
+    b.ruined = d.ruined ?? false; b.repairing = d.repairing ?? false;
+    b.repairProgress = Math.max(0, Math.min(1, d.repairProgress ?? 0));
+    b.fireAlerted = d.fireAlerted ?? b.fire > 0;
+    this.updateStageVisuals(b);
     this.recomputeCaps();
     return b;
+  }
+
+  /** Fire destroys function, not identity: upgrades and the footprint remain rebuildable. */
+  ruin(b: Building): void {
+    if (b.ruined) return;
+    b.integrity = 0; b.fire = 0; b.ruined = true; b.repairing = false; b.repairProgress = 0;
+    b.builders.clear(); b.workers.clear();
+    this.onRemove(b); // Release pens, ships and kennel dependants through existing hooks.
+    b.boats.length = 0; b.tradeBoats = 0;
+    this.updateStageVisuals(b); this.recomputeCaps();
+  }
+
+  repairCost(b: Building): Cost {
+    const scale = (b.ruined ? 1 : .5 * (1 - b.integrity)) * Math.max(1, b.tier * .6);
+    return { wood: Math.max(2, Math.ceil(b.def.cost.wood * scale)), stone: Math.max(1, Math.ceil(b.def.cost.stone * scale)), belief: 0 };
+  }
+  repair(b: Building): string {
+    if (!this.list.includes(b)) return 'This building no longer exists.';
+    if (b.fire > 0) return 'Extinguish the fire before repairing.';
+    if (b.repairing) return 'Repairs are already underway.';
+    if (b.integrity >= 1 && !b.ruined) return 'This building does not need repairs.';
+    const cost = this.repairCost(b);
+    if (!this.eco.spend(cost)) return `Repairs need ${cost.wood} wood and ${cost.stone} stone.`;
+    b.repairing = true; b.repairProgress = 0;
+    this.updateStageVisuals(b);
+    return b.ruined ? 'Rebuilding queued. Automatic builders will restore these ruins.' : 'Repairs queued. Automatic builders will restore this building.';
   }
 
   remove(b: Building, refund = true): void {
@@ -889,7 +931,7 @@ export class BuildingSystem {
   private litFires(): FireSpot[] {
     const out: FireSpot[] = [];
     for (const b of this.list) {
-      if (!b.complete || b.upgrading || !b.torches.length) continue;
+      if (!buildingOperational(b) || b.upgrading || !b.torches.length) continue;
       const big = b.key === 'campfire' || b.key === 'bonfire' || b.key === 'firepit' || b.key === 'greathall';
       const mine: FireSpot[] = [];
       b.torches.forEach((t, k) => {
@@ -941,10 +983,19 @@ export class BuildingSystem {
   }
 
   private updateStageVisuals(b: Building): void {
+    if (b.ruined) {
+      b.foundation.visible = true; b.finished.visible = true; b.finished.scale.y = .15;
+      b.scaffold.visible = b.repairing;
+      for (const t of b.torches) t.flame.visible = false;
+      if (b.crops) b.crops.visible = false;
+      if (b.bell) b.bell.visible = false;
+      for (const f of b.fills) f.visible = false;
+      return;
+    }
     if (b.bell) b.bell.visible = b.complete;
     if (b.complete && !b.upgrading) {
       b.foundation.visible = false;
-      b.scaffold.visible = false;
+      b.scaffold.visible = b.repairing;
       b.finished.visible = true;
       b.finished.scale.y = 1;
       if(b.key==='greattemple') b.finished.geometry.setDrawRange(0,Infinity);
@@ -955,6 +1006,7 @@ export class BuildingSystem {
       b.foundation.visible = false;
       b.scaffold.visible = true;
       b.finished.visible = true;
+      b.finished.scale.y = 1;
       return;
     }
     const p = b.progress;
@@ -978,11 +1030,24 @@ export class BuildingSystem {
   }
 
   waitingForMaterials(b: Building): boolean {
+    if (b.fire > 0 || ((b.ruined || b.integrity < 1) && !b.repairing)) return true;
     return b.key==='greattemple' && !b.complete && b.monumentPaid!==undefined && b.monumentPaid<4 && b.progress>=b.monumentPaid/4 && !this.eco.canAfford(b.def.cost);
   }
 
   /** Called by builders every frame they work. */
   addProgress(b: Building, dt: number): void {
+    if (dt <= 0 || b.fire > 0) return;
+    if (b.repairing) {
+      b.repairProgress = Math.min(1, b.repairProgress + dt / Math.max(20, b.def.buildTime * .6));
+      if (b.repairProgress >= 1) {
+        const wasRuined = b.ruined;
+        b.repairing = false; b.ruined = false; b.integrity = 1; b.fireAlerted = false; b.builders.clear();
+        this.updateStageVisuals(b); this.recomputeCaps();
+        if (wasRuined) this.onRebuilt(b);
+      }
+      return;
+    }
+    if (b.ruined || b.integrity < 1) return;
     const time = b.upgrading ? (b.key === 'boatworkshop' ? (BOAT_WORKSHOP.upgrades[b.tier-1]?.time ?? b.def.buildTime) : b.key === 'stonemason' ? (STONEMASON.upgrades[b.tier - 1]?.time ?? b.def.buildTime) : b.key === 'home' ? HOMES.upgradeTime[b.tier + 1] : TEMPLE.upgradeTime[b.tier + 1]) : b.def.buildTime;
     let next = Math.min(1, b.progress + dt / time);
     if(b.key==='greattemple' && !b.complete && b.monumentPaid!==undefined) {
@@ -1018,7 +1083,7 @@ export class BuildingSystem {
   recomputeCaps(): void {
     let wood = 0, food = 0, tiers = 0;
     for (const b of this.list) {
-      if (!b.complete) continue;
+      if (!b.complete || b.ruined) continue;
       if (b.key === 'campfire') {
         wood += ECONOMY.baseWoodCap;
         food += ECONOMY.baseFoodCap;
@@ -1129,7 +1194,7 @@ export class BuildingSystem {
       this.updateLod();
     }
     for (const b of this.list) {
-      if (!b.complete) continue;
+      if (!buildingOperational(b)) continue;
       if (b.key === 'herbalist') processMedicine(b, this.eco, dt);
       if (b.bell) {
         // Swinging hard while it rings, settling as it stops.
@@ -1169,7 +1234,7 @@ export class BuildingSystem {
     const lit = night > 0.12;
     for (const b of this.list) {
       for (const t of b.torches) {
-        const on = (b.complete && !b.upgrading && lit) as boolean;
+        const on = (buildingOperational(b) && !b.upgrading && lit) as boolean;
         t.flame.visible = on;
         if (on) {
           const village = b.key === 'campfire' || b.key === 'bonfire';
@@ -1198,7 +1263,7 @@ export class BuildingSystem {
     const stoneFrac = this.eco.woodCap > 0 ? this.eco.res.stone / this.eco.woodCap : 0;
     const foodFrac = this.eco.foodCap > 0 ? this.eco.food / this.eco.foodCap : 0;
     for (const b of this.list) {
-      if (!b.complete || !b.fills.length) continue;
+      if (!b.complete || b.ruined || !b.fills.length) continue;
       if (b.key === 'woodstore') {
         b.fills.forEach((m, k) => {
           m.visible = k < 6 ? k < Math.ceil(woodFrac * 6) : k - 6 < Math.ceil(stoneFrac * 2);
@@ -1214,7 +1279,7 @@ export class BuildingSystem {
   nearestStore(x: number, z: number, food: boolean): Building | null {
     let best: Building | null = null, bd = Infinity;
     for (const b of this.list) {
-      if (!b.complete) continue;
+      if (!buildingOperational(b)) continue;
       const ok = b.key === 'campfire' || (food ? b.key === 'grainstore' || b.key === 'smokehouse' : b.key === 'woodstore');
       if (!ok) continue;
       const d = (b.door.x - x) ** 2 + (b.door.z - z) ** 2;

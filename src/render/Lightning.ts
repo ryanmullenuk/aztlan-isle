@@ -99,7 +99,7 @@ export class Lightning {
    * Strike the sea at (x, y, z). `cloud` is the height of the cloud base above the sea, `cam` the
    * camera position (the ribbons face it), `power` the strength of its light on the scene.
    */
-  strike(x: number, y: number, z: number, cloud: number, cam: THREE.Vector3, rnd: () => number, power = 1): void {
+  strike(x: number, y: number, z: number, cloud: number, cam: THREE.Vector3, rnd: () => number, power = 1, water = true): void {
     const width = THREE.MathUtils.clamp(cam.distanceTo(_v.set(x, y + cloud * 0.5, z)) * 0.017, 0.55, 2.8);
     // Main channel: from the cloud (a little off to one side) down to the water.
     const a = rnd() * Math.PI * 2, off = 2 + rnd() * 8;
@@ -146,7 +146,7 @@ export class Lightning {
     this.mesh.visible = true;
 
     // Spray and steam where it hits the water.
-    for (let k = 0; k < 44; k++) {
+    for (let k = 0; k < (water ? 44 : 0); k++) {
       const d = rnd() * Math.PI * 2, s = 1 + rnd() * 3.5;
       this.spray.spawn(x + Math.cos(d) * 0.4, y + 0.1, z + Math.sin(d) * 0.4, Math.cos(d) * s, 3 + rnd() * 6, Math.sin(d) * s, 0.6 + rnd() * 0.7, 0.18 + rnd() * 0.22);
     }

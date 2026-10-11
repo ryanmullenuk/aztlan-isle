@@ -1,3 +1,4 @@
+import { buildingOperational } from '../buildings/BuildingCondition';
 import * as THREE from 'three';
 import { DEFENCE } from '../config';
 import type { Building, BuildingSystem } from '../buildings/Buildings';
@@ -117,7 +118,7 @@ export class Defence {
       } else this.last.set(q.ref, { x: q.ref.x, z: q.ref.z, vx: 0, vz: 0 });
     }
     for (const b of this.buildings.list) {
-      if (b.key !== 'watchtower' || !b.complete) continue;
+      if (b.key !== 'watchtower' || !buildingOperational(b)) continue;
       let w = this.watch.get(b.id);
       if (!w) this.watch.set(b.id, (w = { reload: 1, shots: 0, kills: 0 }));
       w.reload = Math.max(0, w.reload - dt);

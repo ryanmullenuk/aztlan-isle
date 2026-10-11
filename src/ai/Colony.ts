@@ -1,3 +1,5 @@
+import { buildingOperational, buildingSafe } from '../buildings/BuildingCondition';
+import type { FireJob } from '../buildings/StormFire';
 import { gatheringWeights, jobRank, specialistShare, villagePriority, type VillagePriority } from './VillagePriority';
 import { marketBatch } from '../economy/Market';
 import { needsSelfCare } from './GroupSelection';
@@ -18,6 +20,11 @@ import { avoidCrowd } from './CrowdAvoidance';
 
 /** Hooks into systems built later (wildlife, boats, audio) so the colony can use them if present. */
 export interface ColonyHooks {
+  fireJob?: (isl: Islander) => FireJob | null;
+  fireRouteFailed?: (isl: Islander, well: number, fire: number) => void;
+  pourWater?: (b: Building) => void;
+  /** Predators outrank firefighting, whereas rain alone does not. */
+  fireDanger?: () => boolean;
   /** Where the player is looking from: camera position, the point it looks at, and view radius. */
   viewer?: () => { x: number; y: number; z: number; tx: number; tz: number; r: number };
   /** Take an animal from a butcher's pen; returns true if one was available. */
@@ -141,6 +148,7 @@ export class Colony {
   private sameOptions(a: PathOptions, b: PathOptions, includeAvoid = true): boolean {
     return (a.allowBuilding ?? -1) === (b.allowBuilding ?? -1) &&
       !!a.allowWater === !!b.allowWater && (a.goalRadius ?? 0) === (b.goalRadius ?? 0) &&
+      !!a.requireGoal === !!b.requireGoal &&
       a.maxIterations === b.maxIterations && (!includeAvoid || a.avoid === b.avoid);
   }
 
@@ -181,7 +189,7 @@ export class Colony {
       this.pathStats.reused++;
       return;
     }
-    const urgent = isl.task?.kind === 'flee' || isl.task?.kind === 'heal' ||
+    const urgent = isl.task?.kind === 'firefight' || isl.task?.kind === 'flee' || isl.task?.kind === 'heal' ||
       (isl.task?.kind === 'hall' && isl.task.phase === 1) || (isl.task?.kind === 'eat' && isl.hunger < .1);
     const ordered = isl.manualRole || isl.task?.kind === 'goto' || isl.task?.kind === 'capture';
     const req: RouteState = { isl, task: isl.task, x, z, opts: { ...opts }, path: null,
@@ -291,7 +299,7 @@ export class Colony {
       if (isl.jam >= 3) {
         isl.jam = 0;
         isl.path = null;
-        if (Math.hypot(isl.x - x, isl.z - z) < 2.5 + (opts.goalRadius ?? 0)) return 'arrived';
+        if (!opts.requireGoal && Math.hypot(isl.x - x, isl.z - z) < 2.5 + (opts.goalRadius ?? 0)) return 'arrived';
         return 'failed';
       }
       this.requestPath(isl, x, z, isl.jam >= 2 ? { ...opts, avoid: this.crowdCells(isl) } : opts, true);
@@ -465,6 +473,7 @@ export class Colony {
   /** Player override: make this islander work at a building or on a resource. */
   assign(isl: Islander, b: Building | null, plant: Plant | null): string {
     if (isl.child) return `${isl.name} is too young to work.`;
+    if (b && (b.fire > 0 || b.ruined || (b.integrity < 1 && !b.repairing))) return 'Extinguish and repair this building before assigning work.';
     if (isl.condition !== 'well') return `${isl.name} is ${isl.condition === 'sick' ? 'sick' : 'badly hurt'} and cannot work until cured.`;
     this.cancelTask(isl);
     isl.manualRole = true;
@@ -477,7 +486,7 @@ export class Colony {
       return `${isl.name} is now a ${isl.role === 'miner' ? 'stonecutter' : isl.role === 'gatherer' ? 'fruit gatherer' : 'woodcutter'}.`;
     }
     if (!b) return '';
-    if (!b.complete || b.upgrading) {
+    if (!b.complete || b.upgrading || b.repairing) {
       isl.role = 'builder';
       isl.workplace = b.id;
       return `${isl.name} will help build the ${b.label}.`;
@@ -499,7 +508,7 @@ export class Colony {
 
   /** Queue warrior training at a war room (pays the cost). */
   trainWarrior(b: Building, type: 'jaguar' | 'eagle', who?: Islander): boolean {
-    if (!this.eco.canAfford(WARRIOR.cost)) return false;
+    if (!buildingOperational(b) || !this.eco.canAfford(WARRIOR.cost)) return false;
     const cand = who ?? this.nearestFree(b.door.x, b.door.z);
     if (!cand) return false;
     this.eco.spend(WARRIOR.cost);
@@ -538,11 +547,12 @@ export class Colony {
     for (const i of workers) {
       if (i.workplace >= 0) {
         const b = this.bld.byId(i.workplace);
-        if (b?.key === 'stonemason' && b.complete) {
+        if (b?.key === 'stonemason' && buildingOperational(b) && !b.repairing) {
           if (b.upgrading && i.role === 'mason') i.role = 'builder';
           else if (!b.upgrading && i.role === 'builder') i.role = 'mason';
         }
-        const valid = b && (i.role === 'builder' ? (!b.complete || b.upgrading) && !this.bld.waitingForMaterials?.(b) : b.complete);
+        const pausedOrder = i.manualRole && b && !b.ruined && (b.fire > 0 || b.integrity < 1);
+        const valid = b && (pausedOrder || (i.role === 'builder' ? (!b.complete || b.upgrading || b.repairing) && !this.bld.waitingForMaterials?.(b) : b.complete && !b.ruined));
         if (!valid) {
           i.workplace = -1;
           if (i.manualRole && i.role === 'builder') i.manualRole = false;
@@ -565,7 +575,8 @@ export class Colony {
     const slots: { b: Building; role: Role; n: number }[] = [];
     for (const b of this.bld.list) {
       if (this.bld.waitingForMaterials?.(b)) continue;
-      if (!b.complete || b.upgrading) slots.push({ b, role: 'builder', n: b.def.builders });
+      if (!b.complete || b.upgrading || b.repairing) slots.push({ b, role: 'builder', n: b.def.builders });
+      else if (!buildingOperational(b)) continue;
       else if (isFarm(b.key)) slots.push({ b, role: 'farmer', n: b.def.workers });
       else if (b.key === 'market') slots.push({ b, role: 'merchant', n: b.def.workers });
       else if (b.key === 'stonemason') slots.push({ b, role: 'mason', n: b.def.workers });
@@ -658,7 +669,7 @@ export class Colony {
   private assignHousing(): void {
     // Beds are for adults; each house's one child lives there too without taking a bed.
     for (const b of this.bld.list) b.residents = b.residents.filter((id) => { const r = this.byId(id); return !!r && r.home === b.id && !r.child; });
-    const homeless = () => this.list.filter((i) => !i.child && (i.home < 0 || !this.bld.byId(i.home)?.complete));
+    const homeless = () => this.list.filter((i) => !i.child && (i.home < 0 || !buildingSafe(this.bld.byId(i.home))));
     for (const i of homeless()) i.home = -1;
     const move = (isl: Islander, b: Building) => {
       isl.home = b.id;
@@ -725,7 +736,7 @@ export class Colony {
       if (best) move(isl, best);
     }
     // 3) Children: one per house. A child whose house is gone moves to the nearest house without one.
-    const isHouse = (b: Building | undefined) => !!b && b.complete && (b.key === 'hut' || b.key === 'home');
+    const isHouse = (b: Building | undefined) => buildingSafe(b) && (b!.key === 'hut' || b!.key === 'home');
     for (const kid of this.list) {
       if (!kid.child || isHouse(this.bld.byId(kid.home))) continue;
       let best: Building | null = null, bd = Infinity;
@@ -744,7 +755,7 @@ export class Colony {
   /** Dawn: a couple in a house without a child may have one (one child per house, huts too). */
   private dawn(): void {
     for (const b of this.bld.list) {
-      if (!b.complete || (b.key !== 'hut' && b.key !== 'home')) continue;
+      if (!buildingSafe(b) || (b.key !== 'hut' && b.key !== 'home')) continue;
       if (this.list.length >= ISLANDER.max) return;
       if (this.list.some((i) => i.child && i.home === b.id)) continue;
       const adults = b.residents.map((id) => this.byId(id)).filter((i): i is Islander => !!i && !i.child);
@@ -815,7 +826,7 @@ export class Colony {
     if (isl.role !== 'warrior' && isl.lastBonfire !== this.time.day && hr >= COMFORTS.bonfireHours[0] && hr < COMFORTS.bonfireHours[1] && isl.rest > 0.15) {
       let fire: Building | null = null, fd = Infinity;
       for (const b of this.bld.list) {
-        if (!['bonfire', 'firepit', 'campfire'].includes(b.key) || !b.complete) continue;
+        if (!['bonfire', 'firepit', 'campfire'].includes(b.key) || !buildingOperational(b)) continue;
         if (this.list.filter(o => o.task?.kind === 'bonfire' && o.task.target === b.id).length >= 12) continue;
         const d = (b.x - isl.x) ** 2 + (b.z - isl.z) ** 2;
         if (d < fd) {
@@ -872,7 +883,7 @@ export class Colony {
         isl.role === 'warrior' || isl.hunger < 0.45 || isl.rest < 0.35 ||
         isl.lastFamilyGather === token || isl.home < 0) return false;
     const home = this.bld.byId(isl.home);
-    if (!home?.complete || this.list.filter(p => p.home === isl.home).length < 2) return false;
+    if (!home || !buildingSafe(home) || this.list.filter(p => p.home === isl.home).length < 2) return false;
     const taken = new Set(this.list.filter(p => p.task?.kind === 'family' && p.task.target === home.id).map(p => p.task!.slot));
     for (let k = 0; k < 8; k++) {
       const slot = (isl.id + k) % 8, a = slot * Math.PI / 4;
@@ -1003,7 +1014,7 @@ export class Colony {
   private goSleep(isl: Islander): void {
     const home = isl.home >= 0 ? this.bld.byId(isl.home) : undefined;
     const fire = this.bld.of('campfire')[0];
-    if (home) return this.setTask(isl, 'sleep', home.id, home.door.x, home.door.z);
+    if (home && buildingSafe(home)) return this.setTask(isl, 'sleep', home.id, home.door.x, home.door.z);
     if (fire) {
       const a = this.rnd() * Math.PI * 2;
       return this.setTask(isl, 'sleep', -1, fire.x + Math.cos(a) * 2.2, fire.z + Math.sin(a) * 2.2);
@@ -1032,15 +1043,17 @@ export class Colony {
 
   /** Start a job task for the islander's role. Returns false if nothing to do. */
   private work(isl: Islander): boolean {
+    const workplace = isl.workplace >= 0 ? this.bld.byId(isl.workplace) : undefined;
+    if (workplace && isl.role !== 'builder' && !buildingOperational(workplace)) return false;
     const fromX = isl.x, fromZ = isl.z;
     const store = (food: boolean) => this.bld.nearestStore(isl.x, isl.z, food);
     switch (isl.role) {
       case 'builder': {
         let site = isl.workplace >= 0 ? this.bld.byId(isl.workplace) : undefined;
-        if (!site || (site.complete && !site.upgrading)) {
-          site = this.bld.list.filter((b) => (!b.complete || b.upgrading) && !this.bld.waitingForMaterials?.(b)).sort((a, b) => (a.x - fromX) ** 2 + (a.z - fromZ) ** 2 - ((b.x - fromX) ** 2 + (b.z - fromZ) ** 2))[0];
+        if (!site || (site.complete && !site.upgrading && !site.repairing)) {
+          site = this.bld.list.filter((b) => (!b.complete || b.upgrading || b.repairing) && !this.bld.waitingForMaterials?.(b)).sort((a, b) => (a.x - fromX) ** 2 + (a.z - fromZ) ** 2 - ((b.x - fromX) ** 2 + (b.z - fromZ) ** 2))[0];
         }
-        if (!site) return false;
+        if (!site || this.bld.waitingForMaterials?.(site)) return false;
         // Stand around the edge of the site.
         const a = this.rnd() * Math.PI * 2;
         const r = Math.max(site.w, site.d) / 2 + 0.5;
@@ -1106,7 +1119,7 @@ export class Colony {
       }
       case 'merchant': {
         const market = this.bld.byId(isl.workplace);
-        if (!market || !market.complete) return false;
+        if (!market || !buildingOperational(market)) return false;
         const choice = marketBatch(this.eco, this.list.length, market, this.bld.list, this.list);
         if (!choice) return false;
         const store = this.bld.nearestStore(isl.x, isl.z, FOOD_KEYS.includes(choice.res));
@@ -1255,12 +1268,14 @@ export class Colony {
     if (!isl.carry) return;
     if (isl.carry.market !== undefined) {
       const market = this.bld.byId(isl.carry.market);
-      if (!market || !market.complete || market.key !== 'market') { isl.carry = null; return; }
-      this.setTask(isl, 'deliver', market.id, market.door.x, market.door.z);
-      return;
+      if (market && buildingOperational(market) && market.key === 'market') {
+        this.setTask(isl, 'deliver', market.id, market.door.x, market.door.z);
+        return;
+      }
+      delete isl.carry.market; // Return goods to storage if their market is out of service.
     }
     if (isl.carry.res === 'herbs') {
-      const processor = this.bld.list.filter(b => b.key === 'herbalist' && b.complete && !b.upgrading)
+      const processor = this.bld.list.filter(b => b.key === 'herbalist' && buildingOperational(b) && !b.upgrading)
         .sort((a,b) => Math.hypot(a.x-isl.x,a.z-isl.z)-Math.hypot(b.x-isl.x,b.z-isl.z))[0];
       if (processor) this.setTask(isl, 'deliver', processor.id, processor.door.x, processor.door.z);
       return;
@@ -1268,7 +1283,7 @@ export class Colony {
     const food = FOOD_KEYS.includes(isl.carry.res);
     const store = this.bld.nearestStore(isl.x, isl.z, food);
     if (!store) {
-      isl.carry = null;
+      isl.think = 2; // Keep the load while all suitable stores are out of service.
       return;
     }
     this.setTask(isl, 'deliver', store.id, store.door.x, store.door.z, isl.carry.res);
@@ -1284,6 +1299,11 @@ export class Colony {
   private runTask(isl: Islander, dt: number): void {
     const t = isl.task!;
     const w = this.world;
+    if (['farm','pray','mason','smoke','butcher','market','train','fish','bonfire','eat','deliver'].includes(t.kind)) {
+      const b = this.bld.byId(t.target);
+      if (b && !buildingOperational(b) && !(t.kind === 'fish' && t.stage >= 3)) return this.releaseTask(isl);
+      if (t.kind === 'market' && !buildingOperational(this.bld.byId(t.building ?? -1))) return this.releaseTask(isl);
+    }
     switch (t.kind) {
       case 'wander': {
         const r = this.travel(isl, dt, t.x, t.z);
@@ -1296,7 +1316,7 @@ export class Colony {
       }
       case 'family': {
         const home = this.bld.byId(t.target);
-        if (!home?.complete || this.hooks.threat?.()) return this.releaseTask(isl);
+        if (!home || !buildingSafe(home) || this.hooks.threat?.()) return this.releaseTask(isl);
         const r = this.travel(isl, dt, t.x, t.z);
         if (r === 'failed') return this.releaseTask(isl);
         if (r === 'arrived') {
@@ -1425,9 +1445,10 @@ export class Colony {
         this.releaseTask(isl);
         break;
       }
+      case 'firefight': return this.fightFire(isl, dt);
       case 'build': {
         const b = this.bld.byId(t.target);
-        if (!b || (b.complete && !b.upgrading) || this.bld.waitingForMaterials?.(b)) return this.releaseTask(isl);
+        if (!b || (b.complete && !b.upgrading && !b.repairing) || this.bld.waitingForMaterials?.(b)) return this.releaseTask(isl);
         isl.tool = 'hammer';
         if (t.stage < 2) {
           const r = this.travel(isl, dt, t.x, t.z, { goalRadius: 1 });
@@ -1452,7 +1473,7 @@ export class Colony {
         const before = t.timer;
         t.timer -= dt;
         if (Math.floor(before * 1.5) !== Math.floor(t.timer * 1.5)) this.hooks.sfx?.('build', isl.x, isl.z);
-        if (t.timer <= 0 || (b.complete && !b.upgrading)) this.releaseTask(isl);
+        if (t.timer <= 0 || (b.complete && !b.upgrading && !b.repairing)) this.releaseTask(isl);
         break;
       }
       case 'farm': {
@@ -1473,7 +1494,7 @@ export class Colony {
         t.timer -= dt;
         if (t.timer > 0) return;
         if (harvesting) {
-          if (f.key === 'herbalgarden' && !this.bld.list.some(b => b.key === 'herbalist' && b.complete && !b.upgrading)) return this.releaseTask(isl);
+          if (f.key === 'herbalgarden' && !this.bld.list.some(b => b.key === 'herbalist' && buildingOperational(b) && !b.upgrading)) return this.releaseTask(isl);
           if (f.growth >= 1) {
             f.stock += FARM_TYPES[f.key]?.yield ?? FARM.grainYield;
             f.growth = 0;
@@ -1710,7 +1731,7 @@ export class Colony {
         }
         // Bring it home to the pen (led on a leash, or carried).
         const b = this.bld.byId(t.building ?? -1);
-        if (!b || !b.complete) return this.releaseTask(isl);
+        if (!b || !buildingOperational(b)) return this.releaseTask(isl);
         isl.tool = 'none';
         const r = this.travel(isl, dt, t.x, t.z, { allowBuilding: b.id, goalRadius: 1, allowWater: isl.carry?.kind !== 'chicken' });
         if (r === 'failed') return this.fail(isl);
@@ -1825,6 +1846,7 @@ export class Colony {
       }
       case 'sleep': {
         const home = t.target >= 0 ? this.bld.byId(t.target) : undefined;
+        if (home && !buildingSafe(home)) { isl.sleeping = false; isl.hidden = false; return this.releaseTask(isl); }
         if (t.stage < 2) {
           const r = this.travel(isl, dt, t.x, t.z, home ? { allowBuilding: home.id, goalRadius: 1 } : { goalRadius: 1 });
           if (r === 'failed') {
@@ -1863,6 +1885,8 @@ export class Colony {
         break;
       }
       case 'flee': {
+        const roof = t.target >= 0 ? this.bld.byId(t.target) : undefined;
+        if (roof && !buildingSafe(roof)) { isl.hidden = false; return this.releaseTask(isl); }
         // Running for shelter; indoors at home they stay hidden until the danger passes.
         if (t.stage < 2) {
           const r = this.travel(isl, dt, t.x, t.z, { goalRadius: 0.6 }, true);
@@ -1870,7 +1894,7 @@ export class Colony {
           t.stage = 2;
           t.timer = 12 + this.rnd() * 8;
           const home = this.bld.byId(t.target);
-          if (home && home.complete && r === 'arrived') isl.hidden = true;
+          if (home && buildingSafe(home) && r === 'arrived') isl.hidden = true;
         }
         isl.anim = 'idle';
         t.timer -= dt;
@@ -1917,12 +1941,12 @@ export class Colony {
       this.cancelTask(isl);
       if (this.shelter(isl, 30)) continue;
       const home = isl.home >= 0 ? this.bld.byId(isl.home) : undefined;
-      let dest = home && home.complete && Math.hypot(home.door.x - isl.x, home.door.z - isl.z) < 30 ? home : undefined;
+      let dest = home && buildingSafe(home) && Math.hypot(home.door.x - isl.x, home.door.z - isl.z) < 30 ? home : undefined;
       if (!dest) {
         // The nearest finished building that isn't toward the threat.
         let bd = Infinity;
         for (const b of this.bld.list) {
-          if (!b.complete || b.key === 'torch' || b.key === 'jetty' || b.key === 'tradedock') continue;
+          if (!buildingSafe(b) || b.key === 'torch' || b.key === 'jetty' || b.key === 'tradedock') continue;
           const db = Math.hypot(b.door.x - isl.x, b.door.z - isl.z);
           const toward = (b.door.x - isl.x) * (x - isl.x) + (b.door.z - isl.z) * (z - isl.z) > 0 && db > d * 0.5;
           if (toward || db > 35) continue;
@@ -1944,7 +1968,7 @@ export class Colony {
   // ---------------- Great Hall ----------------
 
   private halls(): Building[] {
-    return this.bld.list.filter((b) => b.key === 'greathall' && b.complete);
+    return this.bld.list.filter((b) => b.key === 'greathall' && buildingSafe(b));
   }
 
   /** A free place in a hall: a seat (index < seats), or standing room when sheltering. */
@@ -2007,7 +2031,7 @@ export class Colony {
    */
   private shelter(isl: Islander, homeRange: number): boolean {
     const home = isl.home >= 0 ? this.bld.byId(isl.home) : undefined;
-    const dHome = home && home.complete ? Math.hypot(home.door.x - isl.x, home.door.z - isl.z) : Infinity;
+    const dHome = home && buildingSafe(home) ? Math.hypot(home.door.x - isl.x, home.door.z - isl.z) : Infinity;
     const hall = this.nearestHall(isl, homeRange === Infinity ? Infinity : GREAT_HALL.callRadius, true);
     if (hall && hall.d < dHome) return this.goToHall(isl, true, hall);
     if (home && dHome < homeRange) {
@@ -2021,13 +2045,13 @@ export class Colony {
   shelterFromStorm(): number {
     let n = 0;
     for (const isl of this.list) {
-      if (isl.hidden || isl.sleeping || isl.safe || isl.task?.kind === 'heal') continue;
+      if (isl.hidden || isl.sleeping || isl.safe || isl.task?.kind === 'heal' || isl.task?.kind === 'firefight') continue;
       const t = isl.task;
       if (t?.kind === 'hall') { this.toShelter(t); continue; }
       if (t?.kind === 'flee' || t?.kind === 'sleep' || (t?.kind === 'fish' && t.stage >= 2)) continue;
       if (this.shelter(isl, Infinity)) { n++; continue; }
       // Homeless villagers use a completed roof, rather than standing in the rain.
-      const roof = this.bld.list.filter(b => b.complete && ['hut', 'home', 'healer', 'greathall'].includes(b.key))
+      const roof = this.bld.list.filter(b => buildingSafe(b) && ['hut', 'home', 'healer', 'greathall'].includes(b.key))
         .sort((a, b) => Math.hypot(a.door.x - isl.x, a.door.z - isl.z) - Math.hypot(b.door.x - isl.x, b.door.z - isl.z))[0];
       if (roof) { this.setTask(isl, 'flee', roof.id, roof.door.x, roof.door.z); n++; }
     }
@@ -2098,7 +2122,7 @@ export class Colony {
    */
   private runHall(isl: Islander, t: Task, dt: number): void {
     const b = this.bld.byId(t.target);
-    if (!b || !b.complete) return this.releaseTask(isl);
+    if (!b || !buildingSafe(b)) return this.releaseTask(isl);
     const shelter = t.phase === 1;
     isl.tool = 'none';
     if (t.stage < 2) {
@@ -2185,7 +2209,7 @@ export class Colony {
   /** Sanctuary at home (when the hall can't be reached). */
   private shelterHome(isl: Islander): void {
     const home = isl.home >= 0 ? this.bld.byId(isl.home) : undefined;
-    if (home && home.complete) this.setTask(isl, 'flee', home.id, home.door.x, home.door.z);
+    if (home && buildingSafe(home)) this.setTask(isl, 'flee', home.id, home.door.x, home.door.z);
   }
 
   /** Taken off a hall visit part-way (new orders, the hall gone): step down to the door. */
@@ -2211,10 +2235,65 @@ export class Colony {
     return { x: isl.x, z: isl.z };
   }
 
+  /** Evacuate occupants safely; unrelated workers and resource reservations stay intact. */
+  evacuateBuilding(b: Building): void {
+    for (const isl of this.list) {
+      const t = isl.task;
+      if (!t || t.target !== b.id || !['sleep','flee','hall','heal','family','farm','pray','mason','smoke','butcher','build','train','bonfire'].includes(t.kind)) continue;
+      const inside = isl.hidden || isl.sleeping || isl.floorY !== null;
+      this.releaseTask(isl); isl.hidden = false; isl.sleeping = false; isl.safe = false; isl.floorY = null;
+      if (inside) { isl.x = b.door.x; isl.z = b.door.z; isl.y = this.world.groundY(isl.x, isl.z); }
+      isl.think = .5 + (isl.id % 8) * .15;
+    }
+  }
+
+  private tryFirefighting(isl: Islander): void {
+    const t = isl.task;
+    const shelter = t?.kind === 'flee' || (t?.kind === 'hall' && t.phase === 1);
+    if (!this.hooks.fireJob || (t && !shelter) || isl.child || isl.warrior || isl.manualRole ||
+        isl.sleeping || (isl.hidden && !shelter) || isl.carry || isl.condition !== 'well' ||
+        isl.hunger < .45 || isl.rest < .35 || this.hooks.fireDanger?.()) return;
+    const job = this.hooks.fireJob(isl);
+    if (!job) return;
+    this.releaseTask(isl); isl.hidden = false; isl.safe = false; isl.floorY = null;
+    this.setTask(isl, 'firefight', job.fire.id, job.well.door.x, job.well.door.z);
+    isl.task!.building = job.well.id; isl.task!.phase = 0;
+  }
+
+  private fightFire(isl: Islander, dt: number): void {
+    const t = isl.task!, fire = this.bld.byId(t.target), well = this.bld.byId(t.building ?? -1);
+    const phase = t.phase ?? 0;
+    if (!fire || fire.ruined || fire.fire <= 0 || (phase < 2 && !buildingOperational(well))) return this.releaseTask(isl);
+    isl.tool = 'none';
+    if (phase === 0 || phase === 2) {
+      const destination = phase === 0 ? well! : fire;
+      isl.anim = phase === 2 ? 'carry' : 'walk';
+      const result = this.travel(isl, dt, destination.door.x, destination.door.z,
+        { goalRadius: .6, requireGoal: true, ...(phase === 0 ? { allowBuilding: well!.id } : {}) });
+      if (phase === 2 && result === 'walking') isl.anim = 'carry';
+      const closeEnough = result !== 'arrived' || (Math.hypot(isl.x - destination.door.x, isl.z - destination.door.z) <= 1 &&
+        this.pf.segmentClear(isl.x, isl.z, destination.door.x, destination.door.z, phase === 0 ? { allowBuilding: well!.id } : {}));
+      if (result === 'failed' || !closeEnough) {
+        this.hooks.fireRouteFailed?.(isl, t.building!, fire.id);
+        this.releaseTask(isl); isl.think = 2 + (isl.id % 8) * .2; return;
+      }
+      if (result !== 'arrived') return;
+      t.phase = phase + 1; t.timer = 2; t.stage = 2;
+    } else {
+      this.faceTo(isl, (phase === 1 ? well! : fire).x - isl.x, (phase === 1 ? well! : fire).z - isl.z, dt);
+      isl.anim = 'harvest'; isl.speed = 0; t.timer -= dt;
+      if (t.timer > 0) return;
+      if (phase === 1) {
+        t.water = true; t.phase = 2; t.stage = 0;
+        isl.path = null; isl.pathPending = false; this.routes.delete(isl);
+      } else { this.hooks.pourWater?.(fire); this.releaseTask(isl); }
+    }
+  }
+
   // ---------------- Health ----------------
 
   private healers(): Building[] {
-    return this.bld.list.filter((b) => b.key === 'healer' && b.complete);
+    return this.bld.list.filter((b) => b.key === 'healer' && buildingOperational(b));
   }
 
   private nearestHealer(isl: Islander): Building | null {
@@ -2366,7 +2445,7 @@ export class Colony {
   private restHome(isl: Islander): void {
     const home = isl.home >= 0 ? this.bld.byId(isl.home) : undefined;
     const fire = this.bld.of('campfire')[0];
-    if (home && home.complete) this.setTask(isl, 'heal', home.id, home.door.x, home.door.z);
+    if (home && buildingSafe(home)) this.setTask(isl, 'heal', home.id, home.door.x, home.door.z);
     else if (fire) {
       const a = this.rnd() * Math.PI * 2;
       this.setTask(isl, 'heal', -1, fire.x + Math.cos(a) * 2.2, fire.z + Math.sin(a) * 2.2);
@@ -2393,7 +2472,7 @@ export class Colony {
    */
   private runHeal(isl: Islander, t: Task, dt: number): void {
     const b = t.target >= 0 ? this.bld.byId(t.target) : undefined;
-    if (t.target >= 0 && (!b || !b.complete)) return this.releaseTask(isl);
+    if (t.target >= 0 && (!b || !buildingSafe(b))) return this.releaseTask(isl);
     isl.tool = 'none';
     const centre = t.phase === 1 ? b : undefined;
     if (t.stage < 2) {
@@ -2470,7 +2549,7 @@ export class Colony {
     isl.speed = 0;
     isl.path = null;
     isl.pathPending = false;
-    if (this.eco.goods.medicine >= 1) {
+    if (buildingOperational(centre) && this.eco.goods.medicine >= 1) {
       t.care = (t.care ?? 0) + dt;
       const duration = isl.condition === 'mauled' ? HERBALIST.mauledSeconds : HERBALIST.sickSeconds;
       if (t.care >= duration) {
@@ -2669,6 +2748,7 @@ export class Colony {
         }
       }
       if (isl.happy > ISLANDER.happyThreshold) happy++;
+      this.tryFirefighting(isl);
       if (!isl.task) {
         isl.think -= dt;
         this.idle(isl, dt);
@@ -2681,7 +2761,8 @@ export class Colony {
         const wantsCare = !this.eco.godMode && needsSelfCare(isl, this.time.isNight, this.eco.food);
         const canEat = !wantsCare || isl.hunger >= ISLANDER.eatThreshold || this.eco.food < 1 ||
           !!this.bld.nearestStore(isl.x, isl.z, true);
-        if (wantsCare && needsSelfCare(isl, this.time.isNight, this.eco.food, canEat)) {
+        const fireCare = isl.task.kind === 'firefight' && (isl.hunger < ISLANDER.eatThreshold || isl.rest < ISLANDER.sleepThreshold || this.hooks.fireDanger?.());
+        if (fireCare || (wantsCare && needsSelfCare(isl, this.time.isNight, this.eco.food, canEat))) {
           this.releaseTask(isl);
           this.think(isl);
         } else this.runTask(isl, dt);
@@ -2778,6 +2859,7 @@ export class Colony {
       case 'mine': return t.stage < 2 ? 'Walking to a rock' : 'Cutting stone';
       case 'gather': return t.stage < 2 ? 'Looking for fruit' : 'Picking fruit';
       case 'deliver': return `Carrying ${isl.carry?.n ?? 0} ${isl.carry?.res ?? ''} to the ${b?.label ?? 'store'}`;
+      case 'firefight': return (t.water ? 'Carrying water to the fire' : 'Fetching firefighting water from the well');
       case 'build': return `Building the ${b?.label ?? 'site'}`;
       case 'farm': return b && (b.growth >= 1 || b.stock > 0) ? `Harvesting ${(FARM_TYPES[b.key]?.label ?? 'crops').toLowerCase()}` : b?.key === 'chinampa' ? 'Tending the chinampa beds' : 'Tending the fields';
       case 'market': return 'Collecting surplus goods for the Market Square';

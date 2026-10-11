@@ -347,6 +347,10 @@ function load(kind: string): THREE.BufferGeometry {
     case 'stone':
       b.add(P.sphere(0.17, 0), C(0xa89a90), M.t(0, 0, 0, 0, 0, 0, 1, 0.8, 1));
       break;
+    case 'water':
+      b.add(P.cyl(.18, .14, .2, 8), C(0x99643c));
+      b.add(P.cyl(.16, .16, .01, 8), C(0x58b5ce), M.t(0, .105, 0));
+      break;
     case 'basket':
       b.add(P.cyl(0.19, 0.14, 0.17, 8), C(0xc9a86a));
       for (let i = 0; i < 5; i++) b.add(P.sphere(0.065, 0), C([0xd8352a, 0xf2d33a, 0xe8a23a][i % 3]), M.t(Math.cos(i * 1.3) * 0.08, 0.1, Math.sin(i * 1.3) * 0.08));
@@ -372,7 +376,7 @@ export type PartKey =
   | 'pelvis_f' | 'chest_f' | 'head_f' | 'uarm_f' | 'farm_f' | 'thigh_f' | 'shin_f'
   | 'hd_band' | 'hd_fan' | 'hd_plume' | 'jaguar' | 'eagle'
   | 'axe' | 'pick' | 'hoe' | 'spear' | 'hammer'
-  | 'log' | 'stone' | 'basket' | 'sack' | 'fish' | 'meat' | 'chicken';
+  | 'log' | 'stone' | 'basket' | 'sack' | 'fish' | 'meat' | 'chicken' | 'water';
 
 export function buildPeopleParts(): Record<PartKey, THREE.BufferGeometry> {
   return {
@@ -380,6 +384,6 @@ export function buildPeopleParts(): Record<PartKey, THREE.BufferGeometry> {
     pelvis_f: pelvisF(), chest_f: chestF(), head_f: headBase('f'), uarm_f: upperArm('f'), farm_f: foreArm('f'), thigh_f: thigh('f'), shin_f: shin('f'),
     hd_band: headdressBand(), hd_fan: headdressFan(), hd_plume: headdressPlume(), jaguar: jaguarHelm(), eagle: eagleHelm(),
     axe: tool('axe'), pick: tool('pick'), hoe: tool('hoe'), spear: tool('spear'), hammer: tool('hammer'),
-    log: load('log'), stone: load('stone'), basket: load('basket'), sack: load('sack'), fish: load('fish'), meat: load('meat'), chicken: carriedChicken(),
+    water: load('water'), log: load('log'), stone: load('stone'), basket: load('basket'), sack: load('sack'), fish: load('fish'), meat: load('meat'), chicken: carriedChicken(),
   };
 }

@@ -1,3 +1,4 @@
+import { fireBuildingCard } from './FireBuildingCard';
 import { VillagePrioritiesPanel } from './VillagePrioritiesPanel';
 import { settingsMarkup, wireSettingsTabs } from './SettingsPanel';
 import { serialize } from '../world/Save';
@@ -76,7 +77,7 @@ export class UI {
   private mapWrap!: HTMLDivElement;
   private alertButton!: HTMLButtonElement;
   private alertPanel!: HTMLDivElement;
-  private alerts: { text: string; at?: Where; toast?: HTMLElement }[] = [];
+  private alerts: { text: string; at?: Where; toast?: HTMLElement; key?: string; onView?: () => void }[] = [];
   private miniBase: ImageData | null = null;
   private miniVersion = -1;
   private timer = 0;
@@ -928,6 +929,7 @@ export class UI {
       if (alert.at) {
         const go = el('button', 'obtn sm', 'View');
         go.onclick = () => {
+          alert.onView?.();
           this.game.focusAt(alert.at!);
           close.click();
         };
@@ -958,11 +960,11 @@ export class UI {
   }
 
   /** @param at where the news is: clicking the notification takes the camera there */
-  toast(text: string, kind: 'info' | 'milestone' | 'warn' = 'info', at?: Where): void {
+  toast(text: string, kind: 'info' | 'milestone' | 'warn' = 'info', at?: Where, action?: { key: string; onView: () => void }): void {
     if (kind === 'warn') {
-      const existing = this.alerts.find(a => a.text === text);
+      const existing = this.alerts.find(a => action ? a.key === action.key : !a.key && a.text === text);
       if (existing) { existing.at = at; return; }
-      this.alerts.push({ text, at });
+      this.alerts.push({ text, at, key: action?.key, onView: action?.onView });
       // Bound the inbox when warnings arrive faster than they can be read.
       if (this.alerts.length > 30) this.alerts.shift()?.toast?.remove();
       this.renderAlerts();
@@ -975,11 +977,12 @@ export class UI {
       t.title = 'Click to go there';
       t.insertAdjacentHTML('beforeend', '<span class="go-arrow" aria-hidden="true">›</span>');
       t.onclick = () => {
+        action?.onView();
         this.game.focusAt(at);
         t.remove();
       };
     }
-    if (kind === 'warn') this.alerts.find(a => a.text === text)!.toast = t;
+    if (kind === 'warn') this.alerts.find(a => action ? a.key === action.key : !a.key && a.text === text)!.toast = t;
     t.setAttribute('role', 'status');
     this.toasts.appendChild(t);
     requestAnimationFrame(() => t.classList.add('in'));
@@ -1241,7 +1244,7 @@ export class UI {
         <div class="actions"><button class="btn small" data-a="capture" ${free && (!d.needsPen || hasPen) ? '' : 'disabled'}>${ICONS.harvest} ${label}</button></div>
         <p class="muted small">Tip: select an islander first, then tap an animal to send them after it.</p>`;
     } else if (b) {
-      key = `b${b.id}|${Math.floor(g.eco.goods.carvedstone)}|${g.progression.summary}|${g.buildings.boatRequirement(3)}|${g.buildings.constructionRequirement('home')}|${g.buildings.list.filter(x=>x.key==='stonemason' && x.complete).map(x=>x.tier).join(',')}|${Math.floor(g.eco.food)}|${b.key === 'tradedock' || b.key === 'market' ? g.trade.visitKey(b) + '|' + g.voyage.key() + '|' + JSON.stringify(g.eco.goods) : ''}|${b.key === 'greathall' ? JSON.stringify(g.colony.hallCount(b)) : ''}|${b.key === 'healer' ? g.colony.patients(b).map((p) => `${p.id}:${p.condition}:${Math.ceil(p.conditionT / 60)}:${p.task?.slot}:${g.colony.canCure(p)}`).join(',') + JSON.stringify(g.eco.goods) : ''}|${b.key === 'watchtower' ? `${g.defence.stats(b).shots}|${g.defence.stats(b).kills}|` : ''}${b.key === 'kennel' ? `${g.dogs.alive.length}|${g.dogs.alive.filter((d) => d.puppy).length}|${Math.ceil(b.breedT)}|${Math.ceil(b.breedCool / 5)}|${b.dogRole}|${Math.floor(g.eco.food / 4)}|` : ''}${b.key === 'market' ? JSON.stringify(b.marketStock) : ''}|${b.key === 'herbalist' || b.key === 'stonemason' ? JSON.stringify(g.eco.goods) : ''}|${b.complete}|${Math.round(b.progress * 50)}|${b.tier}|${b.residents.length}|${b.upgrading}|${Math.round(b.growth * 20)}|${b.boats.length}|${b.boatBuild > 0}|${b.training.length}|${Math.floor(g.eco.res.wood / 5)}|${Math.floor(g.eco.res.stone / 5)}|${Math.floor(g.eco.res.belief / 5)}`;
+      key = `b${b.id}|${Math.round(b.integrity * 100)}:${b.fire > 0}:${b.ruined}:${b.repairing}:${Math.round(b.repairProgress * 100)}:${g.powers.state}:${g.fires.status(b)}:${g.eco.canAfford(g.buildings.repairCost(b))}|${Math.floor(g.eco.goods.carvedstone)}|${g.progression.summary}|${g.buildings.boatRequirement(3)}|${g.buildings.constructionRequirement('home')}|${g.buildings.list.filter(x=>x.key==='stonemason' && x.complete).map(x=>x.tier).join(',')}|${Math.floor(g.eco.food)}|${b.key === 'tradedock' || b.key === 'market' ? g.trade.visitKey(b) + '|' + g.voyage.key() + '|' + JSON.stringify(g.eco.goods) : ''}|${b.key === 'greathall' ? JSON.stringify(g.colony.hallCount(b)) : ''}|${b.key === 'healer' ? g.colony.patients(b).map((p) => `${p.id}:${p.condition}:${Math.ceil(p.conditionT / 60)}:${p.task?.slot}:${g.colony.canCure(p)}`).join(',') + JSON.stringify(g.eco.goods) : ''}|${b.key === 'watchtower' ? `${g.defence.stats(b).shots}|${g.defence.stats(b).kills}|` : ''}${b.key === 'kennel' ? `${g.dogs.alive.length}|${g.dogs.alive.filter((d) => d.puppy).length}|${Math.ceil(b.breedT)}|${Math.ceil(b.breedCool / 5)}|${b.dogRole}|${Math.floor(g.eco.food / 4)}|` : ''}${b.key === 'market' ? JSON.stringify(b.marketStock) : ''}|${b.key === 'herbalist' || b.key === 'stonemason' ? JSON.stringify(g.eco.goods) : ''}|${b.complete}|${Math.round(b.progress * 50)}|${b.tier}|${b.residents.length}|${b.upgrading}|${Math.round(b.growth * 20)}|${b.boats.length}|${b.boatBuild > 0}|${b.training.length}|${Math.floor(g.eco.res.wood / 5)}|${Math.floor(g.eco.res.stone / 5)}|${Math.floor(g.eco.res.belief / 5)}`;
       html = this.buildingHtml(b);
     }
     if (!force && key === this.infoKey) return;
@@ -1255,6 +1258,10 @@ export class UI {
 
   private buildingHtml(b: Building): string {
     const g = this.game;
+    if (b.fire > 0 || b.integrity < 1 || b.ruined || b.repairing) {
+      const cost = g.buildings.repairCost(b);
+      return fireBuildingCard(b, g.fires.status(b), cost, g.eco.canAfford(cost), g.powers.state === 'storm');
+    }
     let body = '';
     if(b.key==='greattemple'&&!b.complete){const names=['Foundations','Terraces','Stairs','Shrines'];const phase=Math.min(3,Math.floor(b.progress*4));body+=`<p>${names[phase]} · Phase ${phase+1}/4</p><p class="muted small">Each phase: 40 wood · 120 stone · 30 carved stone · 50 Belief. Builders pause until the next phase can be supplied.</p>`;}
     if (!b.complete) body += `${this.bar(`Building ${Math.round(b.progress * 100)}%`, b.progress, 'good')}<div class="kv"><span>Builders</span><b>${b.builders.size} / ${b.def.builders}</b></div>`;
@@ -1417,6 +1424,8 @@ export class UI {
       }
     }
     if (b) {
+      if (a === 'repair') { this.toast(g.buildings.repair(b)); this.renderInfo(true); return; }
+      if (a === 'calmfire') { g.powers.calm(); this.renderInfo(true); return; }
       if (a.startsWith('patient:')) g.select({ islander: Number(a.slice(8)) });
       if (a.startsWith('curemedicine:') || a.startsWith('curespices:')) {
         const good = a.startsWith('curemedicine:') ? 'medicine' : 'spices';
@@ -1462,7 +1471,7 @@ export class UI {
         return;
       }
       if (a === 'demolish') {
-        g.buildings.remove(b, true);
+        g.buildings.remove(b, !b.ruined);
         g.select(null);
       }
       if (a === 'boat') g.buildBoat(b);

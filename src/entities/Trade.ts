@@ -1,3 +1,4 @@
+import { buildingOperational } from '../buildings/BuildingCondition';
 import * as THREE from 'three';
 import type { Where } from '../ui/where';
 import { FOOD_KEYS, MARKET, ResourceKey, TRADE, TradeOffer } from '../config';
@@ -128,6 +129,7 @@ export class TradeFleet {
   orderBoat(dock: Building): string {
     if(dock.key!=='tradedock')return 'Trade boats need a Trade Dock.';
     const requirement=this.bld.boatRequirement(3);if(requirement)return requirement;
+    if (!buildingOperational(dock)) return 'Repair the Trade Dock before building boats.';
     if (!dock.complete) return 'The Trade Dock is not finished yet.';
     if (dock.boatBuild > 0) return 'A trade boat is already being built.';
     if (this.of(dock).length >= TRADE.maxBoats) return 'This dock already has all the boats it can moor.';

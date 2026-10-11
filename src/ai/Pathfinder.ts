@@ -57,6 +57,8 @@ export interface PathOptions {
   allowBuilding?: number;
   /** Accept any cell within this many cells of the goal. */
   goalRadius?: number;
+  /** Water collection and firefighting must reach the goal, not a partial fallback route. */
+  requireGoal?: boolean;
   maxIterations?: number;
   /** Captured livestock escorts may swim; bridges and dry land remain preferred. */
   allowWater?: boolean;
@@ -231,6 +233,7 @@ export class Pathfinder {
       }
     }
     if (found < 0) {
+      if (opts.requireGoal) return null;
       // Unreachable: go as close as we can if that's meaningfully closer.
       if (bestH > 6 || best === start) return null;
       found = best;

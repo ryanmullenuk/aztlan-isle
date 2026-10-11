@@ -38,6 +38,7 @@ export function parseIslandFile(raw: string): SaveData {
       !Object.values(d.res).every(number) || !fields(d.stats, ['sculpted', 'marked', 'boats'])) return fail();
   if (!obj(d.weather) || !['clear', 'rain', 'storm'].includes(d.weather.state)) return fail();
   if (d.villagePriority !== undefined && !isVillagePriority(d.villagePriority)) return fail();
+  if (d.fires !== undefined && (!obj(d.fires) || typeof d.fires.unlocked !== 'boolean' || !number(d.fires.strikeIn) || d.fires.strikeIn < 0 || d.fires.strikeIn > 38)) return fail();
   if (d.name !== undefined && (typeof d.name !== 'string' || d.name.length > 32)) return fail();
   if (!list(d.milestones, 1000) || !d.milestones.every((m: any) => label(m))) return fail();
   if (!obj(d.world) || !['layer', 'sandy', 'forest', 'rocky', 'wear', 'path', 'bridge', 'canal']
@@ -51,6 +52,9 @@ export function parseIslandFile(raw: string): SaveData {
         !Number.isInteger(b.cx) || !Number.isInteger(b.cz) || b.cx < 0 || b.cz < 0 || b.cx >= WORLD.size || b.cz >= WORLD.size ||
         !Number.isInteger(b.tier) || b.tier < 1 || b.tier > 10 || b.boats < 0 || b.boats > 100 ||
         typeof b.complete !== 'boolean' || typeof b.upgrading !== 'boolean') return fail();
+    for (const k of ['integrity', 'fire', 'repairProgress']) if (b[k] !== undefined && (!number(b[k]) || b[k] < 0 || b[k] > 1)) return fail();
+    for (const k of ['ruined', 'repairing', 'fireAlerted']) if (b[k] !== undefined && typeof b[k] !== 'boolean') return fail();
+    if ((b.ruined && ((b.integrity ?? 0) !== 0 || (b.fire ?? 0) !== 0)) || ((b.fire ?? 0) > 0 && (!b.complete || b.ruined))) return fail();
     for (const k of ['breed', 'cool', 'guard']) if (b[k] !== undefined && !number(b[k])) return fail();
     if(b.boatBuild!==undefined && (!number(b.boatBuild)||b.boatBuild<0||b.boatBuild>1000))return fail();
     if(b.boatSail!==undefined && typeof b.boatSail!=='boolean')return fail();

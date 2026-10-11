@@ -708,7 +708,7 @@ export class IslanderRig {
       set.tex.needsUpdate = true;
     }
     this.poseSkeleton(set.model, p, hs);
-    const load = isl.carry?.kind ? LOADS[isl.carry.kind] : undefined;
+    const load = isl.task?.kind === 'firefight' && isl.task.water ? 'water' : isl.carry?.kind ? LOADS[isl.carry.kind] : undefined;
     const gripping = !!load && !p.lying && this.carryPose.apply(load, set.model, W, hs);
     const row = i * BONE_COUNT * 16;
     for (let b = 0; b < BONE_COUNT; b++) {
@@ -739,15 +739,15 @@ export class IslanderRig {
       this.put(tool as PartKey, M.out);
     }
     // Carried load: on the head, across the shoulders (log) or under the arm (chicken).
-    const c = isl.carry?.kind;
-    if (c && LOADS[c]) {
+    const c = isl.task?.kind === 'firefight' && isl.task.water ? 'water' : isl.carry?.kind;
+    if (c && (c === 'water' || LOADS[c])) {
       M.chest.multiplyMatrices(M.base, W[BI.chest]);
       const up = J.head.y - J.chest.y;
       if (gripping) M.out.multiplyMatrices(M.base, this.carryPose.load);
       else if (c === 'chicken') M.out.multiplyMatrices(M.chest, this.rot(this.tmp, 0.2, up - 0.3, 0.12, 0, 0.3, 0));
       else if (c === 'log') M.out.multiplyMatrices(M.chest, this.rot(this.tmp, 0, J.upper_armL.y - J.chest.y + 0.1, -0.12, 0, 0.25, 0));
       else M.out.multiplyMatrices(M.chest, this.rot(this.tmp, 0, up + 0.36, 0.02, 0, 0, 0));
-      this.put(LOADS[c], M.out);
+      this.put(c === 'water' ? 'water' : LOADS[c], M.out);
     }
   }
 }

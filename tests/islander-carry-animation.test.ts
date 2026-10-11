@@ -83,12 +83,13 @@ function surfaceDistance(p:THREE.Vector3,geo:THREE.BufferGeometry):number {
 
 test('both hands contact each overhead load and log throughout carrying, idle and running poses', () => {
   const parts=buildPeopleParts();
-  const loads={log:'log',stone:'stone',fruit:'basket',grain:'sack',herbs:'basket',fish:'fish',meat:'meat'} as const;
+  const loads={log:'log',stone:'stone',fruit:'basket',grain:'sack',herbs:'basket',fish:'fish',meat:'meat',water:'water'} as const;
   for(const [g,top] of [['m',1.90028143],['f',1.89899218],['m',1.841],['f',1.975]] as const) {
     const m=model(g,top),h=harness(parts,m),p=makeIslander(1,'A',g,0,0,()=>.5);
     for(const [kind,part] of Object.entries(loads))for(const anim of ['carry','idle','run'] as const)for(let phase=0;phase<8;phase++) {
       p.anim=anim;p.animT=phase*.31;p.speed=anim==='idle'?0:1.1;
-      p.carry={kind:kind as keyof typeof loads,res:'fruit',n:3};h.set.n=0;
+      p.carry=kind==='water'?null:{kind:kind as Exclude<keyof typeof loads,'water'>,res:'fruit',n:3};
+      p.task=kind==='water'?{kind:'firefight',target:1,x:0,z:0,stage:2,timer:2,water:true}:null;h.set.n=0;
       h.rig.m.base.makeRotationY(phase*.73).scale(new THREE.Vector3(.34,.34,.34));
       h.rig.drawSkinned(p,h.set,poseFor(p,g==='f'),1);
       const prop=h.props.get(part)!;assert.ok(prop,'the posed load must be drawn');

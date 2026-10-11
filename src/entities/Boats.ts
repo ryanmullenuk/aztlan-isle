@@ -1,3 +1,4 @@
+import { buildingOperational } from '../buildings/BuildingCondition';
 import * as THREE from 'three';
 import { BOATS, JETTY, PEARLS, BOAT_WORKSHOP } from '../config';
 import { Building, BuildingSystem } from '../buildings/Buildings';
@@ -533,7 +534,7 @@ export class Boats {
   /** Start building a boat at a jetty (pays the cost). */
   order(j: Building, sail = false): boolean {
     if(j.key!=='jetty' || this.bld.boatRequirement(sail?2:1))return false;
-    if (!j.complete || j.boatBuild > 0 || j.boats.length >= JETTY.maxBoats) return false;
+    if (!buildingOperational(j) || j.boatBuild > 0 || j.boats.length >= JETTY.maxBoats) return false;
     if (!this.eco.spend(sail?BOAT_WORKSHOP.largeCost:JETTY.boatCost)) return false;
     j.boatSail = sail;
     j.boatBuild = 0.001;
@@ -1101,7 +1102,7 @@ export class Boats {
     }
     // Remove boats of demolished jetties.
     for (const b of this.list.slice()) {
-      if (!this.bld.byId(b.jetty)) {
+      if (!this.bld.byId(b.jetty) || this.bld.byId(b.jetty)?.ruined) {
         if (b.crew) this.colony.disembark(b.crew, 0, b.x, b.z);
         this.group.remove(b.mesh, b.net);
         this.list = this.list.filter((x) => x !== b);

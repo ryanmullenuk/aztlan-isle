@@ -53,7 +53,7 @@ export const CONDITION_LABEL: Record<Condition, string> = {
 
 /** A task is a small state machine the AI steps through. */
 export interface Task {
-  kind: 'chop' | 'mine' | 'gather' | 'deliver' | 'build' | 'farm' | 'pray' | 'eat' | 'sleep' | 'wander' | 'patrol' | 'butcher' | 'fish' | 'train' | 'goto' | 'follow' | 'capture' | 'spearfish' | 'smoke' | 'bonfire' | 'flee' | 'hall' | 'heal' | 'mason' | 'market' | 'family';
+  kind: 'chop' | 'mine' | 'gather' | 'deliver' | 'build' | 'farm' | 'pray' | 'eat' | 'sleep' | 'wander' | 'patrol' | 'butcher' | 'fish' | 'train' | 'goto' | 'follow' | 'capture' | 'spearfish' | 'smoke' | 'bonfire' | 'flee' | 'hall' | 'heal' | 'mason' | 'market' | 'family' | 'firefight';
   stage: number;
   /** Plant id, building id or islander id depending on kind. */
   target: number;
@@ -72,6 +72,8 @@ export interface Task {
   step?: number;
   /** Game seconds spent receiving herbal treatment in the Healing Centre. */
   care?: number;
+  /** Temporary bucket; never part of resource inventory. */
+  water?: boolean;
 }
 
 export interface Islander {

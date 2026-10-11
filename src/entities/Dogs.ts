@@ -1,3 +1,4 @@
+import { buildingOperational } from '../buildings/BuildingCondition';
 import * as THREE from 'three';
 import type { Where } from '../ui/where';
 import { View } from '../render/View';
@@ -158,7 +159,7 @@ export class Dogs {
   // ---------------- Population ----------------
 
   kennels(): Building[] {
-    return this.bld.list.filter((b) => b.key === 'kennel' && b.complete);
+    return this.bld.list.filter((b) => b.key === 'kennel' && buildingOperational(b));
   }
 
   get capacity(): number {
@@ -184,7 +185,7 @@ export class Dogs {
   }
 
   canBreed(k: Building): { ok: boolean; reason: string } {
-    if (!k.complete) return { ok: false, reason: 'The kennel is not finished yet' };
+    if (!buildingOperational(k)) return { ok: false, reason: 'The kennel is not finished yet' };
     if (k.breedT > 0) return { ok: false, reason: 'A litter is already on the way' };
     if (k.breedCool > 0) return { ok: false, reason: `The dogs need a rest (${Math.ceil(k.breedCool)}s)` };
     if (this.alive.filter((d) => !d.puppy).length < 2) return { ok: false, reason: 'Needs at least two grown dogs' };

@@ -1,3 +1,4 @@
+import type { StormFireSave } from '../buildings/StormFire';
 import { villagePriority, type VillagePriority } from '../ai/VillagePriority';
 import { GOD_NAME } from './names';
 import type { VolcanoSave } from '../entities/Volcano';
@@ -22,6 +23,7 @@ export interface SaveData {
   stats: { sculpted: number; marked: number; boats: number };
   weather: { state: string };
   volcano?: VolcanoSave;
+  fires?: StormFireSave;
   world: { layer: string; sandy: string; forest: string; rocky: string; wear: string; path?: string; bridge?: string; canal?: string };
   plants: string;
   /** Felled trees still lying where they fell: [plant id, direction (hundredths)] pairs. */
@@ -38,6 +40,7 @@ export interface SaveData {
     boatSail?: boolean;
     boatSails?: boolean[];
     marketStock?: Partial<Record<ResourceKey, number>>;
+    integrity?: number; fire?: number; ruined?: boolean; repairing?: boolean; repairProgress?: number; fireAlerted?: boolean;
   }[];
   islanders: Partial<Islander>[];
   schools: number[];
@@ -129,11 +132,16 @@ export function serialize(g: Game): SaveData {
     weather: { state: g.powers?.state ?? 'clear' },
     ...(g.volcano ? { volcano: g.volcano.save() } : {}),
     world: { layer: toB64(layerU), sandy: q8(w.sandy), forest: q8(w.forest), rocky: q8(w.rocky), wear: q8(w.wear), path: toB64(w.path), bridge: toB64(w.bridge), canal: toB64(w.canal) },
+    ...(g.fires ? { fires: g.fires.save() } : {}),
     plants: toB64(plants),
     logs: g.veg.serializeLogs(),
     layout: 1,
     buildings: g.buildings.list.map((b) => ({
       ...(b.monumentPaid!==undefined ? {monumentPaid:b.monumentPaid} : {}),
+      ...((b.integrity < 1 || b.ruined || b.fire > 0 || b.repairing) ? {
+        integrity: b.integrity, fire: b.fire, ruined: b.ruined, repairing: b.repairing,
+        repairProgress: b.repairProgress, fireAlerted: b.fireAlerted,
+      } : {}),
       id: b.id, key: b.key, cx: b.cx, cz: b.cz, rot: b.rot, complete: b.complete, progress: b.progress, tier: b.tier,
       upgrading: b.upgrading, growth: b.growth, stock: b.stock, boats: b.key === 'tradedock' ? b.tradeBoats : b.boats.length, bless: b.blessTimer,
       ...(['jetty','tradedock'].includes(b.key) ? {boatBuild:b.boatBuild??0,boatSail:b.boatSail??false} : {}),
@@ -221,9 +229,9 @@ export function applyRest(g: Game, d: SaveData): void {
     nb.boatBuild = b.boatBuild??0;nb.boatSail=b.boatSail??false;
     idMap.set(b.id, nb.id);
     if (b.key === 'market') nb.marketStock = { ...(b.marketStock ?? {}) };
-    if (b.key === 'jetty' && b.boats > 0) g.boats?.restore(nb, b.boats, b.boatSails);
-    if (b.key === 'tradedock') for (let k = 0; k < (b.boats ?? 0); k++) g.trade?.launch(nb);
-    if (b.key === 'farm' || b.key === 'butcher' || b.key === 'pigpen' || b.key === 'chickenpen') g.wildlife?.registerPen(nb);
+    if (!nb.ruined && b.key === 'jetty' && b.boats > 0) g.boats?.restore(nb, b.boats, b.boatSails);
+    if (!nb.ruined && b.key === 'tradedock') for (let k = 0; k < (b.boats ?? 0); k++) g.trade?.launch(nb);
+    if (!nb.ruined && (b.key === 'farm' || b.key === 'butcher' || b.key === 'pigpen' || b.key === 'chickenpen')) g.wildlife?.registerPen(nb);
     if (b.key === 'kennel') {
       nb.breedT = b.breed ?? 0;
       nb.breedCool = b.cool ?? 0;
@@ -258,6 +266,7 @@ export function applyRest(g: Game, d: SaveData): void {
   if (g.powers && d.weather.state === 'storm') g.powers.startStorm();
   g.garden?.restore(d.garden ?? []);
   for (const k of GOOD_KEYS) g.eco.goods[k] = Math.max(0, Number(d.goods?.[k]) || 0);
+  g.fires?.restore(d.fires);
   g.voyage?.restore(d.voyage as Record<string, unknown> | null | undefined, idMap);
 }
 

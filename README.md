@@ -161,6 +161,10 @@ Open **Village** beneath the clock to choose **Balanced**, **Food**, **Materials
 - Resources: wood, stone, grain, fruit, meat, fish and Belief.
 - God powers: sculpt, bless crops, summon rain and calm storms.
 - Random rain and storms, seasons and years, and milestone notifications.
+- Storm lightning usually hits terrain or trees, with an 18% chance to strike a completed building. Building fires unlock once a working well is complete and the village has accumulated 50 Belief for Calm Storm. Up to two buildings can burn at once. Rain slows damage; Calm stops new lightning while existing fires continue.
+- Available automatic adults fetch water from accessible, undamaged wells using the normal route queue. Player jobs, loads, reservations, health and rest take precedence. Flames, smoke, condition bars and a View alert identify each fire.
+- Extinguished buildings retain their damage and suspend activity. Select **Repair** to pay the displayed wood and stone cost and send existing builders; upgrades and progress are retained. Unattended fires can leave rebuildable ruins. Fire state, damage, paid repairs and ruins are saved.
+- CPU fire workload check: `node --import tsx scripts/fire-performance.ts` compares 100 and 300 islanders with no fires against two sustained fires, reporting route counts and median/p95/p99 update times. It includes effect buffer preparation, excludes GPU rendering, and does not change population or pathfinding budgets.
 
 **Wildlife** (data-driven species configs in `config.ts`)
 - Livestock and game, each with colour variants, groups, habitat and its own avoidance (comfortable → alert → move away → flee):

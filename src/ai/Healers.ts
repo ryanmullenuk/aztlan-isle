@@ -1,3 +1,4 @@
+import { buildingOperational } from '../buildings/BuildingCondition';
 import { Building, BuildingSystem } from '../buildings/Buildings';
 import { HEAL } from '../buildings/models';
 import { Islander, makeIslander } from '../entities/Islander';
@@ -39,7 +40,7 @@ export class Healers {
 
   update(dt: number): void {
     if (dt <= 0) return;
-    const centres = this.bld.list.filter((b) => b.key === 'healer' && b.complete);
+    const centres = this.bld.list.filter((b) => b.key === 'healer' && buildingOperational(b));
     // A healer for every finished centre; one whose centre is gone (or being rebuilt) leaves.
     this.healers = this.healers.filter((h) => centres.some((b) => b.id === h.dock));
     for (const b of centres) if (!this.healers.some((h) => h.dock === b.id)) this.healers.push(this.make(b));
