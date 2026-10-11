@@ -36,6 +36,17 @@ test('current save survives sharing, including buildings, terrain, islanders and
   assert.ok(file.name.endsWith('.aztlan.json'));
 });
 
+test('village priorities survive island sharing and older files remain valid', async () => {
+  for (const priority of ['balanced', 'food', 'materials', 'construction'] as const) {
+    const saved = snapshot(); saved.villagePriority = priority;
+    assert.equal(parseIslandFile(await islandFile(saved).text()).villagePriority, priority);
+  }
+  const old = snapshot(); delete old.villagePriority;
+  assert.equal(parseIslandFile(await islandFile(old).text()).villagePriority, undefined);
+  const invalid = JSON.parse(await islandFile(snapshot()).text()); invalid.save.villagePriority = 'unknown';
+  assert.throws(() => parseIslandFile(JSON.stringify(invalid)));
+});
+
 test('bad files and unsupported versions are rejected', async () => {
   const original = JSON.parse(await islandFile(snapshot()).text());
   for (const mutate of [

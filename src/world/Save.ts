@@ -1,3 +1,4 @@
+import { villagePriority, type VillagePriority } from '../ai/VillagePriority';
 import { GOD_NAME } from './names';
 import type { VolcanoSave } from '../entities/Volcano';
 import { BuildingKey, GOOD_KEYS, GoodKey, ResourceKey, SAVE } from '../config';
@@ -10,6 +11,7 @@ import { regrowSavedIslets } from './islets';
 /** Compact save format. The island is regenerated from the seed; only changes are stored. */
 export interface SaveData {
   v: 1;
+  villagePriority?: VillagePriority;
   progression?: {prayer:number; sandbox:boolean};
   seed: number;
   savedAt: number;
@@ -115,6 +117,7 @@ export function serialize(g: Game): SaveData {
   const layerU = new Uint8Array(w.layer.buffer.slice(0));
   return {
     v: 1,
+    villagePriority: villagePriority(g.colony.villagePriority),
     ...(g.progression ? {progression:{prayer:g.progression.prayer,sandbox:g.eco.godMode}} : {}),
     seed: w.seed,
     savedAt: Date.now(),
@@ -194,6 +197,7 @@ export function applyWorld(w: World, d: SaveData): void {
 
 /** Step 2 of loading: plants, buildings, islanders, economy and time. */
 export function applyRest(g: Game, d: SaveData): void {
+  g.colony.setVillagePriority(d.villagePriority);
   g.eco.godMode = d.progression?.sandbox ?? (d.name?.toUpperCase() === GOD_NAME);
   if (d.name) g.setIslandName(d.name);
   // Planted trees first: their states follow the island's own plants in the saved list.

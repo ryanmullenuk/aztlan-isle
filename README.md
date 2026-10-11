@@ -77,6 +77,8 @@ On desktop the eye and islander-view buttons sit at the end of the toolbar row; 
 
 Select an islander, then click a building, tree, rock or fruit bush to give them that job. Tap an animal to see what it is doing and send a hunter after it (or, with an islander selected, tap the animal to send them).
 
+Open **Village** beneath the clock to choose **Balanced**, **Food**, **Materials** or **Construction**. These preferences guide automatic job allocation and fallback gathering; individual orders, ongoing tasks, deliveries and needs take precedence. Workers finish their current task before changing jobs, with at most two allocation changes every 2.5 game seconds. Construction favours ready sites and material gathering, while scarce food still reserves general gatherers. The choice is stored in island saves and shared island files; older saves start Balanced.
+
 ## Features
 
 **World**

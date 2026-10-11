@@ -807,3 +807,19 @@ body.watching-wildlife #hud * { pointer-events: none !important; }
 .settings-slider input::-moz-range-track { height: 6px; border-radius: 3px; background: #454548; }
 .settings-slider input::-moz-range-progress { height: 6px; border-radius: 3px; background: #d8b267; }
 .settings-slider input::-moz-range-thumb { width: 20px; height: 20px; border-radius: 50%; background: #f2f0ea; border: 0; }
+
+/* Workforce preferences stay collapsed beside the clock until needed. */
+.village-priorities {
+  width: min(300px, calc(100vw - 80px)); padding: 12px; background: #211e27;
+  max-height: calc(var(--app-h, 100dvh) - var(--safe-t) - var(--safe-b) - 230px);
+  overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y;
+}
+.village-priorities h2 { font-size: 15px; margin: 0 0 6px; }
+.village-priorities p { line-height: 1.4; margin: 0 0 10px; }
+.village-priorities [role="group"] { display: grid; gap: 7px; }
+.village-choice { text-align: left; padding: 9px 10px; border-radius: 9px; min-height: 44px; }
+.village-choice strong { display: block; font-size: 13px; margin-bottom: 3px; }
+.village-choice span { display: block; font-size: 11px; line-height: 1.4; color: var(--muted); }
+#hud .village-choice[aria-pressed="true"] { background: rgba(232, 184, 74, .12) !important; }
+#hud .village-toggle { text-transform: none; letter-spacing: 0; }
+.village-toggle[aria-expanded="true"] .inventory-chevron { transform: rotate(180deg); }

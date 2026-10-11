@@ -1,3 +1,4 @@
+import { gatheringWeights, jobRank, specialistShare, villagePriority, type VillagePriority } from './VillagePriority';
 import { marketBatch } from '../economy/Market';
 import { needsSelfCare } from './GroupSelection';
 import * as THREE from 'three';
@@ -72,6 +73,10 @@ export class Colony {
   private routes = new WeakMap<Islander, RouteState>();
   readonly pathStats = { queued: 0, reused: 0, pendingReused: 0, completed: 0 };
   private jobTimer = 0;
+  private priority: VillagePriority = 'balanced';
+  get villagePriority(): VillagePriority { return this.priority; }
+  /** Apply on the normal job tick, without cancelling work or starting routes. */
+  setVillagePriority(value: unknown): void { this.priority = villagePriority(value); }
   private houseTimer = 0;
   private wearTimer = 0;
   private healthTimer = 0;
@@ -545,9 +550,17 @@ export class Colony {
         }
       }
     }
-    const free = () => workers.filter((i) => !i.manualRole);
+    const pool = workers.filter(i => !i.manualRole);
+    // A preference only takes effect between tasks. Carriers, reservations, care and orders
+    // retain their entire task, path and workplace until their existing activity finishes.
+    const available = (i: Islander) => !i.task && !i.carry && !i.pathPending && !i.hidden && !i.sleeping;
+    let changes = 2; // At most two automatic job changes per normal 2.5-second tick.
     const counts = new Map<number, number>();
-    for (const i of workers) if (i.workplace >= 0) counts.set(i.workplace, (counts.get(i.workplace) ?? 0) + 1);
+    const manual = new Map<number, number>();
+    for (const i of workers) if (i.workplace >= 0) {
+      counts.set(i.workplace, (counts.get(i.workplace) ?? 0) + 1);
+      if (i.manualRole) manual.set(i.workplace, (manual.get(i.workplace) ?? 0) + 1);
+    }
 
     const slots: { b: Building; role: Role; n: number }[] = [];
     for (const b of this.bld.list) {
@@ -561,44 +574,47 @@ export class Colony {
       else if (b.key === 'butcher') slots.push({ b, role: 'butcher', n: b.def.workers });
       else if (b.key === 'jetty') slots.push({ b, role: 'fisher', n: Math.min(b.def.workers, b.boats.length) });
     }
-    // Builders first, then food producers, then the temple.
-    const prio: Record<string, number> = { builder: 0, farmer: 1, fisher: 2, butcher: 3, smoker: 3.5, mason: 0.5, merchant: 4.5, priest: 4 };
-    slots.sort((a, b) => prio[a.role] - prio[b.role]);
-    // Priests only once the tribe can spare them.
+    slots.sort((a, b) => jobRank(this.priority, a.role, a.b.key === 'herbalgarden') -
+      jobRank(this.priority, b.role, b.b.key === 'herbalgarden'));
+    // Priests only once the tribe can spare them; scarce food still reserves gatherers.
     for (const s of slots) if (s.role === 'priest') s.n = Math.min(s.n, Math.max(0, Math.floor((workers.length - 4) / 3)));
-    // Keep at least ~40% of the free workforce on general gathering while food is low.
-    const pool = free();
     const lowFood = this.eco.food < this.list.length * 3;
-    const maxSpecial = Math.max(1, Math.floor(pool.length * (lowFood ? 0.55 : 0.75)));
-    let special = pool.filter((i) => i.workplace >= 0).length;
+    const maxSpecial = Math.max(1, Math.floor(pool.length * specialistShare(this.priority, lowFood)));
+    let budget = maxSpecial;
+    const desired = new Map<number, number>();
+    for (const s of slots) {
+      const ordered = manual.get(s.b.id) ?? 0;
+      const auto = Math.min(budget, Math.max(0, s.n - ordered));
+      desired.set(s.b.id, ordered + auto);
+      budget -= auto;
+    }
+    // Release only idle excess workers. Busy workers count against capacity until finished.
+    for (const i of pool) {
+      if (changes <= 0) break;
+      if (i.workplace < 0 || !available(i)) continue;
+      const have = counts.get(i.workplace) ?? 0;
+      if (have <= (desired.get(i.workplace) ?? 0)) continue;
+      counts.set(i.workplace, have - 1);
+      i.workplace = -1;
+      i.role = 'idle';
+      changes--;
+    }
+    let special = pool.filter(i => i.workplace >= 0).length;
     for (const s of slots) {
       let have = counts.get(s.b.id) ?? 0;
-      while (have < s.n && special < maxSpecial) {
+      while (have < desired.get(s.b.id)! && special < maxSpecial && changes > 0) {
         let best: Islander | null = null, bd = Infinity;
         for (const i of pool) {
-          if (i.workplace >= 0) continue;
+          if (i.workplace >= 0 || !available(i)) continue;
           const d = (i.x - s.b.x) ** 2 + (i.z - s.b.z) ** 2;
-          if (d < bd) {
-            bd = d;
-            best = i;
-          }
+          if (d < bd) { bd = d; best = i; }
         }
         if (!best) break;
         best.role = s.role;
         best.workplace = s.b.id;
-        have++;
+        counts.set(s.b.id, ++have);
         special++;
-      }
-      // Too many (e.g. fewer boats now): release extras.
-      if (have > s.n) {
-        for (const i of pool) {
-          if (have <= s.n) break;
-          if (i.workplace === s.b.id) {
-            i.workplace = -1;
-            i.role = 'idle';
-            have--;
-          }
-        }
+        changes--;
       }
     }
     // Split the rest among wood, stone and fruit by need.
@@ -608,7 +624,7 @@ export class Colony {
     const foodNeed = Math.max(0, 1 - this.eco.food / Math.max(10, pop * 6));
     const woodNeed = Math.max(0.15, 1 - this.eco.res.wood / Math.max(1, this.eco.woodCap));
     const stoneNeed = Math.max(0.08, (1 - this.eco.res.stone / Math.max(1, this.eco.woodCap)) * 0.7);
-    const w = { gatherer: 0.25 + foodNeed * 1.2, woodcutter: woodNeed, miner: stoneNeed };
+    const w = gatheringWeights(this.priority, 0.25 + foodNeed * 1.2, woodNeed, stoneNeed);
     const total = w.gatherer + w.woodcutter + w.miner;
     const want: Record<string, number> = {
       gatherer: Math.round((w.gatherer / total) * general.length),
@@ -618,6 +634,8 @@ export class Colony {
     const have: Record<string, number> = { gatherer: 0, woodcutter: 0, miner: 0 };
     for (const i of general) if (GENERAL_ROLES.includes(i.role)) have[i.role]++;
     for (const i of general) {
+      if (changes <= 0) break;
+      if (!available(i)) continue;
       if (GENERAL_ROLES.includes(i.role) && have[i.role] <= want[i.role]) continue;
       // Reassign to the role with the largest shortfall.
       let pick: Role = 'gatherer', short = -Infinity;
@@ -631,6 +649,7 @@ export class Colony {
       if (GENERAL_ROLES.includes(i.role)) have[i.role]--;
       i.role = pick;
       have[pick]++;
+      changes--;
     }
   }
 
@@ -834,6 +853,7 @@ export class Colony {
       }
     }
     if (this.work(isl)) return;
+    if (this.priority === 'construction' && !isl.manualRole && isl.role !== 'warrior' && this.helpBuild(isl)) return;
     // Nothing to do in their own job (store full, nothing left nearby): decide for themselves.
     if (isl.role !== 'warrior' && isl.role !== 'builder' && this.selfDirected(isl)) return;
     // Nothing to gather (the stores are full): lend a hand on a building site that needs one.
@@ -879,10 +899,11 @@ export class Colony {
     const foodNeed = foodRoom ? 1 - e.food / Math.max(1, e.foodCap) + (e.food < this.list.length * 3 ? 0.4 : 0) : -1;
     const woodNeed = e.space('wood') >= 2 ? 1 - e.res.wood / Math.max(1, e.woodCap) : -1;
     const stoneNeed = e.space('stone') >= 2 ? (1 - e.res.stone / Math.max(1, e.woodCap)) * 0.75 : -1;
+    const demand = gatheringWeights(isl.manualRole ? 'balanced' : this.priority, foodNeed, woodNeed, stoneNeed);
     const opts: [number, () => boolean][] = [
-      [foodNeed + this.rnd() * 0.25, () => (this.rnd() < 0.5 ? this.startSpearfish(isl) || this.startGather(isl) : this.startGather(isl) || this.startSpearfish(isl))],
-      [woodNeed + this.rnd() * 0.25, () => this.startChop(isl)],
-      [stoneNeed + this.rnd() * 0.25, () => this.startMine(isl)],
+      [demand.gatherer + this.rnd() * 0.25, () => (this.rnd() < 0.5 ? this.startSpearfish(isl) || this.startGather(isl) : this.startGather(isl) || this.startSpearfish(isl))],
+      [demand.woodcutter + this.rnd() * 0.25, () => this.startChop(isl)],
+      [demand.miner + this.rnd() * 0.25, () => this.startMine(isl)],
     ];
     opts.sort((a, b) => b[0] - a[0]);
     for (const [score, go] of opts) if (score > 0.05 && go()) return true;

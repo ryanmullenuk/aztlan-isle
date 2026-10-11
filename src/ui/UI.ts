@@ -1,3 +1,4 @@
+import { VillagePrioritiesPanel } from './VillagePrioritiesPanel';
 import { settingsMarkup, wireSettingsTabs } from './SettingsPanel';
 import { serialize } from '../world/Save';
 import { islandFile, parseIslandFile, downloadIsland, MAX_ISLAND_FILE_BYTES } from '../world/IslandFile';
@@ -45,6 +46,7 @@ interface TutorialStep {
 export class UI {
   private root = document.getElementById('hud')!;
   private tl!: HTMLDivElement;
+  private villagePriorities!: VillagePrioritiesPanel;
   private resEls: Record<string, HTMLSpanElement> = {};
   private timeEl!: HTMLDivElement;
   private perfEl!: HTMLDivElement;
@@ -168,8 +170,17 @@ export class UI {
       const open = inventory.getAttribute('aria-expanded') !== 'true';
       inventory.setAttribute('aria-expanded', String(open));
       grid.classList.toggle('hidden', !open);
+      if (open) this.villagePriorities.close();
     };
-    this.tl.append(inventory, grid);
+    this.villagePriorities = new VillagePrioritiesPanel(
+      () => this.game.colony.villagePriority,
+      value => this.game.colony.setVillagePriority(value),
+      () => {
+        this.closePopups();
+        inventory.setAttribute('aria-expanded', 'false');
+        grid.classList.add('hidden');
+      });
+    this.tl.append(inventory, grid, this.villagePriorities.button, this.villagePriorities.panel);
     this.root.appendChild(this.tl);
   }
 
@@ -289,7 +300,7 @@ export class UI {
   }
 
   closePopups(): boolean {
-    let closed = false;
+    let closed = this.villagePriorities?.close() ?? false;
     for (const p of [this.speedPop, this.terrainPop, this.floraPop, this.blessingPop]) {
       if (p && !p.classList.contains('hidden')) {
         p.classList.add('hidden');
@@ -416,7 +427,7 @@ export class UI {
     // Tapping anywhere else closes an open popup.
     document.addEventListener('pointerdown', (e) => {
       const t = e.target as Node;
-      if ([this.speedPop, this.terrainPop, this.floraPop, this.blessingPop, this.speedBtn, this.terrainSlot, this.floraSlot, this.blessingSlot].some((el2) => el2?.contains(t))) return;
+      if ([this.villagePriorities?.panel, this.villagePriorities?.button, this.speedPop, this.terrainPop, this.floraPop, this.blessingPop, this.speedBtn, this.terrainSlot, this.floraSlot, this.blessingSlot].some((el2) => el2?.contains(t))) return;
       this.closePopups();
     }, true);
     // The belief bar sits under the toolbar.
@@ -992,6 +1003,7 @@ export class UI {
 
   update(dt: number): void {
     const g0 = this.game;
+    this.villagePriorities.sync();
     // Keep the open trade menu's boat timers fresh.
     if (this.tradeModal && !this.tradeModal.classList.contains('hidden')) {
       this.tradeTimer -= dt;

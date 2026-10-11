@@ -1,3 +1,4 @@
+import { isVillagePriority } from '../ai/VillagePriority';
 import { BUILDINGS, TEMPLE, WORLD } from '../config';
 import type { SaveData } from './Save';
 
@@ -36,6 +37,7 @@ export function parseIslandFile(raw: string): SaveData {
   if (!fields(d.res, ['wood', 'stone', 'grain', 'fruit', 'meat', 'fish', 'belief']) ||
       !Object.values(d.res).every(number) || !fields(d.stats, ['sculpted', 'marked', 'boats'])) return fail();
   if (!obj(d.weather) || !['clear', 'rain', 'storm'].includes(d.weather.state)) return fail();
+  if (d.villagePriority !== undefined && !isVillagePriority(d.villagePriority)) return fail();
   if (d.name !== undefined && (typeof d.name !== 'string' || d.name.length > 32)) return fail();
   if (!list(d.milestones, 1000) || !d.milestones.every((m: any) => label(m))) return fail();
   if (!obj(d.world) || !['layer', 'sandy', 'forest', 'rocky', 'wear', 'path', 'bridge', 'canal']
