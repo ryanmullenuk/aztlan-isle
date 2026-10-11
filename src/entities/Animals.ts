@@ -114,7 +114,7 @@ const VARIANTS: Record<SpeciesKey, { body: string; head: string; colors: number[
   chicken: [
     { body: 'hen', head: 'hen', colors: [0xf6f2ea, 0xa85428, 0x2a2624, 0xefe0b8, 0xc8883e, 0x6e3218], weight: 7, scale: [0.9, 1.05] },
     { body: 'speckled', head: 'hen', colors: [0xf2ece0], weight: 2, scale: [0.9, 1.0] },
-    { body: 'rooster', head: 'rooster', colors: [0x8e3e1c], weight: 1, scale: [1.0, 1.1] },
+    { body: 'rooster', head: 'rooster', colors: [0x984c28, 0xb96532, 0x473b35], weight: 2, scale: [1.34, 1.52] },
   ],
   pig: [
     { body: 'plain', head: 'pig', colors: [0xeea39a, 0xeea39a, 0xb06a3c, 0x3a3230], weight: 7, scale: [0.8, 1.15] },
@@ -230,6 +230,9 @@ const QKEYS: Record<Quad, { legU: string; legL: string; legP: string; ear: strin
 const CHICK_STRIDE: [number, number] = [0.13, 0.24];
 const WING_ROOT: [number, number, number] = [0.066, 0.118, 0.035];
 const WING_KEYS = [0, 1, 2, 3, 4, 5].map((k) => `wing_chicken${k}`);
+const COCKEREL_HACKLE = new THREE.Color(0xdba447);
+const isCockerel = (a: Animal) => a.sp === 'chicken' && a.bodyKey === 'chicken_rooster';
+export const animalName = (a: Animal): string => isCockerel(a) ? 'Cockerel' : SPECIES[a.sp].name;
 
 function compose(out: THREE.Matrix4, x: number, y: number, z: number, rx: number, ry: number, rz: number, s = 1): THREE.Matrix4 {
   _e.set(rx, ry, rz, 'YXZ');
@@ -340,6 +343,7 @@ export class Animals {
     this.rng = new RNG(world.seed * 131 + 9);
     this.buildMeshes();
     this.spawnAll();
+    this.ensureCockerels();
     const lg = new THREE.BufferGeometry();
     lg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(64 * 12), 3));
     this.leash = new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: 0xc9a86a, fog: true }));
@@ -525,6 +529,20 @@ export class Animals {
       chasedBy: null, heldBy: null, heldMode: null, tick: this.rng.next() * 0.3, tempo: this.rng.range(0.8, 1.25),
       anim: { frame: -10, px: x, pz: z, v: 0, move: 0, run: 0, slope: 0, graze: 0, alert: 0, hy: 0, hr: 0, side: 0, vF: 0, vR: 0, kF: `${sp}_${v.body}_F`, kR: `${sp}_${v.body}_R`, nx: x, ny: 0, nz: z },
     };
+  }
+
+  /** Keep a few cockerels amongst the hens without adding animals or changing the spawn RNG. */
+  private ensureCockerels(): void {
+    const chickens = this.list.filter(a => a.sp === 'chicken');
+    let count = chickens.filter(isCockerel).length;
+    const target = Math.min(2, Math.floor(chickens.length / 4));
+    while (count < target) {
+      const hen = chickens.find(a => !isCockerel(a) && !chickens.some(b => b.group === a.group && isCockerel(b))) ?? chickens.find(a => !isCockerel(a));
+      if (!hen) break;
+      hen.bodyKey = 'chicken_rooster'; hen.headKey = 'head_rooster';
+      hen.color.set(0x984c28); hen.scale = 1.34 + hash(hen.id + 71) * .18;
+      count++;
+    }
   }
 
   /** Chickens added after the island was made (brought home by voyages), after the generated animals. */
@@ -714,9 +732,10 @@ export class Animals {
   }
 
   describe(a: Animal): string {
-    if (a.pen >= 0) return 'In the pen';
+    if (a.pen >= 0) return a.state === 'walk' && isCockerel(a) ? 'Strutting in the pen' : 'In the pen';
     if (a.heldBy) return a.heldMode === 'carry' ? 'Being carried home' : 'Being led to the pen';
     if (a.chasedBy) return 'Running from a hunter';
+    if (a.state === 'walk' && isCockerel(a)) return 'Strutting';
     const map: Record<State, string> = { idle: 'Looking around', walk: 'Wandering', feed: a.feed === 'peck' ? 'Pecking' : a.feed === 'sniff' ? 'Sniffing about' : a.feed === 'drink' ? 'Drinking' : a.feed === 'scratch' ? 'Scratching' : 'Grazing', rest: 'Resting', alert: 'Watching warily', avoid: 'Keeping away from people', flee: 'Running away', held: 'Captured', penned: 'In the pen' };
     return map[a.state];
   }
@@ -808,6 +827,7 @@ export class Animals {
 
   private step(a: Animal, dt: number, cursor: THREE.Vector3 | null, people: SpatialHash<Islander>): void {
     const def = SPECIES[a.sp];
+    const wanderSpeed = def.wanderSpeed * (isCockerel(a) ? .7 : 1);
     a.phase += dt * a.tempo;
     a.flap = Math.max(0, a.flap - dt);
     if (!a.alive) {
@@ -844,15 +864,16 @@ export class Animals {
         a.tz = pc.z + (this.rng.next() - 0.5) * pc.r * 1.6;
         a.timer = 3 + this.rng.next() * 6;
         a.state = this.rng.chance(0.4) ? 'feed' : 'walk';
-        a.feed = a.sp === 'pig' ? 'sniff' : 'graze';
+        a.feed = a.sp === 'pig' ? 'sniff' : a.sp === 'chicken' ? 'peck' : 'graze';
       }
       if (a.state === 'walk') {
         const dx = a.tx - a.x, dz = a.tz - a.z, d = Math.hypot(dx, dz);
         if (d > 0.05) {
           a.heading = Math.atan2(dx, dz);
-          a.x += (dx / d) * Math.min(d, def.wanderSpeed * dt);
-          a.z += (dz / d) * Math.min(d, def.wanderSpeed * dt);
-        } else a.state = 'idle';
+          a.x += (dx / d) * Math.min(d, wanderSpeed * dt);
+          a.z += (dz / d) * Math.min(d, wanderSpeed * dt);
+          a.speed = wanderSpeed;
+        } else { a.state = 'idle'; a.speed = 0; }
       }
       a.y = this.world.groundY(a.x, a.z);
       return;
@@ -921,7 +942,7 @@ export class Animals {
         a.tz = a.z + Math.cos(away) * def.avoidRadius;
         a.state = 'avoid';
       }
-      if (this.moveToward(a, def.wanderSpeed * 1.4 * a.tempo, dt)) a.state = 'alert';
+      if (this.moveToward(a, wanderSpeed * 1.4 * a.tempo, dt)) a.state = 'alert';
       a.lookYaw = 0;
       a.y = this.world.groundY(a.x, a.z);
       return;
@@ -945,7 +966,7 @@ export class Animals {
     a.timer -= dt;
     if (a.timer <= 0) this.chooseActivity(a);
     if (a.state === 'walk') {
-      if (this.moveToward(a, def.wanderSpeed * a.tempo * (a.sp === 'chicken' && a.flap > 0 ? 3 : 1), dt)) {
+      if (this.moveToward(a, wanderSpeed * a.tempo * (a.sp === 'chicken' && !isCockerel(a) && a.flap > 0 ? 3 : 1), dt)) {
         a.state = 'idle';
         a.timer = 0.4 + this.rng.next() * 1.5;
       }
@@ -991,7 +1012,7 @@ export class Animals {
           a.feed = 'scratch';
           a.timer = 0.8 + this.rng.next();
         } else if (r < 0.52) {
-          a.flap = 0.5; // short run
+          a.flap = isCockerel(a) ? 0 : 0.5; // Hens occasionally dash; cockerels keep strutting.
           walkTo(a.x, a.z, 2.5);
         } else if (r < 0.58) {
           a.state = 'rest';
@@ -1354,8 +1375,9 @@ export class Animals {
    */
   private drawChicken(a: Animal, dt: number): void {
     const an = a.anim, s = a.scale, CH = models.CHICKEN;
+    const rooster = isCockerel(a);
     const t = this.time * a.tempo + a.id * 3.7;
-    const D = this.track(a, dt, CHICK_STRIDE[0], CHICK_STRIDE[1], 0.75, 1.35);
+    const D = this.track(a, dt, CHICK_STRIDE[0] * (rooster ? 1.18 : 1), CHICK_STRIDE[1], 0.75, 1.35);
     const move = an.move, run = an.run, g = a.gait;
     const duty = mix(0.6, 0.42, run);
     const resting = a.state === 'rest', still = an.v < 0.05;
@@ -1396,8 +1418,9 @@ export class Animals {
     // Body: waddles over the stance foot, bobs each step, tips forward over the hips to peck or run.
     const mid = TAU * (g - duty / 2);
     const bob = move * mix(0.004 * Math.cos(2 * mid), -0.006 * Math.cos(2 * mid), run) + (1 - move) * Math.sin(t * 2.3) * 0.0012 * (1 - lie);
-    const pitch = mix(-0.04, 0.45, dw) + move * 0.08 + run * move * 0.2 - alert * 0.08 + lie * 0.05 + (scratching ? 0.1 : 0) - crow * 0.2;
-    const roll = -move * 0.075 * (1 - 0.5 * run) * Math.cos(mid) + (rake < 0 ? 0 : rake === 0 ? 0.06 : -0.06);
+    const strut = rooster ? move * (1 - run) * (1 - dw) * (1 - lie) : 0;
+    const pitch = mix(-0.04, 0.45, dw) + move * 0.08 + run * move * 0.2 - alert * 0.08 + lie * 0.05 + (scratching ? 0.1 : 0) - crow * 0.2 - strut * .16;
+    const roll = -move * (rooster ? .09 : .075) * (1 - 0.5 * run) * Math.cos(mid) + (rake < 0 ? 0 : rake === 0 ? 0.06 : -0.06);
     const drop = lie * 0.034 + dw * 0.006 - alert * 0.004;
     compose(_m, a.x, a.y + (bob - drop) * s, a.z, 0, a.heading, 0, s);
     _front.multiplyMatrices(_m, pivot(_tmp, CH.hipY, pitch, roll));
@@ -1408,13 +1431,13 @@ export class Animals {
     const stepU = frac(2 * g + 0.15), hold = 0.72;
     const hs = stepU < hold ? 0.5 - stepU / hold : smooth(hold, 1, stepU) - 0.5;
     const stab = (hs * Math.min(0.028, hold * D * 0.5) * move * (1 - run) * (1 - dw)) / CH.neck;
-    const neckP = mix(0.12, 1.25, dw) + strike * 0.6 + run * move * 0.55 + stab - alert * 0.2 - lie * 0.3 - crow * 0.35 - pitch * (1 - dw) * 0.8;
+    const neckP = mix(rooster ? -.08 : .12, 1.25, dw) + strike * 0.6 + run * move * 0.55 + stab - alert * 0.2 - lie * 0.3 - crow * 0.35 - pitch * (1 - dw) * 0.8;
     const headW = mix(0, 1.75, dw) + strike * 0.15 - crow * 0.7 + lie * 0.15;
     const glance = held(t, 0.55 + hash(a.id) * 0.5, a.id) * 0.9 * idle * (1 - lie * 0.5);
     an.hy = sm(an.hy, a.lookYaw + glance, 16);
     an.hr = sm(an.hr, held(t, 0.9, a.id + 5) * 0.35 * idle, 12);
     _N.multiplyMatrices(_front, compose(_tmp, 0, CH.neckY, CH.neckZ, neckP, an.hy * 0.8, 0));
-    this.put('neck_chicken', _N, a.color);
+    this.put('neck_chicken', _N, rooster ? COCKEREL_HACKLE : a.color);
     _H.multiplyMatrices(_N, compose(_tmp, 0, CH.neck, 0, headW - pitch - neckP, an.hy * 0.2, an.hr));
     this.put(a.headKey, _H, a.color);
     an.nx = _H.elements[12];
@@ -1422,7 +1445,7 @@ export class Animals {
     an.nz = _H.elements[14];
 
     // Legs: hip → hock (bending backward) → ankle by IK; toes flat on the ground, curled in swing.
-    const strideL = duty * D, liftL = mix(0.012, 0.02, run);
+    const strideL = duty * D, liftL = mix(rooster ? .017 : .012, 0.02, run);
     const cP = Math.cos(pitch), sP = Math.sin(pitch);
     const hipH = CH.hipY + bob - drop;
     for (let k = 0; k < 2; k++) {

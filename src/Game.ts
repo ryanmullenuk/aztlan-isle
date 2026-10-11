@@ -1,4 +1,5 @@
 import { StormFire } from './buildings/StormFire';
+import { animalName } from './entities/Animals';
 import { buildingSafe } from './buildings/BuildingCondition';
 import { snapPlacement, placementSlope } from './buildings/Placement';
 import { pickBuilding } from './buildings/Picking';
@@ -1079,8 +1080,8 @@ export class Game {
     const position = (x: number, y: number, z: number) => new THREE.Vector3(x, Math.max(0, y), z);
     return [
       ...this.wildlife.animals.list.map(a => ({
-        behaviour: () => wildlifeBehaviour(a.state),
-        id: `animal-${a.id}`, name: a.sp.charAt(0).toUpperCase() + a.sp.slice(1), distance: Math.max(8, a.scale * 10),
+        behaviour: () => this.wildlife.animals.describe(a),
+        id: `animal-${a.id}`, name: animalName(a), distance: Math.max(8, a.scale * 10),
         position: () => a.alive && !a.heldBy ? position(a.x, a.y + 0.4 * a.scale, a.z) : null,
       })),
       ...this.wildlife.monkeys.list.map(m => ({

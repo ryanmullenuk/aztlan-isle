@@ -285,6 +285,7 @@ export const TOUCAN_WING: WingSpec = {
 /** Chicken wings take the coat colour (mat 2), darker flight feathers toward the tip. */
 export const CHICKEN_WING: WingSpec = {
   thick: 0.014,
+  fingers: 4,
   segs: [
     { len: 0.035, c0: 0.07, c1: 0.066, sweep: 0.0, color: col(0xf2f2f2) },
     { len: 0.03, c0: 0.066, c1: 0.058, sweep: 0.006, color: col(0xe4e4e4) },

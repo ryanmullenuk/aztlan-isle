@@ -71,20 +71,27 @@ export function chickenBody(kind: 'hen' | 'speckled' | 'rooster'): THREE.BufferG
   b.add(P.sphere(0.034, 0), COAT, M.t(0, 0.112, 0.04, 0, 0, 0, 1, 0.9, 1.1));
   for (const x of [-1, 1]) b.add(P.sphere(0.026, 0), coat(0.9), M.t(x * 0.03, 0.066, -0.002, 0, 0, 0, 1, 1.2, 1.25));
   b.add(P.sphere(0.034, 0), coat(0.95), M.t(0, 0.078, -0.07, 0, 0, 0, 1.1, 0.9, 1));
+  // Overlapping coverts follow the shoulders and back, rather than a smooth egg silhouette.
+  for (const side of [-1, 1]) for (let row = 0; row < 2; row++) for (let k = 0; k < 4; k++) {
+    const z = .036 - k * .026;
+    const p: V3 = [side * (.038 + row * .007), .126 - row * .017 - k * .001, z];
+    b.add(P.sphere(.012, 0), rooster ? C(row ? 0xb5762a : 0xe0a33e) : coat(.98 - row * .06 - k * .015),
+      onSurface(p, [side * .75, .7, .08], .7, 1.35, .24));
+  }
   if (rooster) {
     // Golden neck and saddle hackles over the shoulders and back; a long arching sickle tail.
     b.add(P.sphere(0.05, 1), C(0xd99434), M.t(0, 0.122, 0.03, 0.2, 0, 0, 1.2, 0.62, 1.1));
     b.add(P.sphere(0.042, 0), C(0xc07a28), M.t(0, 0.132, -0.045, -0.2, 0, 0, 1.15, 0.5, 1.2));
-    for (let k = 0; k < 5; k++) {
-      const f = 1 - Math.abs(k - 2) * 0.13, x = (k - 2) * 0.007;
+    for (let k = 0; k < 7; k++) {
+      const f = 1 - Math.abs(k - 3) * 0.12, x = (k - 3) * 0.008;
       const pts = [
         new THREE.Vector3(x * 0.5, 0, 0),
-        new THREE.Vector3(x, 0.065 * f, -0.03 * f),
-        new THREE.Vector3(x * 1.4, 0.095 * f, -0.09 * f),
-        new THREE.Vector3(x * 1.8, 0.06 * f, -0.15 * f),
-        new THREE.Vector3(x * 2, 0.005 * f, -0.17 * f),
+        new THREE.Vector3(x, 0.075 * f, -0.035 * f),
+        new THREE.Vector3(x * 1.4, 0.115 * f, -0.10 * f),
+        new THREE.Vector3(x * 1.8, 0.075 * f, -0.18 * f),
+        new THREE.Vector3(x * 2, 0.012 * f, -0.21 * f),
       ];
-      b.add(tube(pts, (t) => 0.008 * (1 - t * 0.6), 4, 9), C(k % 2 ? 0x1f4a3e : 0x16302a), M.t(0, 0.118, -0.07, 0, 0, 0, 0.5, 1, 1));
+      b.add(tube(pts, (t) => 0.009 * (1 - t * .85), 4, 9), C(k % 2 ? 0x286254 : 0x142e32), M.t(0, 0.118, -0.07, 0, 0, 0, 0.65, 1, 1));
     }
   } else {
     // Hen's tail: two fans of broad feathers forming a shallow tent.
@@ -115,6 +122,11 @@ export function chickenNeck(): THREE.BufferGeometry {
   b.add(P.cyl(0.018, 0.026, 0.056, 6), COAT, M.t(0, 0.022, 0.002));
   // Hackle ruff where the neck meets the body.
   b.add(P.cyl(0.024, 0.031, 0.026, 6), coat(0.94), M.t(0, 0.006, -0.002));
+  for (let k = 0; k < 6; k++) {
+    const a = k * Math.PI / 3;
+    b.add(P.cone(.008, .032, 4), coat(k % 2 ? .88 : 1),
+      M.t(Math.sin(a) * .025, .008, Math.cos(a) * .025, .2 * Math.cos(a), 0, Math.PI - .2 * Math.sin(a), .65, 1, .35));
+  }
   return facet(b.build());
 }
 
@@ -127,7 +139,7 @@ export function chickenHead(rooster: boolean): THREE.BufferGeometry {
   b.add(P.cone(0.011 * s, 0.03 * s, 5), C(0xe8b030), M.t(0, 0.012 * s, 0.043 * s, Math.PI / 2 + 0.28, 0, 0, 1, 1, 0.75));
   b.add(P.cone(0.007 * s, 0.018 * s, 4), C(0xcf9424), M.t(0, 0.002 * s, 0.036 * s, Math.PI / 2 + 0.55, 0, 0, 1, 1, 0.7));
   // Serrated comb along the crown (big and floppy on the rooster).
-  const n = rooster ? 5 : 3, combH = rooster ? 0.03 : 0.016, combL = (rooster ? 0.048 : 0.034) * s;
+  const n = rooster ? 6 : 3, combH = rooster ? 0.042 : 0.019, combL = (rooster ? 0.056 : 0.034) * s;
   b.add(P.box(0.008, 0.012 * s, combL), C(RED), M.t(0, 0.04 * s, 0.012 * s));
   for (let k = 0; k < n; k++) {
     const t = k / (n - 1);
@@ -136,9 +148,15 @@ export function chickenHead(rooster: boolean): THREE.BufferGeometry {
   }
   // Wattles under the beak, earlobes and orange-ringed eyes.
   for (const x of [-1, 1]) {
-    const w = rooster ? 1.5 : 1;
+    const w = rooster ? 1.8 : 1;
     b.add(P.sphere(0.008 * w, 0), C(RED), M.t(x * 0.005, -0.012 * s - 0.004 * w, 0.032 * s, 0, 0, 0, 0.6, 1.5, 0.9));
     b.add(P.sphere(0.006 * s, 0), C(rooster ? 0xe8dccb : RED), M.t(x * 0.024 * s, 0.003 * s, -0.002, 0, 0, 0, 0.45, 1, 1));
+    // Red facial skin, amber iris and a black pupil read clearly in the close wildlife view.
+    b.add(P.sphere(.012 * s, 0), C(rooster ? 0xcb3426 : 0xdc6553), M.t(x * .022 * s, .017 * s, .020 * s, 0, 0, 0, .25, 1, 1.1));
+    b.add(P.sphere(.006 * s, 1), C(0xe6a531), M.t(x * .025 * s, .022 * s, .020 * s, 0, 0, 0, .38, 1, 1));
+    b.add(P.sphere(.0035 * s, 0), C(0x161619), M.t(x * .027 * s, .022 * s, .021 * s, 0, 0, 0, .32, 1, 1));
+    b.add(P.sphere(.0011 * s, 0), C(0xfff2d5), M.t(x * .028 * s, .0235 * s, .022 * s));
+    b.add(P.sphere(.002 * s, 0), C(0x684620), M.t(x * .006 * s, .019 * s, .046 * s, 0, 0, 0, .25, .65, 1));
   }
   return facet(b.build());
 }

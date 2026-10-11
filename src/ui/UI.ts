@@ -1,4 +1,5 @@
 import { fireBuildingCard } from './FireBuildingCard';
+import { animalName } from '../entities/Animals';
 import { VillagePrioritiesPanel } from './VillagePrioritiesPanel';
 import { settingsMarkup, wireSettingsTabs } from './SettingsPanel';
 import { serialize } from '../world/Save';
@@ -1238,7 +1239,7 @@ export class UI {
       const how = d.capture === 'hunt' ? `Hunted for ${d.meat} meat. Hard to catch.` : d.needsPen ? `Caught and led on a leash to a Pig Pen (or a Butcher or Farm pen)${hasPen ? '' : ' (build one first)'}. Butchered for meat.` : 'Caught and carried to a Chicken Pen or Farm pen (or straight to the food store).';
       const label = d.capture === 'hunt' ? 'Hunt' : 'Capture';
       html = `
-        <div class="card-head"><span>${d.name}</span><span class="tag">Wild</span></div>
+        <div class="card-head"><span>${animalName(an)}</span><span class="tag">Wild</span></div>
         <div class="kv"><span>Doing</span><b>${doing}</b></div>
         <p class="muted small">${how}</p>
         <div class="actions"><button class="btn small" data-a="capture" ${free && (!d.needsPen || hasPen) ? '' : 'disabled'}>${ICONS.harvest} ${label}</button></div>
