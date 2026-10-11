@@ -1023,7 +1023,8 @@ export class UI {
       this.refresh(false);
     }
     // Compass needle points to the island's north as the camera turns.
-    this.compassNeedle.style.transform = `rotate(${(-this.game.rig.cur.yaw * 180) / Math.PI}deg)`;
+    const compass = `rotate(${((-this.game.rig.cur.yaw * 180) / Math.PI).toFixed(2)}deg)`;
+    if (this.compassNeedle.style.transform !== compass) this.compassNeedle.style.transform = compass;
     this.miniTimer -= dt;
     if (this.miniTimer <= 0) {
       this.miniTimer = 0.5;
@@ -1090,7 +1091,11 @@ export class UI {
     const sp = t.paused ? 'Ⅱ' : `${t.speed}×`;
     if (ffx.textContent !== sp) ffx.textContent = sp;
     this.speedBtn.classList.toggle('on', !t.paused && t.speed > 1);
-    this.pauseBtn.innerHTML = t.paused ? ICONS.play : ICONS.pause;
+    const pauseIcon = t.paused ? 'play' : 'pause';
+    if (this.pauseBtn.dataset.icon !== pauseIcon) {
+      this.pauseBtn.innerHTML = ICONS[pauseIcon];
+      this.pauseBtn.dataset.icon = pauseIcon;
+    }
     this.pauseBtn.title = t.paused ? 'Play (Space)' : 'Pause (Space)';
     this.pauseBtn.setAttribute('aria-label', t.paused ? 'Play' : 'Pause');
     this.pauseBtn.classList.toggle('on', t.paused);

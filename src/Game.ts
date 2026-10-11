@@ -769,6 +769,10 @@ export class Game {
       L.night = this.lighting.state.night;
       L.rain = this.powers.rainAmt;
       this.audio.update(realDt);
+      const cam = this.rig.camera, right = cam.matrixWorld.elements;
+      this.audio.updateChatter(realDt, this.colony.list, {
+        x: cam.position.x, y: cam.position.y, z: cam.position.z, rightX: right[0], rightZ: right[2],
+      }, dt <= 0 || !!this.wildlifeView?.active || this.powers.state === 'storm');
     });
   }
 
@@ -1954,7 +1958,7 @@ export class Game {
 
   private frame(): boolean {
     this.clock.update();
-    if (this.canvas.clientWidth < 2 || this.canvas.clientHeight < 2) return false;
+    if (document.hidden || this.canvas.clientWidth < 2 || this.canvas.clientHeight < 2) return false;
     const rawDt = this.clock.getDelta();
     const realDt = this.playing ? Math.min(rawDt, 0.1) : 0;
     if (this.playing) this.trackWorstFrame(rawDt);
@@ -1963,8 +1967,10 @@ export class Game {
     this.update(realDt, dt);
     this.render(realDt);
     this.cpuTime += (performance.now() - c0 - this.cpuTime) * 0.1;
-    this.fps.frames++;
-    this.fps.acc += realDt;
+    if (this.playing && rawDt > 0) {
+      this.fps.frames++;
+      this.fps.acc += rawDt;
+    }
     if (this.fps.acc > 1) {
       this.fps.value = this.fps.frames / this.fps.acc;
       this.fps.frames = 0;

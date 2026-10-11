@@ -621,6 +621,13 @@ export class IslanderRig {
     }
   }
 
+  /** Upload the populated part of each instance buffer, rather than its 200-person capacity. */
+  private upload(attribute: THREE.BufferAttribute | THREE.InstancedBufferAttribute, count: number): void {
+    attribute.clearUpdateRanges();
+    attribute.addUpdateRange(0, Math.min(count, attribute.count) * attribute.itemSize);
+    attribute.needsUpdate = true;
+  }
+
   update(list: Islander[], selected: number, _dt: number, group?: ReadonlySet<number>): void {
     this.count.clear();
     const M = this.m;
@@ -645,19 +652,19 @@ export class IslanderRig {
       const n = this.count.get(key) ?? 0;
       mesh.count = n;
       if (n === 0) continue;
-      mesh.instanceMatrix.needsUpdate = true;
-      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      this.upload(mesh.instanceMatrix, n);
+      if (mesh.instanceColor) this.upload(mesh.instanceColor, n);
       const acc = this.accents.get(key);
-      if (acc) acc.needsUpdate = true;
+      if (acc) this.upload(acc, n);
     }
     if (skinned) {
       for (const s of Object.values(this.skins)) {
         s.mesh.count = s.n;
         if (!s.n) continue;
-        s.mesh.instanceMatrix.needsUpdate = true;
-        if (s.mesh.instanceColor) s.mesh.instanceColor.needsUpdate = true;
-        s.accent.needsUpdate = true;
-        s.look.needsUpdate = true;
+        this.upload(s.mesh.instanceMatrix, s.n);
+        if (s.mesh.instanceColor) this.upload(s.mesh.instanceColor, s.n);
+        this.upload(s.accent, s.n);
+        this.upload(s.look, s.n);
         s.tex.needsUpdate = true;
       }
     }
@@ -670,7 +677,7 @@ export class IslanderRig {
       this.groupRings.setMatrixAt(rings++, this.tmp);
     }
     this.groupRings.count = rings;
-    if (rings) this.groupRings.instanceMatrix.needsUpdate = true;
+    if (rings) this.upload(this.groupRings.instanceMatrix, rings);
     if (sel) {
       this.ring.position.set(sel.x, sel.y + 0.04, sel.z);
       this.ring.scale.setScalar(sel.child ? 0.7 : 1);

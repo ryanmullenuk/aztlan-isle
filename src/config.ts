@@ -229,6 +229,7 @@ export const ISLANDER = {
   happyThreshold: 0.6,
   aiThinkInterval: 0.6,
   pathRequestsPerFrame: 5,
+  pathBudgetMs: 3,
   wearPerStep: 0.016,
   wearDecayPerSecond: 0.0004,
 };

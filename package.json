@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "ios": "npm run build && cap sync ios && cap open ios",
-    "ios:sync": "npm run build && cap sync ios"
+    "ios:sync": "npm run build && cap sync ios",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "perf": "node --import tsx scripts/performance.ts"
   },
   "dependencies": {
     "@capacitor/core": "^8.5.2",
@@ -20,6 +22,7 @@
   "devDependencies": {
     "@capacitor/cli": "^8.5.2",
     "@types/three": "^0.186.0",
+    "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vite": "^8.3.1"
   },

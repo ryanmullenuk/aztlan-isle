@@ -1,4 +1,6 @@
 import { AUDIO } from '../config';
+import type { Islander } from '../entities/Islander';
+import { canChatter, chatterGain, chatterPan, chatterPhrase, type ChatterCamera } from './Chatter';
 
 /**
  * Procedural audio with the Web Audio API. Every sound is synthesised at runtime (no files):
@@ -429,6 +431,97 @@ export class AudioEngine {
         break;
       }
     }
+  }
+
+  private chatterTimer = 1;
+  private chatterControl = 0;
+  private chatterReply: Islander | null = null;
+  private voices: { person: Islander; gain: GainNode; pan: StereoPannerNode }[] = [];
+
+  /** Sparse nearby conversation; never generates audio for every villager on every frame. */
+  updateChatter(dt: number, people: Islander[], camera: ChatterCamera, quiet = false): void {
+    if (!this.ready) return;
+    const silent = quiet || dt <= 0 || this.muted || this.volume <= 0;
+    const now = this.ctx!.currentTime;
+    this.chatterControl -= dt;
+    if (silent || this.chatterControl <= 0) {
+      this.chatterControl = 0.1;
+      for (const v of this.voices) {
+        v.gain.gain.setTargetAtTime(silent ? 0 : chatterGain(v.person, camera), now, 0.08);
+        v.pan.pan.setTargetAtTime(chatterPan(v.person, camera), now, 0.08);
+      }
+    }
+    if (silent) { this.chatterReply = null; return; }
+    this.chatterTimer -= dt;
+    if (this.chatterTimer > 0 || this.voices.length >= 2) return;
+    this.chatterTimer = 2.5 + Math.random() * 3;
+    let speaker = this.chatterReply;
+    this.chatterReply = null;
+    if (!speaker || !people.includes(speaker) || chatterGain(speaker, camera) < 0.015) {
+      speaker = null;
+      let best = 0.015;
+      for (const person of people) {
+        // Small random variation avoids always choosing the closest member of a family.
+        const score = chatterGain(person, camera) * (0.6 + Math.random() * 0.4);
+        if (score > best) { speaker = person; best = score; }
+      }
+    }
+    if (!speaker) return;
+    const duration = this.speak(speaker, camera);
+    // A nearby housemate answers after the first phrase rather than talking over it.
+    let reply: Islander | null = null, distance = 5 * 5;
+    for (const p of people) {
+      if (p === speaker || !canChatter(p) || chatterGain(p, camera) < 0.015) continue;
+      const d = (p.x - speaker.x) ** 2 + (p.z - speaker.z) ** 2;
+      if (d < distance) { distance = d; reply = p; }
+    }
+    if (reply && Math.random() < 0.65) {
+      this.chatterReply = reply;
+      this.chatterTimer = duration + 0.3 + Math.random() * 0.4;
+    } else this.chatterTimer += duration;
+  }
+
+  private speak(person: Islander, camera: ChatterCamera): number {
+    const ctx = this.ctx!, start = ctx.currentTime + 0.02;
+    const phrase = chatterPhrase(person);
+    const last = phrase[phrase.length - 1], duration = last.time + last.duration + 0.1;
+    const source = ctx.createOscillator(); source.type = 'sawtooth';
+    const envelope = ctx.createGain(); envelope.gain.value = 0;
+    const volume = ctx.createGain(); volume.gain.value = chatterGain(person, camera);
+    const pan = ctx.createStereoPanner(); pan.pan.value = chatterPan(person, camera);
+    envelope.connect(volume).connect(pan).connect(this.ambBus);
+    const filters = [0, 1, 2].map(() => {
+      const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 5;
+      source.connect(f).connect(envelope); return f;
+    });
+    const breath = ctx.createBufferSource(); breath.buffer = this.noise;
+    const consonant = ctx.createBiquadFilter(); consonant.type = 'highpass'; consonant.frequency.value = 1800;
+    const breathGain = ctx.createGain(); breathGain.gain.value = 0;
+    breath.connect(consonant).connect(breathGain).connect(volume);
+    for (const s of phrase) {
+      const t = start + s.time;
+      source.frequency.setValueAtTime(s.pitch, t);
+      source.frequency.exponentialRampToValueAtTime(s.endPitch, t + s.duration);
+      filters.forEach((f, k) => f.frequency.setTargetAtTime(s.vowel[k], t, 0.015));
+      envelope.gain.setValueAtTime(0, t);
+      envelope.gain.linearRampToValueAtTime(0.16, t + 0.025);
+      envelope.gain.linearRampToValueAtTime(0.1, t + s.duration * 0.65);
+      envelope.gain.linearRampToValueAtTime(0, t + s.duration);
+      if (s.breath) {
+        breathGain.gain.setValueAtTime(0, t);
+        breathGain.gain.linearRampToValueAtTime(0.07, t + 0.012);
+        breathGain.gain.linearRampToValueAtTime(0, t + 0.045);
+      }
+    }
+    const voice = { person, gain: volume, pan };
+    this.voices.push(voice);
+    source.onended = () => {
+      for (const node of [source, envelope, volume, pan, breath, consonant, breathGain, ...filters]) node.disconnect();
+      const at = this.voices.indexOf(voice); if (at >= 0) this.voices.splice(at, 1);
+    };
+    source.start(start); source.stop(start + duration);
+    breath.start(start, Math.random()); breath.stop(start + duration);
+    return duration;
   }
 
   // ---------------- Per frame ----------------

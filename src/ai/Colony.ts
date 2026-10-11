@@ -43,6 +43,7 @@ export interface ColonyHooks {
 
 interface PathReq {
   isl: Islander;
+  task: Task | null;
   x: number;
   z: number;
   opts: PathOptions;
@@ -126,7 +127,7 @@ export class Colony {
     isl.pathIdx = 0;
     isl.progD = undefined;
     this.queue = this.queue.filter((q) => q.isl !== isl);
-    this.queue.push({ isl, x, z, opts });
+    this.queue.push({ isl, task: isl.task, x, z, opts });
   }
 
   /** Drives walking for the current task. Returns 'arrived', 'walking' or 'failed'. */
@@ -2491,16 +2492,27 @@ export class Colony {
 
   // ---------------- Update ----------------
 
-  update(dt: number): void {
-    if (dt <= 0) return;
-    this.clock += dt;
-    // Path requests (limited per frame).
-    for (let k = 0; k < ISLANDER.pathRequestsPerFrame && this.queue.length; k++) {
+  /** Limit a storm/order burst by elapsed CPU time as well as request count. */
+  private processPaths(): void {
+    const start = performance.now();
+    let done = 0;
+    while (this.queue.length && done < ISLANDER.pathRequestsPerFrame) {
       const q = this.queue.shift()!;
+      // A changed/cancelled job must never inherit its previous destination's route.
+      if (!q.isl.pathPending || q.isl.task !== q.task) continue;
       q.isl.path = this.pf.find(q.isl.x, q.isl.z, q.x, q.z, q.opts);
       q.isl.pathIdx = 0;
       q.isl.pathPending = false;
+      done++;
+      // Complete at least one request so long searches cannot starve the queue.
+      if (performance.now() - start >= ISLANDER.pathBudgetMs) break;
     }
+  }
+
+  update(dt: number): void {
+    if (dt <= 0) return;
+    this.clock += dt;
+    this.processPaths();
     this.jobTimer -= dt;
     if (this.jobTimer <= 0) {
       this.jobTimer = 2.5;
