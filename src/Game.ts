@@ -2271,8 +2271,35 @@ export class Game {
     this.resize();
   }
 
+  private flareTurn = 0;
+  private flareK = 0;
+  private lastFwd = new THREE.Vector3(0, 0, -1);
+
+  /**
+   * Lens flare from the sun when it is in (or just outside) the view by day: it glints up as the
+   * camera swings round, then settles to a faint trace while the view is still.
+   */
+  private lensFlare(realDt: number): void {
+    const cam = this.rig.camera, ls = this.lighting.state;
+    const fwd = _flareV.set(0, 0, -1).transformDirection(cam.matrixWorld);
+    const turn = realDt > 0 ? fwd.angleTo(this.lastFwd) / realDt : 0;
+    this.lastFwd.copy(fwd);
+    // Turning builds it up quickly; it fades over a couple of seconds once the turning stops.
+    const turning = THREE.MathUtils.clamp(turn / 0.5, 0, 1);
+    this.flareTurn = turning > this.flareTurn ? this.flareTurn + (turning - this.flareTurn) * Math.min(1, realDt * 6) : Math.max(0, this.flareTurn - realDt * 0.45);
+    const p = _flareP.copy(ls.sunDir).multiplyScalar(1000).add(cam.position).project(cam);
+    const behind = ls.sunDir.dot(this.lastFwd) <= 0.05;
+    const edge = Math.max(Math.abs(p.x), Math.abs(p.y));
+    const inView = behind ? 0 : 1 - THREE.MathUtils.smoothstep(edge, 0.95, 1.45);
+    const day = THREE.MathUtils.smoothstep(ls.sunDir.y, 0.02, 0.12) * (1 - ls.night) * (1 - this.lighting.overcast) * (this.raining ? 0 : 1);
+    const want = this.settings.pixel ? 0 : inView * day * (0.25 + 0.75 * this.flareTurn);
+    this.flareK += (want - this.flareK) * Math.min(1, realDt * 5);
+    this.post.setFlare(p.x * 0.5 + 0.5, p.y * 0.5 + 0.5, this.flareK < 0.003 ? 0 : this.flareK, ls.sunColor);
+  }
+
   private render(realDt: number): void {
     this.motionResolution(realDt);
+    this.lensFlare(realDt);
     frameShadows(this.renderer);
     const focus = this.rig.camera.position.distanceTo(this.rig.target);
     this.post.render(realDt, focus, this.lighting.state.night);
@@ -2308,6 +2335,7 @@ export class Game {
       });
       for (const l of dark) l.visible = false;
       this.renderer.compile(this.scene, this.rig.camera);
+      this.post.warmFlare = true;
       this.render(0);
     } catch {
       // Best effort: anything not warmed here simply compiles when first drawn, as before.
@@ -2316,6 +2344,10 @@ export class Game {
       for (const o of culled) o.frustumCulled = true;
       for (const m of empty) m.count = 0;
       for (const l of dark) l.visible = true;
+      if (this.post) this.post.warmFlare = false;
     }
   }
 }
+
+const _flareV = new THREE.Vector3();
+const _flareP = new THREE.Vector3();

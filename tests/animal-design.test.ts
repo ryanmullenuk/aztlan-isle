@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { animalForm } from '../src/entities/animalForm';
-import { pigBodyHalves, goatBodyHalves, tapirBodyHalves, chickenBody, pigHead, goatHead, tapirHead } from '../src/entities/animalModels';
+import { pigBodyHalves, goatBodyHalves, tapirBodyHalves, chickenBody, chickenFoldedWings, chickenNeck, chickenHead, pigHead, goatHead, tapirHead } from '../src/entities/animalModels';
 import { dogBodyParts, jaguarBodyHalves, dogHead, jaguarHead } from '../src/entities/quadRig';
 import { pelicanBody, pelicanHead, pelicanJaw } from '../src/entities/waterBirdModels';
 import { WaterBirds, WaterBirdHooks } from '../src/entities/WaterBirds';
@@ -27,7 +27,7 @@ test('continuous animal forms have outward faces, closed ends and flat normals',
 
 test('redesigned rig parts retain finite geometry, coat attributes and practical polygon budgets', () => {
   const parts=[...pigBodyHalves(false,.17),...pigBodyHalves(true,.17),...goatBodyHalves(true,.26),...tapirBodyHalves(.36),
-    ...Object.values(dogBodyParts()),...jaguarBodyHalves(),chickenBody('hen'),chickenBody('rooster'),
+    ...Object.values(dogBodyParts()),...jaguarBodyHalves(),chickenBody('hen'),chickenBody('rooster'),chickenFoldedWings(false),chickenFoldedWings(true),chickenNeck(),chickenHead(true),
     pigHead(),goatHead(false),tapirHead(),dogHead(),jaguarHead(),pelicanBody(),pelicanHead(),pelicanJaw()];
   for(const g of parts) {
     g.computeBoundingBox();
@@ -40,6 +40,28 @@ test('redesigned rig parts retain finite geometry, coat attributes and practical
     }
     g.dispose();
   }
+});
+
+test('farm animals are soft-shaded: neighbouring faces share normals instead of flat facets', () => {
+  for (const g of [pigHead(), goatHead(true), tapirHead(), pigBodyHalves(true, .17)[0]]) {
+    const n = g.getAttribute('normal'), p = g.getAttribute('position');
+    const tri = g.index ? g.index.count / 3 : p.count / 3;
+    const at = (t: number, k: number) => g.index ? g.index.getX(t * 3 + k) : t * 3 + k;
+    let curved = 0;
+    for (let t = 0; t < tri; t++) {
+      const a = new THREE.Vector3().fromBufferAttribute(n, at(t, 0)), b = new THREE.Vector3().fromBufferAttribute(n, at(t, 1));
+      if (a.angleTo(b) > 1e-3) curved++;
+    }
+    assert.ok(curved > tri * 0.5, 'most triangles should carry interpolated normals');
+  }
+});
+
+test('the folded chicken wings lie along the flanks, from the shoulder back toward the tail', () => {
+  const g = chickenFoldedWings(false);
+  g.computeBoundingBox();
+  const b = g.boundingBox!;
+  assert.ok(b.max.x > 0.05 && b.min.x < -0.05, 'one wing on each side');
+  assert.ok(b.max.z > 0.04 && b.min.z < -0.04, 'running from the shoulder toward the tail');
 });
 
 function birds() {

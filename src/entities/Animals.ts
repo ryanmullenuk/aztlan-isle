@@ -378,6 +378,8 @@ export class Animals {
     // Jointed wings (arm, forearm, hand; right then left), tinted with the coat colour.
     wingParts(CHICKEN_WING, 2).forEach((g, k) => add(`wing_chicken${k}`, g, hens));
     add('neck_chicken', models.chickenNeck(), hens);
+    add('wingf_hen', models.chickenFoldedWings(false), hens);
+    add('wingf_rooster', models.chickenFoldedWings(true), hens);
     // Three-piece legs: feathered drumstick, scaly shank, toes.
     const [cu, cl, cf] = models.chickenLegParts();
     add('legU_chicken', cu, hens * 2);
@@ -1431,7 +1433,7 @@ export class Animals {
     const stepU = frac(2 * g + 0.15), hold = 0.72;
     const hs = stepU < hold ? 0.5 - stepU / hold : smooth(hold, 1, stepU) - 0.5;
     const stab = (hs * Math.min(0.028, hold * D * 0.5) * move * (1 - run) * (1 - dw)) / CH.neck;
-    const neckP = mix(rooster ? -.08 : .12, 1.25, dw) + strike * 0.6 + run * move * 0.55 + stab - alert * 0.2 - lie * 0.3 - crow * 0.35 - pitch * (1 - dw) * 0.8;
+    const neckP = mix(rooster ? -.08 : .12, 1.85, dw) + strike * 0.6 + run * move * 0.55 + stab - alert * 0.2 - lie * 0.3 - crow * 0.35 - pitch * (1 - dw) * 0.8;
     const headW = mix(0, 1.75, dw) + strike * 0.15 - crow * 0.7 + lie * 0.15;
     const glance = held(t, 0.55 + hash(a.id) * 0.5, a.id) * 0.9 * idle * (1 - lie * 0.5);
     an.hy = sm(an.hy, a.lookYaw + glance, 16);
@@ -1487,8 +1489,17 @@ export class Animals {
     flapPose(t * 38, 0.85, _fp, 0, 0.15);
     _fp.f1 += 0.25;
     mixPose(FOLDED, _fp, a.wingOpen, _wp);
-    for (let e = 0; e < 2; e++) {
-      wingMatrices(_front, e === 0 ? 1 : -1, WING_ROOT, CHICKEN_WING, _wp, _wm);
+    // Tucked away, the sculpted folded wings are drawn; as they open the jointed wings grow out of
+    // the shoulders in their place.
+    const out = smooth(0.04, 0.4, a.wingOpen);
+    if (out < 1) this.putScaled(rooster ? 'wingf_rooster' : 'wingf_hen', _front, a.color, 1, 1, 1 - out * 0.6);
+    if (out > 0.01) for (let e = 0; e < 2; e++) {
+      const side = e === 0 ? 1 : -1;
+      _B.makeTranslation(side * WING_ROOT[0], WING_ROOT[1], WING_ROOT[2])
+        .multiply(_tmp.makeScale(out, out, out))
+        .multiply(_T.makeTranslation(-side * WING_ROOT[0], -WING_ROOT[1], -WING_ROOT[2]));
+      _B.premultiply(_front);
+      wingMatrices(_B, side, WING_ROOT, CHICKEN_WING, _wp, _wm);
       for (let k = 0; k < 3; k++) this.put(WING_KEYS[e * 3 + k], _wm[k], a.color);
     }
   }

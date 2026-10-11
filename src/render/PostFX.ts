@@ -209,6 +209,65 @@ const GradeShader = {
 };
 
 /**
+ * Lens flare from the sun, added over the graded picture: a glow and a soft horizontal streak at
+ * the sun, a faint halo round it and a chain of tinted ghosts reflected through the middle of the
+ * screen. It shows only while the sun itself is unblocked (sky behind it in the depth buffer).
+ */
+const FlareShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    tDepth: { value: null as THREE.Texture | null },
+    /** Sun position in screen uv (may lie a little off screen). */
+    uSun: { value: new THREE.Vector2(0.5, 0.5) },
+    uAspect: { value: 1 },
+    uK: { value: 0 },
+    uCol: { value: new THREE.Color(1, 0.9, 0.75) },
+  },
+  vertexShader: quadVert.replace('gl_Position = vec4(position.xy, 0.0, 1.0);', 'gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);'),
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tDiffuse, tDepth;
+    uniform vec2 uSun;
+    uniform float uAspect, uK;
+    uniform vec3 uCol;
+    varying vec2 vUv;
+    float sky(vec2 p) { return step(0.99999, texture2D(tDepth, clamp(p, 0.001, 0.999)).x); }
+    float ghost(vec2 at, float r, float soft) {
+      vec2 d = (vUv - at) * vec2(uAspect, 1.0);
+      return 1.0 - smoothstep(r * soft, r, length(d));
+    }
+    void main() {
+      vec3 c = texture2D(tDiffuse, vUv).rgb;
+      if (uK > 0.002) {
+        // Hidden behind land, trees or buildings: only when the sun is on screen can that be seen.
+        float vis = 1.0;
+        if (uSun.x > 0.0 && uSun.x < 1.0 && uSun.y > 0.0 && uSun.y < 1.0) {
+          vec2 o = vec2(0.012 / uAspect, 0.012);
+          vis = (sky(uSun) * 2.0 + sky(uSun + o) + sky(uSun - o) + sky(uSun + vec2(o.x, -o.y)) + sky(uSun + vec2(-o.x, o.y))) / 6.0;
+        }
+        float k = uK * vis;
+        if (k > 0.002) {
+          vec2 d = (vUv - uSun) * vec2(uAspect, 1.0);
+          float r = length(d);
+          vec3 f = vec3(0.0);
+          f += uCol * (exp(-r * 9.0) * 0.32 + exp(-r * 30.0) * 0.4);
+          f += uCol * exp(-abs(d.y) * 140.0) * exp(-abs(d.x) * 3.2) * 0.22;
+          float ring = exp(-pow((r - 0.3) * 26.0, 2.0));
+          f += vec3(0.55, 0.75, 1.0) * ring * 0.05 + vec3(1.0, 0.6, 0.35) * exp(-pow((r - 0.27) * 26.0, 2.0)) * 0.04;
+          vec2 axis = vec2(0.5) - uSun;
+          f += vec3(1.0, 0.75, 0.45) * ghost(uSun + axis * 0.55, 0.035, 0.4) * 0.16;
+          f += vec3(0.6, 1.0, 0.7) * ghost(uSun + axis * 0.85, 0.02, 0.2) * 0.14;
+          f += vec3(0.55, 0.7, 1.0) * ghost(uSun + axis * 1.3, 0.07, 0.75) * 0.1;
+          f += vec3(1.0, 0.55, 0.75) * ghost(uSun + axis * 1.65, 0.045, 0.6) * 0.1;
+          f += vec3(0.7, 0.85, 1.0) * ghost(uSun + axis * 2.05, 0.11, 0.85) * 0.07;
+          c += f * k;
+        }
+      }
+      gl_FragColor = vec4(c, 1.0);
+    }
+  `,
+};
+
+/**
  * Ambient occlusion worked out at half resolution (a quarter of the pixels: it was most of the
  * cost of a frame on high-resolution screens). The soft, denoised result is scaled back up as it
  * is blended over the full-size picture, which it can't be told apart from.
@@ -228,6 +287,11 @@ export class PostFX {
   private bloom: UnrealBloomPass;
   private output: OutputPass;
   private grade: ShaderPass;
+  private flare: ShaderPass;
+  /** Lens flare: sun position in screen uv and strength (0 = none). */
+  private flareK = 0;
+  /** Draw the flare pass even at zero strength (so warming up compiles it). */
+  warmFlare = false;
   private smaa: SMAAPass;
   private fxaa: ShaderPass;
   dofEnabled = true;
@@ -254,6 +318,8 @@ export class PostFX {
     this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), RENDER.bloom.strength, RENDER.bloom.radius, RENDER.bloom.threshold);
     this.output = new OutputPass();
     this.grade = new ShaderPass(GradeShader);
+    this.flare = new ShaderPass(FlareShader);
+    this.flare.material.uniforms.tDepth.value = this.scenePass.depth;
     this.smaa = new SMAAPass();
     this.fxaa = new ShaderPass(FXAAShader);
 
@@ -263,6 +329,7 @@ export class PostFX {
     this.composer.addPass(this.bloom);
     this.composer.addPass(this.output);
     this.composer.addPass(this.grade);
+    this.composer.addPass(this.flare);
     this.composer.addPass(this.smaa);
     this.composer.addPass(this.fxaa);
   }
@@ -297,6 +364,16 @@ export class PostFX {
     this.fxaa.material.uniforms['resolution'].value.set(1 / (w * pr), 1 / (h * pr));
   }
 
+  /** Sun lens flare for the next frame: the sun's screen position (uv), strength 0..1 and colour. */
+  setFlare(u: number, v: number, k: number, color: THREE.Color): void {
+    this.flareK = k;
+    const m = this.flare.material.uniforms;
+    m.uSun.value.set(u, v);
+    m.uK.value = k;
+    m.uCol.value.copy(color);
+    m.uAspect.value = this.width > 0 && this.height > 0 ? this.width / this.height : 1;
+  }
+
   /** @param focusDistance distance from the camera to the point at screen centre. */
   render(dt: number, focusDistance: number, night: number): void {
     const u = this.dof.material.uniforms;
@@ -307,6 +384,7 @@ export class PostFX {
     u.uNear.value = this.camera.near;
     u.uFar.value = this.camera.far;
     this.grade.material.uniforms.uNight.value = night;
+    this.flare.enabled = this.flareK > 0.002 || this.warmFlare;
     this.composer.render(dt);
   }
 }

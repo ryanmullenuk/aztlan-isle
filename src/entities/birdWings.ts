@@ -292,14 +292,16 @@ export const TOUCAN_WING: WingSpec = {
   ],
 };
 
-/** Chicken wings take the coat colour (mat 2), darker flight feathers toward the tip. */
+/**
+ * Chicken wings take the coat colour (mat 2): broad rounded coverts on the arm, then a pointed hand
+ * of flight feathers, darker toward the tip, that folds back along the flank to the tail.
+ */
 export const CHICKEN_WING: WingSpec = {
   smooth: true,
-  thick: 0.014,
-  fingers: 4,
+  thick: 0.01,
   segs: [
-    { len: 0.035, c0: 0.07, c1: 0.066, sweep: 0.0, color: col(0xf2f2f2) },
-    { len: 0.03, c0: 0.066, c1: 0.058, sweep: 0.006, color: col(0xe4e4e4) },
-    { len: 0.04, c0: 0.058, c1: 0.03, sweep: 0.012, color: col(0xcfcfcf) },
+    { len: 0.036, c0: 0.064, c1: 0.062, sweep: 0.0, color: col(0xf4f4f4) },
+    { len: 0.032, c0: 0.062, c1: 0.056, sweep: 0.004, color: col(0xe8e8e8) },
+    { len: 0.064, c0: 0.056, c1: 0.012, sweep: 0.012, color: (p) => new THREE.Color().setScalar(THREE.MathUtils.lerp(0.9, 0.62, THREE.MathUtils.clamp(p.x / 0.064, 0, 1))) },
   ],
 };
