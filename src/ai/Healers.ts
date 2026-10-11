@@ -38,6 +38,7 @@ export class Healers {
   }
 
   update(dt: number): void {
+    if (dt <= 0) return;
     const centres = this.bld.list.filter((b) => b.key === 'healer' && b.complete);
     // A healer for every finished centre; one whose centre is gone (or being rebuilt) leaves.
     this.healers = this.healers.filter((h) => centres.some((b) => b.id === h.dock));
@@ -83,6 +84,8 @@ export class Healers {
 
   private step(h: Healer, b: Building, dt: number): void {
     const isl = h.isl;
+    // Scenery NPCs are not in Colony.update, which advances the villagers' animation clock.
+    isl.animT += dt;
     const rot = (b.rot * Math.PI) / 2;
     isl.y = b.y + HEAL.h;
     if (h.route.length) {
@@ -90,7 +93,11 @@ export class Healers {
       const dx = wx - isl.x, dz = wz - isl.z, d = Math.hypot(dx, dz);
       if (d < 0.05) {
         h.route.shift();
-        if (!h.route.length) h.wait = this.rng.range(STAY[0], STAY[1]);
+        if (!h.route.length) {
+          h.wait = this.rng.range(STAY[0], STAY[1]);
+          isl.speed = 0;
+          isl.anim = 'idle';
+        }
         return;
       }
       const s = Math.min(d, PACE * dt);

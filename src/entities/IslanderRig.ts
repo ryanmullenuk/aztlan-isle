@@ -6,6 +6,7 @@ import { peopleMaterial, peopleSkinnedMaterial } from '../render/materials';
 import { Islander } from './Islander';
 import { PartKey, SKELETON, Skeleton, buildPeopleParts } from './PeopleModels';
 import { BI, BONE_COUNT, GlbModel, loadGlbPeople } from './glbPeople';
+import { CarryPose } from './CarryPose';
 
 /** World units per metre: islanders are modelled at ~1.8 m and stand ~0.62 units tall. */
 const S0 = 0.62 / 1.8;
@@ -135,11 +136,13 @@ export function poseFor(isl: Islander, female: boolean, skel?: Skeleton): Pose {
       break;
     }
     case 'walk': {
-      stride(p, t * 7.5, 0.38, 0.9, 0.1, 0.9);
+      // The healer walks at half the villagers' pace, so its stride cadence follows that pace.
+      stride(p, t * 7.5 * (isl.npc === 'healer' ? isl.speed / ISLANDER.walkSpeed : 1), 0.38, 0.9, 0.1, 0.9);
       p.lean = 0.06;
       break;
     }
     case 'carry': {
+      // Base gait; drawSkinned solves the final hand contacts against each load's mesh.
       const kind = isl.carry?.kind;
       stride(p, t * 6.8, 0.38, 0.8, 0.16, 0.8);
       p.lean = 0.02;
@@ -472,6 +475,7 @@ export class IslanderRig {
   /** Posed bone frames for the islander being drawn (model space, metres). */
   private W = Array.from({ length: BONE_COUNT }, () => new THREE.Matrix4());
   private skins: Partial<Record<CharacterModelKey, SkinSet>> = {};
+  private carryPose: CarryPose;
   private skin = new THREE.Color();
   private accent = new THREE.Color();
   readonly ring: THREE.Mesh;
@@ -480,6 +484,7 @@ export class IslanderRig {
   constructor() {
     // Props (tools, headdresses, carried loads); the bodies are the two character models.
     const parts = buildPeopleParts();
+    this.carryPose = new CarryPose(parts);
     for (const [key, geo] of Object.entries(parts) as [PartKey, THREE.BufferGeometry][]) {
       if (BODY.has(key)) geo.dispose();
       else this.addMesh(key, geo, ISLANDER.max);
@@ -703,6 +708,8 @@ export class IslanderRig {
       set.tex.needsUpdate = true;
     }
     this.poseSkeleton(set.model, p, hs);
+    const load = isl.carry?.kind ? LOADS[isl.carry.kind] : undefined;
+    const gripping = !!load && !p.lying && this.carryPose.apply(load, set.model, W, hs);
     const row = i * BONE_COUNT * 16;
     for (let b = 0; b < BONE_COUNT; b++) {
       this.tmp2.multiplyMatrices(W[b], set.model.bindInv[b]);
@@ -736,7 +743,8 @@ export class IslanderRig {
     if (c && LOADS[c]) {
       M.chest.multiplyMatrices(M.base, W[BI.chest]);
       const up = J.head.y - J.chest.y;
-      if (c === 'chicken') M.out.multiplyMatrices(M.chest, this.rot(this.tmp, 0.2, up - 0.3, 0.12, 0, 0.3, 0));
+      if (gripping) M.out.multiplyMatrices(M.base, this.carryPose.load);
+      else if (c === 'chicken') M.out.multiplyMatrices(M.chest, this.rot(this.tmp, 0.2, up - 0.3, 0.12, 0, 0.3, 0));
       else if (c === 'log') M.out.multiplyMatrices(M.chest, this.rot(this.tmp, 0, J.upper_armL.y - J.chest.y + 0.1, -0.12, 0, 0.25, 0));
       else M.out.multiplyMatrices(M.chest, this.rot(this.tmp, 0, up + 0.36, 0.02, 0, 0, 0));
       this.put(LOADS[c], M.out);

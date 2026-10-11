@@ -13,7 +13,7 @@ The path queue stops after reaching a 3 ms time budget or five completed request
 
 The final clean-install run measured five unbudgeted searches at 29.621 ms median (31.018 ms p95), versus 5.996 ms median (6.907 ms p95) for the budgeted per-frame queue.
 
-Other checks: crowd avoidance at 100 and 300 walkers (0.104/0.462 ms median); moving-camera vegetation at low/high detail; shadow proxies and single shadow pass; off-screen simulation, grass and tree LOD; post-processing resolution; movement, placement, boats, wildlife and game restart. The complete automated suite now passes 233 tests.
+Other checks: crowd avoidance at 100 and 300 walkers (0.104/0.462 ms median); moving-camera vegetation at low/high detail; shadow proxies and single shadow pass; off-screen simulation, grass and tree LOD; post-processing resolution; movement, placement, boats, wildlife and game restart. The complete automated suite now passes 237 tests.
 
 Islander instance matrices and colour/look attributes upload only their populated range, rather than full 200-person buffers. Compass and pause icons avoid unchanged DOM writes. FPS uses uncapped real frame intervals, while simulation catch-up remains capped. Hidden pages skip game updates and rendering.
 
@@ -50,10 +50,21 @@ The pursuit uses targets moving backwards and forwards while walkers advance, ra
 - Short trips use a validated direct segment only across a small, flat, open area. Forest, roads, worn ground, rivers, bridges, crowd-avoidance costs and water escorts retain A*. Smoothed A* routes now share the segment obstacle/corner checks.
 - Demolition previously compared occupancy against `building.id`, although placement writes `building.id + 1`. Clearance now removes the correct cells once rubble has sunk, while leaving cells claimed by another building alone.
 
-The new navigation tests cover pending/active reuse, changed orders and permissions, construction and slope edits during travel, blocked corners, bridge removal and swimming escorts, rock changes, moving targets, stuck/crowd replans, maximum-size request queues, a 60-person group completing distinct orders, resource reservation/mining/delivery, storm sheltering and actual demolition clearance. Existing tests also cover family and hall routines, livestock bridge preferences, food collection and dense crowds. All 233 tests and the production build pass.
+The new navigation tests cover pending/active reuse, changed orders and permissions, construction and slope edits during travel, blocked corners, bridge removal and swimming escorts, rock changes, moving targets, stuck/crowd replans, maximum-size request queues, a 60-person group completing distinct orders, resource reservation/mining/delivery, storm sheltering and actual demolition clearance. Existing tests also cover family and hall routines, livestock bridge preferences, food collection and dense crowds. All 237 tests and the production build pass.
 
 ### Remaining costs
 
 A single A* calculation remains synchronous and may exceed the three-millisecond budget. The unchanged long-search stress test measured 5.863 ms median / 6.274 ms p95 per budgeted frame, compared with 5.692 / 6.554 ms in the initial baseline run; five unbudgeted long searches measured 29.623 ms median. These difficult searches were not made faster. Full remaining-route validation after a world edit also costs CPU: an additional maximum-population stress check of 200 long, 100-unit routes measured 4.687 ms median / 7.161 ms p95. That validation is separate from the A* queue budget. Complex edits and urgent group orders can therefore still cause spikes.
 
 Physical iPhone and GPU frame-rate measurements remain necessary to establish the real visual improvement. On-device checks should include construction while people travel, a large shelter call, repeated animal round-ups, bridges and 3x speed.
+
+
+## Healer and carrying animation fixes
+
+Healer scenery NPCs now advance their own animation clock, since they are not updated by the colony. Their walking cadence follows their 0.55-unit courtyard pace; arriving at a bedside stops the stride, and paused updates do not advance it.
+
+Carrying uses a small analytical two-bone arm solve before the body/shadow skin matrices are uploaded. Grip contacts are measured once on the actual log, stone, basket, sack, fish-pole and meat geometry. The prop and both hands share that frame while walking, running or waiting idle. Male/female proportions and the two appearance variants retain their arm lengths. Chickens retain their under-arm pose, and lying/treatment poses are not overridden. No new geometry, draw calls or per-frame vector allocations are required.
+
+Four regression tests cover the healer clock, pace, stopping and pause; both-hand contact across carrying/idle/run phases and the measured character proportions; unchanged arm lengths and correct skin uploads; and chicken/lying exceptions. The full suite passes 237 tests and the production build passes.
+
+A separate headless Chromium check loaded the real GLB models and checked 672 pose combinations (four models × seven resource kinds × three animations × eight phases). All grip points met the actual prop surface, with maximum numerical contact error below 0.000001 model metres; arm lengths remained unchanged. Before/after posed-mesh previews were inspected through software projection because a WebGL context was unavailable. The additional grip calculation for 200 carriers measured 0.2 ms median / 0.3 ms p95 across 100 warmed headless-browser samples. This measures the arm solve alone, not game FPS or GPU rendering; physical iPhone verification remains outstanding.
