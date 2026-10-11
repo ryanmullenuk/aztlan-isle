@@ -2,9 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { Animals, animalName, type Animal } from '../src/entities/Animals';
-import { chickenBody, chickenHead } from '../src/entities/animalModels';
+import { chickenBody, chickenHead, chickenNeck, chickenLegParts, carriedChicken } from '../src/entities/animalModels';
 import { World } from '../src/world/World';
 import { WORLD, SPECIES } from '../src/config';
+import { wingParts, CHICKEN_WING, TOUCAN_WING } from '../src/entities/birdWings';
 import { SpatialHash } from '../src/world/SpatialHash';
 import { makeIslander } from '../src/entities/Islander';
 
@@ -92,4 +93,41 @@ test('older five-field animal saves retain identities, pens and cockerel appeara
   assert.equal(bird.sp,'chicken'); assert.equal(bird.bodyKey,a.bodyKey); assert.equal(bird.scale,a.scale);
   assert.equal(bird.pen,9); assert.equal(bird.x,12); assert.equal(bird.z,8);
   assert.deepEqual(restored.animals.list.map(a=>a.sp),h.animals.list.map(a=>a.sp));
+});
+
+
+test('chicken surfaces retain smooth normals and mirrored wings shade outwards', () => {
+  const wings = wingParts(CHICKEN_WING, 2);
+  const parts = [chickenBody('hen'), chickenBody('rooster'), chickenHead(false), chickenHead(true),
+    chickenNeck(), ...chickenLegParts(), carriedChicken(), ...wings];
+  for (const g of parts) {
+    const n = g.getAttribute('normal'), index = g.getIndex();
+    const count = index ? index.count : n.count;
+    let curved = 0;
+    for (let i = 0; i < count; i += 3) {
+      const a = index ? index.getX(i) : i, b = index ? index.getX(i + 1) : i + 1;
+      if (new THREE.Vector3().fromBufferAttribute(n, a).distanceTo(new THREE.Vector3().fromBufferAttribute(n, b)) > .001) curved++;
+    }
+    assert.ok(curved > count / 30, 'surface lost its smooth normals');
+    assert.ok(g.getAttribute('position').count < 12000, 'chicken part exceeds mobile geometry budget');
+  }
+  for (let k = 0; k < 3; k++) {
+    const right = wings[k], left = wings[k + 3];
+    for (const name of ['position', 'normal']) {
+      const r = right.getAttribute(name), l = left.getAttribute(name);
+      for (let i = 0; i < r.count; i += 3) for (let corner = 0; corner < 3; corner++) {
+        const j = i + (corner === 0 ? 0 : 3 - corner);
+        assert.ok(Math.abs(r.getX(i + corner) + l.getX(j)) < 1e-6);
+        assert.ok(Math.abs(r.getY(i + corner) - l.getY(j)) < 1e-6);
+        assert.ok(Math.abs(r.getZ(i + corner) - l.getZ(j)) < 1e-6);
+      }
+    }
+  }
+  // Shared bird wing construction keeps the existing faceted style for other species.
+  for (const g of wingParts(TOUCAN_WING)) {
+    const n = g.getAttribute('normal');
+    for (let i = 0; i < n.count; i += 3) assert.ok(new THREE.Vector3().fromBufferAttribute(n, i).distanceTo(new THREE.Vector3().fromBufferAttribute(n, i + 1)) < 1e-6);
+    g.dispose();
+  }
+  for (const g of parts) g.dispose();
 });

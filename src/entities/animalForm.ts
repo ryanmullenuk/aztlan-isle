@@ -3,9 +3,10 @@ import * as THREE from 'three';
 /** Nose-forward silhouette sections: z, centre height, half-width, top and bottom radii.
  * Broad flat facets join cleanly, without intersecting primitive seams across the torso.
  * Caps and winding are explicit so these remain solid in shadows and either camera mode.
+ * The optional smooth mode retains shared vertex normals for rounded chicken bodies.
  */
 export type AnimalSection = readonly [number, number, number, number, number];
-export function animalForm(sections: readonly AnimalSection[], sides = 12): THREE.BufferGeometry {
+export function animalForm(sections: readonly AnimalSection[], sides = 12, smooth = false): THREE.BufferGeometry {
   const p: number[] = [], ids: number[] = [];
   for (const [z, y, w, top, bottom] of sections) {
     for (let j = 0; j < sides; j++) {
@@ -28,8 +29,9 @@ export function animalForm(sections: readonly AnimalSection[], sides = 12): THRE
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
   g.setIndex(ids);
+  if (smooth) g.computeVertexNormals();
   const flat = g.toNonIndexed();
   g.dispose();
-  flat.computeVertexNormals();
+  if (!smooth) flat.computeVertexNormals();
   return flat;
 }

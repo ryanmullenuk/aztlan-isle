@@ -20,6 +20,8 @@ export interface WingSeg {
 export interface WingSpec {
   segs: [WingSeg, WingSeg, WingSeg];
   thick: number;
+  /** Rounded volumes and interpolated normals for chickens seen close up. */
+  smooth?: boolean;
   /**
    * Separated primary feathers ("fingers") fanning from the hand's tip, for broad soaring wings
    * (pelicans, herons, toucans). Omit or 0 for pointed wings (gulls).
@@ -28,8 +30,8 @@ export interface WingSpec {
 }
 
 /** One tapered slab from x = 0 to len (slightly overlapping the previous panel so joints never gap). */
-function panel(s: WingSeg, thick: number, hand: boolean): THREE.BufferGeometry {
-  const g = new THREE.BoxGeometry(1, 1, 1, hand ? 5 : 2, 1, 3);
+function panel(s: WingSeg, thick: number, hand: boolean, smooth = false): THREE.BufferGeometry {
+  const g = smooth ? new THREE.SphereGeometry(.5, 12, 8) : new THREE.BoxGeometry(1, 1, 1, hand ? 5 : 2, 1, 3);
   const p = g.getAttribute('position') as THREE.BufferAttribute;
   const ov = 0.14;
   for (let i = 0; i < p.count; i++) {
@@ -47,16 +49,17 @@ function panel(s: WingSeg, thick: number, hand: boolean): THREE.BufferGeometry {
     const y = p.getY(i) * thick * (0.35 + 0.65 * v) * (1 - 0.4 * u) + camber;
     p.setXYZ(i, x, y, z);
   }
+  if (smooth) g.computeVertexNormals();
   return g;
 }
 
 /** Separated primaries: thin tapered feathers fanning back from the hand's outer end. */
-function fingers(s: WingSeg, thick: number, n: number): THREE.BufferGeometry[] {
+function fingers(s: WingSeg, thick: number, n: number, smooth = false): THREE.BufferGeometry[] {
   const out: THREE.BufferGeometry[] = [];
   const lead = s.c0 * 0.3 - s.sweep - s.c0 * 0.18;
   for (let k = 0; k < n; k++) {
     const f = n > 1 ? k / (n - 1) : 0;
-    const g = new THREE.BoxGeometry(1, 1, 1);
+    const g = smooth ? new THREE.SphereGeometry(.5, 10, 6) : new THREE.BoxGeometry(1, 1, 1);
     const p = g.getAttribute('position') as THREE.BufferAttribute;
     const len = s.len * (0.42 - f * 0.14);
     const w = Math.max(0.006, s.c1 * 0.34);
@@ -71,12 +74,13 @@ function fingers(s: WingSeg, thick: number, n: number): THREE.BufferGeometry[] {
       // Tips curl up a little, as primaries bend under load.
       p.setXYZ(i, x, p.getY(i) * thick * 0.35 + u * u * len * 0.12, z);
     }
+    if (smooth) g.computeVertexNormals();
     out.push(g);
   }
   return out;
 }
 
-function mirrorX(g: THREE.BufferGeometry): THREE.BufferGeometry {
+function mirrorX(g: THREE.BufferGeometry, smooth = false): THREE.BufferGeometry {
   const m = g.clone();
   const p = m.getAttribute('position') as THREE.BufferAttribute;
   for (let i = 0; i < p.count; i++) p.setX(i, -p.getX(i));
@@ -97,7 +101,10 @@ function mirrorX(g: THREE.BufferGeometry): THREE.BufferGeometry {
       }
     }
   }
-  m.computeVertexNormals();
+  if (smooth) {
+    const n = m.getAttribute('normal') as THREE.BufferAttribute;
+    for (let i = 0; i < n.count; i++) n.setX(i, -n.getX(i));
+  } else m.computeVertexNormals();
   return m;
 }
 
@@ -105,11 +112,14 @@ function mirrorX(g: THREE.BufferGeometry): THREE.BufferGeometry {
 export function wingParts(spec: WingSpec, mat = 0): THREE.BufferGeometry[] {
   const right = spec.segs.map((s, k) => {
     const b = new GeoBuilder();
-    b.add(panel(s, spec.thick, k === 2), { color: s.color, mat });
-    if (k === 2 && spec.fingers) for (const f of fingers(s, spec.thick, spec.fingers)) b.add(f, { color: s.color, mat });
-    return facet(b.build());
+    b.add(panel(s, spec.thick, k === 2, spec.smooth), { color: s.color, mat });
+    if (k === 2 && spec.fingers) for (const f of fingers(s, spec.thick, spec.fingers, spec.smooth)) b.add(f, { color: s.color, mat });
+    const g = b.build();
+    if (!spec.smooth) return facet(g);
+    const smooth = g.toNonIndexed(); g.dispose();
+    return smooth;
   });
-  return [...right, ...right.map(mirrorX)];
+  return [...right, ...right.map(g => mirrorX(g, spec.smooth))];
 }
 
 /**
@@ -284,6 +294,7 @@ export const TOUCAN_WING: WingSpec = {
 
 /** Chicken wings take the coat colour (mat 2), darker flight feathers toward the tip. */
 export const CHICKEN_WING: WingSpec = {
+  smooth: true,
   thick: 0.014,
   fingers: 4,
   segs: [

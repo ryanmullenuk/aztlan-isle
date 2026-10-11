@@ -1,9 +1,10 @@
 import * as THREE from 'three';
-import { animalForm } from './animalForm';
-import { ColorFn, GeoBuilder, M, P, facet, tube } from '../render/GeoBuilder';
+import { animalForm, type AnimalSection } from './animalForm';
+import { ColorFn, GeoBuilder, M, P, facet, tube, outward } from '../render/GeoBuilder';
 
 /**
- * Faceted low-poly animal parts, in world units (islanders stand ~0.62 tall).
+ * Animal parts, in world units (islanders stand ~0.62 tall). Chickens use rounded
+ * surfaces and smooth normals; the other species retain their faceted forms.
  * Vertices tagged mat 2 are the "coat" and take a per-animal colour (so one mesh serves
  * white, brown and black chickens, pink and dark pigs, and so on). Parts face +z.
  */
@@ -56,32 +57,50 @@ export const CHICKEN = {
   thigh: 0.034, shank: 0.042, ankle: 0.0065,
 };
 
+/** Rounded chicken primitives keep interpolated normals through the shared instance batches. */
+const chickenSphere = (r: number, detail = 0) => P.uvSphere(r, detail ? 20 : 10, detail ? 14 : 6);
+function chickenForm(sections: AnimalSection[]): THREE.BufferGeometry {
+  const ends: AnimalSection[] = [
+    [sections[0][0] - .015, sections[0][1], .001, .001, .001],
+    ...sections,
+    [sections.at(-1)![0] + .012, sections.at(-1)![1], .001, .001, .001],
+  ];
+  const shape = new THREE.CatmullRomCurve3(ends.map(s => new THREE.Vector3(s[0], s[1], s[2])));
+  const radii = new THREE.CatmullRomCurve3(ends.map(s => new THREE.Vector3(s[0], s[3], s[4])));
+  const rings: AnimalSection[] = [];
+  for (let k = 0; k <= 32; k++) {
+    const p = shape.getPoint(k / 32), r = radii.getPoint(k / 32);
+    rings.push([p.x, p.y, Math.max(.001, p.z), Math.max(.001, r.y), Math.max(.001, r.z)]);
+  }
+  return animalForm(rings, 24, true);
+}
+
 export function chickenBody(kind: 'hen' | 'speckled' | 'rooster'): THREE.BufferGeometry {
   const b = new GeoBuilder();
   const rooster = kind === 'rooster';
   const big = rooster ? 1.08 : 1;
   // Egg-shaped body, back rising gently toward the tail, plump breast low at the front.
-  b.add(animalForm([
+  b.add(chickenForm([
     [-0.087,0.109,0.026,0.028,0.034], [-0.05,0.091,0.054,0.058,0.047],
     [0,0.084,0.064,0.062,0.05], [0.042,0.084,0.048,0.052,0.048],
     [0.078,0.096,0.018,0.026,0.021],
   ]), COAT, M.t(0,0,0,0,0,0,big,big,big));
-  b.add(P.sphere(0.048, 1), rooster ? C(0x2a2320) : coat(0.97), M.t(0, 0.08, 0.042, 0, 0, 0, 1.08, 1.05, 0.95));
+  b.add(chickenSphere(0.048, 1), rooster ? C(0x2a2320) : coat(0.97), M.t(0, 0.08, 0.042, 0, 0, 0, 1.08, 1.05, 0.95));
   // Shoulders where the neck joins, fluffy thighs over the hips and a fluffy vent under the tail.
-  b.add(P.sphere(0.034, 0), COAT, M.t(0, 0.112, 0.04, 0, 0, 0, 1, 0.9, 1.1));
-  for (const x of [-1, 1]) b.add(P.sphere(0.026, 0), coat(0.9), M.t(x * 0.03, 0.066, -0.002, 0, 0, 0, 1, 1.2, 1.25));
-  b.add(P.sphere(0.034, 0), coat(0.95), M.t(0, 0.078, -0.07, 0, 0, 0, 1.1, 0.9, 1));
+  b.add(chickenSphere(0.034, 0), COAT, M.t(0, 0.112, 0.04, 0, 0, 0, 1, 0.9, 1.1));
+  for (const x of [-1, 1]) b.add(chickenSphere(0.026, 0), coat(0.9), M.t(x * 0.03, 0.066, -0.002, 0, 0, 0, 1, 1.2, 1.25));
+  b.add(chickenSphere(0.034, 0), coat(0.95), M.t(0, 0.078, -0.07, 0, 0, 0, 1.1, 0.9, 1));
   // Overlapping coverts follow the shoulders and back, rather than a smooth egg silhouette.
   for (const side of [-1, 1]) for (let row = 0; row < 2; row++) for (let k = 0; k < 4; k++) {
     const z = .036 - k * .026;
     const p: V3 = [side * (.038 + row * .007), .126 - row * .017 - k * .001, z];
-    b.add(P.sphere(.012, 0), rooster ? C(row ? 0xb5762a : 0xe0a33e) : coat(.98 - row * .06 - k * .015),
+    b.add(chickenSphere(.012, 0), rooster ? C(row ? 0xb5762a : 0xe0a33e) : coat(.98 - row * .06 - k * .015),
       onSurface(p, [side * .75, .7, .08], .7, 1.35, .24));
   }
   if (rooster) {
     // Golden neck and saddle hackles over the shoulders and back; a long arching sickle tail.
-    b.add(P.sphere(0.05, 1), C(0xd99434), M.t(0, 0.122, 0.03, 0.2, 0, 0, 1.2, 0.62, 1.1));
-    b.add(P.sphere(0.042, 0), C(0xc07a28), M.t(0, 0.132, -0.045, -0.2, 0, 0, 1.15, 0.5, 1.2));
+    b.add(chickenSphere(0.05, 1), C(0xd99434), M.t(0, 0.122, 0.03, 0.2, 0, 0, 1.2, 0.62, 1.1));
+    b.add(chickenSphere(0.042, 0), C(0xc07a28), M.t(0, 0.132, -0.045, -0.2, 0, 0, 1.15, 0.5, 1.2));
     for (let k = 0; k < 7; k++) {
       const f = 1 - Math.abs(k - 3) * 0.12, x = (k - 3) * 0.008;
       const pts = [
@@ -91,14 +110,14 @@ export function chickenBody(kind: 'hen' | 'speckled' | 'rooster'): THREE.BufferG
         new THREE.Vector3(x * 1.8, 0.075 * f, -0.18 * f),
         new THREE.Vector3(x * 2, 0.012 * f, -0.21 * f),
       ];
-      b.add(tube(pts, (t) => 0.009 * (1 - t * .85), 4, 9), C(k % 2 ? 0x286254 : 0x142e32), M.t(0, 0.118, -0.07, 0, 0, 0, 0.65, 1, 1));
+      b.add(outward(tube(pts, (t) => 0.009 * (1 - t * .85), 10, 18)), C(k % 2 ? 0x286254 : 0x142e32), M.t(0, 0.118, -0.07, 0, 0, 0, 0.65, 1, 1));
     }
   } else {
     // Hen's tail: two fans of broad feathers forming a shallow tent.
     for (const side of [-1, 1]) {
       for (let j = 0; j < 3; j++) {
         const len = 0.062 - j * 0.008;
-        b.add(P.box(0.005, len, 0.028 - j * 0.004), coat(0.93 - j * 0.05), rod(len, [side * 0.006, 0.112, -0.07], -0.45 - j * 0.3, 0, -side * (0.18 + j * 0.06)));
+        b.add(P.uvSphere(.5, 12, 8), coat(0.93 - j * 0.05), rod(len, [side * 0.006, 0.112, -0.07], -0.45 - j * 0.3, 0, -side * (0.18 + j * 0.06), .005, .028 - j * .004).multiply(M.t(0,0,0,0,0,0,1,len,1)));
       }
     }
   }
@@ -110,55 +129,55 @@ export function chickenBody(kind: 'hen' | 'speckled' | 'rooster'): THREE.BufferG
       const a = rnd() * Math.PI * 2, e = (rnd() - 0.35) * 1.1;
       const n: V3 = [Math.cos(e) * Math.sin(a), Math.sin(e), Math.cos(e) * Math.cos(a)];
       const p: V3 = [n[0] * 0.063, 0.09 + n[1] * 0.059, -0.005 + n[2] * 0.08];
-      b.add(P.sphere(0.008, 0), C(0x3a3028), onSurface(p, n, 1.2, 0.8, 0.35));
+      b.add(chickenSphere(0.008, 0), C(0x3a3028), onSurface(p, n, 1.2, 0.8, 0.35));
     }
   }
-  return facet(b.build());
+  return b.build();
 }
 
 /** Neck from its base on the shoulders (pivot) up to the head joint at y = CHICKEN.neck. */
 export function chickenNeck(): THREE.BufferGeometry {
   const b = new GeoBuilder();
-  b.add(P.cyl(0.018, 0.026, 0.056, 6), COAT, M.t(0, 0.022, 0.002));
+  b.add(P.cyl(0.018, 0.026, 0.056, 16), COAT, M.t(0, 0.022, 0.002));
   // Hackle ruff where the neck meets the body.
-  b.add(P.cyl(0.024, 0.031, 0.026, 6), coat(0.94), M.t(0, 0.006, -0.002));
+  b.add(P.cyl(0.024, 0.031, 0.026, 16), coat(0.94), M.t(0, 0.006, -0.002));
   for (let k = 0; k < 6; k++) {
     const a = k * Math.PI / 3;
-    b.add(P.cone(.008, .032, 4), coat(k % 2 ? .88 : 1),
-      M.t(Math.sin(a) * .025, .008, Math.cos(a) * .025, .2 * Math.cos(a), 0, Math.PI - .2 * Math.sin(a), .65, 1, .35));
+    b.add(P.uvSphere(.5, 12, 8), coat(k % 2 ? .88 : 1),
+      M.t(Math.sin(a) * .025, .008, Math.cos(a) * .025, .2 * Math.cos(a), 0, Math.PI - .2 * Math.sin(a), .0104, .032, .0056));
   }
-  return facet(b.build());
+  return b.build();
 }
 
 export function chickenHead(rooster: boolean): THREE.BufferGeometry {
   const b = new GeoBuilder();
   const s = rooster ? 1.12 : 1;
   const RED = 0xd62f22;
-  b.add(P.sphere(0.029 * s, 1), COAT, M.t(0, 0.013 * s, 0.006, 0, 0, 0, 0.88, 1, 1.12));
+  b.add(chickenSphere(0.029 * s, 1), COAT, M.t(0, 0.013 * s, 0.006, 0, 0, 0, 0.88, 1, 1.12));
   // Short curved beak (upper and lower mandible).
-  b.add(P.cone(0.011 * s, 0.03 * s, 5), C(0xe8b030), M.t(0, 0.012 * s, 0.043 * s, Math.PI / 2 + 0.28, 0, 0, 1, 1, 0.75));
-  b.add(P.cone(0.007 * s, 0.018 * s, 4), C(0xcf9424), M.t(0, 0.002 * s, 0.036 * s, Math.PI / 2 + 0.55, 0, 0, 1, 1, 0.7));
+  b.add(P.cone(0.011 * s, 0.03 * s, 12), C(0xe8b030), M.t(0, 0.012 * s, 0.043 * s, Math.PI / 2 + 0.28, 0, 0, 1, 1, 0.75));
+  b.add(P.cone(0.007 * s, 0.018 * s, 10), C(0xcf9424), M.t(0, 0.002 * s, 0.036 * s, Math.PI / 2 + 0.55, 0, 0, 1, 1, 0.7));
   // Serrated comb along the crown (big and floppy on the rooster).
   const n = rooster ? 6 : 3, combH = rooster ? 0.042 : 0.019, combL = (rooster ? 0.056 : 0.034) * s;
-  b.add(P.box(0.008, 0.012 * s, combL), C(RED), M.t(0, 0.04 * s, 0.012 * s));
+  b.add(P.rbox(0.008, 0.012 * s, combL, .003, 2), C(RED), M.t(0, 0.04 * s, 0.012 * s));
   for (let k = 0; k < n; k++) {
     const t = k / (n - 1);
     const h = combH * (1 - Math.abs(t - 0.4) * 0.9);
-    b.add(P.cone(0.009 * s, h, 4), C(RED), M.t(0, 0.044 * s + h / 2, 0.012 * s + combL * (0.45 - t), -0.25 * (t - 0.4), 0, 0, 0.55, 1, 1));
+    b.add(P.uvSphere(.5, 12, 8), C(RED), M.t(0, 0.044 * s + h / 2, 0.012 * s + combL * (0.45 - t), -0.25 * (t - 0.4), 0, 0, 0.0099 * s, h, .018 * s));
   }
   // Wattles under the beak, earlobes and orange-ringed eyes.
   for (const x of [-1, 1]) {
     const w = rooster ? 1.8 : 1;
-    b.add(P.sphere(0.008 * w, 0), C(RED), M.t(x * 0.005, -0.012 * s - 0.004 * w, 0.032 * s, 0, 0, 0, 0.6, 1.5, 0.9));
-    b.add(P.sphere(0.006 * s, 0), C(rooster ? 0xe8dccb : RED), M.t(x * 0.024 * s, 0.003 * s, -0.002, 0, 0, 0, 0.45, 1, 1));
+    b.add(chickenSphere(0.008 * w, 0), C(RED), M.t(x * 0.005, -0.012 * s - 0.004 * w, 0.032 * s, 0, 0, 0, 0.6, 1.5, 0.9));
+    b.add(chickenSphere(0.006 * s, 0), C(rooster ? 0xe8dccb : RED), M.t(x * 0.024 * s, 0.003 * s, -0.002, 0, 0, 0, 0.45, 1, 1));
     // Red facial skin, amber iris and a black pupil read clearly in the close wildlife view.
-    b.add(P.sphere(.012 * s, 0), C(rooster ? 0xcb3426 : 0xdc6553), M.t(x * .022 * s, .017 * s, .020 * s, 0, 0, 0, .25, 1, 1.1));
-    b.add(P.sphere(.006 * s, 1), C(0xe6a531), M.t(x * .025 * s, .022 * s, .020 * s, 0, 0, 0, .38, 1, 1));
-    b.add(P.sphere(.0035 * s, 0), C(0x161619), M.t(x * .027 * s, .022 * s, .021 * s, 0, 0, 0, .32, 1, 1));
-    b.add(P.sphere(.0011 * s, 0), C(0xfff2d5), M.t(x * .028 * s, .0235 * s, .022 * s));
-    b.add(P.sphere(.002 * s, 0), C(0x684620), M.t(x * .006 * s, .019 * s, .046 * s, 0, 0, 0, .25, .65, 1));
+    b.add(chickenSphere(.012 * s, 0), C(rooster ? 0xcb3426 : 0xdc6553), M.t(x * .022 * s, .017 * s, .020 * s, 0, 0, 0, .25, 1, 1.1));
+    b.add(chickenSphere(.006 * s, 1), C(0xe6a531), M.t(x * .025 * s, .022 * s, .020 * s, 0, 0, 0, .38, 1, 1));
+    b.add(chickenSphere(.0035 * s, 0), C(0x161619), M.t(x * .027 * s, .022 * s, .021 * s, 0, 0, 0, .32, 1, 1));
+    b.add(chickenSphere(.0011 * s, 0), C(0xfff2d5), M.t(x * .028 * s, .0235 * s, .022 * s));
+    b.add(chickenSphere(.002 * s, 0), C(0x684620), M.t(x * .006 * s, .019 * s, .046 * s, 0, 0, 0, .25, .65, 1));
   }
-  return facet(b.build());
+  return b.build();
 }
 
 /** Chicken leg pieces: [feathered drumstick from the hip, scaly shank from the hock, toes from the ankle]. */
@@ -166,23 +185,23 @@ export function chickenLegParts(): [THREE.BufferGeometry, THREE.BufferGeometry, 
   const Y = 0xe8b030, Yd = 0xc98e1e;
   const L = CHICKEN;
   const thigh = new GeoBuilder();
-  thigh.add(P.sphere(0.016, 0), COAT, M.t(0, -0.006, 0, 0, 0, 0, 1, 1.25, 1.15));
-  thigh.add(P.cyl(0.0085, 0.014, L.thigh * 0.9, 5), coat(0.95), M.t(0, -L.thigh * 0.5, 0));
+  thigh.add(chickenSphere(0.016, 0), COAT, M.t(0, -0.006, 0, 0, 0, 0, 1, 1.25, 1.15));
+  thigh.add(P.cyl(0.0085, 0.014, L.thigh * 0.9, 12), coat(0.95), M.t(0, -L.thigh * 0.5, 0));
   const shank = new GeoBuilder();
-  shank.add(P.sphere(0.0064, 0), C(Y), M.t(0, 0, 0));
-  shank.add(P.cyl(0.0046, 0.0056, L.shank, 5), C(Y), M.t(0, -L.shank / 2, 0));
+  shank.add(chickenSphere(0.0064, 0), C(Y), M.t(0, 0, 0));
+  shank.add(P.cyl(0.0046, 0.0056, L.shank, 12), C(Y), M.t(0, -L.shank / 2, 0));
   // Scales: a few slightly proud darker rings down the shank.
-  for (let k = 0; k < 3; k++) shank.add(P.cyl(0.0061, 0.0061, 0.0024, 5), C(Yd), M.t(0, -0.011 - k * 0.011, 0));
+  for (let k = 0; k < 3; k++) shank.add(P.cyl(0.0061, 0.0061, 0.0024, 12), C(Yd), M.t(0, -0.011 - k * 0.011, 0));
   const foot = new GeoBuilder();
-  foot.add(P.sphere(0.0058, 0), C(Y), M.t(0, 0, 0));
+  foot.add(chickenSphere(0.0058, 0), C(Y), M.t(0, 0, 0));
   // Three forward toes spread in a fan and a short hind toe, lying on the ground.
   for (const a of [-0.5, 0, 0.5]) {
     const len = a === 0 ? 0.03 : 0.026;
-    foot.add(P.box(0.0052, 0.0045, len), C(Y), M.t(Math.sin(a) * len * 0.5, -L.ankle + 0.00225, Math.cos(a) * len * 0.5, 0, a, 0));
-    foot.add(P.cone(0.0028, 0.006, 4), C(0x3a3024), M.t(Math.sin(a) * len, -L.ankle + 0.0022, Math.cos(a) * len + 0.002, Math.PI / 2, 0, 0));
+    foot.add(P.uvSphere(.5, 10, 6), C(Y), M.t(Math.sin(a) * len * 0.5, -L.ankle + 0.00225, Math.cos(a) * len * 0.5, 0, a, 0, .0052, .0045, len));
+    foot.add(P.cone(0.0028, 0.006, 8), C(0x3a3024), M.t(Math.sin(a) * len, -L.ankle + 0.0022, Math.cos(a) * len + 0.002, Math.PI / 2, 0, 0));
   }
-  foot.add(P.box(0.0045, 0.004, 0.013), C(Y), M.t(0, -L.ankle + 0.002, -0.0065));
-  return [facet(thigh.build()), facet(shank.build()), facet(foot.build())];
+  foot.add(P.uvSphere(.5, 10, 6), C(Y), M.t(0, -L.ankle + 0.002, -0.0065, 0, 0, 0, .0045, .004, .013));
+  return [thigh.build(), shank.build(), foot.build()];
 }
 
 // ---------------- Pigs ----------------
@@ -558,15 +577,15 @@ export type { FishType } from "./fishModels";
 /** Chicken tucked under an arm, for islanders carrying a captured hen. */
 export function carriedChicken(): THREE.BufferGeometry {
   const b = new GeoBuilder();
-  b.add(P.sphere(0.13, 1), C(0xf6f0e4), M.t(0, 0, 0, 0, 0, 0, 1, 0.9, 1.3));
-  b.add(P.sphere(0.07, 0), C(0xf6f0e4), M.t(0, 0.1, 0.13));
-  b.add(P.box(0.02, 0.05, 0.06), C(0xd62f22), M.t(0, 0.17, 0.13));
-  b.add(P.cone(0.02, 0.05, 4), C(0xe8b030), M.t(0, 0.1, 0.21, Math.PI / 2, 0, 0));
+  b.add(chickenSphere(0.13, 1), C(0xf6f0e4), M.t(0, 0, 0, 0, 0, 0, 1, 0.9, 1.3));
+  b.add(chickenSphere(0.07, 0), C(0xf6f0e4), M.t(0, 0.1, 0.13));
+  b.add(P.rbox(0.02, 0.05, 0.06, .009, 2), C(0xd62f22), M.t(0, 0.17, 0.13));
+  b.add(P.cone(0.02, 0.05, 12), C(0xe8b030), M.t(0, 0.1, 0.21, Math.PI / 2, 0, 0));
   // Wattle, folded wings and a tail fan (same size and pivot as before).
-  b.add(P.sphere(0.014, 0), C(0xd62f22), M.t(0, 0.06, 0.18, 0, 0, 0, 0.7, 1.4, 0.9));
+  b.add(chickenSphere(0.014, 0), C(0xd62f22), M.t(0, 0.06, 0.18, 0, 0, 0, 0.7, 1.4, 0.9));
   for (const x of [-1, 1]) {
-    b.add(P.sphere(0.09, 0), C(0xe6ddcc), M.t(x * 0.1, 0.01, -0.02, 0.15, 0, 0, 0.35, 0.75, 1.25));
+    b.add(chickenSphere(0.09, 0), C(0xe6ddcc), M.t(x * 0.1, 0.01, -0.02, 0.15, 0, 0, 0.35, 0.75, 1.25));
   }
-  for (let k = -1; k <= 1; k++) b.add(P.box(0.012, 0.13, 0.07), C(0xece4d4), rod(0.13, [k * 0.02, 0.04, -0.14], -0.7, 0, -k * 0.3));
-  return facet(b.build());
+  for (let k = -1; k <= 1; k++) b.add(P.uvSphere(.5, 12, 8), C(0xece4d4), rod(0.13, [k * 0.02, 0.04, -0.14], -0.7, 0, -k * 0.3, .012, .07).multiply(M.t(0,0,0,0,0,0,1,.13,1)));
+  return b.build();
 }
