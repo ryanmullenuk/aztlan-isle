@@ -114,6 +114,7 @@ export interface Settings {
   volume: number;
   music: number;
   muted: boolean;
+  chatter: boolean;
   fps: boolean;
   showMap: boolean;
   /** Drop the graphics preset automatically if the frame rate is too low. */
@@ -772,7 +773,7 @@ export class Game {
       const cam = this.rig.camera, right = cam.matrixWorld.elements;
       this.audio.updateChatter(realDt, this.colony.list, {
         x: cam.position.x, y: cam.position.y, z: cam.position.z, rightX: right[0], rightZ: right[2],
-      }, dt <= 0 || !!this.wildlifeView?.active || this.powers.state === 'storm');
+      }, !this.settings.chatter || dt <= 0 || !!this.wildlifeView?.active || this.powers.state === 'storm');
     });
   }
 
@@ -850,7 +851,7 @@ export class Game {
   }
 
   private loadSettings(preset: PresetName): Settings {
-    const def: Settings = { preset, dof: true, dofStrength: RENDER.dof.strength, volume: 0.7, music: 0.5, muted: false, fps: false, showMap: false, autoQuality: true, shadows: true, dayNight: true, weather: true, motion: true, pixel: false, instantBuild: false, renderScale: 1, motionRes: true };
+    const def: Settings = { preset, dof: true, dofStrength: RENDER.dof.strength, volume: 0.7, music: 0.5, muted: false, chatter: true, fps: false, showMap: false, autoQuality: true, shadows: true, dayNight: true, weather: true, motion: true, pixel: false, instantBuild: false, renderScale: 1, motionRes: true };
     try {
       const s = JSON.parse(localStorage.getItem(SAVE.settingsKey) ?? 'null');
       if (s) return { ...def, ...s };

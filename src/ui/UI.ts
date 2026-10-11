@@ -1,3 +1,4 @@
+import { settingsMarkup, wireSettingsTabs } from './SettingsPanel';
 import { serialize } from '../world/Save';
 import { islandFile, parseIslandFile, downloadIsland, MAX_ISLAND_FILE_BYTES } from '../world/IslandFile';
 import { DEFENCE, DOGS, GOODS, GOOD_KEYS, GoodKey, VOYAGE, FAUNA, PATHS, BUILDINGS, BuildingKey, CAMERA, JETTY, MILESTONES, PresetName, SAVE, SPECIES, WARRIOR, FARM_TYPES, SMOKE, STONEMASON, BOAT_WORKSHOP, TRADE, TradeOffer, ResourceKey } from '../config';
@@ -547,47 +548,26 @@ export class UI {
   }
 
   private buildSettings(): void {
-    this.settings = el('div', 'modal hidden');
+    this.settings = el('div', 'modal settings-modal hidden');
+    this.settings.setAttribute('role', 'dialog');
+    this.settings.setAttribute('aria-modal', 'true');
+    this.settings.setAttribute('aria-labelledby', 'settings-title');
     const s = this.game.settings;
-    const card = el('div', 'panel card');
-    card.innerHTML = `
-      <div class="card-head"><span>Settings</span></div>
-      <div class="row namerow">Island name
-        <span class="nameedit"><input type="text" maxlength="32" spellcheck="false" autocomplete="off" data-n="name" aria-label="Island name"><button class="obtn gold sm" data-a="rename" title="Pick a random name">${ICONS.o_new}<span>Random</span></button></span>
-      </div>
-      <label class="row">Graphics
-        <select data-k="preset">
-          <option value="ultra">Ultra (desktop)</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low (phones)</option>
-        </select>
-      </label>
-      <label class="row">Shadows <input type="checkbox" data-k="shadows"></label>
-      <label class="row">Day and night cycle <input type="checkbox" data-k="dayNight"></label>
-      <label class="row">Weather (rain and storms) <input type="checkbox" data-k="weather"></label>
-      <label class="row">Island movement (swaying plants, blowing leaves, sea spray) <input type="checkbox" data-k="motion"></label>
-      <label class="row">Lower resolution while moving (smoother) <input type="checkbox" data-k="motionRes"></label>
-      <label class="row">Pixel style <input type="checkbox" data-k="pixel"></label>
-      <label class="row">Tilt-shift depth of field <input type="checkbox" data-k="dof"></label>
-      <label class="row">Blur strength <input type="range" min="0" max="2" step="0.05" data-k="dofStrength"></label>
-      <label class="row">Mute sound <input type="checkbox" data-k="muted"></label>
-      <label class="row">Volume <input type="range" min="0" max="1" step="0.05" data-k="volume"></label>
-      <label class="row">Music <input type="range" min="0" max="1" step="0.05" data-k="music"></label>
-      <label class="row">Show MAP button <input type="checkbox" data-k="showMap"></label>
-      <label class="row">Show FPS <input type="checkbox" data-k="fps"></label>
-      <label class="row godrow hidden">Instant build and upgrade <input type="checkbox" data-k="instantBuild"></label>
-      <div class="obtns">
-        <button class="obtn red" data-a="new">${ICONS.o_new}<span>New normal game</span></button>
-        <button class="obtn" data-a="sandbox"><span>New Sandbox · unlimited resources</span></button>
-        <button class="obtn gold" data-a="save">${ICONS.o_save}<span>Save</span></button>
-        <button class="obtn green" data-a="tutorial">${ICONS.o_tutorial}<span>Tutorial</span></button>
-        <button class="obtn cyan" data-a="help">${ICONS.o_help}<span>How to play</span></button>
-        <button class="obtn wide" data-a="copy">${ICONS.o_link}<span>Copy Island</span></button>
-        <button class="obtn wide" data-a="load">${ICONS.o_save}<span>Load Island</span></button>
-      </div>
-      <input type="file" data-a="island-file" accept=".json,application/json" class="hidden">
-      <p class="muted small">Progress autosaves in this browser. Copy Island shares or downloads a saved copy of your build and progress. Use Load Island to open a shared save. Each copy progresses independently.</p>`;
-    const close = el('button', 'ib small close', ICONS.close);
-    close.onclick = () => this.toggle(this.settings, false);
-    card.querySelector('.card-head')!.appendChild(close);
+    const card = el('div', 'settings-card', settingsMarkup());
+    wireSettingsTabs(card);
+    for (const action of ['close', 'return']) card.querySelector<HTMLButtonElement>(`[data-a="${action}"]`)!.onclick = () => this.toggle(this.settings, false);
+    card.addEventListener('keydown', e => {
+      e.stopPropagation();
+      if (e.key === 'Escape') { e.preventDefault(); this.toggle(this.settings, false); }
+      if (e.key === 'Tab') {
+        const controls = [...card.querySelectorAll<HTMLElement>('button, input, select, summary')].filter(node =>
+          !node.closest('[hidden], .hidden') && !(node as HTMLInputElement).disabled && node.tabIndex >= 0 &&
+          !node.closest('details:not([open]) .settings-details'));
+        const first = controls[0], last = controls[controls.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
+      }
+    });
     const sel = card.querySelector('select') as HTMLSelectElement;
     sel.value = s.preset;
     sel.onchange = () => {
@@ -596,6 +576,7 @@ export class UI {
       // Choosing graphics yourself gives back full resolution.
       s.renderScale = 1;
       this.game.applySettings();
+      this.syncSettingsControls();
     };
     this.presetSelect = sel;
     // Island name: typed, or rolled from Nahuatl place-name roots.
@@ -608,7 +589,6 @@ export class UI {
     };
     nameIn.onchange = () => applyName(nameIn.value);
     nameIn.onkeydown = (e) => {
-      e.stopPropagation();
       if (e.key === 'Enter') nameIn.blur();
     };
     card.querySelector<HTMLButtonElement>('[data-a="rename"]')!.onclick = () => {
@@ -618,11 +598,12 @@ export class UI {
     this.nameInput = nameIn;
     card.querySelectorAll<HTMLInputElement>('input[data-k]').forEach((inp) => {
       const k = inp.dataset.k as keyof typeof s;
-      if (inp.type === 'checkbox') inp.checked = !!s[k];
+      if (inp.type === 'checkbox') inp.checked = inp.dataset.invert ? !s[k] : !!s[k];
       else inp.value = String(s[k]);
       inp.oninput = () => {
-        (s as unknown as Record<string, unknown>)[k] = inp.type === 'checkbox' ? inp.checked : parseFloat(inp.value);
+        (s as unknown as Record<string, unknown>)[k] = inp.type === 'checkbox' ? (inp.dataset.invert ? !inp.checked : inp.checked) : parseFloat(inp.value);
         this.game.applySettings();
+        this.syncSettingsControls();
         if (k === 'showMap') {
           this.mapWrap.classList.toggle('hidden', !s.showMap);
           if (!s.showMap) {
@@ -684,6 +665,7 @@ export class UI {
       this.startTutorial(true);
     };
     this.settings.appendChild(card);
+    this.syncSettingsControls();
     this.settings.onclick = (e) => {
       if (e.target === this.settings) this.toggle(this.settings, false);
     };
@@ -792,11 +774,35 @@ export class UI {
     }
   }
 
+  private settingsOpener: HTMLElement | null = null;
+
+  private syncSettingsControls(): void {
+    const s = this.game.settings;
+    this.settings.querySelectorAll<HTMLInputElement>('input[data-k]').forEach(inp => {
+      const key = inp.dataset.k as keyof typeof s;
+      if (inp.type === 'checkbox') inp.checked = inp.dataset.invert ? !s[key] : !!s[key];
+      else inp.value = String(s[key]);
+      const output = this.settings.querySelector<HTMLOutputElement>(`[data-value="${key}"]`);
+      if (output) {
+        const percent = Math.round(Number(s[key]) / Number(inp.max) * 100);
+        output.value = `${percent}%`;
+        inp.style.setProperty('--slider-fill', `${percent}%`);
+      }
+      if (key === 'dofStrength') inp.disabled = !s.dof;
+    });
+    if (this.presetSelect) this.presetSelect.value = s.preset;
+  }
+
   private presetSelect: HTMLSelectElement | null = null;
 
   private toggle(m: HTMLElement, show?: boolean): void {
     const on = show ?? m.classList.contains('hidden');
+    if (m === this.settings) {
+      if (on) { this.settingsOpener = document.activeElement as HTMLElement; this.syncSettingsControls(); }
+      else this.settingsOpener?.focus();
+    }
     m.classList.toggle('hidden', !on);
+    if (on && m === this.settings) this.settings.querySelector<HTMLButtonElement>('[role="tab"][aria-selected="true"]')?.focus();
     if (on && this.presetSelect) this.presetSelect.value = this.game.settings.preset;
     if (on) this.updateIslandName();
   }
@@ -866,7 +872,7 @@ export class UI {
     let closed = this.closePopups();
     for (const m of [this.settings, this.help, this.tradeModal].filter(Boolean) as HTMLElement[]) {
       if (!m.classList.contains('hidden')) {
-        m.classList.add('hidden');
+        this.toggle(m, false);
         closed = true;
       }
     }
