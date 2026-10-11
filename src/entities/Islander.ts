@@ -53,7 +53,7 @@ export const CONDITION_LABEL: Record<Condition, string> = {
 
 /** A task is a small state machine the AI steps through. */
 export interface Task {
-  kind: 'chop' | 'mine' | 'gather' | 'deliver' | 'build' | 'farm' | 'pray' | 'eat' | 'sleep' | 'wander' | 'patrol' | 'butcher' | 'fish' | 'train' | 'goto' | 'follow' | 'capture' | 'spearfish' | 'smoke' | 'bonfire' | 'flee' | 'hall' | 'heal' | 'mason' | 'market';
+  kind: 'chop' | 'mine' | 'gather' | 'deliver' | 'build' | 'farm' | 'pray' | 'eat' | 'sleep' | 'wander' | 'patrol' | 'butcher' | 'fish' | 'train' | 'goto' | 'follow' | 'capture' | 'spearfish' | 'smoke' | 'bonfire' | 'flee' | 'hall' | 'heal' | 'mason' | 'market' | 'family';
   stage: number;
   /** Plant id, building id or islander id depending on kind. */
   target: number;
@@ -117,6 +117,8 @@ export interface Islander {
   warrior: 'jaguar' | 'eagle' | null;
   /** Day of the last evening spent at a bonfire. */
   lastBonfire: number;
+  lastFamilyGather?: number;
+  lastHallVisit?: number;
   /** Completed prayer seconds towards the next Great Temple offering, retained between visits. */
   greatTemplePrayer?: number;
   /** Waving up at the player (seconds left), and time until they might wave again. */

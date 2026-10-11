@@ -4,7 +4,7 @@ import { Progression } from './economy/Progression';
 import { idleForGroup, IdleGroupTap } from './ai/GroupSelection';
 import { Volcano, VOLCANO_COST, VOLCANO_HAPPINESS } from './entities/Volcano';
 import { Explore } from './render/Explore';
-import { WildlifeView, type WildlifeSubject } from './render/WildlifeView';
+import { WildlifeView, wildlifeBehaviour, type WildlifeSubject } from './render/WildlifeView';
 import * as THREE from 'three';
 import type { Where } from './ui/where';
 import { PATHS, BUILDINGS, BuildingKey, CAMERA, ISLANDER, MILESTONES, POWERS, PresetName, RENDER, SAVE, isFarm, SETTLERS } from './config';
@@ -1056,18 +1056,49 @@ export class Game {
     const position = (x: number, y: number, z: number) => new THREE.Vector3(x, Math.max(0, y), z);
     return [
       ...this.wildlife.animals.list.map(a => ({
+        behaviour: () => wildlifeBehaviour(a.state),
         id: `animal-${a.id}`, name: a.sp.charAt(0).toUpperCase() + a.sp.slice(1), distance: Math.max(8, a.scale * 10),
         position: () => a.alive && !a.heldBy ? position(a.x, a.y + 0.4 * a.scale, a.z) : null,
       })),
       ...this.wildlife.monkeys.list.map(m => ({
+        behaviour: () => wildlifeBehaviour(m.state),
         id: `monkey-${m.id}`, name: 'Spider monkey', distance: 10,
         position: () => !m.dead ? position(m.x, m.y + 0.3, m.z) : null,
       })),
+      ...this.wildlife.birds.gulls.map((b, i) => ({
+        id: `gull-${i}`, name: 'Seagull', distance: 9,
+        behaviour: () => b.state === 'ground' ? ['Standing on the shore', 'Walking', 'Pecking', 'Preening', 'Stretching its wings'][b.act] ?? 'On the shore' : wildlifeBehaviour(b.state),
+        position: () => position(b.x, b.y, b.z),
+      })),
+      ...this.wildlife.birds.toucans.map((b, i) => ({
+        id: `toucan-${i}`, name: 'Toucan', distance: 9,
+        behaviour: () => wildlifeBehaviour(b.state), position: () => position(b.x, b.y, b.z),
+      })),
+      ...this.waterBirds.list.map(b => ({
+        id: `waterbird-${b.id}`, name: b.kind === 'heron' ? 'Heron' : 'Pelican', distance: 10,
+        behaviour: () => wildlifeBehaviour(b.state), position: () => position(b.x, b.y + 0.3, b.z),
+      })),
+      ...this.turtles.list.map((t, i) => ({
+        id: `turtle-${i}`, name: 'Sea turtle', distance: 10,
+        behaviour: () => wildlifeBehaviour(t.state), position: () => position(t.x, t.y + 0.2, t.z),
+      })),
+      ...this.wildlife.sharks.sharks.map((s, i) => ({
+        id: `shark-${i}`, name: 'Scalloped hammerhead', distance: 14,
+        behaviour: () => wildlifeBehaviour(this.wildlife.sharks.pods[s.pod]?.state ?? 'cruise'),
+        position: () => position(s.x, s.y, s.z),
+      })),
+      ...this.jaguars.list.map(j => ({
+        id: `jaguar-${j.id}`, name: 'Jaguar', distance: 12,
+        behaviour: () => wildlifeBehaviour(j.state),
+        position: () => j.state !== 'dead' && this.jaguars.list.includes(j) ? position(j.x, j.y + 0.5 * j.scale, j.z) : null,
+      })),
       ...this.marine.whales.map((w, i) => ({
+        behaviour: () => wildlifeBehaviour(w.state),
         id: `whale-${i}`, name: w.mother ? 'Humpback calf' : 'Humpback whale', distance: w.length * 3.5,
         position: () => position(w.x, w.root.position.y, w.z),
       })),
       ...this.marine.dolphinSubjects.map((d, i) => ({
+        behaviour: () => d.y > 0 ? 'Leaping above the waves' : 'Swimming with its pod',
         id: `dolphin-${i}`, name: 'Dolphin', distance: 14,
         position: () => position(d.x, d.y, d.z),
       })),
@@ -1833,23 +1864,14 @@ export class Game {
   }
 
   /**
-   * A storm: the village takes shelter. With a Great Hall its bell calls everyone in (as a drill, so
-   * the warriors stay at their posts); anyone else close to home runs indoors. They stay in while
+   * A storm: the village takes shelter. Its bell calls everyone in;
+   * workers and guards head for the nearest home or hall. They stay in while
    * the storm lasts (the colony's threat hook). Returns true when the village was told.
    */
   private stormShelter(announce: boolean): boolean {
     this.stormRecall = POWERS.stormRecall;
     const halls = this.buildings.list.filter((b) => b.key === 'greathall' && b.complete);
-    if (halls.length) this.colony.sanctuary(halls[0].x, halls[0].z, true);
-    // Those the bell can't reach (or with no hall at all) run home when it's near.
-    for (const isl of this.colony.list) {
-      if (isl.hidden || isl.sleeping || isl.warrior || isl.safe) continue;
-      const t = isl.task;
-      if (t && (t.kind === 'flee' || t.kind === 'hall' || t.kind === 'sleep' || t.kind === 'capture' || (t.kind === 'fish' && t.stage >= 2))) continue;
-      const home = isl.home >= 0 ? this.buildings.byId(isl.home) : undefined;
-      if (!home || !home.complete || Math.hypot(home.door.x - isl.x, home.door.z - isl.z) > 28) continue;
-      this.colony.alarm(isl.x, isl.z, 0.01);
-    }
+    this.colony.shelterFromStorm();
     if (!announce) return false;
     const hall = halls[0];
     if (hall) {
@@ -2041,7 +2063,7 @@ export class Game {
         this.rig.goal.z = f.z;
       } else if (!f) this.followId = -1;
     }
-    this.wildlifeView?.update();
+    this.wildlifeView?.update(realDt);
     if (this.explorer?.active) this.explorer.update(realDt);
     else this.rig.update(realDt);
     // What the camera sees this frame: off-screen entities skip posing and drawing.

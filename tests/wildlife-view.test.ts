@@ -12,7 +12,7 @@ function setup() {
   const classList = { add: (s: string) => classes.add(s), remove: (s: string) => classes.delete(s) };
   const nodes: Record<string, any> = {};
   (globalThis as any).document = { body: { classList, appendChild() {} }, createElement: () => ({
-    classList, querySelector: (s: string) => nodes[s] ??= {},
+    classList, querySelector: (s: string) => nodes[s] ??= { setAttribute(k: string, v: string) { this[k] = v; } },
   }) };
   const rig = new CameraRig(1, { N: 100, heightAt: () => 0 } as any);
   rig.jumpTo(20, 30, 60);
@@ -83,4 +83,39 @@ test('single-finger cinematic dragging uses orbit even if a placement tool is pe
 
 test('all humpbacks use a base length 50 percent larger, including the calf', () => {
   assert.ok(Math.abs(MARINE.whaleLength / 7.8 - 1.5) < 1e-12);
+});
+
+
+test('tour switches species after 20 real seconds, supports manual next and resets on exit', () => {
+  const h = setup(); h.view.enter();
+  h.setSubjects([{ id: 'pig', name: 'Pig', distance: 10, position: () => h.p },
+    { id: 'bird', name: 'Toucan', distance: 9, position: () => h.p }]);
+  h.view.toggleTour(); h.view.update(19);
+  assert.equal(h.nodes['.wildlife-name'].textContent, 'Pig');
+  h.view.update(1); assert.equal(h.nodes['.wildlife-name'].textContent, 'Toucan');
+  h.view.update(19); h.view.next(); h.view.update(1);
+  assert.equal(h.nodes['.wildlife-name'].textContent, 'Pig');
+  h.view.toggleTour(); h.view.update(40);
+  assert.equal(h.nodes['.wildlife-name'].textContent, 'Pig');
+  h.view.toggleTour(); h.view.exit();
+  assert.equal(h.view.tourRunning, false);
+  assert.equal(h.nodes['[data-action="tour"]']['aria-pressed'], 'false');
+});
+
+test('new wildlife candidates expose live behaviour and unavailable jaguars are excluded', () => {
+  const bird = { x: 1, y: 5, z: 2, state: 'fly', act: 0 };
+  const jaguar = { id: 1, x: 1, y: 0, z: 2, scale: 1, state: 'prowl' };
+  const game = { wildlife: { animals: { list: [] }, monkeys: { list: [] },
+    birds: { gulls: [bird], toucans: [bird] }, sharks: { sharks: [{ x: 1, y: -2, z: 2, pod: 0 }], pods: [{ state: 'chase' }] } },
+    waterBirds: { list: [{ ...bird, id: 1, kind: 'heron', state: 'strike' }] },
+    turtles: { list: [{ ...bird, state: 'crawl' }] }, jaguars: { list: [jaguar] },
+    marine: { whales: [], dolphinSubjects: [] } };
+  const subjects = (Game.prototype as any).wildlifeSubjects.call(game) as WildlifeSubject[];
+  assert.deepEqual(subjects.map(s => s.name), ['Seagull', 'Toucan', 'Heron', 'Sea turtle', 'Scalloped hammerhead', 'Jaguar']);
+  assert.equal(subjects[4].behaviour!(), 'Chasing fish');
+  const h = setup(); h.setSubjects([subjects[0]]); h.view.enter();
+  assert.equal(h.nodes['.wildlife-behaviour'].textContent, 'Flying');
+  bird.state = 'ground'; bird.act = 3; h.view.update();
+  assert.equal(h.nodes['.wildlife-behaviour'].textContent, 'Preening');
+  jaguar.state = 'dead'; assert.equal(subjects[5].position(), null);
 });

@@ -686,6 +686,7 @@ export class Colony {
     if (isl.condition !== 'well') return this.goHeal(isl);
     if (isl.child) {
       if (night) return this.goSleep(isl);
+      if (this.familyGather(isl)) return;
       if (isl.age > ISLANDER.childGrowDays * 600 * 0.4 && this.rnd() < 0.4) {
         const parent = this.list.find((p) => !p.child && p.home === isl.home && p.home >= 0);
         if (parent) {
@@ -700,7 +701,7 @@ export class Colony {
       const store = this.bld.nearestStore(isl.x, isl.z, true);
       if (store) return this.setTask(isl, 'eat', store.id, store.door.x, store.door.z);
     }
-    if (isl.carry?.res === 'herbs' || isl.carry?.market !== undefined) {
+    if (isl.carry && isl.carry.kind !== 'chicken') {
       this.deliver(isl);
       if (!isl.task) isl.think = 5;
       return;
@@ -737,6 +738,16 @@ export class Colony {
     const watchman = isl.role === 'warrior';
     if ((night && !watchman) || isl.rest < ISLANDER.sleepThreshold) return this.goSleep(isl);
     if (night && watchman && isl.rest < 0.5) return this.goSleep(isl);
+    if (!night && !god && !this.hooks.threat?.()) {
+      if (this.familyGather(isl)) return;
+      // A staggered midday break, only when the village has food to spare.
+      if (hr >= 11 && hr < 14 && isl.role !== 'warrior' && isl.rest > 0.35 &&
+          this.eco.food >= this.list.length * 3 && (isl.id + this.time.day) % 4 === 0 &&
+          isl.lastHallVisit !== this.time.day && this.goToHall(isl, false)) {
+        isl.lastHallVisit = this.time.day;
+        return;
+      }
+    }
     if (this.work(isl)) return;
     // Nothing to do in their own job (store full, nothing left nearby): decide for themselves.
     if (isl.role !== 'warrior' && isl.role !== 'builder' && this.selfDirected(isl)) return;
@@ -745,6 +756,32 @@ export class Colony {
     // Truly idle: rest a while in the Great Hall if there is one nearby, else mill about.
     if (!night && this.rnd() < GREAT_HALL.restChance && this.goToHall(isl, false)) return;
     this.wander(isl, isl.x, isl.z, 4);
+  }
+
+  /** Housemates meet at their own doorstep before work and before the evening fires. */
+  private familyGather(isl: Islander): boolean {
+    const hr = this.time.hour;
+    const period = hr >= 6.5 && hr < 8.5 ? 0 : hr >= 17 && hr < 19 ? 1 : -1;
+    const token = this.time.day * 2 + period;
+    if (period < 0 || this.eco.godMode || this.hooks.threat?.() || isl.carry ||
+        isl.role === 'warrior' || isl.hunger < 0.45 || isl.rest < 0.35 ||
+        isl.lastFamilyGather === token || isl.home < 0) return false;
+    const home = this.bld.byId(isl.home);
+    if (!home?.complete || this.list.filter(p => p.home === isl.home).length < 2) return false;
+    const taken = new Set(this.list.filter(p => p.task?.kind === 'family' && p.task.target === home.id).map(p => p.task!.slot));
+    for (let k = 0; k < 8; k++) {
+      const slot = (isl.id + k) % 8, a = slot * Math.PI / 4;
+      if (taken.has(slot)) continue;
+      const x = home.door.x + Math.cos(a) * 1.8, z = home.door.z + Math.sin(a) * 1.8;
+      const cell = this.world.cellIndexAt(x, z);
+      if (cell < 0 || !this.pf.walkable(cell)) continue;
+      this.setTask(isl, 'family', home.id, x, z);
+      isl.task!.slot = slot;
+      isl.task!.timer = 18 + this.rnd() * 6;
+      isl.lastFamilyGather = token;
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -1149,6 +1186,21 @@ export class Colony {
           t.timer -= dt;
           if (t.timer <= 0) this.releaseTask(isl);
         } else if (r === 'failed') this.releaseTask(isl);
+        break;
+      }
+      case 'family': {
+        const home = this.bld.byId(t.target);
+        if (!home?.complete || this.hooks.threat?.()) return this.releaseTask(isl);
+        const r = this.travel(isl, dt, t.x, t.z);
+        if (r === 'failed') return this.releaseTask(isl);
+        if (r === 'arrived') {
+          isl.heading = Math.atan2(home.door.x - isl.x, home.door.z - isl.z);
+          isl.tool = 'none';
+          isl.anim = t.timer > 17 && t.timer < 19 ? 'wave' : 'idle';
+          isl.happy = Math.min(1, isl.happy + dt * 0.002);
+          t.timer -= dt;
+          if (t.timer <= 0) this.releaseTask(isl);
+        }
         break;
       }
       case 'follow': {
@@ -1850,13 +1902,30 @@ export class Colony {
   private shelter(isl: Islander, homeRange: number): boolean {
     const home = isl.home >= 0 ? this.bld.byId(isl.home) : undefined;
     const dHome = home && home.complete ? Math.hypot(home.door.x - isl.x, home.door.z - isl.z) : Infinity;
-    const hall = this.nearestHall(isl, GREAT_HALL.callRadius, true);
+    const hall = this.nearestHall(isl, homeRange === Infinity ? Infinity : GREAT_HALL.callRadius, true);
     if (hall && hall.d < dHome) return this.goToHall(isl, true, hall);
     if (home && dHome < homeRange) {
       this.setTask(isl, 'flee', home.id, home.door.x, home.door.z);
       return true;
     }
     return false;
+  }
+
+  /** Rain sends guards and distant workers indoors too; boats finish their safe return. */
+  shelterFromStorm(): number {
+    let n = 0;
+    for (const isl of this.list) {
+      if (isl.hidden || isl.sleeping || isl.safe || isl.task?.kind === 'heal') continue;
+      const t = isl.task;
+      if (t?.kind === 'hall') { this.toShelter(t); continue; }
+      if (t?.kind === 'flee' || t?.kind === 'sleep' || (t?.kind === 'fish' && t.stage >= 2)) continue;
+      if (this.shelter(isl, Infinity)) { n++; continue; }
+      // Homeless villagers use a completed roof, rather than standing in the rain.
+      const roof = this.bld.list.filter(b => b.complete && ['hut', 'home', 'healer', 'greathall'].includes(b.key))
+        .sort((a, b) => Math.hypot(a.door.x - isl.x, a.door.z - isl.z) - Math.hypot(b.door.x - isl.x, b.door.z - isl.z))[0];
+      if (roof) { this.setTask(isl, 'flee', roof.id, roof.door.x, roof.door.z); n++; }
+    }
+    return n;
   }
 
   /**
@@ -2591,6 +2660,7 @@ export class Colony {
       case 'smoke': return 'Smoking fish and meat';
       case 'pray': return 'Praying at the temple';
       case 'eat': return 'Eating';
+      case 'family': return 'Gathering with family near home';
       case 'bonfire': return 'Gathering and dancing around the village fire';
       case 'flee': return isl.hidden ? 'Sheltering indoors' : 'Running for shelter';
       case 'hall':

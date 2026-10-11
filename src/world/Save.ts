@@ -142,6 +142,8 @@ export function serialize(g: Game): SaveData {
       id: i.id, name: i.name, gender: i.gender, child: i.child, age: i.age, ...g.colony.savePos(i), hunger: i.hunger, rest: i.rest, happy: i.happy,
       role: i.role, manualRole: i.manualRole, workplace: i.workplace, home: i.home, skin: i.skin, cloth: i.cloth, cloth2: i.cloth2,
       ...(i.appearance ? {appearance:i.appearance} : {}), headdress: i.headdress, jewel: i.jewel, warrior: i.warrior, heading: i.heading,
+      ...(i.lastFamilyGather !== undefined ? { lastFamilyGather: i.lastFamilyGather } : {}),
+      ...(i.lastHallVisit !== undefined ? { lastHallVisit: i.lastHallVisit } : {}),
       ...(i.greatTemplePrayer ? { greatTemplePrayer: i.greatTemplePrayer } : {}),
       ...(i.condition !== 'well' ? { condition: i.condition, conditionT: i.conditionT } : {}),
     })),

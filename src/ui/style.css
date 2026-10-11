@@ -722,3 +722,9 @@ body.watching-wildlife #hud * { pointer-events: none !important; }
 .placement-actions .btn:disabled { opacity: 0.4; cursor: default; }
 
 .bottom.placing > .toolbar, .bottom.placing > .beliefbar { display: none; }
+
+.wildlife-caption { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-radius: 8px; background: rgba(18, 16, 20, 0.72); }
+.wildlife-behaviour { font-size: 12px; color: #e7ecf1; }
+.wildlife-actions { flex-wrap: wrap; }
+.wildlife-actions button { min-height: 40px; }
+.wildlife-actions button[aria-pressed="true"] { border-color: #ffe08a; color: #ffe08a; }
