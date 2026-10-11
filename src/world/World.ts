@@ -107,6 +107,8 @@ export class World {
 
   /** Monotonic counter bumped whenever terrain changes (for caches). */
   version = 0;
+  /** Obstacle/deck changes, separate from terrain mesh cache invalidation. */
+  navigationVersion = 0;
   /** Buildings whose cells islanders may walk through (farm fields, jetty decks). */
   passableBuildings = new Set<number>();
   /**
@@ -121,6 +123,7 @@ export class World {
   }
   /** Block the cells under a round footprint (at least the cell it stands in). */
   blockCircle(x: number, z: number, r: number, grid: Uint8Array = this.blockFixed): void {
+    if (grid === this.blockFixed) this.navigationVersion++;
     const [cx, cz] = this.cellOf(x, z);
     if (this.inBounds(cx, cz)) grid[this.idx(cx, cz)] = 1;
     const R = Math.ceil(r);
@@ -212,6 +215,7 @@ export class World {
    * Constant regions stay exactly flat; boundaries become smooth curves.
    */
   computeSmooth(cx0 = 0, cz0 = 0, cx1 = this.N - 1, cz1 = this.N - 1): void {
+    this.navigationVersion++;
     const N = this.N;
     const x0 = Math.max(0, cx0 - 4), x1 = Math.min(N - 1, cx1 + 4);
     const z0 = Math.max(0, cz0 - 4), z1 = Math.min(N - 1, cz1 + 4);

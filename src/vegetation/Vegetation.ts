@@ -193,6 +193,7 @@ export class Vegetation {
       if (p.kind !== 'rock' || p.state === PlantState.Gone) continue;
       w.blockCircle(p.x, p.z, (0.45 + p.variant * 0.2) * p.scale, w.blockRock);
     }
+    w.navigationVersion++;
   }
 
   private makeDefs(): void {

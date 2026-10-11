@@ -561,6 +561,7 @@ export class BuildingSystem {
     const e = new THREE.Euler(0, (rot * Math.PI) / 2, 0);
     for (const t of b.torches) t.pos.copy(t.flame.position).applyEuler(e).add(b.group.position);
     this.terrain.updateWear();
+    w.navigationVersion++;
     this.onMoved(b);
     return { ok: true, reason: '' };
   }
@@ -603,6 +604,7 @@ export class BuildingSystem {
     this.buildVisuals(b);
     this.list.push(b);
     this.group.add(b.group);
+    this.world.navigationVersion++;
     if (instant || this.instantBuild()) this.finish(b);
     return b;
   }
@@ -693,9 +695,10 @@ export class BuildingSystem {
     const clear = () => {
       for (let z = b.cz; z < b.cz + b.d; z++) for (let x = b.cx; x < b.cx + b.w; x++) {
         const i = this.world.idx(x, z);
-        if (this.world.occ[i] === b.id) this.world.occ[i] = 0;
+        if (this.world.occ[i] === b.id + 1) this.world.occ[i] = 0;
       }
       this.world.version++;
+      this.world.navigationVersion++;
     };
     if (refund) {
       const demolition = new Demolition(b, clear);
@@ -708,6 +711,7 @@ export class BuildingSystem {
       for (let z = b.cz; z < b.cz + b.d; z++) for (let x = b.cx; x < b.cx + b.w; x++) this.world.soil[this.world.idx(x, z)] = 0;
       this.terrain.updateWear();
     }
+    this.world.navigationVersion++;
     if (refund) this.eco.refund(b.def.cost, 0.5 * (b.key==='greattemple' ? (b.monumentPaid??4) : 1));
     this.group.remove(b.group);
     // Free the full model too when the simple copy is showing (the copy goes with it).

@@ -47,6 +47,16 @@ interface PathReq {
   x: number;
   z: number;
   opts: PathOptions;
+  readyAt?: number;
+  priority?: number;
+}
+
+interface RouteState extends PathReq {
+  path: Islander['path'];
+  version: number;
+  navigationVersion: number;
+  requestedAt: number;
+  checkAt: number;
 }
 
 const GENERAL_ROLES: Role[] = ['woodcutter', 'miner', 'gatherer'];
@@ -59,6 +69,8 @@ export class Colony {
   list: Islander[] = [];
   private nextId = 1;
   private queue: PathReq[] = [];
+  private routes = new WeakMap<Islander, RouteState>();
+  readonly pathStats = { queued: 0, reused: 0, pendingReused: 0, completed: 0 };
   private jobTimer = 0;
   private houseTimer = 0;
   private wearTimer = 0;
@@ -121,13 +133,64 @@ export class Colony {
 
   // ---------------- Movement ----------------
 
-  private requestPath(isl: Islander, x: number, z: number, opts: PathOptions = {}): void {
+  private sameOptions(a: PathOptions, b: PathOptions, includeAvoid = true): boolean {
+    return (a.allowBuilding ?? -1) === (b.allowBuilding ?? -1) &&
+      !!a.allowWater === !!b.allowWater && (a.goalRadius ?? 0) === (b.goalRadius ?? 0) &&
+      a.maxIterations === b.maxIterations && (!includeAvoid || a.avoid === b.avoid);
+  }
+
+  private sameGoal(r: RouteState, x: number, z: number): boolean {
+    // Exact destinations stay exact; only radius-based approaches tolerate small target motion.
+    const tolerance = Math.min(.75, (r.opts.goalRadius ?? 0) * .75);
+    return Math.hypot(r.x - x, r.z - z) <= Math.max(.001, tolerance);
+  }
+
+  private validRoute(isl: Islander, r: RouteState, full = false): boolean {
+    if (!isl.path || isl.path !== r.path || isl.pathIdx >= isl.path.length) return false;
+    let x = isl.x, z = isl.z;
+    const end = full ? isl.path.length : isl.pathIdx + 1;
+    for (let i = isl.pathIdx; i < end; i++) {
+      const p = isl.path[i];
+      if (!this.pf.segmentClear(x,z,p.x,p.z,r.opts)) return false;
+      x = p.x; z = p.z;
+    }
+    return true;
+  }
+
+  private requestPath(isl: Islander, x: number, z: number, opts: PathOptions = {}, force = false): void {
+    const old = this.routes.get(isl);
+    const compatible = old && old.task === isl.task && this.sameOptions(old.opts, opts);
+    const moving = isl.task?.kind === 'capture' || isl.task?.kind === 'follow';
+    if (!force && old && compatible && isl.pathPending && (this.sameGoal(old,x,z) || moving)) {
+      // Track a moving target at execution time without sending its pending request to the back.
+      if (moving && !this.sameGoal(old,x,z)) { old.x = x; old.z = z; }
+      this.pathStats.pendingReused++;
+      return; // Keep its original queue position, rather than restarting the same request.
+    }
+    if (!force && old && compatible && !isl.pathPending &&
+        (this.sameGoal(old,x,z) || (moving &&
+          this.clock - old.requestedAt < .75)) && this.validRoute(isl, old,
+            old.version !== this.world.version || old.navigationVersion !== this.world.navigationVersion)) {
+      old.version = this.world.version;
+      old.navigationVersion = this.world.navigationVersion;
+      this.pathStats.reused++;
+      return;
+    }
+    const urgent = isl.task?.kind === 'flee' || isl.task?.kind === 'heal' ||
+      (isl.task?.kind === 'hall' && isl.task.phase === 1) || (isl.task?.kind === 'eat' && isl.hunger < .1);
+    const ordered = isl.manualRole || isl.task?.kind === 'goto' || isl.task?.kind === 'capture';
+    const req: RouteState = { isl, task: isl.task, x, z, opts: { ...opts }, path: null,
+      version: this.world.version, navigationVersion: this.world.navigationVersion,
+      requestedAt: this.clock, checkAt: 0, priority: urgent ? 2 : ordered ? 1 : 0,
+      readyAt: this.clock + (urgent || ordered || force ? 0 : (isl.id % 8) * .05) };
     isl.pathPending = true;
     isl.path = null;
     isl.pathIdx = 0;
     isl.progD = undefined;
     this.queue = this.queue.filter((q) => q.isl !== isl);
-    this.queue.push({ isl, task: isl.task, x, z, opts });
+    this.routes.set(isl, req);
+    this.queue.push(req);
+    this.pathStats.queued++;
   }
 
   /** Drives walking for the current task. Returns 'arrived', 'walking' or 'failed'. */
@@ -146,6 +209,22 @@ export class Colony {
     // Shut inside a building's footprint they don't belong in (it went up, or was moved, where
     // they stood): walk straight out to open ground first, then find the way again.
     if (this.escape(isl, dt, opts)) return 'walking';
+    const route = this.routes.get(isl);
+    if (route?.task === t) {
+      const changed = route.version !== this.world.version || route.navigationVersion !== this.world.navigationVersion;
+      if (!this.sameOptions(route.opts,opts,false) || (!this.sameGoal(route,x,z) &&
+          Math.hypot(route.x-x,route.z-z) > (t.kind === 'capture' || t.kind === 'follow' ? 1.5 : .001))) {
+        this.requestPath(isl,x,z,opts);
+      } else if (!isl.pathPending && (changed || this.clock >= route.checkAt)) {
+        route.checkAt = this.clock + .5 + (isl.id % 8) * .03;
+        if (isl.path && isl.pathIdx < isl.path.length && !this.validRoute(isl,route,changed)) {
+          this.requestPath(isl,x,z,opts,true);
+        } else {
+          route.version = this.world.version;
+          route.navigationVersion = this.world.navigationVersion;
+        }
+      }
+    }
     if (isl.pathPending) {
       isl.anim = isl.carry ? 'carry' : 'idle';
       return 'walking';
@@ -210,7 +289,7 @@ export class Colony {
         if (Math.hypot(isl.x - x, isl.z - z) < 2.5 + (opts.goalRadius ?? 0)) return 'arrived';
         return 'failed';
       }
-      this.requestPath(isl, x, z, isl.jam >= 2 ? { ...opts, avoid: this.crowdCells(isl) } : opts);
+      this.requestPath(isl, x, z, isl.jam >= 2 ? { ...opts, avoid: this.crowdCells(isl) } : opts, true);
       return 'walking';
     }
     const aligned = actualSpeed > 0 && (velocity.x * dx + velocity.z * dz) / (actualSpeed * (d || 1)) > 0.99;
@@ -282,6 +361,8 @@ export class Colony {
     // Out: find the way on from here.
     if (this.pf.walkable(w.cellIndexAt(isl.x, isl.z), opts.allowBuilding, opts.allowWater)) {
       isl.pathPending = false;
+      isl.path = null;
+      this.routes.delete(isl);
       isl.task!.stage = 0;
     }
     return true;
@@ -346,6 +427,9 @@ export class Colony {
       if (isl.carry?.kind === 'chicken') isl.carry = null;
     }
     isl.task = null;
+    isl.path = null;
+    isl.pathPending = false;
+    this.routes.delete(isl);
   }
 
   cancelTask(isl: Islander): void {
@@ -2496,14 +2580,22 @@ export class Colony {
   private processPaths(): void {
     const start = performance.now();
     let done = 0;
-    while (this.queue.length && done < ISLANDER.pathRequestsPerFrame) {
-      const q = this.queue.shift()!;
+    this.queue = this.queue.filter(q => q.isl.pathPending && q.isl.task === q.task);
+    this.queue.sort((a,b) => (b.priority ?? 0) - (a.priority ?? 0));
+    for (let i = 0; i < this.queue.length && done < ISLANDER.pathRequestsPerFrame;) {
+      const q = this.queue[i];
+      if ((q.readyAt ?? 0) > this.clock) { i++; continue; }
+      this.queue.splice(i,1);
       // A changed/cancelled job must never inherit its previous destination's route.
       if (!q.isl.pathPending || q.isl.task !== q.task) continue;
       q.isl.path = this.pf.find(q.isl.x, q.isl.z, q.x, q.z, q.opts);
       q.isl.pathIdx = 0;
       q.isl.pathPending = false;
+      this.routes.set(q.isl, { ...q, path: q.isl.path, version: this.world.version,
+        navigationVersion: this.world.navigationVersion, requestedAt: this.clock,
+        checkAt: this.clock + .5 + (q.isl.id % 8) * .03 });
       done++;
+      this.pathStats.completed++;
       // Complete at least one request so long searches cannot starve the queue.
       if (performance.now() - start >= ISLANDER.pathBudgetMs) break;
     }

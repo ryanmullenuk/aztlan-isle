@@ -1591,6 +1591,7 @@ export class Game {
     if (short) this.ui.setHint('<b>Not enough stone</b> for more path');
     if (changed) {
       this.pathDirty = true;
+      w.navigationVersion++;
       this.audio?.sfx(add ? 'place' : 'click', p.x, p.z);
     }
   }
@@ -1718,6 +1719,7 @@ export class Game {
     if (short) this.ui.setHint('<b>Not enough wood</b> for more bridge');
     if (n) {
       this.bridgeDirty = true;
+      w.navigationVersion++;
       this.audio?.sfx('build', p.x, p.z);
     }
   }

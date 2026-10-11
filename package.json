@@ -12,7 +12,8 @@
     "ios": "npm run build && cap sync ios && cap open ios",
     "ios:sync": "npm run build && cap sync ios",
     "test": "node --import tsx --test tests/*.test.ts",
-    "perf": "node --import tsx scripts/performance.ts"
+    "perf": "node --import tsx scripts/performance.ts",
+    "perf:paths": "node --import tsx scripts/pathfinding-performance.ts"
   },
   "dependencies": {
     "@capacitor/core": "^8.5.2",

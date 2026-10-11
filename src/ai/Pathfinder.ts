@@ -68,12 +68,15 @@ const DIRS = [
   [1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1],
   [1, 1, 1.414], [1, -1, 1.414], [-1, 1, 1.414], [-1, -1, 1.414],
 ];
+const ROCK_CLEARANCE = [[-.22,-.22],[.22,-.22],[-.22,.22],[.22,.22]];
 
 /**
  * A* over the terrain grid. Walkers can climb or descend one contour layer per step,
  * prefer worn dirt paths, slow down in dense jungle and can wade shallow rivers.
  */
 export class Pathfinder {
+  /** CPU diagnostics; direct trips avoid allocating/searching the A* frontier. */
+  readonly stats = { searches: 0, direct: 0 };
   private g: Float32Array;
   private from: Int32Array;
   private stamp: Uint32Array;
@@ -91,11 +94,54 @@ export class Pathfinder {
 
   walkable(i: number, allowBuilding = -1, allowWater = false): boolean {
     const w = this.world;
+    if (i < 0 || i >= w.N * w.N) return false;
     if (w.layer[i] < 1 && !w.bridge[i] && !allowWater) return false;
     if (w.blocked(i)) return false;
     const occ = w.occ[i];
     if (occ !== 0 && occ - 1 !== allowBuilding && !w.passable(occ - 1)) return false;
     return true;
+  }
+
+  /** Validate a world-space segment using the same water, slope and corner rules as A*. */
+  segmentClear(sx: number, sz: number, tx: number, tz: number, opts: PathOptions = {}): boolean {
+    const w = this.world, allow = opts.allowBuilding ?? -1;
+    let prev = w.cellIndexAt(sx, sz);
+    if (!this.walkable(prev, allow, opts.allowWater)) return false;
+    const steps = Math.max(1, Math.ceil(Math.hypot(tx - sx, tz - sz) * 5));
+    for (let s = 1; s <= steps; s++) {
+      const x = sx + (tx - sx) * s / steps, z = sz + (tz - sz) * s / steps;
+      const i = w.cellIndexAt(x, z);
+      if (!this.walkable(i, allow, opts.allowWater)) return false;
+      if (i !== prev) {
+        if (Math.abs(this.walkLayer(i, opts.allowWater) - this.walkLayer(prev, opts.allowWater)) > 1) return false;
+        const ax = prev % w.N, az = (prev / w.N) | 0, bx = i % w.N, bz = (i / w.N) | 0;
+        if (ax !== bx && az !== bz &&
+            (!this.walkable(w.idx(ax, bz), allow, opts.allowWater) || !this.walkable(w.idx(bx, az), allow, opts.allowWater))) return false;
+      }
+      // Match the rock clearance used by route smoothing.
+      for (const [ox, oz] of ROCK_CLEARANCE) {
+        const c = w.cellIndexAt(x + ox, z + oz);
+        if (c < 0 || w.blocked(c)) return false;
+      }
+      prev = i;
+    }
+    return true;
+  }
+
+  /** Only short, flat, open trips: keep A* for forests, paths, rivers and water escorts. */
+  private direct(sx: number, sz: number, tx: number, tz: number, opts: PathOptions): boolean {
+    if (opts.allowWater || opts.avoid?.size || Math.hypot(tx - sx, tz - sz) > 12) return false;
+    const w = this.world, [ax,az] = w.cellOf(sx,sz), [bx,bz] = w.cellOf(tx,tz);
+    const layer = w.layer[w.idx(ax,az)];
+    for (let z = Math.min(az,bz) - 1; z <= Math.max(az,bz) + 1; z++) {
+      for (let x = Math.min(ax,bx) - 1; x <= Math.max(ax,bx) + 1; x++) {
+        if (!w.inBounds(x,z)) return false;
+        const i = w.idx(x,z);
+        if (!this.walkable(i, opts.allowBuilding) || w.layer[i] !== layer || w.bridge[i] ||
+            !Number.isNaN(w.riverY[i]) || w.forest[i] > .05 || w.wear[i] > .05 || w.path[i]) return false;
+      }
+    }
+    return this.segmentClear(sx,sz,tx,tz,opts);
   }
 
   /** Layer for walking purposes (bridge decks count as shore level). */
@@ -127,6 +173,11 @@ export class Pathfinder {
     const [scx, scz] = w.cellOf(sx, sz);
     const [tcx, tcz] = w.cellOf(tx, tz);
     if (!w.inBounds(scx, scz) || !w.inBounds(tcx, tcz)) return null;
+    if (this.direct(sx,sz,tx,tz,opts)) {
+      this.stats.direct++;
+      return [{ x: sx, z: sz }, { x: tx, z: tz }];
+    }
+    this.stats.searches++;
     const start = scz * N + scx;
     const allow = opts.allowBuilding ?? -1;
     const gr = opts.goalRadius ?? 0;
@@ -218,28 +269,13 @@ export class Pathfinder {
     const ax = a % N, az = (a / N) | 0, bx = b % N, bz = (b / N) | 0;
     const steps = Math.ceil(Math.max(Math.abs(bx - ax), Math.abs(bz - az)) * 2);
     if (steps > 24) return false;
-    // Rocks and the waterfall: keep a little clearance, so a straightened line never clips the
-    // corner of a blocked cell.
-    const len = Math.hypot(bx - ax, bz - az);
-    const fine = Math.ceil(len * 5);
-    for (let s = 1; s < fine; s++) {
-      const t = s / fine;
-      const gx = ax + (bx - ax) * t + 0.5, gz = az + (bz - az) * t + 0.5;
-      for (const [ox, oz] of [[-0.22, -0.22], [0.22, -0.22], [-0.22, 0.22], [0.22, 0.22]]) {
-        const cx = Math.floor(gx + ox), cz = Math.floor(gz + oz);
-        if (cx < 0 || cz < 0 || cx >= N || cz >= N) continue;
-        const i = cz * N + cx;
-        if (i !== a && i !== b && w.blocked(i)) return false;
-      }
-    }
+    if (!this.segmentClear(w.centerX(ax), w.centerZ(az), w.centerX(bx), w.centerZ(bz), { allowBuilding: allow })) return false;
     let prev = a;
     for (let s = 1; s <= steps; s++) {
       const t = s / steps;
       const cx = Math.round(ax + (bx - ax) * t), cz = Math.round(az + (bz - az) * t);
       const i = cz * N + cx;
       if (i === prev) continue;
-      if (!this.walkable(i, allow)) return false;
-      if (Math.abs(this.walkLayer(i) - this.walkLayer(prev)) > 1) return false;
       // Keep jungle detours where paths exist: don't cut across forest if the path is worn.
       if (w.forest[i] > 0.6 && w.wear[prev] > 0.4) return false;
       prev = i;
