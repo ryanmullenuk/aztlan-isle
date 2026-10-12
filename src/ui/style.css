@@ -857,3 +857,77 @@ body.watching-wildlife #hud * { pointer-events: none !important; }
   }
   .splash-art { object-fit: contain; }
 }
+
+/* ---- Notice banner (building complete and other notices): the approved gold frame artwork with
+   text, a tick and a picture laid over its dark centre. Sized by the frame's own aspect ratio;
+   type scales with its width (container units). Never takes input. ---- */
+.notice-banner {
+  position: absolute; left: 50%; top: calc(10px + var(--safe-t, 0px)); z-index: 40;
+  width: min(600px, 95vw); aspect-ratio: 1200 / 400;
+  background: var(--nb-frame) center / 100% 100% no-repeat;
+  container-type: inline-size; pointer-events: none;
+  transform: translate(-50%, -120%) scale(0.92); opacity: 0; visibility: hidden;
+}
+.notice-banner.nb-in { visibility: visible; animation: nb-enter 0.5s cubic-bezier(.2, .9, .3, 1.15) forwards; }
+.notice-banner.nb-out { animation: nb-leave 0.6s ease-in forwards; }
+@keyframes nb-enter {
+  from { transform: translate(-50%, -120%) scale(0.92); opacity: 0; }
+  to { transform: translate(-50%, 0) scale(1); opacity: 1; }
+}
+@keyframes nb-leave {
+  from { transform: translate(-50%, 0) scale(1); opacity: 1; }
+  to { transform: translate(-50%, -12%) scale(0.97); opacity: 0; visibility: hidden; }
+}
+/* A golden glint sweeping across the frame once, cut to the frame's own shape. */
+.nb-shimmer {
+  position: absolute; inset: 0; pointer-events: none; mix-blend-mode: screen; opacity: 0;
+  background: linear-gradient(105deg, transparent 35%, rgba(255, 236, 170, 0.75) 48%, rgba(255, 250, 220, 0.9) 50%, rgba(255, 236, 170, 0.75) 52%, transparent 65%) no-repeat;
+  background-size: 250% 100%; background-position: 130% 0;
+  -webkit-mask: var(--nb-frame) center / 100% 100% no-repeat; mask: var(--nb-frame) center / 100% 100% no-repeat;
+}
+.nb-in .nb-shimmer { animation: nb-shimmer 1.1s 0.35s ease-out forwards; }
+@keyframes nb-shimmer {
+  0% { opacity: 0; background-position: 130% 0; }
+  15% { opacity: 1; }
+  100% { opacity: 0; background-position: -30% 0; }
+}
+/* Content stays inside the dark centre (15–85% across, 27–69% down), clear of the border. */
+.nb-body {
+  position: absolute; left: 16.5%; right: 16.5%; top: 29.5%; bottom: 32.5%;
+  display: grid; grid-template-columns: auto 1fr; align-items: center; column-gap: 2.2cqw;
+}
+.notice-banner.has-pic .nb-body { grid-template-columns: auto 1fr auto; }
+.nb-icon { width: 7.4cqw; height: 7.4cqw; }
+.nb-icon svg { width: 100%; height: 100%; overflow: visible; filter: drop-shadow(0 0 1.4cqw rgba(70, 220, 110, 0.55)); }
+.nb-tick-ring { fill: #1f9d4c; stroke: #8ef0a8; stroke-width: 2.5; transform-origin: 24px 24px; transform: scale(0); }
+.nb-tick-mark { fill: none; stroke: #f4fff6; stroke-width: 4.5; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 34; stroke-dashoffset: 34; }
+.nb-in .nb-tick-ring { animation: nb-pop 0.4s 0.3s cubic-bezier(.2, 1.4, .4, 1) forwards; }
+.nb-in .nb-tick-mark { animation: nb-draw 0.35s 0.6s ease-out forwards; }
+@keyframes nb-pop { to { transform: scale(1); } }
+@keyframes nb-draw { to { stroke-dashoffset: 0; } }
+.nb-text { min-width: 0; text-align: center; line-height: 1.15; }
+.nb-title {
+  font-size: 3.5cqw; font-weight: 800; letter-spacing: 0.09em; text-transform: uppercase; white-space: nowrap;
+  color: #ffd65c; background: linear-gradient(180deg, #fff1b0, #ffc93a 55%, #e09a1c); -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; filter: drop-shadow(0 0.2cqw 0.4cqw rgba(0, 0, 0, 0.6));
+}
+.nb-line { margin-top: 0.6cqw; font-size: 2.45cqw; color: #f4e9d4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nb-benefit { margin-top: 0.4cqw; font-size: 2.35cqw; font-weight: 700; color: #6ee38a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 0 1cqw rgba(60, 200, 100, 0.35); }
+.nb-pic { width: 9.6cqw; height: 9.6cqw; display: none; }
+.has-pic .nb-pic { display: block; }
+.nb-pic img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 0.5cqw 0.8cqw rgba(0, 0, 0, 0.6)); }
+/* Toasts make way beneath the banner while it shows. */
+body.notice-showing .toasts { margin-top: min(130px, 21vw); }
+.toasts { transition: margin-top 0.3s ease; }
+@media (prefers-reduced-motion: reduce) {
+  .notice-banner.nb-in { animation: nb-fade 0.3s forwards; transform: translate(-50%, 0); }
+  @keyframes nb-fade { from { opacity: 0; } to { opacity: 1; } }
+  .nb-in .nb-shimmer { animation: none; }
+}
+/* Phones: the banner fills most of the width, so the type gets a touch larger to stay readable. */
+@media (max-width: 640px) {
+  .notice-banner { top: calc(6px + var(--safe-t, 0px)); }
+  .nb-title { font-size: 3.8cqw; }
+  .nb-line { font-size: 2.75cqw; }
+  .nb-benefit { font-size: 2.6cqw; }
+}

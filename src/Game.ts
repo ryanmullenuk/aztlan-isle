@@ -1,4 +1,6 @@
 import { WildlifeEncounters, type EncounterKind, type WildlifeEncounter } from './entities/WildlifeEncounters';
+import { buildingNotice, QUIET_BUILDINGS } from './ui/buildingNotice';
+import { BuildingThumbs } from './render/BuildingThumb';
 import { fadeOceanShadows } from './render/OceanShadows';
 import { StormFire } from './buildings/StormFire';
 import { animalName } from './entities/Animals';
@@ -1898,10 +1900,17 @@ export class Game {
     this.completeHandler?.(b);
   }
 
-  /** A finished building stands clear of its scaffold: announce it. */
+  /** A finished building stands clear of its scaffold: announce it in the gold banner. */
   private onBuildingRevealed(b: Building): void {
+    if (QUIET_BUILDINGS.has(b.key)) return;
     this.audio?.sfx('complete', b.x, b.z);
-    if (b.key !== 'campfire') this.ui?.toast(`The ${b.label} is complete.`, 'info', { x: b.x, z: b.z });
+    const text = buildingNotice(b);
+    const image = this.thumbs.get(`${b.key}:${b.tier}`, b.finishedHi ?? b.finished.geometry);
+    this.ui?.notice({ ...text, image, icon: 'tick' });
+  }
+  private thumbsCache: BuildingThumbs | null = null;
+  private get thumbs(): BuildingThumbs {
+    return (this.thumbsCache ??= new BuildingThumbs(this.renderer));
   }
 
   // ---------------- Hooks for later systems ----------------

@@ -1,4 +1,5 @@
 import { fireBuildingCard } from './FireBuildingCard';
+import { NoticeBanner, type Notice } from './NoticeBanner';
 import { animalName } from '../entities/Animals';
 import { VillagePrioritiesPanel } from './VillagePrioritiesPanel';
 import { settingsMarkup, wireSettingsTabs } from './SettingsPanel';
@@ -105,6 +106,7 @@ export class UI {
     this.root.appendChild(this.info);
     this.toasts = el('div', 'toasts');
     this.root.appendChild(this.toasts);
+    this.notices = new NoticeBanner(this.root);
     const placeAlerts = () => {
       const root = this.root.getBoundingClientRect(), clock = this.tl.getBoundingClientRect();
       this.toasts.style.top = `${Math.max(8, clock.bottom - root.top + 8)}px`;
@@ -269,6 +271,12 @@ export class UI {
   private zenBtn!: HTMLButtonElement;
   /** Natural mode: every button, panel, hint and notification hidden but the one eye. */
   zen = false;
+  /** The gold-framed banner for building completions (and later other notices). */
+  private notices!: NoticeBanner;
+  /** Announce something in the banner (not while the interface is hidden). */
+  notice(n: Notice): void {
+    if (!this.zen) this.notices.push(n);
+  }
 
   toggleZen(on = !this.zen): void {
     this.zen = on;

@@ -69,6 +69,10 @@ export class Building {
   scaffold!: THREE.Mesh;
   /** Seconds left of the scaffold sinking into the ground once the work is done (0 = not sinking). */
   scaffoldSink = 0;
+  /** The work just finished: a new building or an upgrade (and from which tier), for its announcement. */
+  lastWork: { upgrade: boolean; fromTier: number } = { upgrade: false, fromTier: 0 };
+  /** A house that replaced a hut (its announcement counts only the extra room). */
+  fromHut = false;
   finished!: THREE.Mesh;
   torches: Torch[] = [];
   /** Door / access point in world space (where islanders walk to). */
@@ -681,6 +685,7 @@ export class BuildingSystem {
     const residents = b.residents.slice();
     this.remove(b, false);
     const home = this.place('home', b.cx, b.cz, 0);
+    home.fromHut = true;
     home.residents = residents;
     return home;
   }
@@ -1082,6 +1087,7 @@ export class BuildingSystem {
   }
 
   private finish(b: Building): void {
+    b.lastWork = { upgrade: b.upgrading, fromTier: b.tier };
     if (b.upgrading) {
       b.upgrading = false;
       b.tier++;
