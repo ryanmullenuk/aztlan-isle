@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { TURTLES, WORLD } from '../config';
-import { ColorFn, GeoBuilder, M, P } from '../render/GeoBuilder';
+import { ColorFn, GeoBuilder, M, P, facet } from '../render/GeoBuilder';
 import { View } from '../render/View';
 import { RNG } from '../world/rng';
 import { SpatialHash } from '../world/SpatialHash';
@@ -53,9 +53,11 @@ export interface Turtle {
 // ---------------- Geometry ----------------
 
 const C = (c: number) => ({ color: c });
-const SKIN = 0x7a8656, SKIN_DARK = 0x5a6440, SKIN_PALE = 0xc8c896;
+/** Cream skin between the dark scales; the plates themselves; the pale underside. */
+const SKIN = 0xd6c88c, SKIN_DARK = 0x5a4a2e, SKIN_PALE = 0xe4d9a8;
+const SEAM = new THREE.Color(0xe2d3a0);
 
-/** Mirror the smooth geometry while preserving outward faces and reflected vertex normals. */
+/** Mirror the geometry while preserving outward faces and reflected vertex normals. */
 function mirrorX(g: THREE.BufferGeometry): THREE.BufferGeometry {
   const m = g.index ? g.toNonIndexed() : g.clone();
   const p = m.getAttribute('position') as THREE.BufferAttribute;
@@ -75,142 +77,150 @@ function mirrorX(g: THREE.BufferGeometry): THREE.BufferGeometry {
   return m;
 }
 
+const hash3 = (x: number, y: number, z: number) => {
+  const s = Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453;
+  return s - Math.floor(s);
+};
+/** Distances to the nearest and second-nearest jittered cell points (3D cellular noise), and the nearest's id. */
+function cells(x: number, y: number, z: number): [number, number, number] {
+  const ix = Math.floor(x), iy = Math.floor(y), iz = Math.floor(z);
+  let d1 = 9, d2 = 9, id = 0;
+  for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let c = -1; c <= 1; c++) {
+    const cx = ix + a, cy = iy + b, cz = iz + c;
+    const px = cx + hash3(cx, cy, cz), py = cy + hash3(cy, cz, cx), pz = cz + hash3(cz, cx, cy);
+    const d = Math.hypot(px - x, py - y, pz - z);
+    if (d < d1) { d2 = d1; d1 = d; id = hash3(cx + 3, cy + 7, cz + 11); } else if (d < d2) d2 = d;
+  }
+  return [d1, d2, id];
+}
+
 /**
- * Carapace (tinted per turtle, mat 2) with its scutes: five vertebral plates down the ridge, four
- * costal plates each side and a ring of marginals, each plate lighter in its middle with darker
- * seams and fine radiating streaks; a pale plastron, and a short tail. Faces +z.
+ * Scaled skin, as on a sea turtle's head and flippers: dark polygonal plates separated by cream
+ * skin, the plates larger on top; plain pale underneath.
+ */
+const scaled = (size: number): ColorFn => (p, n) => {
+  if (n.y < -0.3) return new THREE.Color(SKIN_PALE);
+  const [d1, d2, id] = cells(p.x / size, p.y / size, p.z / size);
+  if (d2 - d1 < 0.16) return new THREE.Color(SKIN);
+  return new THREE.Color(SKIN_DARK).multiplyScalar(0.85 + id * 0.35);
+};
+
+/** Shell dimensions: dome radius, height and length factors. */
+const R = 0.13, SY = 0.56, SZ = 1.3;
+/** Scute centres on the carapace, in its normalised (across, along) coordinates: five vertebrals and four costals a side. */
+const SCUTES: [number, number][] = [
+  [0, 0.66], [0, 0.34], [0, 0.02], [0, -0.3], [0, -0.6],
+  ...[1, -1].flatMap((s) => [[0.5, 0.48], [0.56, 0.16], [0.52, -0.16], [0.42, -0.46]].map(([x, z]) => [s * x, z] as [number, number])),
+];
+/** Teardrop outline: full across the front of the shell, narrowing to a point behind. */
+const shellWidth = (Z: number) => 1 - 0.3 * THREE.MathUtils.smoothstep(0.15, -1, Z);
+
+/**
+ * Carapace (tinted per turtle, mat 2): a high faceted dome, teardrop shaped with a low keel, a
+ * flared rim and a serrated back edge. Vertebral and costal scutes over the top and a ring of
+ * marginals round the rim, each plate lighter in its middle, all outlined in pale seams; a pale
+ * plastron and a short tail. Faces +z.
  */
 function shellGeo(): THREE.BufferGeometry {
   const b = new GeoBuilder();
-  const R = 0.13, SY = 0.42, SZ = 1.28;
-  const g = P.uvSphere(R, 48, 24);
+  const g = new THREE.SphereGeometry(1, 60, 30);
   const pos = g.getAttribute('position') as THREE.BufferAttribute;
   for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i), z = pos.getZ(i);
-    let y = Math.max(pos.getY(i), -0.01);
-    // A low keel along the vertebral ridge and a slight flare at the rear margin.
-    y += Math.exp(-(x * x) / 0.0012) * 0.008 * Math.max(0, y / R);
-    pos.setXYZ(i, x * (1 + (z < -0.06 && y < 0.02 ? 0.04 : 0)), y, z);
+    let X = pos.getX(i), Y = Math.max(pos.getY(i), -0.06), Z = pos.getZ(i);
+    if (Z < 0) Z *= 1.06;
+    // Low keel down the middle, and the rim flaring out (saw-toothed along the back).
+    Y += Math.exp(-(X * X) / 0.03) * 0.08 * Math.max(0, Y);
+    const rim = 1 - THREE.MathUtils.smoothstep(Y, 0, 0.2);
+    let flare = 1 + 0.06 * rim;
+    if (Z < -0.45) {
+      const a = Math.atan2(X, Z) * (26 / (Math.PI * 2));
+      flare *= 1 + 0.05 * rim * (1 - 2 * Math.abs(a - Math.round(a)));
+    }
+    X *= flare * shellWidth(Z); Z *= flare;
+    pos.setXYZ(i, X * R, 0.02 + Y * R * SY, Z * R * SZ);
   }
-  g.computeVertexNormals();
-  const seamAt = (v: number, list: number[]) => {
-    let d = 1;
-    for (const s of list) d = Math.min(d, Math.abs(v - s));
-    return d;
+  const SEAM_MARK = new THREE.Color(-1, -1, -1);
+  const plates: ColorFn = (p) => {
+    const Z = p.z / (R * SZ), X = p.x / (R * shellWidth(Z)), Y = (p.y - 0.02) / (R * SY);
+    if (Y < 0.24) {
+      // Marginal scutes round the rim, divided where they meet the costals.
+      if (Y > 0.205) return SEAM_MARK;
+      const a = Math.atan2(X, Z) * (26 / (Math.PI * 2)), dm = Math.abs(a - Math.round(a));
+      if (dm < 0.06) return SEAM_MARK;
+      return new THREE.Color().setScalar(0.72 + 0.25 * Math.min(1, dm * 3));
+    }
+    let d1 = 9, d2 = 9;
+    for (const [sx, sz] of SCUTES) {
+      const d = Math.hypot(X - sx, (Z - sz) * 0.9);
+      if (d < d1) { d2 = d1; d1 = d; } else if (d < d2) d2 = d;
+    }
+    if (d2 - d1 < 0.045) return SEAM_MARK;
+    return new THREE.Color().setScalar(1.12 - Math.min(1, d1 / 0.34) * 0.42);
   };
-  const shell: ColorFn = (p) => {
-    const X = p.x / R, Z = p.z / (R * SZ), Y = (p.y - 0.02) / (R * SY);
-    let shade: number;
-    if (Y < 0.28) {
-      // Marginal scutes around the rim.
-      const a = Math.atan2(X, Z) * (22 / (Math.PI * 2));
-      const dm = Math.abs(a - Math.round(a));
-      shade = dm < 0.08 ? 0.55 : 0.72 + 0.12 * Math.min(1, dm * 4);
-    } else if (Math.abs(X) < 0.3) {
-      const d = Math.min(seamAt(Z, [-0.62, -0.22, 0.2, 0.58]) * 2.2, (0.3 - Math.abs(X)) * 3.2);
-      shade = d < 0.07 ? 0.56 : 0.8 + 0.2 * Math.min(1, d * 2.5);
-    } else {
-      const d = Math.min(seamAt(Z, [-0.5, -0.05, 0.4]) * 2.2, (Math.abs(X) - 0.3) * 3.2);
-      shade = d < 0.07 ? 0.56 : 0.78 + 0.2 * Math.min(1, d * 2.5);
-    }
-    // Fine radiating streaks within the plates.
-    shade *= 0.95 + 0.07 * Math.sin(Math.atan2(X, Z) * 17 + Y * 6);
-    return new THREE.Color().setScalar(shade);
-  };
-  b.add(g, { color: shell, mat: 2 }, M.t(0, 0.02, 0, 0, 0, 0, 1, SY, SZ));
-  // Raised scute borders follow the dome, keeping the plate layout visible close up.
-  const shellY = (x: number, z: number) => .02 + R * SY * Math.sqrt(Math.max(0, 1 - (x / R) ** 2 - (z / (R * SZ)) ** 2)) + .002;
-  const seam = (points: THREE.Vector3[]) => b.add(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 12, .0012, 5, false), C(0x414a2e));
-  for (const side of [-1, 1]) {
-    const line: THREE.Vector3[] = [];
-    for (let k = 0; k <= 16; k++) {
-      const z = -.135 + k * .017, x = side * .039 * Math.sqrt(Math.max(0, 1 - (z / .175) ** 2));
-      line.push(new THREE.Vector3(x, shellY(x, z), z));
-    }
-    seam(line);
-  }
-  for (const Z of [-.1, -.04, .035, .095]) {
-    const line: THREE.Vector3[] = [];
-    const width = R * Math.sqrt(1 - (Z / (R * SZ)) ** 2) * .96;
-    for (let k = 0; k <= 16; k++) {
-      const x = -width + 2 * width * k / 16;
-      line.push(new THREE.Vector3(x, shellY(x, Z), Z));
-    }
-    seam(line);
-  }
-  b.add(P.uvSphere(0.12, 24, 12), C(0xd8c890), M.t(0, 0.012, 0, 0, 0, 0, 0.95, 0.16, 1.2));
-  // Skin at the openings and the short tail.
-  b.add(P.uvSphere(0.05, 16, 10), C(SKIN), M.t(0, 0.012, 0.13, 0, 0, 0, 1.2, 0.35, 0.6));
-  b.add(P.cone(0.018, 0.05, 10), C(SKIN_DARK), M.t(0, 0.01, -0.175, -Math.PI / 2, 0, 0, 1, 0.6, 1));
-  return b.build();
+  b.add(g, { color: plates, mat: 2, facet: true });
+  // Plastron, the skin at the openings and the short tail.
+  b.add(new THREE.SphereGeometry(0.12, 16, 8), { color: SKIN_PALE }, M.t(0, 0.014, 0, 0, 0, 0, 0.92, 0.18, 1.18));
+  b.add(new THREE.SphereGeometry(0.05, 10, 6), { color: SKIN }, M.t(0, 0.014, 0.13, 0, 0, 0, 1.2, 0.35, 0.6));
+  b.add(P.cone(0.018, 0.05, 6), { color: scaled(0.012), facet: true }, M.t(0, 0.012, -0.18, -Math.PI / 2, 0, 0, 1, 0.6, 1));
+  const out = facet(b.build());
+  // Seams: pale cream skin between the plates (not tinted with the shell's colour).
+  const c = out.getAttribute('color') as THREE.BufferAttribute, m = out.getAttribute('aMat') as THREE.BufferAttribute;
+  for (let i = 0; i < c.count; i++) if (c.getX(i) < 0) { c.setXYZ(i, SEAM.r, SEAM.g, SEAM.b); m.setX(i, 0); }
+  return out;
 }
 
-/** Neck from its base (inside the shell) forward along +z; wrinkled skin. */
+/** Neck from its base (inside the shell) forward along +z; scaled skin with folds. */
 function neckGeo(): THREE.BufferGeometry {
   const b = new GeoBuilder();
-  b.add(P.cyl(0.024, 0.032, NECK_LEN, 16), { color: (p) => new THREE.Color(p.y > 0.008 ? SKIN : SKIN_PALE) }, M.t(0, 0, NECK_LEN / 2, Math.PI / 2, 0, 0));
-  for (let k = 0; k < 3; k++) b.add(P.torus(0.027 - k * 0.002, 0.0025, 6, 14), C(SKIN_DARK), M.t(0, 0, 0.012 + k * 0.014));
-  return b.build();
+  b.add(new THREE.CylinderGeometry(0.026, 0.034, NECK_LEN, 24, 6, true), { color: scaled(0.013), facet: true }, M.t(0, 0, NECK_LEN / 2, Math.PI / 2, 0, 0));
+  for (let k = 0; k < 2; k++) b.add(P.torus(0.03 - k * 0.003, 0.003, 4, 10), { color: SKIN }, M.t(0, 0, 0.014 + k * 0.016));
+  return facet(b.build());
 }
 
-/** Head from the end of the neck: blunt skull with plated scales, hooked beak, dark eyes. */
+/** Head from the end of the neck: big blunt skull with plated scales, hooked beak, large dark eyes. */
 function headGeo(): THREE.BufferGeometry {
   const b = new GeoBuilder();
-  const scaled: ColorFn = (p, n) => {
-    if (n.y < -0.2) return new THREE.Color(SKIN_PALE);
-    const plate = Math.sin(p.x * 150) * Math.sin(p.z * 130) > 0.35;
-    return new THREE.Color(plate ? SKIN_DARK : 0x84905c);
-  };
-  b.add(P.uvSphere(0.034, 20, 12), { color: scaled }, M.t(0, 0.004, 0.03, 0, 0, 0, 0.9, 0.78, 1.25));
-  // Large plates on top of the head.
-  b.add(P.uvSphere(0.022, 16, 8), C(SKIN_DARK), M.t(0, 0.02, 0.036, 0, 0, 0, 1.05, 0.38, 1.3));
-  // Beak: upper jaw hooked over the lower.
-  b.add(P.cone(0.014, 0.024, 10), C(0x3a3a30), M.t(0, -0.002, 0.072, Math.PI / 2 + 0.25, 0, 0, 1, 1, 0.8));
-  b.add(P.rbox(0.02, 0.006, 0.02, .002, 2), C(0x4a4838), M.t(0, -0.014, 0.062));
+  b.add(new THREE.SphereGeometry(0.04, 30, 20), { color: scaled(0.014), facet: true }, M.t(0, 0.006, 0.032, 0, 0, 0, 0.92, 0.82, 1.2));
+  // Beak: the upper jaw hooked over the lower.
+  b.add(P.cone(0.016, 0.026, 8), { color: 0x4a4230 }, M.t(0, -0.004, 0.078, Math.PI / 2 + 0.3, 0, 0, 1, 1, 0.8));
+  b.add(P.rbox(0.022, 0.007, 0.022, 0.002, 1), { color: 0x5a5038 }, M.t(0, -0.017, 0.066));
   for (const x of [-1, 1]) {
-    b.add(P.uvSphere(.0085, 12, 8), C(0xc4a967), M.t(x * .024, .01, .048, 0, 0, 0, .5, 1, 1));
-    b.add(P.uvSphere(.0055, 12, 8), C(0x141410), M.t(x * .0275, .01, .048, 0, 0, 0, .45, 1, 1));
-    b.add(P.uvSphere(.0015, 8, 6), C(0xe9f0dd), M.t(x * .029, .012, .05));
-    b.add(P.uvSphere(.002, 8, 6), C(0x33392a), M.t(x * .009, .013, .065, 0, 0, 0, 1, .5, 1));
-    b.add(P.uvSphere(0.009, 12, 8), C(SKIN_DARK), M.t(x * 0.026, 0.001, 0.028, 0, 0, 0, 0.5, 0.9, 1.3));
+    b.add(new THREE.SphereGeometry(0.0115, 10, 8), { color: SKIN_PALE }, M.t(x * 0.026, 0.012, 0.05, 0, 0, 0, 0.5, 0.95, 1.1));
+    b.add(new THREE.SphereGeometry(0.0085, 10, 8), { color: 0x120f0c }, M.t(x * 0.0295, 0.012, 0.051, 0, 0, 0, 0.45, 1, 1));
+    b.add(P.uvSphere(0.0022, 6, 4), C(0xf0f2e6), M.t(x * 0.032, 0.0145, 0.054));
+    b.add(P.uvSphere(0.002, 6, 4), C(0x33302a), M.t(x * 0.009, 0.013, 0.07, 0, 0, 0, 1, 0.5, 1));
   }
-  return b.build();
+  return facet(b.build());
 }
 
 /** Short, thick upper arm of a flipper from the shoulder out along +x. */
 function armGeo(len: number, r: number): THREE.BufferGeometry {
   const b = new GeoBuilder();
-  b.add(P.uvSphere(r * 1.1, 12, 8), C(SKIN));
-  b.add(P.cyl(r * 0.9, r, len, 12), { color: (p) => new THREE.Color(p.y > 0 ? SKIN : SKIN_PALE) }, M.t(len / 2, 0, 0, 0, 0, -Math.PI / 2, 1, 1, 0.6));
-  return b.build();
+  b.add(new THREE.SphereGeometry(r * 1.1, 16, 10), { color: scaled(0.013), facet: true });
+  b.add(new THREE.CylinderGeometry(r * 0.9, r, len, 18, 5), { color: scaled(0.013), facet: true }, M.t(len / 2, 0, 0, 0, 0, -Math.PI / 2, 1, 1, 0.6));
+  return facet(b.build());
 }
 
 /**
  * A flipper blade out along +x: thick, straight leading edge (+z), thin swept trailing edge curving
- * back to a pointed tip, covered in polygonal scales (dark with pale edges) with a claw near the
+ * back to a pointed tip, covered in dark polygonal scales set in cream skin, with a claw near the
  * leading edge; pale underneath.
  */
 function bladeGeo(len: number, w: number, sweep: number, claw: boolean): THREE.BufferGeometry {
   const b = new GeoBuilder();
-  const g = new THREE.SphereGeometry(.5, 20, 10);
+  const g = new THREE.SphereGeometry(.5, 40, 16);
   const p = g.getAttribute('position') as THREE.BufferAttribute;
   for (let i = 0; i < p.count; i++) {
     const u = p.getX(i) + 0.5;
     const v = p.getZ(i) + 0.5; // 1 = leading edge
     const chord = w * (1 - u * 0.78) * (0.7 + 0.3 * Math.sin(Math.PI * Math.min(1, u * 1.6 + 0.2)));
     const lead = w * 0.3 - sweep * u * u;
-    const y = p.getY(i) * 0.014 * (0.4 + 0.6 * v) * (1 - 0.6 * u);
+    const y = p.getY(i) * 0.016 * (0.4 + 0.6 * v) * (1 - 0.6 * u);
     p.setXYZ(i, u * len, y, lead - (1 - v) * chord);
   }
-  g.computeVertexNormals();
-  const scales: ColorFn = (q, n) => {
-    if (n.y < -0.2) return new THREE.Color(0xb8b488);
-    const s = Math.sin(q.x * 110 + q.z * 40) * Math.sin(q.z * 120 - q.x * 30);
-    return new THREE.Color(s > 0.45 ? 0x9aa070 : s < -0.3 ? 0x4e5838 : 0x646e46);
-  };
-  b.add(g, { color: scales });
-  if (claw) b.add(P.cone(0.004, 0.012, 8), C(0x2a2820), M.t(len * 0.3, 0.004, w * 0.3 + 0.002, 0, 0, -Math.PI / 2));
-  return b.build();
+  b.add(g, { color: scaled(0.017), facet: true });
+  if (claw) b.add(P.cone(0.004, 0.012, 6), C(0x2a2820), M.t(len * 0.3, 0.004, w * 0.3 + 0.002, 0, 0, -Math.PI / 2));
+  return facet(b.build());
 }
 
 const _b = new THREE.Matrix4(), _m = new THREE.Matrix4(), _t = new THREE.Matrix4(), _w = new THREE.Matrix4();
@@ -244,7 +254,8 @@ const CRAWL = { power: 0.6, lift: 0.014, roll: 0.05 };
 const SWIM = { flap: 0.7, bob: 0.012 };
 
 const FAMILY_COUNT = 2, BABIES = 3;
-const SHELL = [0x6e6a3e, 0x7a6038, 0x5e6a44, 0x846a40];
+/** Shell colours: olive green, warm brown, dark and a chestnut. */
+const SHELL = [0x7b7a3c, 0xa0532a, 0x5e5650, 0x8a5a30];
 
 /**
  * Sea turtles moving between beaches and the sea: resting on quiet sand, crawling slowly down

@@ -87,15 +87,15 @@ test('family breathing returns to swimming and babies and adults fit the same sm
     for (const key of ['position', 'normal', 'color', 'aMat']) for (const v of g.getAttribute(key).array) assert.ok(Number.isFinite(v));
     for (let k = 0; k < mesh.count * 16; k++) assert.ok(Number.isFinite(mesh.instanceMatrix.array[k]));
   }
-  const n = meshes.get('head').mesh.geometry.getAttribute('normal');
-  const index = meshes.get('head').mesh.geometry.getIndex();
-  let curved = 0;
-  for (let k = 0; k < index.count; k += 3) {
-    const a = new THREE.Vector3().fromBufferAttribute(n, index.getX(k));
-    const b = new THREE.Vector3().fromBufferAttribute(n, index.getX(k + 1));
-    if (a.distanceTo(b) > .001) curved++;
+  // Soft low-poly, as in the reference art: the head is built of flat facets, fine enough to stay rounded.
+  const head = meshes.get('head').mesh.geometry, n = head.getAttribute('normal');
+  let flat = 0;
+  for (let k = 0; k < n.count; k += 3) {
+    const a = new THREE.Vector3().fromBufferAttribute(n, k), b = new THREE.Vector3().fromBufferAttribute(n, k + 1);
+    if (a.distanceTo(b) < .001) flat++;
   }
-  assert.ok(curved > index.count / 30, 'head normals were flattened');
+  assert.ok(flat > n.count / 3 * 0.95, 'head is drawn as flat facets');
+  assert.ok(n.count / 3 > 800, 'enough facets for a rounded head');
 });
 
 
