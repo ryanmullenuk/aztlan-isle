@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { characterModelKey, type CharacterModelKey } from './CharacterVariants';
+import { characterModelKey, isElder, type CharacterModelKey } from './CharacterVariants';
 import { View } from '../render/View';
 import { ISLANDER } from '../config';
 import { peopleMaterial, peopleSkinnedMaterial } from '../render/materials';
@@ -417,11 +417,9 @@ const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
  * About one adult in five wears the elder look. Taken from the islander's id, so it needs no saving
  * and never changes; it is only a look (nobody ages).
  */
-export function isElder(isl: { id: number; child: boolean }): boolean {
-  if (isl.child) return false;
-  const h = Math.sin(isl.id * 127.1 + 311.7) * 43758.5453;
-  return h - Math.floor(h) < ISLANDER.elderShare;
-}
+export { isElder };
+/** Whether the children's models are loaded (else children are drawn as small founding islanders). */
+const hasChildModel = (skins: Partial<Record<CharacterModelKey, unknown>> | undefined) => !!skins?.boy && !!skins?.girl;
 /** Built-in body parts, no longer drawn (the character models are the bodies). */
 const BODY = new Set<string>(['pelvis', 'chest', 'head', 'uarm', 'farm', 'thigh', 'shin'].flatMap((b) => [`${b}_m`, `${b}_f`]));
 const TOOLS = ['axe', 'pick', 'hoe', 'spear', 'hammer'] as const;
@@ -491,7 +489,7 @@ export class IslanderRig {
     }
     loadGlbPeople()
       .then((glb) => {
-        for (const g of ['m', 'f', 'm_loosehair', 'f_flower'] as const) this.skins[g] = this.makeSkin(glb[g]);
+        for (const g of Object.keys(glb) as CharacterModelKey[]) this.skins[g] = this.makeSkin(glb[g]);
       })
       .catch((err) => console.error('Islander models failed to load.', err));
     this.ring = new THREE.Mesh(
@@ -649,7 +647,8 @@ export class IslanderRig {
       this.accent.setHex(isl.cloth2);
       const sc = S0 * (isl.child ? ISLANDER.childScale : 1) * (g === 'f' ? 0.98 : 1);
       this.rot(M.base, isl.x, isl.y, isl.z, 0, isl.heading, 0, 'XYZ', sc);
-      const hs = isl.child ? 1.22 : 1;
+      // The children's own models have their big heads built in; only the founding pair's would need enlarging.
+      const hs = isl.child && !hasChildModel(this.skins) ? 1.22 : 1;
       // Nothing to draw until the character models have loaded.
       if (skinned) this.drawSkinned(isl, this.skins[characterModelKey(isl)] ?? this.skins[g]!, p, hs);
     }
@@ -719,7 +718,8 @@ export class IslanderRig {
     set.mesh.setColorAt(i, this.skin);
     set.accent.setXYZ(i, this.accent.r, this.accent.g, this.accent.b);
     // Elders: grey hair for women, white hair and beard for men (linear tones). Boys: no beard.
-    const elder = isElder(isl);
+    // The elders' own models already have grey and white hair; only greyed when drawn on the founding pair.
+    const elder = isElder(isl) && set.model !== this.skins?.oldm?.model && set.model !== this.skins?.oldf?.model;
     // (A hair tone above 1.5 also flags the healer's white robe for the shader.)
     set.look.setXYZ(i, elder ? 1 : 0, (isl.gender === 'f' ? 0.46 : 0.7) + (isl.npc === 'healer' ? 2 : 0), isl.child && isl.gender === 'm' ? 1 : 0);
     set.n = i + 1;

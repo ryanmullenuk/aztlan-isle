@@ -4,8 +4,10 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 /**
- * The two islander characters (public/models/islander_male.glb / islander_female.glb, each with a
- * colour texture .jpg): static low-poly meshes that are rigged here, at load, onto the rig's own
+ * The islander characters (public/models/islander_*.glb, each with a colour texture .jpg): the
+ * founding man and woman, a boy and a girl, an older man and woman, and a heavier-built man and
+ * woman. Static low-poly meshes (the newer ones simplified from their high-detail sources to about
+ * 3,000 triangles) that are rigged here, at load, onto the rig's own
  * 19-bone skeleton (hips, spine, chest, neck, head, shoulders, upper arms, forearms, hands,
  * thighs, shins, feet) from measured joint positions and automatic skin weights. The islander rig
  * poses those bones every frame and skins all islanders of a model in one instanced draw.
@@ -43,10 +45,17 @@ export interface GlbModel {
 
 export type GlbPeople = Record<CharacterModelKey, GlbModel>;
 
-const FILES: Record<'m' | 'f', { mesh: string; tex: string }> = {
-  m: { mesh: 'models/islander_male.glb', tex: 'models/islander_male.jpg' },
-  f: { mesh: 'models/islander_female.glb', tex: 'models/islander_female.jpg' },
+/** Which models are loaded: the two founding islanders, children, elders and the heavier-built adults. */
+export type BaseModelKey = 'm' | 'f' | 'boy' | 'girl' | 'oldm' | 'oldf' | 'fatm' | 'fatf';
+const MODEL_FILE: Record<BaseModelKey, string> = {
+  m: 'islander_male', f: 'islander_female', boy: 'islander_boy', girl: 'islander_girl',
+  oldm: 'islander_oldm', oldf: 'islander_oldf', fatm: 'islander_fatm', fatf: 'islander_fatf',
 };
+const FILES = Object.fromEntries(Object.entries(MODEL_FILE).map(([k, f]) => [k, { mesh: `models/${f}.glb`, tex: `models/${f}.jpg` }])) as Record<BaseModelKey, { mesh: string; tex: string }>;
+/** Female models (skirts follow the thighs more closely; no beard). */
+const FEMALE = new Set<BaseModelKey>(['f', 'girl', 'oldf', 'fatf']);
+/** Models with a beard (hair on the lower face), which the shader can hide for boys. */
+const BEARDED = new Set<BaseModelKey>(['m', 'oldm', 'fatm']);
 
 type V3 = [number, number, number];
 /** Mirror a +x (L) joint to the -x (R) side. */
@@ -57,7 +66,35 @@ const mir = (p: V3): V3 => [-p[0], p[1], p[2]];
  * from their meshes: the elbow, wrist, knee and ankle sit where the limbs bend and the wrist and
  * boot bands are. The ends (head top, finger tips, toes) only shape the skin weights.
  */
-const RIGS: Record<'m' | 'f', { joint: Record<BoneName, V3>; top: V3; tipL: V3; toeL: V3; hat: { y: number; z: number; s: number } }> = {
+/**
+ * A model's rig: measured joints, the ends that shape the weights, headdress fit, and (for builds
+ * other than the founding pair) how thick its body and limbs are and how far out the arms hang, so
+ * a heavy belly or a child's big head is weighted to the right bones.
+ */
+interface Rig {
+  joint: Record<BoneName, V3>; top: V3; tipL: V3; toeL: V3; hat: { y: number; z: number; s: number };
+  /** Radius multipliers for the torso, the limbs and the head (1 = the founding pair). */
+  girth?: { torso: number; limb: number; head: number };
+  /** Vertices nearer the middle than this (|x|, metres) are never part of an arm. */
+  armX?: number;
+  /** The women's underskirt: radii across and front-to-back at its top and hem, and its centre. */
+  skirt?: { rx: [number, number]; rz: [number, number]; cz: number } | null;
+}
+/** A rig from the left-side limb joints and the spine heights (all mirrored for the right). */
+function rig(L: Record<'shoulder' | 'upper_arm' | 'forearm' | 'hand' | 'thigh' | 'shin' | 'foot', V3>, spine: { hips: V3; spine: V3; chest: V3; neck: V3; head: V3 },
+  rest: Omit<Rig, 'joint'>): Rig {
+  return {
+    joint: {
+      ...spine,
+      shoulderL: L.shoulder, upper_armL: L.upper_arm, forearmL: L.forearm, handL: L.hand,
+      shoulderR: mir(L.shoulder), upper_armR: mir(L.upper_arm), forearmR: mir(L.forearm), handR: mir(L.hand),
+      thighL: L.thigh, shinL: L.shin, footL: L.foot, thighR: mir(L.thigh), shinR: mir(L.shin), footR: mir(L.foot),
+    },
+    ...rest,
+  };
+}
+
+const RIGS: Record<BaseModelKey, Rig> = {
   m: (() => {
     const L = { shoulder: [0.06, 1.38, -0.04] as V3, upper_arm: [0.2, 1.38, -0.06] as V3, forearm: [0.28, 1.15, -0.06] as V3, hand: [0.32, 0.95, -0.01] as V3, thigh: [0.1, 0.97, -0.03] as V3, shin: [0.17, 0.48, -0.03] as V3, foot: [0.21, 0.1, -0.05] as V3 };
     return {
@@ -82,6 +119,41 @@ const RIGS: Record<'m' | 'f', { joint: Record<BoneName, V3>; top: V3; tipL: V3; 
       top: [0, 1.9, 0.02], tipL: [0.32, 0.68, 0.12], toeL: [0.23, 0.02, 0.2], hat: { y: 0.06, z: -0.01, s: 1.4 },
     };
   })(),
+  // Measured from the models' front and side views on a 5 cm grid (all are 1.9 tall; children are
+  // scaled down in play, and their big heads are part of the model).
+  boy: rig(
+    { shoulder: [0.06, 1.2, 0], upper_arm: [0.18, 1.2, -0.01], forearm: [0.26, 1.0, -0.01], hand: [0.3, 0.77, 0.01], thigh: [0.09, 0.72, 0], shin: [0.13, 0.4, 0], foot: [0.17, 0.12, -0.01] },
+    { hips: [0, 0.8, 0], spine: [0, 0.95, 0], chest: [0, 1.1, 0], neck: [0, 1.27, 0], head: [0, 1.33, 0] },
+    { top: [0, 1.9, 0], tipL: [0.31, 0.6, 0.03], toeL: [0.2, 0.02, 0.15], hat: { y: 0.12, z: 0, s: 1.5 }, girth: { torso: 0.85, limb: 0.9, head: 1.9 } },
+  ),
+  girl: rig(
+    { shoulder: [0.06, 1.31, 0.1], upper_arm: [0.17, 1.31, 0.1], forearm: [0.24, 1.1, 0.1], hand: [0.3, 0.89, 0.12], thigh: [0.09, 0.88, 0.1], shin: [0.14, 0.42, 0.1], foot: [0.17, 0.1, 0.1] },
+    { hips: [0, 0.94, 0.1], spine: [0, 1.06, 0.1], chest: [0, 1.2, 0.1], neck: [0, 1.42, 0.12], head: [0, 1.46, 0.14] },
+    { top: [0, 1.9, 0.14], tipL: [0.32, 0.7, 0.14], toeL: [0.2, 0.02, 0.23], hat: { y: 0.1, z: 0, s: 1.5 }, girth: { torso: 0.85, limb: 0.9, head: 1.6 },
+      skirt: { rx: [0.17, 0.21], rz: [0.11, 0.14], cz: 0.1 } },
+  ),
+  oldm: rig(
+    { shoulder: [0.07, 1.44, 0], upper_arm: [0.21, 1.44, 0], forearm: [0.32, 1.18, 0], hand: [0.36, 1.0, 0.04], thigh: [0.1, 0.97, 0], shin: [0.17, 0.48, 0], foot: [0.22, 0.11, -0.01] },
+    { hips: [0, 0.98, 0], spine: [0, 1.12, 0], chest: [0, 1.3, 0], neck: [0, 1.52, 0], head: [0, 1.58, 0] },
+    { top: [0, 1.9, 0], tipL: [0.38, 0.8, 0.06], toeL: [0.26, 0.02, 0.16], hat: { y: 0.03, z: 0, s: 1.25 } },
+  ),
+  oldf: rig(
+    { shoulder: [0.06, 1.4, -0.01], upper_arm: [0.17, 1.4, -0.01], forearm: [0.24, 1.18, -0.01], hand: [0.3, 0.96, 0.02], thigh: [0.09, 0.97, 0], shin: [0.15, 0.48, 0], foot: [0.19, 0.1, 0] },
+    { hips: [0, 0.98, 0], spine: [0, 1.1, 0], chest: [0, 1.27, 0], neck: [0, 1.47, 0], head: [0, 1.56, 0] },
+    { top: [0, 1.9, 0], tipL: [0.32, 0.78, 0.04], toeL: [0.23, 0.02, 0.15], hat: { y: 0.05, z: 0, s: 1.35 },
+      skirt: { rx: [0.19, 0.23], rz: [0.12, 0.15], cz: 0.0 } },
+  ),
+  fatm: rig(
+    { shoulder: [0.1, 1.4, -0.02], upper_arm: [0.32, 1.4, -0.02], forearm: [0.44, 1.14, -0.02], hand: [0.46, 0.94, 0.02], thigh: [0.15, 0.86, 0], shin: [0.23, 0.4, 0], foot: [0.23, 0.1, 0] },
+    { hips: [0, 0.92, 0], spine: [0, 1.06, 0], chest: [0, 1.24, 0], neck: [0, 1.44, 0], head: [0, 1.49, 0] },
+    { top: [0, 1.9, 0], tipL: [0.48, 0.74, 0.05], toeL: [0.27, 0.02, 0.18], hat: { y: 0.06, z: 0, s: 1.4 }, girth: { torso: 1.8, limb: 1.5, head: 1.1 }, armX: 0.3 },
+  ),
+  fatf: rig(
+    { shoulder: [0.08, 1.42, 0.04], upper_arm: [0.22, 1.42, 0.04], forearm: [0.36, 1.18, 0.06], hand: [0.4, 1.0, 0.09], thigh: [0.13, 0.88, 0.04], shin: [0.2, 0.46, 0.04], foot: [0.22, 0.1, 0.04] },
+    { hips: [0, 0.96, 0.04], spine: [0, 1.12, 0.04], chest: [0, 1.3, 0.04], neck: [0, 1.51, 0.06], head: [0, 1.56, 0.06] },
+    { top: [0, 1.9, 0.06], tipL: [0.43, 0.82, 0.1], toeL: [0.25, 0.02, 0.19], hat: { y: 0.06, z: 0, s: 1.4 }, girth: { torso: 1.6, limb: 1.35, head: 1.1 }, armX: 0.26,
+      skirt: { rx: [0.27, 0.32], rz: [0.18, 0.22], cz: 0.06 } },
+  ),
 };
 
 /** Distance from p to the segment ab. */
@@ -100,27 +172,28 @@ function segDist(p: THREE.Vector3, a: THREE.Vector3, b: THREE.Vector3): number {
  * swinging forward carries the hem with it instead of poking through. Hair (flagged by `hair`) hangs
  * from the head, handing over to the chest down the back, so raised arms don't drag it.
  */
-function autoSkin(P: THREE.BufferAttribute, index: ArrayLike<number>, rig: (typeof RIGS)['m'], hair: Uint8Array, skirtFollow = 0.55): { si: Float32Array; sw: Float32Array } {
+function autoSkin(P: THREE.BufferAttribute, index: ArrayLike<number>, rig: Rig, hair: Uint8Array, skirtFollow = 0.55): { si: Float32Array; sw: Float32Array } {
   const v = (p: V3) => new THREE.Vector3(p[0], p[1], p[2]);
   const J = rig.joint;
   type Seg = { b: number; a: THREE.Vector3; e: THREE.Vector3; r: number; side: number; kind: 'torso' | 'head' | 'arm' | 'shoulder' | 'leg' };
+  const G = rig.girth ?? { torso: 1, limb: 1, head: 1 }, T = G.torso, Lm = G.limb;
   const segs: Seg[] = [
-    { b: BI.hips, a: v(J.hips), e: v(J.spine), r: 0.16, side: 0, kind: 'torso' },
-    { b: BI.spine, a: v(J.spine), e: v(J.chest), r: 0.15, side: 0, kind: 'torso' },
-    { b: BI.chest, a: v(J.chest), e: v(J.neck), r: 0.16, side: 0, kind: 'torso' },
-    { b: BI.neck, a: v(J.neck), e: v(J.head), r: 0.06, side: 0, kind: 'torso' },
-    { b: BI.head, a: v(J.head), e: v(rig.top), r: 0.12, side: 0, kind: 'head' },
+    { b: BI.hips, a: v(J.hips), e: v(J.spine), r: 0.16 * T, side: 0, kind: 'torso' },
+    { b: BI.spine, a: v(J.spine), e: v(J.chest), r: 0.15 * T, side: 0, kind: 'torso' },
+    { b: BI.chest, a: v(J.chest), e: v(J.neck), r: 0.16 * T, side: 0, kind: 'torso' },
+    { b: BI.neck, a: v(J.neck), e: v(J.head), r: 0.06 * Math.max(1, T * 0.8), side: 0, kind: 'torso' },
+    { b: BI.head, a: v(J.head), e: v(rig.top), r: 0.12 * G.head, side: 0, kind: 'head' },
   ];
   for (const [s, b] of [[1, 'L'], [-1, 'R']] as const) {
     const m = (p: V3): V3 => (s > 0 ? p : mir(p));
     segs.push(
-      { b: BI[`shoulder${b}`], a: v(J[`shoulder${b}`]), e: v(J[`upper_arm${b}`]), r: 0.06, side: s, kind: 'shoulder' },
-      { b: BI[`upper_arm${b}`], a: v(J[`upper_arm${b}`]), e: v(J[`forearm${b}`]), r: 0.055, side: s, kind: 'arm' },
-      { b: BI[`forearm${b}`], a: v(J[`forearm${b}`]), e: v(J[`hand${b}`]), r: 0.045, side: s, kind: 'arm' },
-      { b: BI[`hand${b}`], a: v(J[`hand${b}`]), e: v(m(rig.tipL)), r: 0.05, side: s, kind: 'arm' },
-      { b: BI[`thigh${b}`], a: v(J[`thigh${b}`]), e: v(J[`shin${b}`]), r: 0.075, side: s, kind: 'leg' },
-      { b: BI[`shin${b}`], a: v(J[`shin${b}`]), e: v(J[`foot${b}`]), r: 0.06, side: s, kind: 'leg' },
-      { b: BI[`foot${b}`], a: v(J[`foot${b}`]), e: v(m(rig.toeL)), r: 0.05, side: s, kind: 'leg' },
+      { b: BI[`shoulder${b}`], a: v(J[`shoulder${b}`]), e: v(J[`upper_arm${b}`]), r: 0.06 * Lm, side: s, kind: 'shoulder' },
+      { b: BI[`upper_arm${b}`], a: v(J[`upper_arm${b}`]), e: v(J[`forearm${b}`]), r: 0.055 * Lm, side: s, kind: 'arm' },
+      { b: BI[`forearm${b}`], a: v(J[`forearm${b}`]), e: v(J[`hand${b}`]), r: 0.045 * Lm, side: s, kind: 'arm' },
+      { b: BI[`hand${b}`], a: v(J[`hand${b}`]), e: v(m(rig.tipL)), r: 0.05 * Lm, side: s, kind: 'arm' },
+      { b: BI[`thigh${b}`], a: v(J[`thigh${b}`]), e: v(J[`shin${b}`]), r: 0.075 * Lm, side: s, kind: 'leg' },
+      { b: BI[`shin${b}`], a: v(J[`shin${b}`]), e: v(J[`foot${b}`]), r: 0.06 * Lm, side: s, kind: 'leg' },
+      { b: BI[`foot${b}`], a: v(J[`foot${b}`]), e: v(m(rig.toeL)), r: 0.05 * Lm, side: s, kind: 'leg' },
     );
   }
   const hipY = J.hips[1], kneeY = J.shinL[1], neckY = J.neck[1], chestY = J.chest[1];
@@ -130,7 +203,7 @@ function autoSkin(P: THREE.BufferAttribute, index: ArrayLike<number>, rig: (type
   const p = new THREE.Vector3();
   const thighL = segs.find((s) => s.b === BI.thighL)!, thighR = segs.find((s) => s.b === BI.thighR)!;
   const allowed = (s: Seg) =>
-    !((s.kind === 'arm' && (p.x * s.side < 0.13 || segDist(p, s.a, s.e) - s.r > 0.07)) ||
+    !((s.kind === 'arm' && (p.x * s.side < (rig.armX ?? 0.13) || segDist(p, s.a, s.e) - s.r > 0.07 * Lm)) ||
       (s.kind === 'shoulder' && (p.x * s.side < 0.03 || p.y < chestY)) ||
       (s.kind === 'leg' && (p.x * s.side < -0.02 || p.y > hipY + 0.03)) ||
       (s.kind === 'head' && p.y < neckY - 0.02));
@@ -228,7 +301,7 @@ function autoSkin(P: THREE.BufferAttribute, index: ArrayLike<number>, rig: (type
     // (over the surface) the hips than the arms hanging beside it.
     const dLeg = Math.min(segDist(p, thighL.a, thighL.e), segDist(p, thighR.a, thighR.e));
     const dArm = Math.min(...armIdx.map((k) => (allowed(segs[k]) ? dist[k][u] : Infinity)));
-    if (p.y < hipY + 0.02 && p.y > kneeY + 0.06 && dLeg > 0.085 && dArm > dist[0][u]) {
+    if (p.y < hipY + 0.02 && p.y > kneeY + 0.06 && dLeg > 0.085 * Lm && dArm > dist[0][u]) {
       const t = THREE.MathUtils.clamp((hipY - p.y) / (hipY - hemY), 0, 1) * skirtFollow;
       const list: [number, number][] = [[BI.hips, 1 - t]];
       if (Math.abs(p.x) < 0.05) list.push([BI.thighL, t * 0.5], [BI.thighR, t * 0.5]);
@@ -332,9 +405,9 @@ function hairMask(P: THREE.BufferAttribute, uv: THREE.BufferAttribute, map: THRE
  * flaring a little. The top rides the hips; lower down each side follows its thigh more and more,
  * the front and back middle shared, so it moves with the legs without letting them through.
  */
-function underskirt(P: THREE.BufferAttribute, UV: THREE.BufferAttribute, J: Record<BoneName, THREE.Vector3>): THREE.BufferGeometry {
+function underskirt(P: THREE.BufferAttribute, UV: THREE.BufferAttribute, J: Record<BoneName, THREE.Vector3>, size: NonNullable<Rig['skirt']>): THREE.BufferGeometry {
   // From under the waistband to a little below the panels' hem, nearer the knee.
-  const hipY = J.hips.y, topY = hipY + 0.01, hemY = J.shinL.y + 0.075, cz = 0.065;
+  const hipY = J.hips.y, topY = hipY + 0.01, hemY = J.shinL.y + 0.075, cz = size.cz;
   // Texture coordinates of the skirt's cream cloth (middle of the back panel) and its gold hem.
   const uvAt = (x: number, y: number, z: number) => {
     let best = Infinity, at = 0;
@@ -344,7 +417,8 @@ function underskirt(P: THREE.BufferAttribute, UV: THREE.BufferAttribute, J: Reco
     }
     return [UV.getX(at), UV.getY(at)];
   };
-  const cream = uvAt(0.04, hipY - 0.17, -0.12), gold = uvAt(0.04, J.shinL.y + 0.165, -0.12);
+  const back = cz - size.rz[0] * 0.95;
+  const cream = uvAt(0.04, hipY - 0.17, back), gold = uvAt(0.04, J.shinL.y + 0.165, back);
   const rows: { y: number; uv: number[] }[] = [
     { y: topY, uv: cream }, { y: hipY - 0.1, uv: cream }, { y: hipY - 0.2, uv: cream }, { y: hemY + 0.12, uv: cream },
     { y: hemY + 0.035, uv: cream }, { y: hemY + 0.03, uv: gold }, { y: hemY - 0.01, uv: gold },
@@ -353,7 +427,7 @@ function underskirt(P: THREE.BufferAttribute, UV: THREE.BufferAttribute, J: Reco
   const pos: number[] = [], nor: number[] = [], uv: number[] = [], si: number[] = [], sw: number[] = [];
   for (const r of rows) {
     const t = THREE.MathUtils.clamp((topY - r.y) / (topY - hemY), 0, 1);
-    const rx = THREE.MathUtils.lerp(0.2, 0.25, t), rz = THREE.MathUtils.lerp(0.128, 0.165, t);
+    const rx = THREE.MathUtils.lerp(size.rx[0], size.rx[1], t), rz = THREE.MathUtils.lerp(size.rz[0], size.rz[1], t);
     const follow = t * 0.82;
     for (let k = 0; k <= seg; k++) {
       const a = (k / seg) * Math.PI * 2;
@@ -387,7 +461,7 @@ function underskirt(P: THREE.BufferAttribute, UV: THREE.BufferAttribute, J: Reco
   return g;
 }
 
-async function loadOne(loader: GLTFLoader, g: 'm' | 'f'): Promise<GlbModel> {
+async function loadOne(loader: GLTFLoader, g: BaseModelKey): Promise<GlbModel> {
   const url = (u: string) => new URL(u, document.baseURI).href;
   const [gltf, map] = await Promise.all([loader.loadAsync(url(FILES[g].mesh)), new THREE.TextureLoader().loadAsync(url(FILES[g].tex))]);
   map.flipY = false;
@@ -429,7 +503,7 @@ async function loadOne(loader: GLTFLoader, g: 'm' | 'f'): Promise<GlbModel> {
   // Twice: the second time without the arm-to-body bridges, so no weight leaks across them.
   const armpit = joint.upper_armL.y - 0.12;
   // The women's skirt panels follow the thighs more closely, so a striding leg stays under them.
-  const follow = g === 'f' ? 0.8 : 0.55;
+  const follow = FEMALE.has(g) ? 0.8 : 0.55;
   const first = autoSkin(P, tris, rig, hair, follow);
   const kept = cutBridges(P, tris, first.si, first.sw, armpit);
   const { si, sw } = autoSkin(P, kept, rig, hair, follow);
@@ -450,7 +524,7 @@ async function loadOne(loader: GLTFLoader, g: 'm' | 'f'): Promise<GlbModel> {
   let skinUv = new THREE.Vector2(0.5, 0.5), best = Infinity;
   for (let i = 0; i < P.count; i++) {
     const x = P.getX(i), y = P.getY(i), z = P.getZ(i);
-    if (g === 'm' && hair[i] && z > joint.head.z + 0.03 && y < beardTop) beard[i] = 1;
+    if (BEARDED.has(g) && hair[i] && z > joint.head.z + 0.03 && y < beardTop) beard[i] = 1;
     // The bare face: front of the head, between the eyes and the mouth.
     if (!hair[i] && z > joint.head.z + 0.06) {
       const d = Math.abs(x) + Math.abs(y - (joint.head.y + 0.1)) * 2;
@@ -467,7 +541,9 @@ async function loadOne(loader: GLTFLoader, g: 'm' | 'f'): Promise<GlbModel> {
   geometry.setAttribute('aSkinI', new THREE.Float32BufferAttribute(si, 4));
   geometry.setAttribute('aSkinW', new THREE.Float32BufferAttribute(sw, 4));
   geometry.setIndex(cutBridges(P, kept, si, sw, armpit));
-  const body = g === 'f' ? mergeGeometries([geometry, underskirt(P, UV, joint)])! : geometry;
+  // The founding woman's skirt is closed by a wrap underneath; the other women's models by one sized to them.
+  const skirt = g === 'f' ? { rx: [0.2, 0.25] as [number, number], rz: [0.128, 0.165] as [number, number], cz: 0.065 } : rig.skirt;
+  const body = skirt ? mergeGeometries([geometry, underskirt(P, UV, joint, skirt)])! : geometry;
   body.computeBoundingSphere();
   const tip = new THREE.Vector3(...rig.tipL);
   return {
@@ -501,13 +577,15 @@ function lightTexel(map:THREE.Texture):THREE.Vector2 {
 
 let pending: Promise<GlbPeople> | null = null;
 
-/** Load (once) both character models. */
+/** Load (once) every character model. */
 export function loadGlbPeople(): Promise<GlbPeople> {
   if (pending) return pending;
   const loader = new GLTFLoader();
-  pending = Promise.all([loadOne(loader, 'm'), loadOne(loader, 'f')]).then(([m, f]) => ({
-    m, f, m_loosehair: characterVariant(m,'m',lightTexel(m.map)), f_flower: characterVariant(f,'f',lightTexel(f.map)),
-  }));
+  const keys = Object.keys(MODEL_FILE) as BaseModelKey[];
+  pending = Promise.all(keys.map((k) => loadOne(loader, k))).then((list) => {
+    const base = Object.fromEntries(keys.map((k, i) => [k, list[i]])) as Record<BaseModelKey, GlbModel>;
+    return { ...base, m_loosehair: characterVariant(base.m, 'm', lightTexel(base.m.map)), f_flower: characterVariant(base.f, 'f', lightTexel(base.f.map)) };
+  });
   return pending;
 }
 
