@@ -1,3 +1,4 @@
+import { WildlifeEncounters, type EncounterKind, type WildlifeEncounter } from './entities/WildlifeEncounters';
 import { fadeOceanShadows } from './render/OceanShadows';
 import { StormFire } from './buildings/StormFire';
 import { animalName } from './entities/Animals';
@@ -119,6 +120,7 @@ export interface Settings {
   music: number;
   muted: boolean;
   chatter: boolean;
+  wildlifeAlerts: boolean;
   fps: boolean;
   showMap: boolean;
   /** Drop the graphics preset automatically if the frame rate is too low. */
@@ -211,6 +213,7 @@ export class Game {
   private stormRecall = 0;
   boats: Boats;
   marine: Marine;
+  encounters: WildlifeEncounters;
   powers: Powers;
   fires: StormFire;
   volcano!: Volcano;
@@ -287,6 +290,7 @@ export class Game {
     this.veg.growIslets(growIslets(this.world));
     this.veg.build();
     const save = readSave(opts.seed);
+    if (typeof save?.wildlifeAlerts === 'boolean') this.settings.wildlifeAlerts = save.wildlifeAlerts;
     if (!save) {
       try { this.eco.godMode = localStorage.getItem(SAVE.key + '-mode') === 'sandbox'; } catch { /* normal mode */ }
     }
@@ -478,6 +482,14 @@ export class Game {
     });
 
     this.ui = new UI(this);
+    this.encounters = new WildlifeEncounters({
+      start: (kind, avoidBoat) => this.startEncounter(kind, avoidBoat),
+      dismiss: () => this.ui.dismissAlert('wildlife-encounter'),
+      notify: e => this.ui.toast(e.text, 'info', () => this.encounterPosition(e), {
+        key: 'wildlife-encounter', label: 'Watch', noFocus: true,
+        onView: () => { if (this.encounterPosition(e)) this.toggleWildlife(e.subject); },
+      }),
+    }, save?.encounters);
     if (save) this.fires.announceRestored();
     this.volcano.state.onErupt = () => { this.eco.res.belief = Math.max(0, this.eco.res.belief - 75); };
     this.volcano.notify = message => this.ui.toast(message, 'warn', () => ({ x: this.volcano.x, z: this.volcano.z }));
@@ -771,6 +783,7 @@ export class Game {
       this.voyage.update(dt, this.time.elapsed);
       this.pearls.update(dt, this.time.elapsed, this.colony.grid);
       this.marine.update(dt, this.rig.target);
+      this.encounters?.update(dt > 0 ? realDt : 0, this.settings.wildlifeAlerts);
       this.powers.update(dt, realDt, this.rig.target);
       this.fires.update(dt, this.powers.state);
       this.fires.render(this.time.elapsed, this.rig.camera);
@@ -874,7 +887,7 @@ export class Game {
   }
 
   private loadSettings(preset: PresetName): Settings {
-    const def: Settings = { preset, dof: true, dofStrength: RENDER.dof.strength, volume: 0.7, music: 0.5, muted: false, chatter: true, fps: false, showMap: false, autoQuality: true, shadows: true, dayNight: true, weather: true, motion: true, pixel: false, instantBuild: false, renderScale: 1, motionRes: true };
+    const def: Settings = { preset, dof: true, dofStrength: RENDER.dof.strength, volume: 0.7, music: 0.5, muted: false, chatter: true, wildlifeAlerts: true, fps: false, showMap: false, autoQuality: true, shadows: true, dayNight: true, weather: true, motion: true, pixel: false, instantBuild: false, renderScale: 1, motionRes: true };
     try {
       const s = JSON.parse(localStorage.getItem(SAVE.settingsKey) ?? 'null');
       if (s) return { ...def, ...s };
@@ -1062,7 +1075,36 @@ export class Game {
     this.post.dofEnabled = false;
   }
 
-  toggleWildlife(): void {
+  private encounterPosition(e: WildlifeEncounter): {x:number;z:number} | null {
+    if (this.encounters.active !== e || !e.valid()) return null;
+    const index = Number(e.subject.split('-')[1]);
+    const animal = e.kind === 'whale' ? this.marine.whales[index] : e.kind === 'turtle' ? this.turtles.list[index] : this.marine.dolphinSubjects[index];
+    return animal ? {x:animal.x,z:animal.z} : null;
+  }
+
+  private startEncounter(kind: EncounterKind, avoidBoat?: string): WildlifeEncounter | null {
+    if (kind === 'whale') {
+      const visit = this.marine.offshoreRise((x,z,radius) => this.boats.traffic().every(h => Math.hypot(x-h.x,z-h.z) > radius+h.half+2));
+      return visit ? {...visit,kind,text:'A whale is surfacing offshore.',duration:80} : null;
+    }
+    if (kind === 'turtle') {
+      const visit = this.turtles.visitBay();
+      return visit ? {...visit,kind,text:'A turtle family is passing through a sheltered bay.',duration:90} : null;
+    }
+    for (const boat of this.boats.list) {
+      const id = `canoe-${boat.id}`;
+      if (id === avoidBoat || boat.sail || boat.speed < .5) continue;
+      const current = () => this.boats.list.includes(boat) && !boat.sail && boat.speed >= .5 ? boat : null;
+      const clear = (x:number,z:number) => this.boats.traffic().every(h => Math.hypot(x-h.x,z-h.z) > h.half+4);
+      const visit = this.marine.escortCanoe(current, clear);
+      if (visit) return {...visit,kind,boat:id,text:'A dolphin pod is swimming beside a canoe.',duration:40};
+    }
+    return null;
+  }
+
+  toggleWildlife(subjectId?: string): void {
+    if (subjectId && !this.wildlifeSubjects().some(s => s.id === subjectId && s.position())) return;
+    if (subjectId && this.wildlifeView?.active) { this.wildlifeView.watch(subjectId); return; }
     if (this.wildlifeView?.active) {
       this.wildlifeView.exit();
       this.input.clear();
@@ -1079,7 +1121,7 @@ export class Game {
     this.followId = -1; this.introFollow = false; this.rotateHold = 0;
     this.ui.closePopups();
     this.input.clear(); this.cursorActive = false;
-    if (!this.wildlifeView.enter()) this.ui.toast('No wildlife is available to follow.', 'warn');
+    if (!this.wildlifeView.enter(subjectId)) this.ui.toast('No wildlife is available to follow.', 'warn');
   }
 
   private wildlifeSubjects(): WildlifeSubject[] {
@@ -1109,7 +1151,7 @@ export class Game {
         behaviour: () => wildlifeBehaviour(b.state), position: () => position(b.x, b.y + 0.3, b.z),
       })),
       ...this.turtles.list.map((t, i) => ({
-        id: `turtle-${i}`, name: t.family >= 0 ? t.mother >= 0 ? 'Baby sea turtle' : 'Mother sea turtle' : 'Sea turtle', distance: t.mother >= 0 ? 7 : 10,
+        id: `turtle-${i}`, name: t.family >= 0 ? t.mother >= 0 ? 'Baby sea turtle' : 'Mother sea turtle' : 'Sea turtle', distance: t.mother >= 0 ? 7 : t.family >= 0 ? 14 : 10,
         behaviour: () => t.state === 'breathe' ? 'Surfacing to breathe' : t.mother >= 0 ? 'Following mother' : t.family >= 0 ? 'Swimming with her babies' : wildlifeBehaviour(t.state), position: () => position(t.x, t.y + 0.2, t.z),
       })),
       ...this.wildlife.sharks.sharks.map((s, i) => ({

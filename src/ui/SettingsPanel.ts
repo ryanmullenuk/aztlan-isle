@@ -29,7 +29,7 @@ export function settingsMarkup(): string {
     </section>
     <section id="settings-sound" role="tabpanel" aria-labelledby="settings-tab-sound" hidden>
       <h2>Audio</h2>${switchRow('muted', 'Sound', '', true)}${slider('volume', 'Volume')}${slider('music', 'Music')}
-      <h2>Village</h2>${switchRow('chatter', 'Islander chatter', 'Hear conversations when you zoom in')}
+      <h2>Village</h2>${switchRow('wildlifeAlerts', 'Wildlife encounters', 'Optional alerts with a Watch action; animals still visit when off')}${switchRow('chatter', 'Islander chatter', 'Hear conversations when you zoom in')}
     </section>
   </div>
   <footer class="settings-footer"><button type="button" class="settings-return" data-a="return">Return to island</button></footer>`;

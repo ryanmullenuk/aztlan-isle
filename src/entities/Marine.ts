@@ -8,7 +8,7 @@ import { RNG } from '../world/rng';
 import { World } from '../world/World';
 import { Water } from '../water/Water';
 import { Particles } from './Boats';
-import { poseWhale, sampleRise, riseSiteOk, RISE_T, WHALE_GIRTH, type WhaleDrive } from './WhaleMotion';
+import { poseWhale, sampleRise, riseSiteOk, RISE_T, RISE_REACH, WHALE_GIRTH, type WhaleDrive } from './WhaleMotion';
 import { createWhale, type WhaleRig } from './WhaleModel';
 import { Whitewater, whitewaterTexture } from './Whitewater';
 
@@ -307,6 +307,9 @@ interface Pod {
   dir: number;
   speed: number;
   ids: number[];
+  leapIn:number;
+  jumpAge:number;
+  escort?:{boat:()=>{x:number;z:number;heading:number;speed:number}|null;clear:(x:number,z:number)=>boolean;side:number};
 }
 
 interface Dolphin {
@@ -471,7 +474,7 @@ export class Marine {
     loops.forEach((l, k) => {
       const a0 = this.rng.range(0, 6.28);
       const s = { x: l.cx + Math.cos(a0) * l.r, z: l.cz + Math.sin(a0) * l.r };
-      const pod: Pod = { phase: this.rng.next() * 6.28, x: s.x, z: s.z, cx: l.cx, cz: l.cz, a: a0, r: l.r, dir: k % 2 ? 1 : -1, speed: MARINE.dolphinSpeed, ids: [] };
+      const pod: Pod = { phase: this.rng.next() * 6.28, x: s.x, z: s.z, cx: l.cx, cz: l.cz, a: a0, r: l.r, dir: k % 2 ? 1 : -1, speed: MARINE.dolphinSpeed, ids: [],leapIn:this.rng.range(45,90),jumpAge:1000 };
       for (let d = 0; d < MARINE.dolphinsPerPod; d++) {
         pod.ids.push(this.dolphins.length);
         this.dolphins.push({ pod: k, lag: d * 0.07 + this.rng.next() * 0.05, leapH: 0.85 + this.rng.next() * 0.3, stroke: this.rng.next() * 6.28, offX: (this.rng.next() - 0.5) * 3.2, offZ: (d - MARINE.dolphinsPerPod / 2) * 0.7 + (this.rng.next() - 0.5) * 0.6, phase: this.rng.next() * 6.28, x: s.x, y: -0.4, z: s.z, pitch: 0, yaw: 0, roll: 0, wasUp: false, spin: false });
@@ -1223,9 +1226,59 @@ export class Marine {
 
   // ---------------- Dolphins ----------------
 
+  /** Borrow an existing pod for a short, safe swim alongside a moving canoe. */
+  escortCanoe(boat:()=>{x:number;z:number;heading:number;speed:number}|null,clear:(x:number,z:number)=>boolean):{subject:string;valid:()=>boolean;finish:()=>void}|null{
+    const b=boat();if(!b||b.speed<.5)return null;
+    for(const pod of this.pods){
+      if(pod.escort||Math.hypot(pod.x-b.x,pod.z-b.z)>35)continue;
+      for(const side of [-1,1]){
+        const x=b.x+Math.cos(b.heading)*side*5.5-Math.sin(b.heading)*2.5;
+        const z=b.z-Math.sin(b.heading)*side*5.5-Math.cos(b.heading)*2.5;
+        const safe=(x:number,z:number)=>clear(x,z)&&this.pods.every(other=>other===pod||Math.hypot(other.x-x,other.z-z)>8)&&this.whales.every(w=>Math.hypot(w.x-x,w.z-z)>w.length*.6+4);
+        if(!safe(x,z)||!marinePathClear(this.world,pod.x,pod.z,x,z,3.5))continue;
+        const escort={boat,clear:safe,side};pod.escort=escort;
+        const finish=()=>{if(pod.escort===escort){pod.escort=undefined;pod.cx=pod.x-Math.cos(pod.a)*pod.r;pod.cz=pod.z-Math.sin(pod.a)*pod.r;}};
+        return {subject:`dolphin-${pod.ids[0]}`,valid:()=>pod.escort===escort&&!!boat(),finish};
+      }
+    }return null;
+  }
+
+  /** An existing surfacing move, with the entire run checked before borrowing the whale. */
+  offshoreRise(room:(x:number,z:number,radius:number)=>boolean=()=>true):{subject:string;valid:()=>boolean;finish:()=>void}|null{
+    const clear = (w:Whale) => {
+      const fx=Math.sin(w.pose.yaw),fz=Math.cos(w.pose.yaw),L=w.length;
+      return room(w.x,w.z,L*.8)&&room(w.x+fx*L*RISE_REACH,w.z+fz*L*RISE_REACH,L*.8)&&this.canRise(w)&&marinePathClear(this.world,w.x-fx*L*.6,w.z-fz*L*.6,w.x+fx*L*(RISE_REACH+.8),w.z+fz*L*(RISE_REACH+.8),L*.3);
+    };
+    const index=this.whales.findIndex(w=>!w.mother&&w.state==='swim'&&!w.seek&&Math.hypot(w.x,w.z)<this.world.half*1.35&&clear(w)&&!this.whales.some(c=>c.mother===w&&(c.state!=='swim'||Math.hypot(c.x-w.x,c.z-w.z)>6)));
+    if(index<0)return null;const w=this.whales[index];this.rise(w);
+    let version=this.world.version,unsafe=false;
+    return {subject:`whale-${index}`,valid:()=>{
+      if(this.world.version!==version){version=this.world.version;unsafe=!clear(w);}
+      unsafe ||= !room(w.x,w.z,w.length*.8);
+      return !unsafe&&this.whales.includes(w)&&w.state!=='swim';
+    },finish:()=>{
+      if(unsafe){w.state='swim';w.nextRise=Math.max(w.nextRise,22);w.ring.visible=w.glow.visible=w.patch.visible=false;}
+    }};
+  }
+
   private updateDolphins(dt: number, camTarget?: THREE.Vector3): void {
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), s = new THREE.Vector3(1, 1, 1), p = new THREE.Vector3();
     for (const pod of this.pods) {
+      pod.jumpAge=(pod.jumpAge??1000)+dt;pod.leapIn=(pod.leapIn??60)-dt;
+      if(pod.leapIn<=0){pod.phase=0;pod.jumpAge=0;pod.leapIn=this.rng.range(45,90);}
+      if(pod.escort){
+        const b=pod.escort.boat();
+        if(b&&b.speed>=.5){
+          const tx=b.x+Math.cos(b.heading)*pod.escort.side*5.5-Math.sin(b.heading)*2.5;
+          const tz=b.z-Math.sin(b.heading)*pod.escort.side*5.5-Math.cos(b.heading)*2.5;
+          const d=Math.hypot(tx-pod.x,tz-pod.z),step=Math.min(d,Math.max(pod.speed,b.speed*1.15)*dt);
+          const nx=pod.x+(tx-pod.x)/Math.max(d,.001)*step,nz=pod.z+(tz-pod.z)/Math.max(d,.001)*step;
+          if(pod.escort.clear(nx,nz)&&marinePathClear(this.world,pod.x,pod.z,nx,nz,3.5)){
+            const yaw=Math.atan2(nx-pod.x,nz-pod.z);pod.x=nx;pod.z=nz;pod.a=pod.dir>0?-yaw:Math.PI-yaw;continue;
+          }
+        }
+        pod.escort=undefined;pod.cx=pod.x-Math.cos(pod.a)*pod.r;pod.cz=pod.z-Math.sin(pod.a)*pod.r;
+      }
       pod.a += (dt * pod.speed * pod.dir) / pod.r;
       const nx = pod.cx + Math.cos(pod.a) * pod.r, nz = pod.cz + Math.sin(pod.a) * pod.r;
       pod.x = nx;
@@ -1261,11 +1314,13 @@ export class Marine {
       }
       // Porpoising together: the pod's rhythm, each dolphin a little behind the one ahead.
       const ph = (((pod.phase - d.lag * Math.PI * 2) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-      const up = ph < Math.PI;
+      const jumping=pod.jumpAge>=d.lag*MARINE.leapPeriod&&pod.jumpAge<d.lag*MARINE.leapPeriod+MARINE.leapPeriod;
+      const up = jumping && ph < Math.PI;
       const u = ph / Math.PI;
       const big = d.spin ? 1.45 : 1;
-      d.y = up ? Math.sin(u * Math.PI) * MARINE.leapHeight * d.leapH * big : -Math.sin((u - 1) * Math.PI) * 0.65;
-      d.pitch = Math.cos(ph) * 0.75;
+      const y=jumping?(up?Math.sin(u*Math.PI)*MARINE.leapHeight*d.leapH*big:-Math.sin((u-1)*Math.PI)*.65):-.45+Math.sin(d.stroke*.3+d.phase)*.08;
+      d.y+=(y-d.y)*Math.min(1,dt*8);
+      d.pitch=jumping?Math.cos(ph)*.75:Math.sin(d.stroke*.3+d.phase)*.05;
       // Splashes (rings and sound only near the camera: the droplets are cheap, rings are draw calls).
       const near = !camTarget || Math.abs(d.x - camTarget.x) + Math.abs(d.z - camTarget.z) < 110;
       if (up && !d.wasUp) {

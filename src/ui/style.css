@@ -832,3 +832,6 @@ body.watching-wildlife #hud * { pointer-events: none !important; }
 .fire-repair::-webkit-progress-value { background: #8fd16a; }
 
 .fire-actions .btn { min-height: 44px; }
+
+.toast.encounter { pointer-events: auto; display: flex; flex-wrap: wrap; gap: 6px; text-align: left; }
+.toast.encounter .encounter-text { flex-basis: 100%; }

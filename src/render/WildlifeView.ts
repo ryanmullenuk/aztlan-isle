@@ -57,9 +57,10 @@ export class WildlifeView {
     document.body.appendChild(this.overlay);
   }
 
-  enter(): boolean {
+  enter(id?: string): boolean {
+    if (this.active) return id ? this.watch(id) : true;
     this.saved = { goal: { ...this.rig.goal }, cur: { ...this.rig.cur } };
-    if (!this.next()) { this.saved = null; return false; }
+    if (!(id ? this.watch(id) : this.next())) { this.saved = null; return false; }
     this.active = true;
     document.body.classList.add('watching-wildlife');
     this.overlay.classList.remove('hidden');
@@ -79,14 +80,29 @@ export class WildlifeView {
       pool = pool.filter(s => s.name === name);
     }
     if (!pool.length) { if (this.active) this.onExit(); return false; }
-    this.subject = pool[Math.floor(Math.random() * pool.length)];
-    this.rig.cinematicTarget = this.subject.position();
-    this.rig.goal.dist = this.subject.distance;
+    this.follow(pool[Math.floor(Math.random() * pool.length)]);
+    return true;
+  }
+
+  watch(id: string): boolean {
+    const subject = this.subjects().find(s => s.id === id && s.position() !== null);
+    if (!subject) return false;
+    this.follow(subject);
+    // An explicit Watch action should stay with this encounter, even during a tour.
+    this.tourRunning = false;
+    this.tourButton.textContent = 'Start tour';
+    this.tourButton.setAttribute('aria-pressed', 'false');
+    return true;
+  }
+
+  private follow(subject: WildlifeSubject): void {
+    this.subject = subject;
+    this.rig.cinematicTarget = subject.position();
+    this.rig.goal.dist = subject.distance;
     this.rig.goal.tilt = 0;
-    this.label.textContent = this.subject.name;
+    this.label.textContent = subject.name;
     this.tourElapsed = 0;
     this.updateBehaviour();
-    return true;
   }
 
   toggleTour(): void {

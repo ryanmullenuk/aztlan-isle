@@ -1,3 +1,4 @@
+import type { EncounterSave } from '../entities/WildlifeEncounters';
 import type { StormFireSave } from '../buildings/StormFire';
 import { villagePriority, type VillagePriority } from '../ai/VillagePriority';
 import { GOD_NAME } from './names';
@@ -24,6 +25,8 @@ export interface SaveData {
   weather: { state: string };
   volcano?: VolcanoSave;
   fires?: StormFireSave;
+  encounters?: EncounterSave;
+  wildlifeAlerts?: boolean;
   world: { layer: string; sandy: string; forest: string; rocky: string; wear: string; path?: string; bridge?: string; canal?: string };
   plants: string;
   /** Felled trees still lying where they fell: [plant id, direction (hundredths)] pairs. */
@@ -133,6 +136,7 @@ export function serialize(g: Game): SaveData {
     ...(g.volcano ? { volcano: g.volcano.save() } : {}),
     world: { layer: toB64(layerU), sandy: q8(w.sandy), forest: q8(w.forest), rocky: q8(w.rocky), wear: q8(w.wear), path: toB64(w.path), bridge: toB64(w.bridge), canal: toB64(w.canal) },
     ...(g.fires ? { fires: g.fires.save() } : {}),
+    ...(g.encounters ? {encounters:g.encounters.save(),wildlifeAlerts:g.settings.wildlifeAlerts} : {}),
     plants: toB64(plants),
     logs: g.veg.serializeLogs(),
     layout: 1,

@@ -123,3 +123,10 @@ test('boat workshop research and the chosen boats survive shared saves',async()=
  const bad=JSON.parse(await islandFile(save).text());bad.save.buildings[0].boatSails=[true];
  assert.throws(()=>parseIslandFile(JSON.stringify(bad)));
 });
+
+test('encounter cooldown and notification preference round-trip without changing old saves',async()=>{
+ const saved=snapshot();saved.encounters={remaining:240,lastKind:'dolphin',lastBoat:'canoe-1',boatRemaining:830,speciesRemaining:530};saved.wildlifeAlerts=false;
+ const restored=parseIslandFile(await islandFile(saved).text());assert.deepEqual(restored.encounters,saved.encounters);assert.equal(restored.wildlifeAlerts,false);
+ for(const invalid of [{...saved.encounters,remaining:-1},{...saved.encounters,lastKind:'shark'},{...saved.encounters,boatRemaining:1000}])assert.throws(()=>parseIslandFile(JSON.stringify({format:'aztlan-isle',version:1,save:{...saved,encounters:invalid}})));
+ delete saved.encounters;delete saved.wildlifeAlerts;assert.deepEqual(parseIslandFile(await islandFile(saved).text()),saved);
+});

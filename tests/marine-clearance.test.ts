@@ -20,7 +20,7 @@ test('dolphin sweep rejects rocks between endpoints and beside the body', () => 
   assert.equal(marinePathClear(w, -5, 4, 5, 4), true);
 });
 
-test('marine population has opposite adults and a calf; dolphin routes clear coastal rocks and splash twice per leap', () => {
+test('marine population has opposite adults and a calf; dolphin routes clear coastal rocks and occasionally splash twice per leap', () => {
   const w = new World(); generateIsland(w, WORLD.islandSeed); growIslets(w);
   for (const i of stackCells(w, placeSeaStacks(w, w.seed))) w.blockFixed[i] = 1;
   const disturbances: number[] = [];
@@ -36,11 +36,11 @@ test('marine population has opposite adults and a calf; dolphin routes clear coa
   assert.ok(m.dolphins.length > 0);
   let splashes = 0;
   m.dolphinSplash = () => { splashes++; };
-  for (let t = 0; t < 600; t++) {
+  for (let t = 0; t < 3600; t++) {
     m.updateDolphins(1 / 30);
     for (const d of m.dolphins) assert.ok(marinePathClear(w, d.x, d.z, d.x, d.z), 'dolphin intersects a rock');
   }
-  assert.ok(splashes >= m.dolphins.length * 4);
+  assert.ok(splashes >= m.dolphins.length * 2);
   assert.ok(disturbances.includes(0.38), 'take-off displaces the water');
   assert.ok(disturbances.includes(0.65), 'landing displaces the water');
   assert.ok(m.rings.some((r: any) => r.life >= 3), 'landing ripples linger');

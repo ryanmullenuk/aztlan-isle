@@ -38,6 +38,14 @@ export function parseIslandFile(raw: string): SaveData {
       !Object.values(d.res).every(number) || !fields(d.stats, ['sculpted', 'marked', 'boats'])) return fail();
   if (!obj(d.weather) || !['clear', 'rain', 'storm'].includes(d.weather.state)) return fail();
   if (d.villagePriority !== undefined && !isVillagePriority(d.villagePriority)) return fail();
+  if (d.wildlifeAlerts !== undefined && typeof d.wildlifeAlerts !== 'boolean') return fail();
+  if (d.encounters !== undefined) {
+    const e = d.encounters;
+    if (!fields(e, ['remaining','boatRemaining']) || e.remaining < 60 || e.remaining > 300 || e.boatRemaining < 0 || e.boatRemaining > 900 ||
+        (e.lastKind !== undefined && !['dolphin','whale','turtle'].includes(e.lastKind)) ||
+        (e.lastBoat !== undefined && !label(e.lastBoat)) ||
+        (e.speciesRemaining !== undefined && (!number(e.speciesRemaining) || e.speciesRemaining < 0 || e.speciesRemaining > 600))) return fail();
+  }
   if (d.fires !== undefined && (!obj(d.fires) || typeof d.fires.unlocked !== 'boolean' || !number(d.fires.strikeIn) || d.fires.strikeIn < 0 || d.fires.strikeIn > 38)) return fail();
   if (d.name !== undefined && (typeof d.name !== 'string' || d.name.length > 32)) return fail();
   if (!list(d.milestones, 1000) || !d.milestones.every((m: any) => label(m))) return fail();

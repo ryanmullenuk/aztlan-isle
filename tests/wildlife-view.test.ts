@@ -119,3 +119,13 @@ test('new wildlife candidates expose live behaviour and unavailable jaguars are 
   assert.equal(h.nodes['.wildlife-behaviour'].textContent, 'Preening');
   jaguar.state = 'dead'; assert.equal(subjects[5].position(), null);
 });
+
+test('Watch follows the exact encounter animal, stops a tour and preserves the original camera', () => {
+  const h=setup(),goal={...h.rig.goal},cur={...h.rig.cur};
+  h.setSubjects([{id:'mother',name:'Mother sea turtle',distance:14,position:()=>h.p},{id:'whale',name:'Whale',distance:30,position:()=>new THREE.Vector3(9,0,9)}]);
+  assert.equal(h.view.enter('missing'),false);assert.deepEqual(h.rig.goal,goal);
+  assert.equal(h.view.enter('mother'),true);assert.equal(h.nodes['.wildlife-name'].textContent,'Mother sea turtle');assert.equal(h.rig.goal.dist,14);
+  h.view.toggleTour();assert.equal(h.view.watch('whale'),true);assert.equal(h.view.tourRunning,false);assert.equal(h.nodes['.wildlife-name'].textContent,'Whale');
+  assert.equal(h.view.watch('expired'),false);assert.equal(h.nodes['.wildlife-name'].textContent,'Whale');
+  h.view.exit();assert.deepEqual(h.rig.goal,goal);assert.deepEqual(h.rig.cur,cur);
+});

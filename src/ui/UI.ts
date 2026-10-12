@@ -78,7 +78,7 @@ export class UI {
   private mapWrap!: HTMLDivElement;
   private alertButton!: HTMLButtonElement;
   private alertPanel!: HTMLDivElement;
-  private alerts: { text: string; at?: Where; toast?: HTMLElement; key?: string; onView?: () => void }[] = [];
+  private alerts: { text: string; at?: Where; toast?: HTMLElement; key?: string; onView?: () => void; label?: string; noFocus?: boolean }[] = [];
   private miniBase: ImageData | null = null;
   private miniVersion = -1;
   private timer = 0;
@@ -928,10 +928,11 @@ export class UI {
       message.textContent = alert.text;
       row.appendChild(message);
       if (alert.at) {
-        const go = el('button', 'obtn sm', 'View');
+        const go = el('button', 'obtn sm', alert.label ?? 'View');
         go.onclick = () => {
+          if (typeof alert.at === 'function' && alert.at() === null) { this.pruneAlerts(); return; }
           alert.onView?.();
-          this.game.focusAt(alert.at!);
+          if (!alert.noFocus) this.game.focusAt(alert.at!);
           close.click();
         };
         row.appendChild(go);
@@ -960,12 +961,21 @@ export class UI {
     }
   }
 
+  dismissAlert(key: string): void {
+    const old = this.alerts.find(a => a.key === key);
+    if (!old) return;
+    old.toast?.remove();
+    this.alerts = this.alerts.filter(a => a.key !== key);
+    this.renderAlerts();
+  }
+
   /** @param at where the news is: clicking the notification takes the camera there */
-  toast(text: string, kind: 'info' | 'milestone' | 'warn' = 'info', at?: Where, action?: { key: string; onView: () => void }): void {
-    if (kind === 'warn') {
+  toast(text: string, kind: 'info' | 'milestone' | 'warn' = 'info', at?: Where, action?: { key: string; onView: () => void; label?: string; noFocus?: boolean }): void {
+    const retained = kind === 'warn' || !!action?.label;
+    if (retained) {
       const existing = this.alerts.find(a => action ? a.key === action.key : !a.key && a.text === text);
       if (existing) { existing.at = at; return; }
-      this.alerts.push({ text, at, key: action?.key, onView: action?.onView });
+      this.alerts.push({ text, at, key: action?.key, onView: action?.onView, label: action?.label, noFocus: action?.noFocus });
       // Bound the inbox when warnings arrive faster than they can be read.
       if (this.alerts.length > 30) this.alerts.shift()?.toast?.remove();
       this.renderAlerts();
@@ -973,7 +983,21 @@ export class UI {
     // Keep warnings in the inbox while the interface is hidden.
     if (this.zen) return;
     const t = el('div', `toast ${kind}`, kind === 'milestone' ? `<span class="tm">${ICONS.bless}</span><span><small>Milestone</small><br>${text}</span>` : text);
-    if (at) {
+    if (action?.label) {
+      t.classList.add('encounter');
+      const message = el('span', 'encounter-text');
+      message.textContent = text;
+      t.replaceChildren(message);
+      const watch = el('button', 'obtn sm', action.label);
+      watch.onclick = () => {
+        if (typeof at === 'function' && at() === null) { this.dismissAlert(action.key); return; }
+        action.onView();
+        this.dismissAlert(action.key);
+      };
+      const dismiss = el('button', 'obtn sm', 'Dismiss');
+      dismiss.onclick = () => this.dismissAlert(action.key);
+      t.append(watch, dismiss);
+    } else if (at) {
       t.classList.add('go');
       t.title = 'Click to go there';
       t.insertAdjacentHTML('beforeend', '<span class="go-arrow" aria-hidden="true">›</span>');
@@ -983,14 +1007,14 @@ export class UI {
         t.remove();
       };
     }
-    if (kind === 'warn') this.alerts.find(a => action ? a.key === action.key : !a.key && a.text === text)!.toast = t;
+    if (retained) this.alerts.find(a => action ? a.key === action.key : !a.key && a.text === text)!.toast = t;
     t.setAttribute('role', 'status');
     this.toasts.appendChild(t);
     requestAnimationFrame(() => t.classList.add('in'));
     setTimeout(() => {
       t.classList.remove('in');
       setTimeout(() => t.remove(), 500);
-    }, kind === 'milestone' ? 5200 : 3400);
+    }, action?.label ? 6000 : kind === 'milestone' ? 5200 : 3400);
     while (this.toasts.children.length > 4) this.toasts.firstElementChild?.remove();
   }
 

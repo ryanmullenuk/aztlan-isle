@@ -18,6 +18,7 @@ export interface Turtle {
   /** Mothers leave a short water-only trail so babies follow bends instead of cutting across land. */
   trail?: { x: number; z: number }[];
   wanderTimer?: number;
+  bayVisit?:{x:number;z:number};
   x: number;
   y: number;
   z: number;
@@ -396,8 +397,9 @@ export class SeaTurtles {
       const p = this.followPoint(mother, .6 + t.slot * .36);
       t.tx = p.x; t.tz = p.z; t.ty = mother.ty - .025;
     } else {
+      if(t.bayVisit){t.tx=t.bayVisit.x;t.tz=t.bayVisit.z;t.wanderTimer=100;}
       t.wanderTimer = (t.wanderTimer ?? 0) - dt;
-      if (t.wanderTimer <= 0 || Math.hypot(t.tx - t.x, t.tz - t.z) < .5) {
+      if (!t.bayVisit && (t.wanderTimer <= 0 || Math.hypot(t.tx - t.x, t.tz - t.z) < .5)) {
         t.wanderTimer = 6;
         for (let k = 0; k < 10; k++) {
           const a = this.rng.range(0, Math.PI * 2), d = this.rng.range(3, 7);
@@ -434,6 +436,25 @@ export class SeaTurtles {
     t.pitch = THREE.MathUtils.clamp((wantY - t.y) * 2, -.5, .5);
     t.y += (wantY - t.y) * Math.min(1, dt * .9);
     t.shy = 0;
+  }
+
+  visitBay():{subject:string;valid:()=>boolean;finish:()=>void}|null{
+    for(let i=0;i<this.list.length;i++){
+      const mother=this.list[i];if(mother.family<0||mother.mother>=0||mother.bayVisit)continue;
+      for(const beach of this.beaches){
+        const d=Math.hypot(beach.x-mother.x,beach.z-mother.z);if(d>28)continue;
+        for(let k=0;k<8;k++){
+          const a=k*Math.PI/4,x=beach.x+Math.sin(a)*4,z=beach.z+Math.cos(a)*4;
+          const bed=this.world.heightAt(x,z);
+          if(bed<-2||bed>-.5||!this.waterClear(mother.x,mother.z,x,z,mother.scale))continue;
+          // A sheltered pocket has dry shoreline in several directions, not an exposed straight beach.
+          let shelter=0;for(let j=0;j<8;j++)if(this.world.heightAt(x+Math.sin(j*Math.PI/4)*10,z+Math.cos(j*Math.PI/4)*10)>0)shelter++;
+          if(shelter<3)continue;
+          const visit={x,z};mother.bayVisit=visit;
+          return {subject:`turtle-${i}`,valid:()=>mother.bayVisit===visit&&this.waterClear(visit.x,visit.z,visit.x,visit.z,mother.scale),finish:()=>{mother.bayVisit=undefined;mother.wanderTimer=0;}};
+        }
+      }
+    }return null;
   }
 
   /** A point in coastal water (shallow to moderately deep) near (x, z). */
