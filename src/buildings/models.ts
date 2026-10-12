@@ -1340,6 +1340,38 @@ export const CHICKEN_PEN = {
   },
 };
 
+/**
+ * The ground penned animals may use, in a pen's model-local coordinates: the open yard (a square of
+ * this half-size) less everything standing in it (x0, z0, x1, z1 rectangles), so animals walk round
+ * the sty, coop, troughs and feeders instead of through them.
+ */
+export interface PenLayout { half: number; blocks: [number, number, number, number][] }
+const PEN_LAYOUTS: Record<string, PenLayout> = {
+  pigpen: {
+    half: 2.15,
+    blocks: [
+      [-2.4, -2.4, 0.0, -0.95], // the sty
+      [-0.4, -2.4, 0.8, -1.55], // straw heap beside it
+      [1.72, -1.48, 2.4, -0.4], // feeding trough
+      [-2.4, 0.3, -1.72, 1.2], // stone water trough
+      [-2.3, 1.2, -1.8, 1.65], // water pot
+      [0.55, 1.85, 1.05, 2.4], // feed basket by the gate
+    ],
+  },
+  chickenpen: {
+    half: 2.15,
+    blocks: [
+      [0.3, -2.4, 2.4, -1.1], // coop and nest boxes
+      [0.62, -1.25, 0.94, -0.45], // ramp
+      [-1.95, -2.1, -0.75, -1.2], // roosting frame
+      [-2.4, -0.72, -1.6, -0.2], // hanging feeder
+      [1.85, 0.45, 2.4, 1.35], // grain trough
+      [-2.2, 1.3, -1.7, 1.8], // water dish
+    ],
+  },
+};
+export const penLayout = (key: string): PenLayout | null => PEN_LAYOUTS[key] ?? null;
+
 /** Woven wattle between (x0, z0) and (x1, z1): rows of withies, alternately in front of and behind the stakes. */
 function wattleRun(b: GeoBuilder, x0: number, z0: number, x1: number, z1: number, y0: number, h: number, rows: number, t = 0.035): void {
   const len = Math.hypot(x1 - x0, z1 - z0), a = Math.atan2(x1 - x0, z1 - z0);

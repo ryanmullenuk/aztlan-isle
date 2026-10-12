@@ -58,7 +58,9 @@ test('cockerels still flee real threats and can be captured, penned and consumed
   h.animals.registerPen(pen); h.animals.putInPen(a.id,pen);
   assert.equal(a.pen,44); assert.equal(a.heldBy,null); assert.equal(a.heldMode,null);
   a.state='walk'; a.tx=a.x; a.tz=a.z+1; a.timer=100;
-  const z=a.z; h.system.step(a,.1,null,h.people); assert.ok(Math.abs(a.z-z-.035)<1e-8);
+  // Penned animals ease up to their strutting pace rather than jumping to it, and keep heading for the spot.
+  const z=a.z; for(let n=0;n<10;n++) h.system.step(a,.1,null,h.people);
+  assert.ok(a.z-z > .12 && a.z-z <= .35+1e-6, `walked ${a.z-z}`);
   assert.equal(h.animals.describe(a),'Strutting in the pen');
   h.animals.consume(a.id); assert.equal(a.alive,false); assert.equal(a.respawn,SPECIES.chicken.regrow);
 });

@@ -563,9 +563,10 @@ function coatPatch(g: THREE.BufferGeometry, color: number, test: (x: number, y: 
 export function pigBodyHalves(spotted: boolean, spineY: number): [THREE.BufferGeometry, THREE.BufferGeometry] {
   const b = new GeoBuilder();
   b.add(facetForm([
-    [-0.218, 0.212, 0.045, 0.05, 0.045], [-0.195, 0.214, 0.105, 0.11, 0.1], [-0.14, 0.215, 0.135, 0.135, 0.12],
-    [-0.065, 0.211, 0.14, 0.138, 0.126], [0.01, 0.208, 0.138, 0.136, 0.126], [0.085, 0.209, 0.132, 0.13, 0.12],
-    [0.15, 0.212, 0.115, 0.118, 0.102], [0.192, 0.214, 0.08, 0.085, 0.072], [0.212, 0.214, 0.035, 0.04, 0.03],
+    // A rounded egg: full hams, a deep round belly, tapering a little to the shoulders.
+    [-0.2, 0.234, 0.02, 0.02, 0.02], [-0.185, 0.235, 0.075, 0.075, 0.07], [-0.15, 0.236, 0.115, 0.115, 0.108],
+    [-0.09, 0.234, 0.135, 0.132, 0.128], [-0.01, 0.232, 0.138, 0.134, 0.132], [0.07, 0.232, 0.132, 0.128, 0.126],
+    [0.13, 0.234, 0.115, 0.114, 0.108], [0.17, 0.236, 0.085, 0.088, 0.08], [0.195, 0.236, 0.03, 0.035, 0.03],
   ]), COAT);
   const g = lowPoly(b);
   if (spotted) {
@@ -573,11 +574,10 @@ export function pigBodyHalves(spotted: boolean, spineY: number): [THREE.BufferGe
     const p = g.getAttribute('position'), c = g.getAttribute('color');
     for (let i = 0; i < p.count; i += 3) {
       const x = (p.getX(i) + p.getX(i + 1) + p.getX(i + 2)) / 3, y = (p.getY(i) + p.getY(i + 1) + p.getY(i + 2)) / 3, z = (p.getZ(i) + p.getZ(i + 1) + p.getZ(i + 2)) / 3;
-      const wob = 1 + 0.15 * Math.sin(z * 70 + y * 50 + x * 30);
+      const wob = 1 + 0.07 * Math.sin(z * 50 + y * 40 + x * 30);
       const inside = Math.min(
-        x > 0.0 ? Math.hypot((z - 0.07) / 0.075, (y - 0.21) / 0.08) * wob : 9,
-        x < 0.03 ? Math.hypot((z + 0.11) / 0.08, (y - 0.22) / 0.09) * wob : 9,
-        Math.hypot((z - 0.19) / 0.05, (y - 0.2) / 0.06, x / 0.2) * wob) < 1;
+        x > 0.0 ? Math.hypot((z - 0.06) / 0.075, (y - 0.25) / 0.08) * wob : 9,
+        x < 0.03 ? Math.hypot((z + 0.1) / 0.08, (y - 0.26) / 0.09) * wob : 9) < 1;
       if (inside) for (let j = 0; j < 3; j++) c.setXYZ(i + j, c.getX(i + j) * 0.16, c.getY(i + j) * 0.14, c.getZ(i + j) * 0.14);
     }
   }
@@ -591,9 +591,10 @@ export function pigBodyHalves(spotted: boolean, spineY: number): [THREE.BufferGe
 export function goatBodyHalves(patched: boolean, spineY: number): [THREE.BufferGeometry, THREE.BufferGeometry] {
   const b = new GeoBuilder();
   b.add(facetForm([
-    [-0.215, 0.278, 0.02, 0.03, 0.03], [-0.19, 0.276, 0.056, 0.064, 0.062], [-0.13, 0.272, 0.068, 0.076, 0.07],
-    [-0.06, 0.265, 0.066, 0.078, 0.072], [0.02, 0.262, 0.072, 0.084, 0.088], [0.09, 0.264, 0.08, 0.09, 0.104],
-    [0.15, 0.272, 0.07, 0.088, 0.092], [0.2, 0.287, 0.042, 0.054, 0.056], [0.222, 0.292, 0.015, 0.02, 0.02],
+    // Square rump and hips, the flank tucked up behind a deep chest, high withers at the front.
+    [-0.19, 0.345, 0.025, 0.03, 0.035], [-0.17, 0.345, 0.06, 0.062, 0.072], [-0.12, 0.343, 0.072, 0.07, 0.085],
+    [-0.05, 0.338, 0.07, 0.07, 0.074], [0.02, 0.333, 0.074, 0.074, 0.094], [0.08, 0.335, 0.078, 0.082, 0.11],
+    [0.135, 0.348, 0.068, 0.082, 0.1], [0.175, 0.362, 0.042, 0.052, 0.062], [0.192, 0.366, 0.015, 0.02, 0.02],
   ]), COAT);
   const g = lowPoly(b);
   if (patched) {
@@ -606,9 +607,9 @@ export function goatBodyHalves(patched: boolean, spineY: number): [THREE.BufferG
       const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
       const w = 1 + 0.16 * Math.sin(z * 55 + y * 35 + x * 20);
       const f = Math.min(
-        Math.hypot((z - 0.15) / 0.07, (y - 0.31) / 0.06) * w,
-        x > 0 ? Math.hypot((z + 0.02) / 0.05, (y - 0.3) / 0.045) * w : 9,
-        Math.hypot((z + 0.17) / 0.06, (y - 0.31) / 0.05) * w);
+        Math.hypot((z - 0.13) / 0.065, (y - 0.385) / 0.06) * w,
+        x > 0 ? Math.hypot((z + 0.02) / 0.05, (y - 0.37) / 0.045) * w : 9,
+        Math.hypot((z + 0.15) / 0.055, (y - 0.38) / 0.05) * w);
       const t = smoothstep(1.05, 0.9, f);
       c.setXYZ(i, THREE.MathUtils.lerp(1, k.r, t), THREE.MathUtils.lerp(1, k.g, t), THREE.MathUtils.lerp(1, k.b, t));
     }

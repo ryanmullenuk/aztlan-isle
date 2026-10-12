@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { View } from '../render/View';
 import { FAUNA, SPECIES, SpeciesDef, SpeciesKey, WARRIOR, WILDLIFE } from '../config';
 import { Building } from '../buildings/Buildings';
+import { penLayout } from '../buildings/models';
 import { peopleMaterial } from '../render/materials';
 import { RNG } from '../world/rng';
 import { SpatialHash } from '../world/SpatialHash';
@@ -13,6 +14,11 @@ import { CHICKEN_WING, FOLDED, flapPose, mixPose, pose, wingMatrices, wingParts 
 
 /** Roaming radius of penned animals per pen building (anything else: 0.9, the butcher's pen). */
 const PEN_RADIUS: Partial<Record<string, number>> = { farm: 0.36, butcher: 0.9, pigpen: 1.8, chickenpen: 1.7 };
+/** A pen: its centre and roaming radius, and whether a body of radius r can stand at (x, z) in it. */
+interface Pen { x: number; z: number; r: number; key: string; free: (x: number, z: number, r: number) => boolean }
+/** Footprint radius of each species (scaled per animal): animals keep at least this far apart. */
+const BODY_R: Record<string, number> = { chicken: 0.09, pig: 0.2, goat: 0.16, tapir: 0.36 };
+const bodyR = (a: { sp: string; scale: number }) => (BODY_R[a.sp] ?? 0.2) * a.scale;
 /** A butcher also takes livestock from pig pens within this distance. */
 const BUTCHER_REACH = 24;
 
@@ -177,14 +183,14 @@ interface QuadRig {
 }
 const QUAD: Record<Quad, QuadRig> = {
   pig: {
-    spineY: 0.2, hipY: 0.15, x: 0.07, zF: 0.115, zR: -0.115, head: [0, 0.012, 0.19], neck: null, headPitch: [0.12, 1.15], frontGraze: 0.12,
+    spineY: 0.22, hipY: 0.17, x: 0.068, zF: 0.105, zR: -0.11, head: [0, 0.014, 0.175], neck: null, headPitch: [0.12, 1.15], frontGraze: 0.12,
     seg: [0.44, 0.34, 0.22], r: 0.03, hoof: 0x3a2a22, foot: 'split', stride: [0.17, 0.28], duty: [0.62, 0.45], lift: [0.2, 0.3], trot: [0.7, 1.25],
-    bob: [0.004, 0.012], roll: 0.05, nod: 0.05, restY: 0.125, sideY: 0.15, ear: [0.044, 0.07, 0.026], tail: [0, 0.045, -0.215],
+    bob: [0.004, 0.012], roll: 0.05, nod: 0.05, restY: 0.135, sideY: 0.155, ear: [0.044, 0.07, 0.026], tail: [0, 0.03, -0.2],
   },
   goat: {
-    spineY: 0.26, hipY: 0.21, x: 0.048, zF: 0.12, zR: -0.13, head: [0, 0.035, 0.15], neck: [0.15, -0.6, 1.05], headPitch: [1.05, 0.6], frontGraze: 0.12,
+    spineY: 0.32, hipY: 0.27, x: 0.05, zF: 0.11, zR: -0.115, head: [0, 0.06, 0.15], neck: [0.15, -0.9, 1.2], headPitch: [1.3, 0.55], frontGraze: 0.12,
     seg: [0.36, 0.3, 0.34], r: 0.017, hoof: 0x2a2018, foot: 'split', stride: [0.26, 0.45], duty: [0.64, 0.42], lift: [0.16, 0.3], trot: [0.7, 1.2],
-    bob: [0.004, 0.014], roll: 0.04, nod: 0.07, restY: 0.115, sideY: 0, ear: [0.026, 0.024, 0.02], tail: [0, 0.05, -0.19],
+    bob: [0.004, 0.014], roll: 0.04, nod: 0.07, restY: 0.14, sideY: 0, ear: [0.026, 0.024, 0.02], tail: [0, 0.045, -0.185],
   },
   tapir: {
     spineY: 0.35, hipY: 0.25, x: 0.11, zF: 0.24, zR: -0.24, head: [0, -0.01, 0.44], neck: null, headPitch: [0.3, 1.25], frontGraze: 0.1,
@@ -333,7 +339,7 @@ export class Animals {
   private groups: Group[] = [];
   private rng: RNG;
   private meshes = new Map<string, { mesh: THREE.InstancedMesh; acc: THREE.InstancedBufferAttribute; n: number }>();
-  private pens = new Map<number, { x: number; z: number; r: number; key: string }>();
+  private pens = new Map<number, Pen>();
   private leash: THREE.LineSegments;
   private time = 0;
   /** Counts draw calls so each animal can tell whether it was posed last frame. */
@@ -411,7 +417,8 @@ export class Animals {
     add('trunk_tapir', models.tapirTrunk(), 12);
     for (const sp of ['pig', 'goat', 'tapir'] as Quad[]) {
       const q = QUAD[sp], L = q.hipY, n = sp === 'tapir' ? 48 : cap * 4;
-      add(`legU_${sp}`, models.limbUpper(L * q.seg[0], q.r, q.r * 0.78), n);
+      // Thick at the top, where the thigh and shoulder muscle meets the body, tapering down.
+      add(`legU_${sp}`, models.limbUpper(L * q.seg[0], q.r * 1.45, q.r * 0.8), n);
       add(`legL_${sp}`, models.legSegment(L * q.seg[1], q.r * 0.72, q.r * 0.58), n);
       add(`legP_${sp}`, models.footSegment(L * q.seg[2], q.r * 0.6, q.hoof, q.foot), n);
     }
@@ -577,7 +584,18 @@ export class Animals {
 
   registerPen(b: Building): void {
     // A farm's chicken run is small, the butcher's pen roomier; the pig and chicken pens have a whole yard.
-    const p = { x: b.penX, z: b.penZ, r: PEN_RADIUS[b.key] ?? 0.9, key: b.key as string };
+    const r = PEN_RADIUS[b.key] ?? 0.9, layout = penLayout(b.key);
+    const p: Pen = { x: b.penX, z: b.penZ, r, key: b.key as string, free: () => true };
+    // Pens with a laid-out yard: open ground only, clear of the sty, coop, troughs and feeders.
+    // Others (the butcher's and the farm's small runs): anywhere within their radius.
+    p.free = layout && typeof b.toLocal === 'function'
+      ? (x, z, rad) => {
+          const [lx, lz] = b.toLocal(x, z), h = layout.half - rad;
+          if (Math.abs(lx) > h || Math.abs(lz) > h) return false;
+          for (const [x0, z0, x1, z1] of layout.blocks) if (lx > x0 - rad && lx < x1 + rad && lz > z0 - rad && lz < z1 + rad) return false;
+          return true;
+        }
+      : (x, z, rad) => Math.hypot(x - p.x, z - p.z) <= Math.max(0.1, p.r - rad * 0.5);
     this.pens.set(b.id, p);
     // Animals already penned here (e.g. from a save made before the pen had a place) move into it.
     for (const a of this.list) {
@@ -701,8 +719,13 @@ export class Animals {
     a.heldMode = null;
     a.chasedBy = null;
     a.pen = b.id;
-    a.x = pc.x + (this.rng.next() - 0.5) * pc.r;
-    a.z = pc.z + (this.rng.next() - 0.5) * pc.r;
+    // Set down standing still, somewhere open in the yard (not in a trough or the sty).
+    a.x = pc.x; a.z = pc.z;
+    for (let k = 0; k < 12; k++) {
+      const x = pc.x + (this.rng.next() - 0.5) * pc.r, z = pc.z + (this.rng.next() - 0.5) * pc.r;
+      if (pc.free(x, z, bodyR(a))) { a.x = x; a.z = z; break; }
+    }
+    a.speed = 0;
     a.state = 'penned';
     a.timer = 1;
   }
@@ -774,6 +797,7 @@ export class Animals {
         a.tick = 0;
         this.step(a, d, cursor, people);
       }
+      this.separate();
     }
     this.draw(dt);
   }
@@ -787,6 +811,38 @@ export class Animals {
     // Wild animals keep out of building footprints (the fire, huts, fields); penned ones stay in their pen.
     if (w.occ[i] && (a.pen < 0 || !w.passable(w.occ[i] - 1))) return false;
     return Math.abs(w.heightAt(x, z) - a.y) < SPECIES[a.sp].maxSlope;
+  }
+
+  /** Can this animal stand at (x, z)? Penned ones within their pen's open yard, others where they may walk. */
+  private canStand(a: Animal, x: number, z: number): boolean {
+    if (a.pen >= 0) return this.pens.get(a.pen)?.free(x, z, bodyR(a)) ?? true;
+    return this.walkable(a, x, z);
+  }
+
+  /**
+   * Animals never stand inside one another: any two closer than their bodies allow are eased apart
+   * (each half the overlap, and only onto ground it may stand on).
+   */
+  private separate(): void {
+    const L = this.list;
+    for (let i = 0; i < L.length; i++) {
+      const a = L[i];
+      if (!a.alive || a.heldBy) continue;
+      const ra = bodyR(a);
+      for (let j = i + 1; j < L.length; j++) {
+        const b = L[j];
+        if (!b.alive || b.heldBy || (a.pen >= 0) !== (b.pen >= 0)) continue;
+        let dx = b.x - a.x, dz = b.z - a.z;
+        const min = ra + bodyR(b);
+        if (Math.abs(dx) > min || Math.abs(dz) > min) continue;
+        let d = Math.hypot(dx, dz);
+        if (d >= min) continue;
+        if (d < 1e-4) { dx = Math.sin(a.id * 2.3 + j); dz = Math.cos(a.id * 2.3 + j); d = 1; }
+        const push = (min - d) * 0.5, ux = dx / d, uz = dz / d;
+        if (this.canStand(a, a.x - ux * push, a.z - uz * push)) { a.x -= ux * push; a.z -= uz * push; }
+        if (this.canStand(b, b.x + ux * push, b.z + uz * push)) { b.x += ux * push; b.z += uz * push; }
+      }
+    }
   }
 
   private moveToward(a: Animal, speed: number, dt: number, turn = 3): boolean {
@@ -864,22 +920,45 @@ export class Animals {
         return;
       }
       a.timer -= dt;
+      const R = bodyR(a);
       if (a.timer <= 0) {
-        a.tx = pc.x + (this.rng.next() - 0.5) * pc.r * 1.6;
-        a.tz = pc.z + (this.rng.next() - 0.5) * pc.r * 1.6;
+        // Somewhere open in the yard to wander to (never inside the sty or a trough).
+        a.tx = a.x; a.tz = a.z;
+        for (let k = 0; k < 14; k++) {
+          const ang = this.rng.next() * Math.PI * 2, rr = Math.sqrt(this.rng.next()) * pc.r * 1.3;
+          const tx = pc.x + Math.cos(ang) * rr, tz = pc.z + Math.sin(ang) * rr;
+          if (pc.free(tx, tz, R)) { a.tx = tx; a.tz = tz; break; }
+        }
         a.timer = 3 + this.rng.next() * 6;
         a.state = this.rng.chance(0.4) ? 'feed' : 'walk';
         a.feed = a.sp === 'pig' ? 'sniff' : a.sp === 'chicken' ? 'peck' : 'graze';
       }
       if (a.state === 'walk') {
         const dx = a.tx - a.x, dz = a.tz - a.z, d = Math.hypot(dx, dz);
-        if (d > 0.05) {
-          a.heading = Math.atan2(dx, dz);
-          a.x += (dx / d) * Math.min(d, wanderSpeed * dt);
-          a.z += (dz / d) * Math.min(d, wanderSpeed * dt);
-          a.speed = wanderSpeed;
+        if (d > 0.06) {
+          // Turn toward it as it walks (no snapping round on the spot), slowing through tight turns.
+          let dh = Math.atan2(dx, dz) - a.heading;
+          while (dh > Math.PI) dh -= Math.PI * 2;
+          while (dh < -Math.PI) dh += Math.PI * 2;
+          a.heading += Math.max(-3.5 * dt, Math.min(3.5 * dt, dh));
+          const want = wanderSpeed * (1 - Math.min(0.75, Math.abs(dh) * 0.6));
+          a.speed += (want - a.speed) * Math.min(1, dt * 4);
+          const st = Math.min(d, a.speed * dt);
+          const inside = pc.free(a.x, a.z, R);
+          let moved = false;
+          for (const off of [0, 0.6, -0.6, 1.2, -1.2]) {
+            const h = a.heading + off, nx = a.x + Math.sin(h) * st, nz = a.z + Math.cos(h) * st;
+            // Something in the way: step round it; and always let one that's somewhere it shouldn't be walk out.
+            if (pc.free(nx, nz, R) || !inside) {
+              a.x = nx; a.z = nz;
+              if (off) a.heading += off * Math.min(1, dt * 5);
+              moved = true;
+              break;
+            }
+          }
+          if (!moved) { a.state = 'idle'; a.speed = 0; a.timer = Math.min(a.timer, 0.6); }
         } else { a.state = 'idle'; a.speed = 0; }
-      }
+      } else a.speed = Math.max(0, a.speed - dt * 2);
       a.y = this.world.groundY(a.x, a.z);
       return;
     }
