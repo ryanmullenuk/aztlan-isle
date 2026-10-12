@@ -330,97 +330,113 @@ function eyes(b: GeoBuilder, x: number, y: number, z: number, r: number, iris: n
 
 // ---------------- Pigs ----------------
 
-/** Pig head (pivot at the neck): broad skull, sagging jowls, tapering snout with a nostril disc. */
+/**
+ * Pigs and goats are drawn as soft low-poly: rounded forms broken into broad flat facets.
+ * `gem` is a faceted sphere; `lowPoly` flattens the part's shading into facets.
+ */
+const gem = (r: number, w = 10, h = 7) => P.uvSphere(r, w, h);
+const lowPoly = (b: GeoBuilder) => facet(b.build());
+/** Body forms for the faceted animals: smoothly interpolated sections at a modest polygon count. */
+const facetForm = (sections: AnimalSection[]) => smoothForm(sections, 22, 16);
+
+const PIG_SNOUT = coat(0.84), PIG_DARK = 0x2a1c1a;
+
+/** Pig head (pivot at the neck): big rounded skull and jowls, a short snout ending in a flat disc with nostrils. */
 export function pigHead(): THREE.BufferGeometry {
   const b = new GeoBuilder();
-  b.add(ball(0.075), COAT, M.t(0, 0.008, 0.04, 0, 0, 0, 1.08, 0.95, 1.05));
-  for (const x of [-1, 1]) b.add(ball(0.04), coat(0.95), M.t(x * 0.042, -0.034, 0.045, 0, 0, 0, 1, 0.85, 1.15));
-  b.add(ball(0.045), coat(0.93), M.t(0, -0.046, 0.02, 0, 0, 0, 1.1, 0.7, 1.2));
-  b.add(P.cyl(0.033, 0.048, 0.075, 14), coat(0.9), M.t(0, -0.012, 0.11, Math.PI / 2, 0, 0, 1, 1, 0.9));
-  b.add(P.cyl(0.036, 0.034, 0.014, 14), coat(0.74), M.t(0, -0.013, 0.152, Math.PI / 2, 0, 0, 1.05, 1, 0.88));
-  eyes(b, 0.043, 0.038, 0.093, 0.008, 0x3a2418);
-  return soft(b);
+  b.add(gem(0.074, 12, 9), COAT, M.t(0, 0.02, 0.035, 0, 0, 0, 1.05, 0.95, 1));
+  for (const x of [-1, 1]) b.add(gem(0.04), coat(0.97), M.t(x * 0.036, -0.018, 0.04, 0, 0, 0, 1, 0.85, 1));
+  b.add(gem(0.04), coat(0.95), M.t(0, -0.034, 0.04, 0, 0, 0, 1.1, 0.7, 1.1));
+  b.add(P.cyl(0.036, 0.046, 0.042, 10), COAT, M.t(0, -0.008, 0.106, Math.PI / 2, 0, 0, 1.05, 1, 0.92));
+  b.add(P.cyl(0.041, 0.039, 0.013, 12), PIG_SNOUT, M.t(0, -0.008, 0.132, Math.PI / 2, 0, 0, 1.08, 1, 0.9));
+  for (const x of [-1, 1]) b.add(gem(0.0085, 8, 6), C(PIG_DARK), M.t(x * 0.015, -0.008, 0.139, 0, 0, 0, 0.75, 1, 0.35));
+  eyes(b, 0.046, 0.043, 0.084, 0.0072, 0x24160f);
+  // A big head on a short neck, as the reference pigs have.
+  return lowPoly(b).scale(1.22, 1.22, 1.22);
 }
 
-/** Floppy ear (pivot at its root, pointing +y, inner face toward +z). */
+/** Big upright pointed ear (pivot at its root, pointing +y, inner face +z), darker inside. */
 export function pigEar(): THREE.BufferGeometry {
   const b = new GeoBuilder();
-  b.add(ball(0.036), coat(0.84), M.t(0, 0.03, 0, 0.25, 0, 0, 0.84, 1.2, 0.24));
-  b.add(ball(0.026), coat(0.98), M.t(0, 0.033, 0.006, 0.25, 0, 0, 0.83, 1.25, 0.15));
-  return soft(b);
+  b.add(P.cone(0.04, 0.09, 4), COAT, M.t(0, 0.045, 0, 0.18, Math.PI / 4, 0, 1, 1, 0.3));
+  b.add(P.cone(0.028, 0.066, 4), coat(0.78), M.t(0, 0.04, 0.006, 0.18, Math.PI / 4, 0, 1, 1, 0.2));
+  return lowPoly(b);
 }
 
 /** Corkscrew tail (pivot at the root, coiling back along −z). */
 export function pigTail(): THREE.BufferGeometry {
   const pts: THREE.Vector3[] = [];
-  for (let k = 0; k <= 10; k++) {
-    const t = k / 10, a = t * Math.PI * 3.2, r = 0.011 * (1 - t * 0.35);
-    pts.push(new THREE.Vector3(Math.sin(a) * r, 0.004 + t * 0.01 + (1 - Math.cos(a)) * r * 0.9, -0.003 - t * 0.03));
+  for (let k = 0; k <= 12; k++) {
+    const t = k / 12, a = t * Math.PI * 3.4, r = 0.013 * (1 - t * 0.3);
+    pts.push(new THREE.Vector3(Math.sin(a) * r, 0.006 + t * 0.016 + (1 - Math.cos(a)) * r * 0.9, -0.004 - t * 0.03));
   }
   const b = new GeoBuilder();
-  b.add(tube(pts, (t) => 0.0056 * (1 - t * 0.45), 10, 16), coat(0.9));
-  return soft(b);
+  b.add(tube(pts, (t) => 0.0062 * (1 - t * 0.4), 6, 18), coat(0.95));
+  return lowPoly(b);
 }
 
 // ---------------- Goats ----------------
 
-/** Goat neck (pivot at the shoulders, running along +z to the head joint at z = 0.15). */
-export function goatNeck(): THREE.BufferGeometry {
+const GOAT_BROWN = 0x93613a, GOAT_CREAM = 0xf0e6cf, GOAT_PINK = 0xd99a8e, HORN = 0x8c7357, HORN_DARK = 0x6b5640;
+
+/**
+ * Goat neck (pivot at the shoulders, running along +z to the head joint at z = 0.15). The patched
+ * goat's neck is brown like its head, with a cream throat.
+ */
+export function goatNeck(patched: boolean): THREE.BufferGeometry {
   const b = new GeoBuilder();
-  b.add(P.cyl(0.03, 0.047, 0.17, 14), COAT, M.t(0, 0, 0.07, Math.PI / 2, 0, 0, 0.88, 1, 1.15));
-  b.add(P.rbox(0.012, 0.016, 0.15, 0.005, 3), coat(0.82), M.t(0, 0.036, 0.07, 0.08, 0, 0));
-  b.add(ball(0.03), coat(0.95), M.t(0, -0.03, 0.1, 0, 0, 0, 0.85, 1, 1.25));
-  return soft(b);
+  b.add(P.cyl(0.028, 0.044, 0.17, 10), patched ? C(GOAT_BROWN) : COAT, M.t(0, 0, 0.07, Math.PI / 2, 0, 0, 0.86, 1, 1.2));
+  b.add(gem(0.026), patched ? C(GOAT_BROWN) : coat(0.96), M.t(0, -0.02, 0.09, 0, 0, 0, 0.8, 0.9, 1.4));
+  return lowPoly(b);
 }
 
-/** Goat head (pivot at the poll, where the neck ends): long plain face, beard and horns. */
-export function goatHead(curly: boolean): THREE.BufferGeometry {
+/**
+ * Goat head (pivot at the poll, where the neck ends): a long face, pale muzzle and dark nose,
+ * amber eyes, a beard and big ridged horns sweeping up and back. `blaze` is the patched goat's
+ * face: a brown head with a cream stripe down the nose and a cream muzzle and beard; otherwise
+ * the whole head takes the coat colour.
+ */
+export function goatHead(blaze: boolean): THREE.BufferGeometry {
   const b = new GeoBuilder();
-  const HORN = 0x6e5a40;
-  b.add(ball(0.042), COAT, M.t(0, 0, 0.03, 0, 0, 0, 0.85, 0.95, 1.15));
-  b.add(P.cyl(0.02, 0.03, 0.075, 14), COAT, M.t(0, -0.014, 0.085, Math.PI / 2, 0, 0));
-  b.add(ball(0.021), coat(0.72), M.t(0, -0.016, 0.12, 0, 0, 0, 1, 0.9, 0.9));
+  const head = blaze ? C(GOAT_BROWN) : COAT, pale = blaze ? C(GOAT_CREAM) : coat(0.97);
+  b.add(gem(0.04, 12, 8), head, M.t(0, 0.002, 0.028, 0, 0, 0, 0.88, 0.95, 1.12));
+  b.add(P.cyl(0.021, 0.03, 0.08, 10), head, M.t(0, -0.012, 0.085, Math.PI / 2 - 0.12, 0, 0, 1, 1, 0.95));
+  b.add(gem(0.022), pale, M.t(0, -0.019, 0.124, 0, 0, 0, 1, 0.92, 0.95));
+  b.add(gem(0.009, 8, 6), C(0x2a2220), M.t(0, -0.01, 0.142, 0, 0, 0, 1.4, 0.8, 0.6));
+  if (blaze) b.add(gem(0.5, 8, 6), C(GOAT_CREAM), M.t(0, 0.012, 0.085, -0.12, 0, 0, 0.016, 0.012, 0.11));
   // Beard hanging from the chin.
-  b.add(P.cone(0.013, 0.055, 10), coat(0.7), span([0, -0.034, 0.088], [0, -0.088, 0.096], 1, 0.6));
-  for (const x of [-1, 1]) {
-    const s = x;
-    let pts: THREE.Vector3[];
-    if (curly) {
-      // Ram-like curl: up and back, then down and forward beside the ear.
-      pts = [];
-      for (let k = 0; k <= 7; k++) {
-        const t = k / 7, th = 1.2 - t * 4.2, r = 0.036 + t * 0.012;
-        pts.push(new THREE.Vector3(s * (0.016 + t * 0.03), 0.034 + r * Math.cos(th) - 0.036 * Math.cos(1.2), 0.02 + r * Math.sin(th) - 0.036 * Math.sin(1.2)));
-      }
-    } else {
-      // Scimitar horns sweeping up and back.
-      pts = [
-        new THREE.Vector3(s * 0.016, 0.034, 0.02),
-        new THREE.Vector3(s * 0.022, 0.064, -0.015),
-        new THREE.Vector3(s * 0.03, 0.079, -0.065),
-        new THREE.Vector3(s * 0.036, 0.074, -0.1),
-      ];
-    }
-    b.add(tube(pts, (t) => 0.011 * (1 - t * 0.72), 5, curly ? 12 : 9), C(HORN));
+  b.add(P.cone(0.013, 0.036, 6), pale, span([0, -0.03, 0.1], [0, -0.064, 0.104], 1, 0.7));
+  eyes(b, 0.027, 0.012, 0.05, 0.0068, 0xc89a2c);
+  // Horns: thick at the base, sweeping up and back in a long arc, ridged with darker rings.
+  for (const s of [-1, 1]) {
+    const pts = [
+      new THREE.Vector3(s * 0.015, 0.03, 0.02),
+      new THREE.Vector3(s * 0.024, 0.075, 0.0),
+      new THREE.Vector3(s * 0.036, 0.1, -0.045),
+      new THREE.Vector3(s * 0.046, 0.094, -0.1),
+      new THREE.Vector3(s * 0.052, 0.07, -0.14),
+      new THREE.Vector3(s * 0.054, 0.048, -0.152),
+    ];
+    const ridges: ColorFn = (p) => new THREE.Color(Math.sin((p.y * 1.3 - p.z) * 260) > 0.55 ? HORN_DARK : HORN);
+    b.add(tube(pts, (t) => 0.012 * (1 - t * 0.78), 7, 16), { color: ridges });
   }
-  eyes(b, 0.02, 0.014, 0.064, 0.0068, 0xc89a2c);
-  return soft(b);
+  return lowPoly(b);
 }
 
-/** Goat ear: a leaf held out sideways (pivot at the root, pointing +y, inner face +z). */
+/** Goat ear: a long leaf held out sideways (pivot at the root, pointing +y, inner face +z), pink inside. */
 export function goatEar(): THREE.BufferGeometry {
   const b = new GeoBuilder();
-  b.add(ball(0.02), coat(0.88), M.t(0, 0.032, 0, 0, 0, 0, 0.85, 1.85, 0.3));
-  b.add(ball(0.014), coat(1), M.t(0, 0.033, 0.004, 0, 0, 0, 0.8, 1.85, 0.2));
-  return soft(b);
+  b.add(gem(0.021, 8, 6), coat(0.92), M.t(0, 0.034, 0, 0, 0, 0, 0.85, 1.9, 0.3));
+  b.add(gem(0.015, 8, 6), C(GOAT_PINK), M.t(0, 0.035, 0.004, 0, 0, 0, 0.75, 1.8, 0.2));
+  return lowPoly(b);
 }
 
-/** Short flat up-flicked tail (pivot at the root). */
+/** Short tufted tail flicked up (pivot at the root). */
 export function goatTail(): THREE.BufferGeometry {
   const b = new GeoBuilder();
-  b.add(P.cone(0.02, 0.06, 10), COAT, rod(0.06, [0, 0, 0], -0.55, 0, 0, 1.25, 0.5));
-  b.add(P.cone(0.013, 0.04, 10), coat(0.75), rod(0.04, [0, -0.004, -0.006], -0.7, 0, 0, 1.1, 0.5));
-  return soft(b);
+  b.add(P.cone(0.022, 0.065, 6), COAT, rod(0.065, [0, 0, 0], -0.35, 0, 0, 1.2, 0.6));
+  b.add(gem(0.016), coat(1.02), rod(0.03, [0, 0.03, -0.012], -0.35, 0, 0, 1, 0.8));
+  return lowPoly(b);
 }
 
 // ---------------- Tapirs ----------------
@@ -530,57 +546,74 @@ export function splitBody(g: THREE.BufferGeometry, spineY: number, ov = 0.035): 
   return [pick((cz) => cz > -ov), pick((cz) => cz < ov)];
 }
 
-/**
- * Coat markings painted onto the skin, never floating blobs above it: each vertex inside the
- * marking takes its colour, so the edges blend softly across the smooth body.
- */
+/** Coat markings painted onto whole facets (crisp low-poly patches), never floating blobs above the skin. */
 function coatPatch(g: THREE.BufferGeometry, color: number, test: (x: number, y: number, z: number) => boolean): THREE.BufferGeometry {
   const p = g.getAttribute('position'), c = g.getAttribute('color'), m = g.getAttribute('aMat');
   const tint = new THREE.Color(color);
-  for (let i = 0; i < p.count; i++) {
-    if (test(p.getX(i), p.getY(i), p.getZ(i))) { c.setXYZ(i, tint.r, tint.g, tint.b); m.setX(i, 0); }
+  for (let i = 0; i < p.count; i += 3) {
+    const x = (p.getX(i) + p.getX(i + 1) + p.getX(i + 2)) / 3;
+    const y = (p.getY(i) + p.getY(i + 1) + p.getY(i + 2)) / 3;
+    const z = (p.getZ(i) + p.getZ(i + 1) + p.getZ(i + 2)) / 3;
+    if (test(x, y, z)) for (let j = 0; j < 3; j++) { c.setXYZ(i + j, tint.r, tint.g, tint.b); m.setX(i + j, 0); }
   }
   return g;
 }
 
-/** Pig body: round barrel with an arched back, heavy shoulders and hams, sagging belly; split at the spine joint. */
+/** Pig body: a chunky barrel with heavy shoulders and round hams, sagging belly; split at the spine joint. */
 export function pigBodyHalves(spotted: boolean, spineY: number): [THREE.BufferGeometry, THREE.BufferGeometry] {
   const b = new GeoBuilder();
-  b.add(smoothForm([
-    [-0.218,0.178,0.047,0.060,0.052], [-0.16,0.181,0.112,0.106,0.095],
-    [-0.075,0.174,0.125,0.121,0.101], [0,0.17,0.12,0.12,0.097],
-    [0.08,0.174,0.115,0.108,0.092], [0.16,0.172,0.092,0.087,0.079],
-    [0.235,0.165,0.055,0.055,0.05],
+  b.add(facetForm([
+    [-0.218, 0.212, 0.045, 0.05, 0.045], [-0.195, 0.214, 0.105, 0.11, 0.1], [-0.14, 0.215, 0.135, 0.135, 0.12],
+    [-0.065, 0.211, 0.14, 0.138, 0.126], [0.01, 0.208, 0.138, 0.136, 0.126], [0.085, 0.209, 0.132, 0.13, 0.12],
+    [0.15, 0.212, 0.115, 0.118, 0.102], [0.192, 0.214, 0.08, 0.085, 0.072], [0.212, 0.214, 0.035, 0.04, 0.03],
   ]), COAT);
-  const g=b.build().toNonIndexed();
+  const g = lowPoly(b);
   if (spotted) {
-    // Two dark patches, darkening the coat with soft edges (a little ragged, like real markings).
+    // Dark patches over whole facets (black on a pink or white pig), a little ragged at the edges.
+    const p = g.getAttribute('position'), c = g.getAttribute('color');
+    for (let i = 0; i < p.count; i += 3) {
+      const x = (p.getX(i) + p.getX(i + 1) + p.getX(i + 2)) / 3, y = (p.getY(i) + p.getY(i + 1) + p.getY(i + 2)) / 3, z = (p.getZ(i) + p.getZ(i + 1) + p.getZ(i + 2)) / 3;
+      const wob = 1 + 0.15 * Math.sin(z * 70 + y * 50 + x * 30);
+      const inside = Math.min(
+        x > 0.0 ? Math.hypot((z - 0.07) / 0.075, (y - 0.21) / 0.08) * wob : 9,
+        x < 0.03 ? Math.hypot((z + 0.11) / 0.08, (y - 0.22) / 0.09) * wob : 9,
+        Math.hypot((z - 0.19) / 0.05, (y - 0.2) / 0.06, x / 0.2) * wob) < 1;
+      if (inside) for (let j = 0; j < 3; j++) c.setXYZ(i + j, c.getX(i + j) * 0.16, c.getY(i + j) * 0.14, c.getZ(i + j) * 0.14);
+    }
+  }
+  return splitBody(g, spineY);
+}
+
+/**
+ * Goat body: a deep chest, straight back and lean belly; split at the spine joint. The patched
+ * goat is cream with big brown patches over the shoulders, mid flank and rump.
+ */
+export function goatBodyHalves(patched: boolean, spineY: number): [THREE.BufferGeometry, THREE.BufferGeometry] {
+  const b = new GeoBuilder();
+  b.add(facetForm([
+    [-0.215, 0.278, 0.02, 0.03, 0.03], [-0.19, 0.276, 0.056, 0.064, 0.062], [-0.13, 0.272, 0.068, 0.076, 0.07],
+    [-0.06, 0.265, 0.066, 0.078, 0.072], [0.02, 0.262, 0.072, 0.084, 0.088], [0.09, 0.264, 0.08, 0.09, 0.104],
+    [0.15, 0.272, 0.07, 0.088, 0.092], [0.2, 0.287, 0.042, 0.054, 0.056], [0.222, 0.292, 0.015, 0.02, 0.02],
+  ]), COAT);
+  const g = lowPoly(b);
+  if (patched) {
+    // Brown patches over the shoulders, mid flank and rump on the cream coat (a tint of it, so the
+    // edges blend across the facets instead of stepping).
+    const cream = new THREE.Color(GOAT_CREAM), brown = new THREE.Color(GOAT_BROWN);
+    const k = new THREE.Color(brown.r / cream.r, brown.g / cream.g, brown.b / cream.b);
     const p = g.getAttribute('position'), c = g.getAttribute('color');
     for (let i = 0; i < p.count; i++) {
       const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
-      const wob = 1 + 0.12 * Math.sin(z * 90 + y * 60);
+      const w = 1 + 0.16 * Math.sin(z * 55 + y * 35 + x * 20);
       const f = Math.min(
-        x > 0.02 ? Math.hypot((z - 0.065) / 0.06, (y - 0.205) / 0.065) * wob : 9,
-        x < 0.04 ? Math.hypot((z + 0.11) / 0.065, (y - 0.235) / 0.075) * wob : 9);
-      const k = 1 - 0.8 * smoothstep(1.08, 0.86, f);
-      c.setXYZ(i, c.getX(i) * k, c.getY(i) * k * 0.95, c.getZ(i) * k * 0.92);
+        Math.hypot((z - 0.15) / 0.07, (y - 0.31) / 0.06) * w,
+        x > 0 ? Math.hypot((z + 0.02) / 0.05, (y - 0.3) / 0.045) * w : 9,
+        Math.hypot((z + 0.17) / 0.06, (y - 0.31) / 0.05) * w);
+      const t = smoothstep(1.05, 0.9, f);
+      c.setXYZ(i, THREE.MathUtils.lerp(1, k.r, t), THREE.MathUtils.lerp(1, k.g, t), THREE.MathUtils.lerp(1, k.b, t));
     }
   }
-  return splitBody(g,spineY);
-}
-
-/** Goat body: narrow deep chest, lean belly, angular hips and a shaggy fringe; split at the spine joint. */
-export function goatBodyHalves(patched: boolean, spineY: number): [THREE.BufferGeometry, THREE.BufferGeometry] {
-  const b = new GeoBuilder();
-  b.add(smoothForm([
-    [-0.205,0.27,0.026,0.044,0.042], [-0.15,0.27,0.063,0.071,0.065],
-    [-0.075,0.263,0.061,0.077,0.065], [0,0.256,0.065,0.080,0.068],
-    [0.08,0.255,0.075,0.084,0.087], [0.14,0.265,0.063,0.085,0.078],
-    [0.205,0.282,0.035,0.048,0.05],
-  ]), COAT);
-  const g=b.build().toNonIndexed();
-  if(patched) coatPatch(g,0xf0ebe0,(_x,y,z) => z>0.065 && z<0.14 || y<0.24 && z< -0.025 && z> -0.11);
-  return splitBody(g,spineY);
+  return splitBody(g, spineY);
 }
 
 /** Tapir body: low wedge front, heavy high rounded rump, pale throat, stubby tail; split at the spine joint. */
@@ -602,7 +635,7 @@ export function tapirBodyHalves(spineY: number): [THREE.BufferGeometry, THREE.Bu
 /** Upper or lower leg segment hanging from its joint (rounded joint at the top). */
 export function legSegment(len: number, r0: number, r1: number): THREE.BufferGeometry {
   const b = new GeoBuilder();
-  b.add(ball(r0 * 1.0), COAT, M.t(0, 0, 0));
+  b.add(ball(r0 * 0.9), COAT, M.t(0, 0, 0));
   b.add(P.cyl(r1, r0, len, 14), COAT, M.t(0, -len / 2, 0));
   return soft(b);
 }
@@ -612,8 +645,9 @@ export function legSegment(len: number, r0: number, r1: number): THREE.BufferGeo
 export function limbUpper(len: number, r0: number, r1: number): THREE.BufferGeometry {
   const b = new GeoBuilder();
   b.add(ball(r0 * 1.04), COAT, M.t(0, 0, 0));
-  b.add(P.cyl(r1, r0 * 1.02, len, 14), COAT, M.t(0, -len / 2, 0));
-  b.add(ball(r0 * 1.02), COAT, M.t(0, -len * 0.38, -r0 * 0.12, 0, 0, 0, 1, 2.2, 1.12));
+  b.add(P.cyl(r1, r0 * 1.04, len, 14), COAT, M.t(0, -len / 2, 0));
+  // A gentle muscle swell high on the leg, blending into the taper rather than a bulge.
+  b.add(ball(r0 * 0.98), COAT, M.t(0, -len * 0.3, -r0 * 0.08, 0, 0, 0, 1, 2.6, 1.08));
   return soft(b);
 }
 
@@ -624,7 +658,7 @@ export function limbUpper(len: number, r0: number, r1: number): THREE.BufferGeom
  */
 export function footSegment(len: number, r: number, hoof: number, kind: 'split' | 'toes'): THREE.BufferGeometry {
   const b = new GeoBuilder();
-  b.add(ball(r * 1.06), COAT, M.t(0, 0, 0, 0, 0, 0, 1, 1.1, 1.05));
+  b.add(ball(r * 0.95), COAT, M.t(0, 0, 0, 0, 0, 0, 1, 1.1, 1.05));
   if (kind === 'split') {
     const hh = len * 0.22;
     const fl = -len + hh + len * 0.14;

@@ -117,12 +117,14 @@ const VARIANTS: Record<SpeciesKey, { body: string; head: string; colors: number[
     { body: 'rooster', head: 'rooster', colors: [0x984c28, 0xb96532, 0x473b35], weight: 2, scale: [1.34, 1.52] },
   ],
   pig: [
-    { body: 'plain', head: 'pig', colors: [0xeea39a, 0xeea39a, 0xb06a3c, 0x3a3230], weight: 7, scale: [0.8, 1.15] },
-    { body: 'spotted', head: 'pig', colors: [0xeea39a, 0xc8864a], weight: 3, scale: [0.85, 1.1] },
+    // Pink, black and ginger pigs; spotted ones are pink or white with black patches.
+    { body: 'plain', head: 'pig', colors: [0xefb1a1, 0xefb1a1, 0x3a3434, 0xb4643a], weight: 7, scale: [0.8, 1.15] },
+    { body: 'spotted', head: 'pig', colors: [0xefb1a1, 0xefebe3], weight: 3, scale: [0.85, 1.1] },
   ],
   goat: [
-    { body: 'plain', head: 'straight', colors: [0xece6d8, 0x8a5a38, 0x5a4030], weight: 5, scale: [0.85, 1.1] },
-    { body: 'patched', head: 'curly', colors: [0x8a5a38, 0x6e4a30], weight: 4, scale: [0.9, 1.1] },
+    // White, black, tan and grey goats, and cream ones with brown patches and a brown, blazed face.
+    { body: 'plain', head: 'straight', colors: [0xf0ebe0, 0x2f2b29, 0xc08a4a, 0xb9b9b5], weight: 5, scale: [0.85, 1.1] },
+    { body: 'patched', head: 'curly', colors: [0xf0e6cf], weight: 4, scale: [0.9, 1.1] },
   ],
   tapir: [{ body: 'plain', head: 'tapir', colors: [0x4a3e38, 0x3e3430, 0x564842], weight: 1, scale: [0.9, 1.1] }],
 };
@@ -175,13 +177,13 @@ interface QuadRig {
 }
 const QUAD: Record<Quad, QuadRig> = {
   pig: {
-    spineY: 0.17, hipY: 0.12, x: 0.066, zF: 0.12, zR: -0.12, head: [0, 0.012, 0.2], neck: null, headPitch: [0.12, 1.15], frontGraze: 0.12,
+    spineY: 0.2, hipY: 0.15, x: 0.07, zF: 0.115, zR: -0.115, head: [0, 0.012, 0.19], neck: null, headPitch: [0.12, 1.15], frontGraze: 0.12,
     seg: [0.44, 0.34, 0.22], r: 0.03, hoof: 0x3a2a22, foot: 'split', stride: [0.17, 0.28], duty: [0.62, 0.45], lift: [0.2, 0.3], trot: [0.7, 1.25],
-    bob: [0.004, 0.012], roll: 0.05, nod: 0.05, restY: 0.1, sideY: 0.125, ear: [0.046, 0.058, 0.02], tail: [0, 0.045, -0.21],
+    bob: [0.004, 0.012], roll: 0.05, nod: 0.05, restY: 0.125, sideY: 0.15, ear: [0.044, 0.07, 0.026], tail: [0, 0.045, -0.215],
   },
   goat: {
     spineY: 0.26, hipY: 0.21, x: 0.048, zF: 0.12, zR: -0.13, head: [0, 0.035, 0.15], neck: [0.15, -0.6, 1.05], headPitch: [1.05, 0.6], frontGraze: 0.12,
-    seg: [0.36, 0.3, 0.34], r: 0.02, hoof: 0x2a2018, foot: 'split', stride: [0.26, 0.45], duty: [0.64, 0.42], lift: [0.16, 0.3], trot: [0.7, 1.2],
+    seg: [0.36, 0.3, 0.34], r: 0.017, hoof: 0x2a2018, foot: 'split', stride: [0.26, 0.45], duty: [0.64, 0.42], lift: [0.16, 0.3], trot: [0.7, 1.2],
     bob: [0.004, 0.014], roll: 0.04, nod: 0.07, restY: 0.115, sideY: 0, ear: [0.026, 0.024, 0.02], tail: [0, 0.05, -0.19],
   },
   tapir: {
@@ -398,8 +400,9 @@ export class Animals {
     halves('goat_plain', models.goatBodyHalves(false, QUAD.goat.spineY), cap);
     halves('goat_patched', models.goatBodyHalves(true, QUAD.goat.spineY), cap);
     add('head_straight', models.goatHead(false), cap);
-    add('head_curly', models.goatHead(true), cap);
-    add('neck_goat', models.goatNeck(), cap);
+    add('head_curly', models.goatHead(true), cap); // the patched goat's blazed face
+    add('neck_goat', models.goatNeck(false), cap);
+    add('neck_goat_patched', models.goatNeck(true), cap);
     add('ear_goat', models.goatEar(), cap * 2);
     add('tail_goat', models.goatTail(), cap);
     halves('tapir_plain', models.tapirBodyHalves(QUAD.tapir.spineY), 12);
@@ -1265,7 +1268,7 @@ export class Animals {
       let np = mix(n0, n1, gz) + nod * 0.8 - alert * 0.25 + run * move * 0.28 - parentPitch * 0.7;
       np = mix(np, -0.45 - parentPitch, lieF);
       _N.multiplyMatrices(_front, compose(_tmp, hx, hy, hz, np, yaw * 0.5, 0));
-      this.put(K.neck, _N, a.color);
+      this.put(a.bodyKey === 'goat_patched' ? 'neck_goat_patched' : K.neck, _N, a.color);
       let hp = mix(q.headPitch[0], q.headPitch[1], gz) + nod * 0.4 - alert * 0.15 - bite * 0.3 + chew * 0.025 - run * move * 0.2;
       hp = mix(hp, 0.95, lieF);
       _H.multiplyMatrices(_N, compose(_tmp, 0, 0, nl, hp, yaw * 0.5, headRoll));
@@ -1290,9 +1293,10 @@ export class Animals {
       const shake = blip(t, 3.2, 0.09, 0.35, a.id * 1.3 + e * 0.47) * Math.sin(t * 38);
       let rx: number, ry: number, rz: number;
       if (sp === 'pig') {
-        rx = 0.9 - alert * 0.45 + fast * 0.25 + move * 0.2 * Math.cos(2 * mLF + 0.1) + gz * 0.2;
-        ry = sd * 0.35;
-        rz = -sd * (0.55 + shake * 0.35 + fast * 0.2);
+        // Big upright ears, tipped a little forward and out; they bob with each step.
+        rx = 0.22 - alert * 0.15 + fast * 0.35 + move * 0.1 * Math.cos(2 * mLF + 0.1) + gz * 0.25;
+        ry = sd * 0.3;
+        rz = -sd * (0.36 + shake * 0.3 + fast * 0.15);
       } else if (sp === 'goat') {
         rx = 0.25;
         ry = sd * (0.15 - alert * 0.3 + fast * 0.6);

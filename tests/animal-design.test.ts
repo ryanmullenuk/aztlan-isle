@@ -42,17 +42,23 @@ test('redesigned rig parts retain finite geometry, coat attributes and practical
   }
 });
 
-test('farm animals are soft-shaded: neighbouring faces share normals instead of flat facets', () => {
-  for (const g of [pigHead(), goatHead(true), tapirHead(), pigBodyHalves(true, .17)[0]]) {
-    const n = g.getAttribute('normal'), p = g.getAttribute('position');
-    const tri = g.index ? g.index.count / 3 : p.count / 3;
-    const at = (t: number, k: number) => g.index ? g.index.getX(t * 3 + k) : t * 3 + k;
-    let curved = 0;
-    for (let t = 0; t < tri; t++) {
-      const a = new THREE.Vector3().fromBufferAttribute(n, at(t, 0)), b = new THREE.Vector3().fromBufferAttribute(n, at(t, 1));
-      if (a.angleTo(b) > 1e-3) curved++;
-    }
-    assert.ok(curved > tri * 0.5, 'most triangles should carry interpolated normals');
+/** Share of triangles whose corners carry different normals (interpolated, rather than flat, shading). */
+function curvedShare(g: THREE.BufferGeometry): number {
+  const n = g.getAttribute('normal'), p = g.getAttribute('position');
+  const tri = g.index ? g.index.count / 3 : p.count / 3;
+  const at = (t: number, k: number) => g.index ? g.index.getX(t * 3 + k) : t * 3 + k;
+  let curved = 0;
+  for (let t = 0; t < tri; t++) {
+    const a = new THREE.Vector3().fromBufferAttribute(n, at(t, 0)), b = new THREE.Vector3().fromBufferAttribute(n, at(t, 1));
+    if (a.angleTo(b) > 1e-3) curved++;
+  }
+  return curved / tri;
+}
+
+test('tapirs are soft-shaded; pigs and goats are soft low-poly with flat facets, as in the reference art', () => {
+  for (const g of [tapirHead(), tapirBodyHalves(.36)[0]]) assert.ok(curvedShare(g) > 0.5, 'tapirs carry interpolated normals');
+  for (const g of [pigHead(), goatHead(true), goatHead(false), pigBodyHalves(true, .2)[0], goatBodyHalves(true, .26)[0]]) {
+    assert.ok(curvedShare(g) < 0.01, 'pig and goat parts are drawn as flat facets');
   }
 });
 

@@ -1313,8 +1313,11 @@ const PEN = {
   withyDark: c(0x6b4a2c),
   straw: c(0xd9b866),
   strawDark: c(0xb8913f),
-  earth: c(0xa3805a),
-  dust: c(0xc7a77a),
+  // Ground tones chosen to read as bare earth: the building skin would turn browns that are more
+  // saturated into timber planks, and paler sandy ones into flagstones.
+  earth: c(0x86735c),
+  dust: c(0xa08c6f),
+  grass: c(0x6f8c45),
   mud: c(0x5c412a),
   mudDark: c(0x3b2a1b),
   puddle: c(0x6d7c80),
@@ -1375,12 +1378,46 @@ function gableThatch(b: GeoBuilder, x: number, eave: number, z: number, len: num
   b.add(P.cyl(0.05, 0.05, len + 0.06, 6), { color: K.thatchDark, leaf: 0.2 }, M.t(x, eave + rise + 0.03, z, 0, 0, Math.PI / 2));
 }
 
-/** A patch of scattered straw: a flat mat with a few loose stalks. */
+/** Scattered straw: a couple of low, loose heaps with stalks strewn round them. */
 function strawPatch(b: GeoBuilder, rng: RNG, x: number, z: number, r: number, stalks = 5, y = 0.02): void {
-  b.add(P.cyl(r, r * 1.08, 0.014, 7), { color: PEN.straw }, M.t(x, y + 0.007, z, 0, rng.range(0, 3), 0, 1, 1, rng.range(0.6, 0.9)));
-  for (let k = 0; k < stalks; k++) {
-    const a = rng.range(0, Math.PI * 2), d = rng.range(0, r * 1.1);
-    b.add(P.box(0.012, 0.008, rng.range(0.08, 0.14)), { color: k % 2 ? PEN.strawDark : PEN.straw }, M.t(x + Math.cos(a) * d, y + 0.018, z + Math.sin(a) * d, 0, rng.range(0, 3.14), 0));
+  for (let k = 0; k < 2; k++) {
+    const a = rng.range(0, Math.PI * 2), d = k * r * 0.45;
+    b.add(lumpy(P.sphere(r * (0.38 - k * 0.1), 1), 0.3, rng.int(1, 999), 0.3), { color: k ? PEN.strawDark : PEN.straw, leaf: 0.2 },
+      M.t(x + Math.cos(a) * d, y, z + Math.sin(a) * d));
+  }
+  for (let k = 0; k < stalks * 3; k++) {
+    const a = rng.range(0, Math.PI * 2), d = rng.range(r * 0.3, r * 1.3);
+    b.add(P.box(0.01, 0.006, rng.range(0.07, 0.13)), { color: k % 2 ? PEN.strawDark : PEN.straw, leaf: 0.2 }, M.t(x + Math.cos(a) * d, y + 0.004, z + Math.sin(a) * d, 0, rng.range(0, 3.14), 0));
+  }
+}
+
+/**
+ * Yard ground inside a pen: gently uneven bare earth, blotched lighter and darker, worn bare in the
+ * middle and greening into grass toward the fence, with a few tufts left along it.
+ */
+function yardGround(b: GeoBuilder, rng: RNG, hw: number, hd: number, base: THREE.Color): void {
+  const g = new THREE.PlaneGeometry(hw * 2 - 0.04, hd * 2 - 0.04, 18, 18);
+  g.rotateX(-Math.PI / 2);
+  const p = g.getAttribute('position') as THREE.BufferAttribute;
+  for (let i = 0; i < p.count; i++) p.setY(i, 0.012 + Math.sin(p.getX(i) * 3.1) * Math.cos(p.getZ(i) * 2.7) * 0.008);
+  g.computeVertexNormals();
+  const col = new THREE.Color();
+  b.add(g, {
+    color: (q) => {
+      const edge = Math.min(hw - Math.abs(q.x), hd - Math.abs(q.z));
+      const blot = Math.sin(q.x * 4.3 + 1.7) * Math.sin(q.z * 3.7 - 0.4) * 0.5 + Math.sin(q.x * 9.1 - q.z * 7.3) * 0.25;
+      col.copy(base).multiplyScalar(1 + blot * 0.12);
+      return col.lerp(PEN.grass, THREE.MathUtils.smoothstep(0.45, 0.05, edge) * 0.85).clone();
+    },
+  });
+  for (let k = 0; k < 26; k++) {
+    const side = rng.int(0, 3), t = rng.range(-1, 1), inset = rng.range(0.05, 0.22);
+    const x = side < 2 ? t * (hw - 0.1) : (side === 2 ? -1 : 1) * (hw - inset);
+    const z = side < 2 ? (side === 0 ? -1 : 1) * (hd - inset) : t * (hd - 0.1);
+    for (let j = 0; j < 3; j++) {
+      b.add(P.cone(0.035, rng.range(0.12, 0.2), 4), { color: j % 2 ? PEN.grass : c(0x5d7a3a), leaf: 1, sway: 0.3 },
+        M.t(x + rng.range(-0.04, 0.04), 0.05, z + rng.range(-0.04, 0.04), rng.range(-0.3, 0.3), 0, rng.range(-0.3, 0.3)));
+    }
   }
 }
 
@@ -1404,7 +1441,7 @@ export function pigpenModel(w: number, d: number): BuildingModel {
   const rng = new RNG(31);
   const hw = w / 2 - 0.1, hd = d / 2 - 0.1, gate = 0.45, FH = 0.44;
   // Trampled earth yard.
-  b.add(P.box(hw * 2 - 0.04, 0.02, hd * 2 - 0.04), { color: PEN.earth }, M.t(0, 0.01, 0));
+  yardGround(b, rng, hw, hd, PEN.earth);
   // Wattle fence on posts, with a gateway at the front.
   const runs: [number, number, number, number][] = [[-hw, -hd, hw, -hd], [hw, -hd, hw, hd], [-hw, -hd, -hw, hd], [-hw, hd, -gate, hd], [gate, hd, hw, hd]];
   for (const [x0, z0, x1, z1] of runs) {
@@ -1474,9 +1511,13 @@ export function chickenpenModel(w: number, d: number): BuildingModel {
   const rng = new RNG(47);
   const hw = w / 2 - 0.1, hd = d / 2 - 0.1, gate = 0.42, FH = 0.4;
   // Dusty yard, a scratched-out dust bath and straw strewn about.
-  b.add(P.box(hw * 2 - 0.04, 0.02, hd * 2 - 0.04), { color: PEN.dust }, M.t(0, 0.01, 0));
-  b.add(P.cyl(0.42, 0.46, 0.012, 12), { color: c(0xa98a62) }, M.t(-0.7, 0.024, 0.9, 0, 0, 0, 1, 1, 0.75));
-  b.add(P.cyl(0.26, 0.28, 0.01, 10), { color: c(0x927550) }, M.t(-0.72, 0.03, 0.92, 0, 0, 0, 1, 1, 0.7));
+  yardGround(b, rng, hw, hd, PEN.dust);
+  // A dust bath scratched into the earth: a dark hollow with a scuffed rim of loose soil.
+  b.add(P.cyl(0.34, 0.36, 0.008, 14), { color: c(0x6e5c48) }, M.t(-0.7, 0.022, 0.9, 0, 0, 0, 1, 1, 0.75));
+  for (let k = 0; k < 9; k++) {
+    const a = (k / 9) * Math.PI * 2;
+    b.add(lumpy(P.sphere(0.05, 0), 0.35, 60 + k, 0.35), { color: c(0x8a7660) }, M.t(-0.7 + Math.cos(a) * 0.38, 0.022, 0.9 + Math.sin(a) * 0.29));
+  }
   for (const [x, z, r] of [[0.5, 0.2, 0.34], [-0.3, -0.4, 0.26], [1.2, 1.1, 0.24], [0.1, 1.6, 0.2], [-1.4, 0.2, 0.22], [0.8, -0.85, 0.3]] as const) strawPatch(b, rng, x, z, r, 4);
   // Cane fence: close-set canes wired to two rails between stout posts, a gateway at the front.
   const runs: [number, number, number, number][] = [[-hw, -hd, hw, -hd], [hw, -hd, hw, hd], [-hw, -hd, -hw, hd], [-hw, hd, -gate, hd], [gate, hd, hw, hd]];
@@ -1552,7 +1593,8 @@ export function chickenpenModel(w: number, d: number): BuildingModel {
   b.add(P.cyl(0.025, 0.03, 0.62, 5), { color: K.timberDark }, M.t(fx, 0.31, fz));
   b.add(P.box(0.3, 0.025, 0.025), { color: K.timberDark }, M.t(fx + 0.14, 0.6, fz));
   b.add(P.cyl(0.006, 0.006, 0.22, 3), { color: K.rope }, M.t(fx + 0.26, 0.49, fz));
-  b.add(P.uvSphere(0.1, 8, 6), { color: c(0xc9a14a) }, M.t(fx + 0.26, 0.33, fz, 0, 0, 0, 1, 1.25, 1));
+  b.add(P.uvSphere(0.06, 8, 6), { color: c(0xb88a3a) }, M.t(fx + 0.26, 0.34, fz, 0, 0, 0, 1, 1.2, 1));
+  b.add(P.cyl(0.012, 0.02, 0.04, 6), { color: c(0x8a6a2a) }, M.t(fx + 0.26, 0.27, fz));
   b.add(P.cyl(0.13, 0.1, 0.04, 10), { color: K.terracotta }, M.t(fx + 0.26, 0.17, fz));
   b.add(P.cyl(0.11, 0.11, 0.01, 10), { color: PEN.grain }, M.t(fx + 0.26, 0.19, fz));
   const tx = hw - 0.35, tz = 0.9;
