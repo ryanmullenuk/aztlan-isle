@@ -18,6 +18,7 @@ export class Sculptor {
   private dirty: [number, number, number, number] | null = null;
   private flushTimer = 0;
   active = false;
+  onTerrainChanged:((x0:number,z0:number,x1:number,z1:number)=>void)|null=null;
   protectedAt: (x: number, z: number) => boolean = () => false;
   /** Total layer steps sculpted (for the tutorial and stats). */
   total = 0;
@@ -110,6 +111,7 @@ export class Sculptor {
     this.terrain.rebuild(x0, z0, x1, z1);
     this.water.updateHeight(x0, z0, x1, z1);
     this.veg.refreshHeights(x0 - 2, z0 - 2, x1 + 2, z1 + 2);
+    this.onTerrainChanged?.(x0-2,z0-2,x1+2,z1+2);
     w.version++;
     if (final) w.computeDistWater();
   }

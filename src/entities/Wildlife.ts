@@ -110,8 +110,8 @@ export class Wildlife {
     this.monkeys = new Monkeys(world, veg.canopyTrees(), alive);
     this.critters = new Critters(world);
     // Coral reefs first: the reef fish gather over them.
-    this.coral = new Coral(world);
-    const reefPts = [...this.coral.patches.map((p) => ({ x: p.x, z: p.z })), ...veg.plants.filter((p) => p.kind === 'reef' || p.kind === 'searock').map((p) => ({ x: p.x, z: p.z }))];
+    this.coral = new Coral(world,veg.plants.filter(p=>p.kind==='reef'||p.kind==='searock').map(p=>({x:p.x,z:p.z})));
+    const reefPts = [...this.coral.hotspots().map((p) => ({ x: p.x, z: p.z })), ...veg.plants.filter((p) => p.kind === 'reef' || p.kind === 'searock').map((p) => ({ x: p.x, z: p.z }))];
     this.reef = new ReefFish(world, reefPts);
     // Hammerhead sharks patrol the reefs and hunt the reef fish.
     this.sharks = new Sharks(world, this.coral.patches, this.reef);

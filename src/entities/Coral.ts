@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { GeoBuilder, M, P } from '../render/GeoBuilder';
-import { patchStylised } from '../render/materials';
+import { habitatMaterial, HabitatInstances, habitatFit } from './Habitat';
+import { PresetName } from '../config';
+import { habitatPreset } from './Habitat';
 import { angularRockGeometry } from '../render/rocks';
 import { RNG } from '../world/rng';
 import { World } from '../world/World';
@@ -94,23 +96,18 @@ function softCoral(): THREE.BufferGeometry {
   return b.build();
 }
 
-/** A clump of seaweed ribbons that wave in the current. */
+/** A small seagrass tuft with tapered, segmented blades and anchored roots. */
 function seaweed(): THREE.BufferGeometry {
-  const b = new GeoBuilder();
-  const rng = new RNG(19);
-  for (let k = 0; k < 6; k++) {
-    const x = rng.range(-0.12, 0.12), z = rng.range(-0.12, 0.12);
-    const segs = 4 + Math.floor(rng.next() * 3);
-    let px = x, py = 0, pz = z, lean = rng.range(-0.3, 0.3);
-    const ry = rng.range(0, Math.PI);
-    for (let j = 0; j < segs; j++) {
-      const len = 0.1 + rng.next() * 0.04;
-      lean += rng.range(-0.25, 0.25);
-      b.add(P.box(0.045, len, 0.006), { color: j === segs - 1 ? 0xf0f4e0 : WHITE, sway: (p) => Math.min(1.2, p.y * 2.2) }, M.t(px, py + len / 2, pz, 0, ry, lean));
-      px += Math.sin(-lean) * len * Math.cos(ry);
-      pz += Math.sin(-lean) * len * -Math.sin(ry);
-      py += Math.cos(lean) * len;
+  const b=new GeoBuilder(),rng=new RNG(19);
+  for(let k=0;k<7;k++){
+    const angle=rng.range(0,Math.PI*2),height=rng.range(.19,.43),lean=rng.range(-.12,.12);
+    const g=new THREE.PlaneGeometry(.025,height,1,5),pos=g.getAttribute('position');
+    for(let j=0;j<pos.count;j++){
+      const t=(pos.getY(j)+height/2)/height;
+      pos.setXYZ(j,pos.getX(j)*(1-.9*t)+lean*t*t,pos.getY(j)+height/2,Math.sin(t*2)*.025);
     }
+    g.computeVertexNormals();
+    b.add(g,{color:k%2?0xc0cc93:0x9cac70,sway:p=>Math.max(0,p.y)*2},M.t(Math.cos(angle)*.07,0,Math.sin(angle)*.07,0,angle,0));
   }
   return b.build();
 }
@@ -139,32 +136,40 @@ export interface ReefPatch {
  */
 export class Coral {
   readonly group = new THREE.Group();
-  readonly patches: ReefPatch[] = [];
+  private reefCandidates: ReefPatch[] = [];
+  get patches():ReefPatch[]{return this.reefCandidates.filter(p=>habitatFit(this.world,p.x,p.z,.2)>0);}
+  readonly grassPatches: ReefPatch[] = [];
+  private instances: HabitatInstances;
 
-  constructor(private world: World) {
+  constructor(private world: World, rocks: {x:number;z:number}[] = []) {
+    this.instances=new HabitatInstances(world);
     const rng = new RNG(world.seed * 41 + 13);
     const w = world;
-    // Reef sites: shallow sea a little way off the beaches, spread out around the island.
-    const want = rng.int(28, 36);
-    for (let k = 0; k < 9000 && this.patches.length < want; k++) {
-      const cx = rng.int(3, w.N - 4), cz = rng.int(3, w.N - 4);
-      const x = w.centerX(cx) + rng.range(-0.5, 0.5), z = w.centerZ(cz) + rng.range(-0.5, 0.5);
-      const bed = w.heightAt(x, z);
-      if (bed > -0.8 || bed < -2.3) continue;
-      if (this.patches.some((p) => Math.hypot(p.x - x, p.z - z) < 9)) continue;
-      this.patches.push({ x, z, r: rng.range(2.5, 4.5) });
+    // Stable candidates per tile: terrain edits never consume another tile's random stream.
+    for(let z=0;z<w.N;z+=14)for(let x=0;x<w.N;x+=14){
+      const tile=new RNG(w.seed*41+x*173+z*397+13);
+      const px=w.centerX(x)+tile.range(2,11),pz=w.centerZ(z)+tile.range(2,11);
+      if(tile.chance(.15))this.reefCandidates.push({x:px,z:pz,r:tile.range(2,3.2)});
+      if(tile.chance(.32))this.grassPatches.push({x:px,z:pz,r:tile.range(1.5,2.8)});
+    }
+    // Small groups beside existing submerged rocks, with room left around most rocks.
+    for(let k=0;k<rocks.length;k++){
+      const rr=new RNG(w.seed*31+k*619+11);if(!rr.chance(.35))continue;
+      const a=rr.range(0,Math.PI*2),d=rr.range(1.2,2.1);
+      this.reefCandidates.push({x:rocks[k].x+Math.sin(a)*d,z:rocks[k].z+Math.cos(a)*d,r:1.2});
     }
     const geos: Record<CoralKind, THREE.BufferGeometry> = { branch: branchCoral(), brain: brainCoral(), table: tableCoral(), fan: seaFan(), tube: tubeSponge(), soft: softCoral(), weed: seaweed(), rock: angularRockGeometry(913) };
     const items: Record<CoralKind, { m: THREE.Matrix4; c: THREE.Color }[]> = { branch: [], brain: [], table: [], fan: [], tube: [], soft: [], weed: [], rock: [] };
     const tot = WEIGHTS.reduce((s, [, n]) => s + n, 0);
     const q = new THREE.Quaternion(), e = new THREE.Euler(), p = new THREE.Vector3(), sc = new THREE.Vector3();
-    for (const patch of this.patches) {
-      const n = rng.int(50, 85);
+    for (const patch of this.reefCandidates) {
+      const rng = new RNG(w.seed*43+Math.round(patch.x*31)+Math.round(patch.z*173));
+      const n = rng.int(18, 30);
       for (let k = 0; k < n; k++) {
         const a = rng.range(0, Math.PI * 2), d = Math.sqrt(rng.next()) * patch.r;
         const x = patch.x + Math.cos(a) * d, z = patch.z + Math.sin(a) * d;
         const bed = w.heightAt(x, z);
-        if (bed > -0.45 || bed < -2.8) continue;
+
         let r = rng.next() * tot, kind: CoralKind = 'branch';
         for (const [kk, wt] of WEIGHTS) if ((r -= wt) <= 0) {
           kind = kk;
@@ -180,42 +185,39 @@ export class Coral {
         // Vivid under the water tint: push saturation a little.
         const hsl = { h: 0, s: 0, l: 0 };
         c.getHSL(hsl);
-        c.setHSL(hsl.h, Math.min(1, hsl.s * 1.15), hsl.l * (0.9 + rng.next() * 0.2));
+        c.setHSL(hsl.h, hsl.s * .65, hsl.l * (.82 + rng.next() * .14));
         items[kind].push({ m, c });
       }
     }
-    // Seaweed beds: clumps scattered in drifts across the whole shelf.
-    for (let c = 0; c < 6500 && items.weed.length < 1600; c++) {
-      const cx = w.centerX(rng.int(3, w.N - 4)), cz = w.centerZ(rng.int(3, w.N - 4));
-      const bed0 = w.heightAt(cx, cz);
-      if (bed0 > -0.5 || bed0 < -2.6) continue;
-      const n = rng.int(9, 20);
-      const pal = PALETTE.weed[Math.floor(rng.next() * PALETTE.weed.length)];
-      for (let k = 0; k < n && items.weed.length < 1600; k++) {
-        const x = cx + rng.range(-2.2, 2.2), z = cz + rng.range(-2.2, 2.2);
-        const bed = w.heightAt(x, z);
-        if (bed > -0.4 || bed < -2.8) continue;
-        e.set(0, rng.range(0, Math.PI * 2), 0);
-        q.setFromEuler(e);
-        const m = new THREE.Matrix4().compose(p.set(x, bed - 0.02, z), q, sc.setScalar(rng.range(0.8, 1.6) * Math.min(1.4, -bed * 0.8)));
-        items.weed.push({ m, c: new THREE.Color(pal).multiplyScalar(0.85 + rng.next() * 0.3) });
+    // Irregular drifts: fewer and smaller clumps towards the edge, with deliberate gaps.
+    for(const patch of this.grassPatches){
+      const rr=new RNG(w.seed*47+Math.round(patch.x*83)+Math.round(patch.z*137));
+      for(let k=0;k<20&&items.weed.length<1600;k++){
+        const a=rr.range(0,Math.PI*2),d=Math.sqrt(rr.next())*patch.r;
+        const x=patch.x+Math.cos(a)*d,z=patch.z+Math.sin(a)*d,scale=rr.range(.6,1.1)*(1-d/patch.r*.4);
+        const heading=rr.range(0,Math.PI*2),color=new THREE.Color(PALETTE.weed[rr.int(0,3)]).multiplyScalar(rr.range(.8,1));
+        if(rr.next()>.8-d/patch.r*.35)continue;
+        const m=new THREE.Matrix4().compose(p.set(x,w.heightAt(x,z)-.02,z),q.setFromEuler(e.set(0,heading,0)),sc.setScalar(scale));
+        items.weed.push({m,c:color});
       }
     }
     // Low submerged boulder clusters give reefs a rocky base without blocking the surface.
-    for (const patch of this.patches) {
+    for (const patch of this.reefCandidates) {
+      const rng=new RNG(w.seed*61+Math.round(patch.x*73)+Math.round(patch.z*257));
       for (let k = 0, n = rng.int(8, 14); k < n; k++) {
         const a = rng.range(0, Math.PI * 2), d = Math.sqrt(rng.next()) * (patch.r + 1);
         const x = patch.x + Math.cos(a) * d, z = patch.z + Math.sin(a) * d;
         const bed = w.heightAt(x, z);
-        if (bed > -0.8 || bed < -3.2) continue;
+
         const size = rng.range(0.35, 0.85);
         q.setFromEuler(e.set(0, rng.range(0, Math.PI * 2), 0));
         const m = new THREE.Matrix4().compose(p.set(x, bed - 0.08, z), q,
-          sc.set(size, Math.min(size * 0.55, (-bed - 0.3) * 0.4), size * rng.range(0.7, 1.3)));
+          sc.set(size, size * .48, size * rng.range(0.7, 1.3)));
         items.rock.push({ m, c: new THREE.Color(PALETTE.rock[rng.int(0, 2)]) });
       }
     }
-    const mat = patchStylised(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0 }), 0.2);
+    const mat = habitatMaterial(),grassMat=habitatMaterial();
+    grassMat.side=THREE.DoubleSide;grassMat.forceSinglePass=true;
     // Split each kind into spatial chunks so reefs off screen are culled (one island-wide mesh
     // per kind would always be drawn).
     const CH = 24;
@@ -229,11 +231,11 @@ export class Coral {
         if (!b) buckets.set(k, (b = []));
         b.push(it);
       }
-      for (const list of buckets.values()) this.addChunk(geos[kind], mat, list);
+      for (const list of buckets.values()) this.addChunk(geos[kind], kind==='weed'?grassMat:mat, list,kind);
     }
   }
 
-  private addChunk(geo: THREE.BufferGeometry, mat: THREE.Material, list: { m: THREE.Matrix4; c: THREE.Color }[]): void {
+  private addChunk(geo: THREE.BufferGeometry, mat: THREE.Material, list: { m: THREE.Matrix4; c: THREE.Color }[],kind:CoralKind): void {
     {
       const mesh = new THREE.InstancedMesh(geo, mat, list.length);
       list.forEach((it, i) => {
@@ -245,14 +247,22 @@ export class Coral {
       mesh.castShadow = false;
       mesh.receiveShadow = true;
       mesh.computeBoundingSphere();
+      mesh.renderOrder=8;mesh.name=`habitat-${kind}`;
       this.group.add(mesh);
+      geo.computeBoundingBox();
+      this.instances.add(mesh,list.map(it=>it.m.clone()),Math.max(.05,geo.boundingBox!.max.y),kind==='rock'?.4:.25);
     }
   }
+
+  refresh(x0:number,z0:number,x1:number,z1:number):void{this.instances.refresh(x0,z0,x1,z1);}
+  setPreset(preset:PresetName):void{habitatPreset(this.group,preset);}
+  hotspots():ReefPatch[]{return [...this.patches,...this.grassPatches].filter(p=>habitatFit(this.world,p.x,p.z,.2)>0);}
 
   /** Grid cells covered by reefs (boats steer around them). */
   cells(): number[] {
     const out: number[] = [];
     for (const p of this.patches) {
+      if(!habitatFit(this.world,p.x,p.z,.2))continue;
       for (let dz = -Math.ceil(p.r); dz <= Math.ceil(p.r); dz++) {
         for (let dx = -Math.ceil(p.r); dx <= Math.ceil(p.r); dx++) {
           if (dx * dx + dz * dz > p.r * p.r) continue;

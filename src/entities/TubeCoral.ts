@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GeoBuilder, M, P } from '../render/GeoBuilder';
-import { patchStylised } from '../render/materials';
+import { HabitatInstances, habitatMaterial, habitatPreset } from './Habitat';
+import { PresetName } from '../config';
 import { RNG } from '../world/rng';
 import { World } from '../world/World';
 import { SEA_SURFACE } from '../water/Water';
@@ -75,6 +76,7 @@ export function tubeCoralGeometry(seed: number, pal: Palette = CORAL_PALETTES.pu
 export class TubeCoral {
   readonly group = new THREE.Group();
   /** Where each cluster stands (for tests). */
+  private instances: HabitatInstances;
   readonly spots: { x: number; z: number; s: number; g?: number }[] = [];
 
   /**
@@ -82,6 +84,7 @@ export class TubeCoral {
    * sea arch's feet) grow a dense, many-coloured garden, a little deeper too.
    */
   constructor(private world: World, rocks: { x: number; z: number; r: number; rich?: boolean }[]) {
+    this.instances=new HabitatInstances(world);
     const w = world;
     const rng = new RNG(w.seed * 53 + 29);
     /** Sea floor depth that suits it, and the scale that keeps its tips under the water there. */
@@ -143,7 +146,7 @@ export class TubeCoral {
     const totW = kinds.reduce((t, k) => t + k.w, 0);
     const geos = kinds.map((k, i) => tubeCoralGeometry(11 + i * 13, CORAL_PALETTES[k.pal], k.shape));
     const pick = () => { let r = rng.next() * totW; for (let i = 0; i < kinds.length; i++) if ((r -= kinds[i].w) <= 0) return i; return 0; };
-    const mat = patchStylised(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, metalness: 0 }), 0.2);
+    const mat = habitatMaterial();
     // Chunked so clusters off screen are culled.
     const CH = 24;
     const buckets = new Map<string, { m: THREE.Matrix4; c: THREE.Color; g: number }[]>();
@@ -171,8 +174,12 @@ export class TubeCoral {
         mesh.receiveShadow = true;
         mesh.computeBoundingSphere();
         mesh.name = 'tube coral';
+        mesh.renderOrder=8;
         this.group.add(mesh);
+        this.instances.add(mesh,items.map(it=>it.m.clone()),.62,.3);
       }
     }
   }
+  refresh(x0:number,z0:number,x1:number,z1:number):void{this.instances.refresh(x0,z0,x1,z1);}
+  setPreset(preset:PresetName):void{habitatPreset(this.group,preset);}
 }

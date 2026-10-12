@@ -402,6 +402,7 @@ export class Game {
     ];
     this.tubeCoral = new TubeCoral(this.world, seaRocks);
     this.scene.add(this.tubeCoral.group);
+    this.sculptor.onTerrainChanged=(x0,z0,x1,z1)=>this.refreshHabitats(x0,z0,x1,z1);
     this.water.updateHeight(0, 0, this.world.N - 1, this.world.N - 1);
     for (const site of this.seaArch.surfSites()) this.seaStacks.addSurf(site);
     for (const i of this.seaArch.landCells()) this.veg.clearArea(i % this.world.N, (i / this.world.N) | 0, 1, 1);
@@ -895,6 +896,8 @@ export class Game {
   applySettings(): void {
     const s = this.settings;
     if (this.preset !== s.preset) this.setPreset(s.preset);
+    this.wildlife?.coral.setPreset(this.preset);
+    this.tubeCoral?.setPreset(this.preset);
     const ultra = this.preset === 'ultra';
     this.veg.ultra = ultra;
     this.tufts.setUltra(ultra);
@@ -1210,6 +1213,13 @@ export class Game {
     this.placementSnap = !this.placementSnap;
     if (this.hoverPoint) this.updateGhost(this.hoverPoint);
   }
+  private refreshHabitats(x0:number,z0:number,x1:number,z1:number):void{
+    this.wildlife.coral.refresh(x0,z0,x1,z1);
+    this.tubeCoral.refresh(x0,z0,x1,z1);
+    this.wildlife.reef.setHabitats(this.wildlife.coral.hotspots());
+    this.wildlife.reef.refreshTerrain(x0,z0,x1,z1);
+  }
+
   refreshPlacement(): void { if (this.placing && this.hoverPoint) this.updateGhost(this.hoverPoint); }
 
   get touchPlacementActive():boolean {return this.touchPlacement || (typeof matchMedia==='function' && matchMedia('(pointer: coarse)').matches);}
@@ -2205,6 +2215,7 @@ export class Game {
       this.water.updateHeight(x0 - 1, z0 - 1, x1 + 1, z1 + 1);
       this.water.setCanals();
       this.veg.refreshHeights(x0 - 2, z0 - 2, x1 + 2, z1 + 2);
+      this.refreshHabitats(x0-2,z0-2,x1+2,z1+2);
       this.terrain.updateWear();
       this.tufts.refresh();
       this.flowers.refresh();

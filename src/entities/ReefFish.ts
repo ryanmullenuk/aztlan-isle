@@ -5,6 +5,7 @@ import { RNG } from '../world/rng';
 import { World } from '../world/World';
 import { View } from '../render/View';
 import { FishType, fishGeometry } from './animalModels';
+import { clearWaterMove } from './WaterObstacles';
 import { SEA_SURFACE } from '../water/Water';
 
 /** Beyond this distance (squared) reef fish use the lighter model (they're small: it kicks in early). */
@@ -47,6 +48,7 @@ interface RSchool {
   excursion: number;
   /** On screen this frame (full per-fish swimming); off-screen fish ride along with the school. */
   vis: boolean;
+  orbit?:number;
 }
 
 export interface RFish {
@@ -126,13 +128,55 @@ export class ReefFish {
 
   private shallow(x: number, z: number): boolean {
     const bed = this.world.heightAt(x, z);
-    return bed < -0.55 && bed > -2.8;
+    return bed < -0.55 && bed > -2.8 && this.clearPoint(x,z) && clearWaterMove(this.world,x,z,x,z,.12);
   }
 
   /** Where schools may roam: reef depths and the shallower lagoon margins (where herons fish). */
   private roam(x: number, z: number): boolean {
     const bed = this.world.heightAt(x, z);
-    return bed < -0.24 && bed > -2.8;
+    return bed < -0.24 && bed > -2.8 && this.clearPoint(x,z);
+  }
+
+  private clearPoint(x:number,z:number):boolean{
+    const i=this.world.cellIndexAt(x,z);return i>=0&&!this.world.blocked(i);
+  }
+  private clearSwim(x:number,z:number,nx:number,nz:number,radius:number):boolean{
+    const steps=Math.max(1,Math.ceil(Math.hypot(nx-x,nz-z)/.2));
+    for(let k=0;k<=steps;k++){
+      const px=x+(nx-x)*k/steps,pz=z+(nz-z)*k/steps;
+      if(this.world.heightAt(px,pz)>=-.24 || this.world.heightAt(px+radius,pz)>=-.24 || this.world.heightAt(px-radius,pz)>=-.24 || this.world.heightAt(px,pz+radius)>=-.24 || this.world.heightAt(px,pz-radius)>=-.24)return false;
+    }
+    return clearWaterMove(this.world,x,z,nx,nz,radius);
+  }
+
+  /** Update destinations after habitat edits; never create fish or change their catch timers. */
+  setHabitats(points:{x:number;z:number}[]):void{
+    const valid=points.filter(p=>this.shallow(p.x,p.z));
+    if(!valid.length)return;
+    for(let k=0;k<this.reefs.length;k++){
+      const old=this.reefs[k];let best=valid[k%valid.length],distance=Infinity;
+      for(const p of valid){const d=Math.hypot(p.x-old.x,p.z-old.z);if(d<distance){best=p;distance=d;}}
+      this.reefs[k]={...best,r:3};
+    }
+  }
+
+  /** Rescue only stranded decorative fish when the player raises their seabed. */
+  refreshTerrain(x0:number,z0:number,x1:number,z1:number):void{
+    const affected=(x:number,z:number)=>{const [cx,cz]=this.world.cellOf(x,z);return cx>=x0-2&&cx<=x1+2&&cz>=z0-2&&cz<=z1+2;};
+    const refuge=(x:number,z:number)=>{
+      if(this.roam(x,z))return {x,z};
+      for(let radius=1;radius<=12;radius++)for(let k=0;k<16;k++){
+        const a=k*Math.PI/8,px=x+Math.sin(a)*radius,pz=z+Math.cos(a)*radius;
+        if(this.roam(px,pz))return {x:px,z:pz};
+      }
+      return this.reefs.find(r=>this.roam(r.x,r.z))??null;
+    };
+    for(const s of this.schools)if(affected(s.x,s.z)&&!this.roam(s.x,s.z)){
+      const p=refuge(s.x,s.z);if(p){s.x=s.tx=p.x;s.z=s.tz=p.z;s.timer=0;}
+    }
+    for(const f of this.fish)if(affected(f.x,f.z)&&!this.roam(f.x,f.z)){
+      const p=refuge(f.x,f.z);if(p){f.x=p.x;f.z=p.z;f.y=Math.min(-.12,this.world.heightAt(p.x,p.z)+.2);f.speed=0;}
+    }
   }
 
   /** Hotspots: reefs and sea rocks, plus sampled shallow water and the lagoon. */
@@ -179,6 +223,7 @@ export class ReefFish {
           speed: 0, ox: this.rng.range(-spread, spread), oz: this.rng.range(-spread, spread), oy: this.rng.range(-0.08, 0.08),
           phase: this.rng.range(0, 10), scale: this.rng.range(a, b) / len, dart: 0, gone: 0,
         };
+        if(!this.roam(f.x,f.z)||!clearWaterMove(this.world,f.x,f.z,f.x,f.z,.12)){f.x=R.x;f.z=R.z;}
         this.fish.push(f);
         total++;
       }
@@ -222,16 +267,20 @@ export class ReefFish {
     if (this.threats.length) this.threats = this.threats.filter((th) => th.t > 0);
     if (dt > 0) {
       for (const s of this.schools) {
-        const R = this.reefs[s.reef];
+        let R = this.reefs[s.reef];
         s.timer -= dt;
         if (s.timer <= 0 || Math.hypot(s.tx - s.x, s.tz - s.z) < 0.4) {
-          s.timer = 4 + this.rng.next() * 8;
+          s.timer = 6 + this.rng.next() * 10;
+          if(this.rng.chance(.14)){
+            const nearby=this.reefs.map((r,i)=>({r,i})).filter(p=>p.i!==s.reef&&this.roam(p.r.x,p.r.z)&&Math.hypot(p.r.x-s.x,p.r.z-s.z)<18);
+            if(nearby.length){s.reef=nearby[this.rng.int(0,nearby.length-1)].i;R=this.reefs[s.reef];}
+          }
           s.excursion = this.rng.chance(0.12) ? 1 : 0;
           // Now and then the school forages along the shallow margins (where herons wait).
           const margin = !s.excursion && this.rng.chance(0.3);
           const rr = R.r * (s.excursion ? 2.2 : margin ? 3 : 1);
           for (let k = 0; k < (margin ? 16 : 8); k++) {
-            const a = this.rng.range(0, 6.28), d = Math.sqrt(this.rng.next()) * rr;
+            const a = k<3 ? (s.orbit=(s.orbit??s.heading)+this.rng.range(.5,1.2)) : this.rng.range(0,6.28), d = (k<3?this.rng.range(.45,.85):Math.sqrt(this.rng.next())) * rr;
             const x = R.x + Math.cos(a) * d, z = R.z + Math.sin(a) * d;
             if (!this.roam(x, z)) continue;
             if (margin && this.world.heightAt(x, z) < -0.55) continue;
@@ -249,7 +298,7 @@ export class ReefFish {
         const sp = s.speed * (0.6 + 0.4 * Math.cos(dh));
         const nx = s.x + Math.sin(s.heading) * sp * dt, nz = s.z + Math.cos(s.heading) * sp * dt;
         s.vis = View.sees(s.x, -0.4, s.z, 3.5) && View.dist2(s.x, -0.4, s.z) < FAR2;
-        if (this.roam(nx, nz)) {
+        if (this.roam(nx, nz) && this.clearSwim(s.x,s.z,nx,nz,.15)) {
           s.x = nx;
           s.z = nz;
         } else s.timer = 0;
@@ -269,8 +318,10 @@ export class ReefFish {
         if (!s.vis) {
           // Off-screen: settle into its slot in the school without the per-fish steering.
           const c = Math.cos(s.heading), sn = Math.sin(s.heading);
-          f.x = s.x + f.ox * c + f.oz * sn;
-          f.z = s.z - f.ox * sn + f.oz * c;
+          // Off-screen fish travel at their already-cleared school centre. This avoids
+          // per-fish collision scans and prevents formation slots entering nearby rocks.
+          f.x=s.x;f.z=s.z;
+          f.y=Math.min(-.12,Math.max(w.heightAt(f.x,f.z)+.12,-.4));
           f.heading = s.heading;
           continue;
         }
@@ -309,7 +360,7 @@ export class ReefFish {
         const nx = f.x + Math.sin(f.heading) * f.speed * dt, nz = f.z + Math.cos(f.heading) * f.speed * dt;
         const bed = w.heightAt(nx, nz);
         const R = this.reefs[s.reef];
-        if (bed < -0.23) {
+        if (bed < -0.24 && this.clearSwim(f.x,f.z,nx,nz,.12)) {
           f.x = nx;
           f.z = nz;
         } else {
@@ -319,11 +370,6 @@ export class ReefFish {
           while (dh2 > Math.PI) dh2 -= Math.PI * 2;
           while (dh2 < -Math.PI) dh2 += Math.PI * 2;
           f.heading += dh2 * Math.min(1, dt * 6);
-          if (w.heightAt(f.x, f.z) >= -0.23) {
-            // Already stranded in the shallows (e.g. the land was raised): slip back out.
-            f.x += Math.sin(back) * dt * 1.2;
-            f.z += Math.cos(back) * dt * 1.2;
-          }
           s.timer = Math.min(s.timer, 0.5);
         }
         // Hover above the bed, a little deeper on excursions.
@@ -341,7 +387,7 @@ export class ReefFish {
     cntLo.clear();
     for (const f of this.fish) {
       const s = this.schools[f.school];
-      if (f.gone > 0 || !s.vis || !View.sees(f.x, f.y, f.z, 0.2)) continue;
+      if (f.gone > 0 || !s.vis || !this.roam(f.x,f.z) || f.y<=this.world.heightAt(f.x,f.z) || !View.sees(f.x, f.y, f.z, 0.2)) continue;
       const lo = View.dist2(f.x, f.y, f.z) > REEF_LOD2;
       const m = (lo ? this.meshesLo : this.meshes).get(s.type)!;
       const c = lo ? cntLo : cnt;
