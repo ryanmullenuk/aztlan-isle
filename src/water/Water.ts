@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { buildShoreField, SHORE_SURF_GLSL } from './Shoreline';
 import { COLORS, WORLD } from '../config';
 import { World } from '../world/World';
 import { GeoBuilder, M, P, lumpy } from '../render/GeoBuilder';
@@ -48,6 +49,8 @@ const waterVert = /* glsl */ `
 const waterFrag = /* glsl */ `
   #include <common>
   #include <fog_pars_fragment>
+  uniform sampler2D uShore;
+  ${SHORE_SURF_GLSL}
   uniform float uTime;
   uniform float uWorld;
   uniform float uUltra;
@@ -251,7 +254,14 @@ const waterFrag = /* glsl */ `
     // along the coast, every third or so bigger; each one washes up the sand, then drains back.
     float cd0 = max(-bed, 0.0);
     float along = vnoise(p * 0.055) * 2.8 + vnoise(p * 0.16 + 4.0) * 0.8;
-    float surfP = t * 1.2 + along * 3.14159;
+    vec4 coast = vec4(0.5, 0.5, 0.12, 0.0);
+    if (uSwash > 0.5) coast = texture2D(uShore, clamp(uv, 0.0, 1.0));
+    vec2 outward = coast.xy * 2.0 - 1.0;
+    outward /= max(length(outward), 0.01);
+    float exposure = coast.z;
+    float beachK = 1.0 - smoothstep(0.25, 0.75, coast.w);
+    float stormSurf = 1.0 + uStorm * exposure * 0.5;
+    float surfP = t * 1.03 + along * 3.14159 + sin(t * 0.17 + along * 2.1) * 0.35;
     float setK = 0.72 + 0.28 * sin(surfP * 0.34 + along * 1.7);
     // Distance to the nearest land (blue channel): surf lines run parallel to the coast. Beyond the
     // map it carries on growing from the edge.
@@ -267,15 +277,17 @@ const waterFrag = /* glsl */ `
     // Surf only close in, and broken along the coast into stretches that come and go (never a
     // continuous line tracing the shore).
     float surfPatch = smoothstep(0.32, 0.68, vnoise(p * 0.21 + vec2(t * 0.03, -t * 0.02)) * 0.7 + vnoise(p * 0.6 - vec2(0.0, t * 0.05)) * 0.3);
-    float surfZone = (1.0 - smoothstep(1.4, 3.4 + 0.5 * along, sd)) * inside * uSwash * surfPatch;
-    float fSw = fract((surfP - 1.5708) / TAU);
-    float runup = smoothstep(0.0, 0.16, fSw) * (1.0 - smoothstep(0.28, 0.92, fSw));
-    float level = mix(vW.y, -0.03 + (uSurface + 0.03) * runup * setK, uSwash * inside);
+    float surfZone = (1.0 - smoothstep(1.4, 3.4 + 0.5 * along, sd)) * inMap * uSwash * surfPatch * mix(0.18, 1.0, exposure) * stormSurf;
+    float fSw = fract(surfP / TAU);
+    float runup = shorePulse(fSw);
+    float reach = mix(0.015, uSurface, mix(0.2, 1.0, exposure)) * setK * mix(0.45, 1.0, beachK);
+    reach = min(uSurface, reach * stormSurf);
+    float level = mix(vW.y, -0.03 + (reach + 0.03) * runup, uSwash * inside);
     float wet = 0.0;
     if (bed > level && uSwash > 0.5 && inside > 0.5) {
       // Above the water line: sand the last wave reached stays dark and glossy for a moment.
-      float reach = -0.03 + (uSurface + 0.03) * setK * 0.95;
-      wet = (bed < reach ? 1.0 : 0.0) * (1.0 - smoothstep(0.3, 1.0, fSw)) * smoothstep(0.1, 0.3, fSw + 0.2);
+      // The previous crest reached this strip; drying continues through the whole retreat.
+      wet = (1.0 - smoothstep(reach - 0.012, reach, bed)) * mix(exp(-(fSw + 0.72) * 2.6), 1.0, smoothstep(0.04, 0.18, fSw)) * exp(-max(fSw - 0.28, 0.0) * 2.6) * beachK * inMap;
       if (wet < 0.02) discard;
     }
     float depth = max(level - bed, 0.0) + uDeepen;
@@ -287,6 +299,15 @@ const waterFrag = /* glsl */ `
     // Far away the surface settles into a smooth sheen; glassy in very shallow water.
     float gK = mix(1.0, 0.5, smoothstep(0.15, 0.8, fw)) * mix(0.3, 1.0, smoothstep(0.05, 0.9, depth));
     grad *= gK;
+    float spacing = 3.1 * (0.8 + 0.4 * vnoise(p * 0.09 + 5.5));
+    float shorePhase = sd * spacing + surfP - TAU * 0.18 + sin(sd * 0.7) * 0.28;
+    // Negative phase velocity moves crests down the distance field towards the local shore.
+    float crestWidth = clamp(fw * spacing * 0.5, 0.13, 0.75);
+    float crestBand = 1.0 - smoothstep(crestWidth, crestWidth * 2.2, abs(sin(shorePhase * 0.5))) * min(1.0, 0.3 / crestWidth);
+    float line = crestBand * surfZone * setK;
+    float breaking = (1.0 - smoothstep(0.3, 2.2, sd)) * mix(0.55, 1.0, beachK);
+    grad += outward * sin(shorePhase) * surfZone * setK * 0.12;
+
     // Disturbances (a whale coming up, a big splash): rings of waves spreading out from each, and
     // churned white water at its heart while it's fresh.
     float ripFoam = 0.0;
@@ -414,20 +435,19 @@ const waterFrag = /* glsl */ `
     float fn = vnoise(p * 1.1 + t * 0.12);
     // Thickest as a wave surges up the sand, thinning as it drains away.
     float surge = smoothstep(0.0, 0.12, fSw) * (1.0 - smoothstep(0.2, 0.55, fSw)) * setK * uSwash;
-    float shore = 1.0 - smoothstep(0.0, 0.05 + 0.06 * fn + 0.16 * surge, depth);
+    float shoreWidth = mix(0.05 + 0.06 * fn, 0.035 + 0.025 * fn + 0.055 * surge, uSwash);
+    float shore = (1.0 - smoothstep(0.0, shoreWidth, depth)) * mix(1.0, mix(0.2, 0.8, exposure) * beachK, uSwash);
     // Rolling surf lines: a lighter hump out in the shallows that steepens and breaks into
     // foam as it nears the beach.
     // Wave spacing and height vary along the coast, and the crests break up into foam.
-    float spacing = 3.6 * (0.8 + 0.4 * vnoise(p * 0.09 + 5.5));
-    float line = pow(clamp(0.5 + 0.5 * sin(sd * spacing + surfP), 0.0, 1.0), 4.0) * surfZone * setK;
-    float breaking = 1.0 - smoothstep(0.3, 2.2, sd);
+
     lit += vec3(0.1, 0.18, 0.18) * line * (1.0 - breaking) * dayK;
     // The steep face in front of each wave sits in its own shadow.
-    float trough = pow(clamp(0.5 + 0.5 * sin(sd * spacing + surfP + 1.1), 0.0, 1.0), 6.0) * surfZone * setK;
-    lit *= 1.0 - 0.16 * trough * (0.4 + breaking);
-    float surfFoam = line * mix(0.15, 1.0, breaking) * smoothstep(0.25, 0.6, vnoise(p * 3.1 + vec2(t * 0.4, -t * 0.25)) * 0.75 + vnoise(p * 0.9 - t * 0.1) * 0.25 + breaking * 0.25) * 1.35;
+    float trough = pow(clamp(0.5 + 0.5 * sin(shorePhase + 1.1), 0.0, 1.0), 6.0) * surfZone * setK;
+    lit *= 1.0 - 0.09 * trough * (0.4 + breaking);
+    float surfFoam = line * mix(0.15, 1.0, breaking) * smoothstep(0.25, 0.6, vnoise(p * 3.1 + vec2(t * 0.4, -t * 0.25)) * 0.75 + vnoise(p * 0.9 - t * 0.1) * 0.25 + breaking * 0.25) * 0.95;
     // The foam left behind as a wave drains back down the beach.
-    float backwash = (1.0 - smoothstep(0.0, 0.18, depth)) * smoothstep(0.3, 0.6, fSw) * (1.0 - smoothstep(0.6, 0.95, fSw)) * uSwash
+    float backwash = (1.0 - smoothstep(0.0, 0.18, depth)) * smoothstep(0.3, 0.6, fSw) * (1.0 - smoothstep(0.6, 0.95, fSw)) * uSwash * exposure * beachK
                    * smoothstep(0.45, 0.75, vnoise(p * 4.5 + vec2(0.0, t * 0.3)));
     // The old gentle ripples on rivers and pools.
     float bandMask = (1.0 - smoothstep(0.08, 0.5, depth)) * (1.0 - uSwash);
@@ -435,9 +455,10 @@ const waterFrag = /* glsl */ `
     float rock = hr.g * (0.55 + 0.35 * sin(t * 1.4 + fn * 5.0) + 0.4 * line);
     float foam = clamp(shore * 0.9 + bands * 0.4 + rock * 0.85 + surfFoam * 0.95 + backwash * 0.6, 0.0, 1.0);
     foam *= smoothstep(0.2, 0.5, vnoise(p * 2.6 + vec2(t * 0.3, -t * 0.2)) + shore * 0.8 + rock * 0.4 + surfFoam * 1.6);
-    foam *= inside;
+    foam *= inside * step(bed, level);
     // The white water round a disturbance, broken into lacy foam (out at sea too, beyond the map).
     foam = max(foam, clamp(ripFoam, 0.0, 1.0) * smoothstep(0.3, 0.7, vnoise(p * 4.6 + vec2(t * 0.2, -t * 0.15)) * 0.7 + vnoise(p * 1.3 - t * 0.1) * 0.3 + ripFoam * 0.4));
+    foam *= step(bed, level);
     lit = mix(lit, cFoam * mix(0.3, 1.05, uDay), foam);
 
     // Night bioluminescence (sea only; rivers, pools and wet sand never glow). Reuses the live
@@ -719,6 +740,8 @@ export class Water {
   readonly riverMat: THREE.ShaderMaterial;
   readonly canalMat: THREE.ShaderMaterial;
   readonly heightTex: THREE.DataTexture;
+  readonly shoreTex: THREE.DataTexture;
+  private shoreData: Uint8Array;
   private heightData: Uint16Array;
   private res: number;
   private fallMat: THREE.ShaderMaterial | null = null;
@@ -759,6 +782,9 @@ export class Water {
   constructor(private world: World) {
     this.res = world.N * 2;
     this.heightData = new Uint16Array(this.res * this.res * 4);
+    this.shoreData = new Uint8Array(this.res * this.res * 4);
+    this.shoreTex = new THREE.DataTexture(this.shoreData, this.res, this.res, THREE.RGBAFormat);
+    this.shoreTex.magFilter = this.shoreTex.minFilter = THREE.LinearFilter;
     this.heightF = new Float32Array(this.res * this.res);
     this.shoreD = new Float32Array(this.res * this.res);
     this.heightTex = new THREE.DataTexture(this.heightData, this.res, this.res, THREE.RGBAFormat, THREE.HalfFloatType);
@@ -781,6 +807,7 @@ export class Water {
           ...this.shared,
           ...colorUniforms(),
           uHeight: { value: this.heightTex },
+          uShore: { value: this.shoreTex },
           uFlow: { value: flow },
           uDeepen: { value: deepen },
           uSwash: { value: 0 },
@@ -883,6 +910,9 @@ export class Water {
       }
     }
     this.shoreDistance();
+    // Exposure rays reach 16 units; active surf reaches 12. Refresh their combined influence only.
+    buildShoreField(this.heightF, this.shoreD, this.res, this.shoreData, [x0 - 58, z0 - 58, x1 + 58, z1 + 58]);
+    this.shoreTex.needsUpdate = true;
     this.heightTex.needsUpdate = true;
   }
 
