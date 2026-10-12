@@ -128,3 +128,20 @@ test('uncalmed eruptions charge once, including a large time step; calming avoid
   skipped.update(530);
   assert.equal(penalties, 2); assert.equal(belief, 0);
 });
+
+test('weathered volcano retains deterministic geometry with broader ash and basalt shading', async () => {
+  const THREE=await import('three');const {texturedRock}=await import('../src/entities/Volcano');
+  const first=volcanoRockGeometry(),second=volcanoRockGeometry();
+  for(const key of ['position','normal','color'])assert.deepEqual(first.getAttribute(key).array,second.getAttribute(key).array);
+  const colours=first.getAttribute('color');assert.ok(Array.from(colours.array).every(v=>Number.isFinite(v)&&v>=0&&v<=1));
+  const material=texturedRock(new THREE.MeshStandardMaterial({vertexColors:true,roughness:1}));
+  const shader={uniforms:{},vertexShader:THREE.ShaderLib.standard.vertexShader,fragmentShader:THREE.ShaderLib.standard.fragmentShader} as any;
+  material.onBeforeCompile(shader,{} as any);
+  assert.ok(shader.fragmentShader.includes('float ashPatch'));
+  assert.ok(shader.fragmentShader.includes('float fissure'));
+  assert.ok(shader.fragmentShader.includes('float rockRelief'));
+  assert.ok(shader.fragmentShader.indexOf('float rockRelief')<shader.fragmentShader.indexOf('dFdx(rockRelief)'));
+  assert.ok(shader.fragmentShader.includes('float coarseFade'));
+  assert.equal(material.map,null);assert.equal(material.normalMap,null);
+  first.dispose();second.dispose();material.dispose();
+});

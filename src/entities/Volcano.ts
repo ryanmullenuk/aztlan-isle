@@ -77,7 +77,7 @@ export function volcanoSurface(f: number, angle: number): THREE.Vector3 {
 export function volcanoRockGeometry(): THREE.BufferGeometry {
   const positions: number[] = [], colours: number[] = [], indices: number[] = [];
   const sides = 64, rings = 24;
-  const dark = new THREE.Color(0x303740), ash = new THREE.Color(0x879098);
+  const dark = new THREE.Color(0x343730), ash = new THREE.Color(0x99958a);
   // Lower flank -> lip -> deep inner crater -> closed rocky floor.
   for (let j = 0; j <= rings + 5; j++) for (let i = 0; i <= sides; i++) {
     const angle = i / sides * Math.PI * 2;
@@ -92,8 +92,9 @@ export function volcanoRockGeometry(): THREE.BufferGeometry {
       point.y = point.y * (1 - t) + 7.2 * t;
     }
     positions.push(point.x, point.y, point.z);
-    const strata = 0.52 + Math.sin(point.y * 3.5 + Math.sin(angle * 6) * 0.8) * 0.09;
-    const c = dark.clone().lerp(ash, Math.max(0, strata + Math.sin(angle * 17 + j * 8) * 0.12));
+    const strata = 0.26 + THREE.MathUtils.smoothstep(point.y, 3.5, 10.5) * 0.36;
+    const weathering = Math.sin(angle * 3 + point.y * .48) * .08 + Math.cos(angle * 7 - point.y * .7) * .04;
+    const c = dark.clone().lerp(ash, THREE.MathUtils.clamp(strata + weathering, 0, 1));
     if (j > rings) c.multiplyScalar(0.65);
     colours.push(c.r, c.g, c.b);
     if (j < rings + 5 && i < sides) {
@@ -130,7 +131,7 @@ float surfaceNoise(vec3 p) {
 `;
 
 /** Fine stone grain fades with pixel footprint so distant cliffs do not sparkle. */
-function texturedRock(material: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial {
+export function texturedRock(material: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial {
   material.onBeforeCompile = shader => {
     shader.vertexShader = 'varying vec3 vRockPoint;\n' + shader.vertexShader;
     shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>',
@@ -141,14 +142,32 @@ function texturedRock(material: THREE.MeshStandardMaterial): THREE.MeshStandardM
       float footprint = length(fwidth(vRockPoint));
       float fineFade = 1.0 - smoothstep(0.008, 0.04, footprint);
       float coarseFade = 1.0 - smoothstep(0.04, 0.18, footprint);
+      float weathered = surfaceNoise(vRockPoint * 0.8);
       float soil = surfaceNoise(vRockPoint * 3.8);
       float aggregate = surfaceNoise(vRockPoint * 17.0);
       float grit = surfaceNoise(vRockPoint * 85.0);
-      vec3 dirtTint = mix(vec3(0.69, 0.66, 0.60), vec3(1.13, 1.10, 1.03), soil);
-      diffuseColor.rgb *= dirtTint * (0.86 + aggregate * 0.28
-        + (aggregate - 0.5) * 0.42 * coarseFade + (grit - 0.5) * 0.72 * fineFade);
+      // Broad ash deposits and darker exposed basalt remain readable from the village.
+      float ashPatch = smoothstep(0.38, 0.70, weathered + (soil - 0.5) * 0.16);
+      vec3 rockTint = mix(vec3(0.65, 0.68, 0.66), vec3(1.15, 1.10, 1.00), ashPatch);
+      // Broken drainage grooves follow the slopes, rather than repeated horizontal rings.
+      float angle = atan(vRockPoint.z, vRockPoint.x - 0.38);
+      float groove = pow(max(0.0, sin(angle * 23.0 + weathered * 4.0 + vRockPoint.y * 0.16)), 12.0);
+      float slopeBand = smoothstep(1.0, 4.0, vRockPoint.y) * (1.0 - smoothstep(9.0, 11.0, vRockPoint.y));
+      float fissure = groove * slopeBand * (0.35 + 0.65 * coarseFade);
+      diffuseColor.rgb *= rockTint * (0.89 + soil * 0.22 - fissure * 0.18
+        + (aggregate - 0.5) * 0.32 * coarseFade + (grit - 0.5) * 0.40 * fineFade);
+      float rockRelief = ((soil - 0.5) * 0.07 + (aggregate - 0.5) * 0.025 * coarseFade - fissure * 0.04) * coarseFade;
+    `);
+    shader.fragmentShader = shader.fragmentShader.replace('#include <normal_fragment_maps>', `
+      #include <normal_fragment_maps>
+      vec3 rockDx = dFdx(-vViewPosition), rockDy = dFdy(-vViewPosition);
+      vec3 rockR1 = cross(rockDy, normal), rockR2 = cross(normal, rockDx);
+      float rockDet = dot(rockDx, rockR1);
+      vec3 rockGradient = sign(rockDet) * (dFdx(rockRelief) * rockR1 + dFdy(rockRelief) * rockR2);
+      normal = normalize(max(abs(rockDet), 0.000001) * normal - rockGradient);
     `);
   };
+  material.customProgramCacheKey = () => 'volcanic-rock-v2';
   return material;
 }
 
