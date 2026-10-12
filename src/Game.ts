@@ -1104,8 +1104,8 @@ export class Game {
         behaviour: () => wildlifeBehaviour(b.state), position: () => position(b.x, b.y + 0.3, b.z),
       })),
       ...this.turtles.list.map((t, i) => ({
-        id: `turtle-${i}`, name: 'Sea turtle', distance: 10,
-        behaviour: () => wildlifeBehaviour(t.state), position: () => position(t.x, t.y + 0.2, t.z),
+        id: `turtle-${i}`, name: t.family >= 0 ? t.mother >= 0 ? 'Baby sea turtle' : 'Mother sea turtle' : 'Sea turtle', distance: t.mother >= 0 ? 7 : 10,
+        behaviour: () => t.state === 'breathe' ? 'Surfacing to breathe' : t.mother >= 0 ? 'Following mother' : t.family >= 0 ? 'Swimming with her babies' : wildlifeBehaviour(t.state), position: () => position(t.x, t.y + 0.2, t.z),
       })),
       ...this.wildlife.sharks.sharks.map((s, i) => ({
         id: `shark-${i}`, name: 'Scalloped hammerhead', distance: 14,

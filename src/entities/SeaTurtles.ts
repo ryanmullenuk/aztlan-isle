@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { TURTLES } from '../config';
-import { ColorFn, GeoBuilder, M, P, facet } from '../render/GeoBuilder';
+import { TURTLES, WORLD } from '../config';
+import { ColorFn, GeoBuilder, M, P } from '../render/GeoBuilder';
 import { View } from '../render/View';
 import { RNG } from '../world/rng';
 import { SpatialHash } from '../world/SpatialHash';
@@ -10,7 +10,14 @@ import { QuadMeshes } from './quadRig';
 
 type TState = 'rest' | 'crawl' | 'enter' | 'swim' | 'breathe' | 'approach' | 'exit';
 
-interface Turtle {
+export interface Turtle {
+  /** Family turtles remain offshore; babies refer to their mother in the stable list. */
+  family: number;
+  mother: number;
+  slot: number;
+  /** Mothers leave a short water-only trail so babies follow bends instead of cutting across land. */
+  trail?: { x: number; z: number }[];
+  wanderTimer?: number;
   x: number;
   y: number;
   z: number;
@@ -48,7 +55,7 @@ interface Turtle {
 const C = (c: number) => ({ color: c });
 const SKIN = 0x7a8656, SKIN_DARK = 0x5a6440, SKIN_PALE = 0xc8c896;
 
-/** Mirror a faceted (non-indexed) geometry in x, keeping its faces pointing outward. */
+/** Mirror the smooth geometry while preserving outward faces and reflected vertex normals. */
 function mirrorX(g: THREE.BufferGeometry): THREE.BufferGeometry {
   const m = g.index ? g.toNonIndexed() : g.clone();
   const p = m.getAttribute('position') as THREE.BufferAttribute;
@@ -63,7 +70,8 @@ function mirrorX(g: THREE.BufferGeometry): THREE.BufferGeometry {
         a.setComponent(i + 2, c, t);
       }
   }
-  m.computeVertexNormals();
+  const n = m.getAttribute('normal') as THREE.BufferAttribute;
+  for (let i = 0; i < n.count; i++) n.setX(i, -n.getX(i));
   return m;
 }
 
@@ -75,7 +83,7 @@ function mirrorX(g: THREE.BufferGeometry): THREE.BufferGeometry {
 function shellGeo(): THREE.BufferGeometry {
   const b = new GeoBuilder();
   const R = 0.13, SY = 0.42, SZ = 1.28;
-  const g = new THREE.IcosahedronGeometry(R, 3);
+  const g = P.uvSphere(R, 48, 24);
   const pos = g.getAttribute('position') as THREE.BufferAttribute;
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), z = pos.getZ(i);
@@ -110,19 +118,39 @@ function shellGeo(): THREE.BufferGeometry {
     return new THREE.Color().setScalar(shade);
   };
   b.add(g, { color: shell, mat: 2 }, M.t(0, 0.02, 0, 0, 0, 0, 1, SY, SZ));
-  b.add(P.sphere(0.12, 1), C(0xd8c890), M.t(0, 0.012, 0, 0, 0, 0, 0.95, 0.16, 1.2));
+  // Raised scute borders follow the dome, keeping the plate layout visible close up.
+  const shellY = (x: number, z: number) => .02 + R * SY * Math.sqrt(Math.max(0, 1 - (x / R) ** 2 - (z / (R * SZ)) ** 2)) + .002;
+  const seam = (points: THREE.Vector3[]) => b.add(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 12, .0012, 5, false), C(0x414a2e));
+  for (const side of [-1, 1]) {
+    const line: THREE.Vector3[] = [];
+    for (let k = 0; k <= 16; k++) {
+      const z = -.135 + k * .017, x = side * .039 * Math.sqrt(Math.max(0, 1 - (z / .175) ** 2));
+      line.push(new THREE.Vector3(x, shellY(x, z), z));
+    }
+    seam(line);
+  }
+  for (const Z of [-.1, -.04, .035, .095]) {
+    const line: THREE.Vector3[] = [];
+    const width = R * Math.sqrt(1 - (Z / (R * SZ)) ** 2) * .96;
+    for (let k = 0; k <= 16; k++) {
+      const x = -width + 2 * width * k / 16;
+      line.push(new THREE.Vector3(x, shellY(x, Z), Z));
+    }
+    seam(line);
+  }
+  b.add(P.uvSphere(0.12, 24, 12), C(0xd8c890), M.t(0, 0.012, 0, 0, 0, 0, 0.95, 0.16, 1.2));
   // Skin at the openings and the short tail.
-  b.add(P.sphere(0.05, 1), C(SKIN), M.t(0, 0.012, 0.13, 0, 0, 0, 1.2, 0.35, 0.6));
-  b.add(P.cone(0.018, 0.05, 4), C(SKIN_DARK), M.t(0, 0.01, -0.175, -Math.PI / 2, 0, 0, 1, 0.6, 1));
-  return facet(b.build());
+  b.add(P.uvSphere(0.05, 16, 10), C(SKIN), M.t(0, 0.012, 0.13, 0, 0, 0, 1.2, 0.35, 0.6));
+  b.add(P.cone(0.018, 0.05, 10), C(SKIN_DARK), M.t(0, 0.01, -0.175, -Math.PI / 2, 0, 0, 1, 0.6, 1));
+  return b.build();
 }
 
 /** Neck from its base (inside the shell) forward along +z; wrinkled skin. */
 function neckGeo(): THREE.BufferGeometry {
   const b = new GeoBuilder();
-  b.add(P.cyl(0.024, 0.032, NECK_LEN, 6), { color: (p) => new THREE.Color(p.y > 0.008 ? SKIN : SKIN_PALE) }, M.t(0, 0, NECK_LEN / 2, Math.PI / 2, 0, 0));
-  for (let k = 0; k < 3; k++) b.add(P.torus(0.027 - k * 0.002, 0.004, 3, 7), C(SKIN_DARK), M.t(0, 0, 0.012 + k * 0.014));
-  return facet(b.build());
+  b.add(P.cyl(0.024, 0.032, NECK_LEN, 16), { color: (p) => new THREE.Color(p.y > 0.008 ? SKIN : SKIN_PALE) }, M.t(0, 0, NECK_LEN / 2, Math.PI / 2, 0, 0));
+  for (let k = 0; k < 3; k++) b.add(P.torus(0.027 - k * 0.002, 0.0025, 6, 14), C(SKIN_DARK), M.t(0, 0, 0.012 + k * 0.014));
+  return b.build();
 }
 
 /** Head from the end of the neck: blunt skull with plated scales, hooked beak, dark eyes. */
@@ -133,25 +161,28 @@ function headGeo(): THREE.BufferGeometry {
     const plate = Math.sin(p.x * 150) * Math.sin(p.z * 130) > 0.35;
     return new THREE.Color(plate ? SKIN_DARK : 0x84905c);
   };
-  b.add(P.sphere(0.034, 1), { color: scaled }, M.t(0, 0.004, 0.03, 0, 0, 0, 0.9, 0.78, 1.25));
+  b.add(P.uvSphere(0.034, 20, 12), { color: scaled }, M.t(0, 0.004, 0.03, 0, 0, 0, 0.9, 0.78, 1.25));
   // Large plates on top of the head.
-  b.add(P.sphere(0.022, 0), C(SKIN_DARK), M.t(0, 0.02, 0.036, 0, 0, 0, 1.05, 0.38, 1.3));
+  b.add(P.uvSphere(0.022, 16, 8), C(SKIN_DARK), M.t(0, 0.02, 0.036, 0, 0, 0, 1.05, 0.38, 1.3));
   // Beak: upper jaw hooked over the lower.
-  b.add(P.cone(0.014, 0.024, 4), C(0x3a3a30), M.t(0, -0.002, 0.072, Math.PI / 2 + 0.25, 0, 0, 1, 1, 0.8));
-  b.add(P.box(0.02, 0.006, 0.02), C(0x4a4838), M.t(0, -0.014, 0.062));
+  b.add(P.cone(0.014, 0.024, 10), C(0x3a3a30), M.t(0, -0.002, 0.072, Math.PI / 2 + 0.25, 0, 0, 1, 1, 0.8));
+  b.add(P.rbox(0.02, 0.006, 0.02, .002, 2), C(0x4a4838), M.t(0, -0.014, 0.062));
   for (const x of [-1, 1]) {
-    b.add(P.sphere(0.0075, 0), C(0x141410), M.t(x * 0.024, 0.01, 0.048));
-    b.add(P.sphere(0.009, 0), C(SKIN_DARK), M.t(x * 0.026, 0.001, 0.028, 0, 0, 0, 0.5, 0.9, 1.3));
+    b.add(P.uvSphere(.0085, 12, 8), C(0xc4a967), M.t(x * .024, .01, .048, 0, 0, 0, .5, 1, 1));
+    b.add(P.uvSphere(.0055, 12, 8), C(0x141410), M.t(x * .0275, .01, .048, 0, 0, 0, .45, 1, 1));
+    b.add(P.uvSphere(.0015, 8, 6), C(0xe9f0dd), M.t(x * .029, .012, .05));
+    b.add(P.uvSphere(.002, 8, 6), C(0x33392a), M.t(x * .009, .013, .065, 0, 0, 0, 1, .5, 1));
+    b.add(P.uvSphere(0.009, 12, 8), C(SKIN_DARK), M.t(x * 0.026, 0.001, 0.028, 0, 0, 0, 0.5, 0.9, 1.3));
   }
-  return facet(b.build());
+  return b.build();
 }
 
 /** Short, thick upper arm of a flipper from the shoulder out along +x. */
 function armGeo(len: number, r: number): THREE.BufferGeometry {
   const b = new GeoBuilder();
-  b.add(P.sphere(r * 1.1, 0), C(SKIN));
-  b.add(P.cyl(r * 0.9, r, len, 6), { color: (p) => new THREE.Color(p.y > 0 ? SKIN : SKIN_PALE) }, M.t(len / 2, 0, 0, 0, 0, -Math.PI / 2, 1, 1, 0.6));
-  return facet(b.build());
+  b.add(P.uvSphere(r * 1.1, 12, 8), C(SKIN));
+  b.add(P.cyl(r * 0.9, r, len, 12), { color: (p) => new THREE.Color(p.y > 0 ? SKIN : SKIN_PALE) }, M.t(len / 2, 0, 0, 0, 0, -Math.PI / 2, 1, 1, 0.6));
+  return b.build();
 }
 
 /**
@@ -161,7 +192,7 @@ function armGeo(len: number, r: number): THREE.BufferGeometry {
  */
 function bladeGeo(len: number, w: number, sweep: number, claw: boolean): THREE.BufferGeometry {
   const b = new GeoBuilder();
-  const g = new THREE.BoxGeometry(1, 1, 1, 5, 1, 2);
+  const g = new THREE.SphereGeometry(.5, 20, 10);
   const p = g.getAttribute('position') as THREE.BufferAttribute;
   for (let i = 0; i < p.count; i++) {
     const u = p.getX(i) + 0.5;
@@ -171,14 +202,15 @@ function bladeGeo(len: number, w: number, sweep: number, claw: boolean): THREE.B
     const y = p.getY(i) * 0.014 * (0.4 + 0.6 * v) * (1 - 0.6 * u);
     p.setXYZ(i, u * len, y, lead - (1 - v) * chord);
   }
+  g.computeVertexNormals();
   const scales: ColorFn = (q, n) => {
     if (n.y < -0.2) return new THREE.Color(0xb8b488);
     const s = Math.sin(q.x * 110 + q.z * 40) * Math.sin(q.z * 120 - q.x * 30);
     return new THREE.Color(s > 0.45 ? 0x9aa070 : s < -0.3 ? 0x4e5838 : 0x646e46);
   };
   b.add(g, { color: scales });
-  if (claw) b.add(P.cone(0.004, 0.012, 3), C(0x2a2820), M.t(len * 0.3, 0.004, w * 0.3 + 0.002, 0, 0, -Math.PI / 2));
-  return facet(b.build());
+  if (claw) b.add(P.cone(0.004, 0.012, 8), C(0x2a2820), M.t(len * 0.3, 0.004, w * 0.3 + 0.002, 0, 0, -Math.PI / 2));
+  return b.build();
 }
 
 const _b = new THREE.Matrix4(), _m = new THREE.Matrix4(), _t = new THREE.Matrix4(), _w = new THREE.Matrix4();
@@ -211,6 +243,7 @@ const CRAWL = { power: 0.6, lift: 0.014, roll: 0.05 };
 /** Swimming: flipper flap amplitude and how the stroke lifts the body. */
 const SWIM = { flap: 0.7, bob: 0.012 };
 
+const FAMILY_COUNT = 2, BABIES = 3;
 const SHELL = [0x6e6a3e, 0x7a6038, 0x5e6a44, 0x846a40];
 
 /**
@@ -231,7 +264,8 @@ export class SeaTurtles {
     this.rng = new RNG(world.seed * 67 + 41);
     this.findBeaches();
     this.spawn();
-    const n = TURTLES.count[1] + 2;
+    this.spawnFamilies();
+    const n = TURTLES.count[1] + FAMILY_COUNT * (BABIES + 1) + 2;
     this.meshes.add('shell', shellGeo(), n);
     this.meshes.add('neck', neckGeo(), n);
     this.meshes.add('head', headGeo(), n);
@@ -274,12 +308,109 @@ export class SeaTurtles {
       }
       const heading = r.range(0, 6.28);
       this.list.push({
+        family: -1, mother: -1, slot: -1,
         x, y: onBeach ? this.world.heightAt(x, z) : -0.6, z, heading, pitch: 0, state: onBeach ? 'rest' : 'swim', timer: r.range(20, 90),
         tx: x, tz: z, ty: -0.6, beachX: x, beachZ: z, breath: r.range(20, 60), stroke: r.next(), speed: 0, scale: r.range(0.85, 1.15),
         color: new THREE.Color(SHELL[r.int(0, SHELL.length - 1)]).offsetHSL(0, r.range(-0.05, 0.05), r.range(-0.04, 0.04)), shy: 0,
         wet: onBeach ? 0 : 1, prevH: heading, turnRate: 0, roll: 0, pitchS: 0, gasp: 0, seed: k * 2.3,
       });
     }
+  }
+
+  /** Sweep the whole turtle through submerged ground and fixed rocks. No route searches are needed. */
+  private waterClear(ax: number, az: number, bx: number, bz: number, scale: number): boolean {
+    const radius = .32 * scale, distance = Math.hypot(bx - ax, bz - az);
+    const steps = Math.max(1, Math.ceil(distance / .18));
+    for (let k = 0; k <= steps; k++) {
+      const x = lerp(ax, bx, k / steps), z = lerp(az, bz, k / steps);
+      for (const [dx, dz] of [[0, 0], [radius, 0], [-radius, 0], [0, radius], [0, -radius]]) {
+        const px = x + dx, pz = z + dz, cell = this.world.cellIndexAt(px, pz);
+        if (Math.abs(px) > WORLD.oceanSize / 2 - 2 || Math.abs(pz) > WORLD.oceanSize / 2 - 2 ||
+          this.world.heightAt(px, pz) >= -.35 || (cell >= 0 && this.world.blocked(cell))) return false;
+      }
+    }
+    return true;
+  }
+
+  private spawnFamilies(): void {
+    for (let family = 0; family < FAMILY_COUNT; family++) {
+      let site: { x: number; z: number; heading: number } | null = null;
+      for (let k = 0; k < 400 && !site; k++) {
+        const beach = this.beaches.length ? this.beaches[this.rng.int(0, this.beaches.length - 1)] : null;
+        const a = this.rng.range(0, Math.PI * 2);
+        // First search coastal water; the outer ring also works on unusual islands without beaches.
+        const d = k < 300 && beach ? this.rng.range(3, 12) : this.world.half + 6;
+        const x = (k < 300 && beach ? beach.x : 0) + Math.sin(a) * d;
+        const z = (k < 300 && beach ? beach.z : 0) + Math.cos(a) * d;
+        const heading = this.rng.range(0, Math.PI * 2);
+        if (this.list.some(t => t.family >= 0 && t.mother < 0 && Math.hypot(t.x - x, t.z - z) < 20)) continue;
+        if (this.waterClear(x, z, x - Math.sin(heading) * 2, z - Math.cos(heading) * 2, 1.2)) site = { x, z, heading };
+      }
+      if (!site) continue; // Never place a family through land or a rock just to meet a count.
+      const parent = this.list.length;
+      const mother: Turtle = {
+        family, mother: -1, slot: -1, ...site, y: this.sea - .35, pitch: 0, state: 'swim', timer: 0,
+        tx: site.x, tz: site.z, ty: this.sea - .35, beachX: site.x, beachZ: site.z,
+        breath: this.rng.range(25, 50), stroke: this.rng.next(), speed: 0, scale: 1.18,
+        color: new THREE.Color(SHELL[family]), shy: 0, wet: 1, prevH: site.heading,
+        turnRate: 0, roll: 0, pitchS: 0, gasp: 0, seed: parent * 2.3,
+        trail: Array.from({ length: 20 }, (_, k) => ({ x: site!.x - Math.sin(site!.heading) * k * .12, z: site!.z - Math.cos(site!.heading) * k * .12 })),
+      };
+      this.list.push(mother);
+      for (let slot = 0; slot < BABIES; slot++) {
+        const p = mother.trail![5 + slot * 3];
+        this.list.push({ ...mother, trail: undefined, mother: parent, slot, ...p,
+          tx: p.x, tz: p.z, scale: .34 + slot * .035, stroke: this.rng.next(),
+          breath: this.rng.range(12, 30), color: mother.color.clone().offsetHSL(0, -.04, .07), seed: this.list.length * 2.3 });
+      }
+    }
+  }
+
+  /** Offshore mothers wander gently; babies follow their mother's recent safe track. */
+  private familyThink(t: Turtle, dt: number): void {
+    const mother = t.mother >= 0 ? this.list[t.mother] : null;
+    t.stroke += dt * (mother ? .9 : .55);
+    if (mother) {
+      const trail = mother.trail!;
+      const p = trail[Math.min(trail.length - 1, 5 + t.slot * 3)];
+      t.tx = p.x; t.tz = p.z; t.ty = mother.ty - .025;
+    } else {
+      t.wanderTimer = (t.wanderTimer ?? 0) - dt;
+      if (t.wanderTimer <= 0 || Math.hypot(t.tx - t.x, t.tz - t.z) < .5) {
+        t.wanderTimer = 6;
+        for (let k = 0; k < 10; k++) {
+          const a = this.rng.range(0, Math.PI * 2), d = this.rng.range(3, 7);
+          const x = t.x + Math.sin(a) * d, z = t.z + Math.cos(a) * d;
+          if (this.waterClear(t.x, t.z, x, z, t.scale)) { t.tx = x; t.tz = z; t.ty = this.rng.range(this.sea - .6, this.sea - .25); break; }
+        }
+      }
+    }
+    const dx = t.tx - t.x, dz = t.tz - t.z, d = Math.hypot(dx, dz);
+    t.heading = turn(t.heading, Math.atan2(dx, dz), dt * (mother ? 2.5 : .65));
+    const lagging = !mother && this.list.some(b => b.mother >= 0 && this.list[b.mother] === t && Math.hypot(b.x - t.x, b.z - t.z) > 2.3);
+    const sp = d < .08 || lagging ? 0 : Math.min(d / Math.max(dt, .001), TURTLES.swimSpeed * (mother ? 1.3 : .8) * (t.state === 'breathe' ? .7 : 1));
+    let moved = false;
+    // Try shallow steering around a newly blocked section; every candidate is swept before moving.
+    for (const offset of [0, .7, -.7, 1.4, -1.4]) {
+      const h = t.heading + offset, x = t.x + Math.sin(h) * sp * dt, z = t.z + Math.cos(h) * sp * dt;
+      if (this.waterClear(t.x, t.z, x, z, t.scale)) { t.x = x; t.z = z; t.heading = h; moved = true; break; }
+    }
+    t.speed = moved ? sp : 0;
+    if (!moved && !mother) t.wanderTimer = Math.min(t.wanderTimer ?? 0, 1);
+    if (!mother && Math.hypot(t.x - t.trail![0].x, t.z - t.trail![0].z) >= .12) {
+      t.trail!.unshift({ x: t.x, z: t.z }); if (t.trail!.length > 64) t.trail!.pop();
+    }
+    t.breath -= dt;
+    if (t.state !== 'breathe' && t.breath <= 0) { t.state = 'breathe'; t.timer = 4; }
+    if (t.state === 'breathe') {
+      t.timer -= dt;
+      if (t.timer <= 0) { t.state = 'swim'; t.breath = this.rng.range(25, 60); }
+    } else t.state = 'swim';
+    const bed = this.world.heightAt(t.x, t.z);
+    const wantY = t.state === 'breathe' ? this.sea - .05 : Math.max(bed + .12 * t.scale, Math.min(this.sea - .2, t.ty));
+    t.pitch = THREE.MathUtils.clamp((wantY - t.y) * 2, -.5, .5);
+    t.y += (wantY - t.y) * Math.min(1, dt * .9);
+    t.shy = 0;
   }
 
   /** A point in coastal water (shallow to moderately deep) near (x, z). */
@@ -300,6 +431,7 @@ export class SeaTurtles {
   }
 
   private think(t: Turtle, dt: number): void {
+    if (t.family >= 0) { this.familyThink(t, dt); return; }
     const w = this.world;
     const r = this.rng;
     const ground = w.heightAt(t.x, t.z);
@@ -486,6 +618,7 @@ export class SeaTurtles {
     m.put('neck', _m, WHITE);
     const gulp = t.gasp * Math.max(0, Math.sin(this.time * 3 + t.seed)) * 0.25;
     _m.multiply(compose(_t, 0, 0, NECK_LEN, -np * 0.45 - gulp, 0, 0));
+    if (t.mother >= 0) _m.multiply(compose(_t, 0, 0, 0, 0, 0, 0, 1.16));
     m.put('head', _m, WHITE);
     // ---- Flippers ----
     for (let q = 0; q < 2; q++) {
