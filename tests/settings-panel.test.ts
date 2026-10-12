@@ -64,6 +64,7 @@ test('save/help/new-game handlers survive layout change and new games retain con
   q('[data-a="save"]').click();assert.equal(game.saved,true);
   for(const name of ['copy','load','rename'])assert.equal(typeof q(`[data-a="${name}"]`).onclick,'function');
   (globalThis as any).confirm=()=>false;q('[data-a="new"]').click();assert.equal(game.newMode,undefined);
+  game.islandName='GODMODE';ui.updateIslandName();
   (globalThis as any).confirm=()=>true;q('[data-a="sandbox"]').click();assert.equal(game.newMode,'sandbox');
   q('[data-a="tutorial"]').click();assert.equal(ui.tutorialStarted,true);
 });
@@ -79,4 +80,16 @@ test('keyboard tabs, modal focus and Escape work without firing gameplay shortcu
   assert.equal(document.activeElement,q('[data-a="close"]'));
   q('[data-a="close"]').dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
   assert.equal(ui.settings.classList.contains('hidden'),true);assert.equal(document.activeElement,gear);assert.equal(leaked,0);
+});
+
+
+test('Sandbox and Instant Build only unlock through the GODMODE island name',()=>{
+ const {ui,game,q}=setup(),sandbox=q('[data-a="sandbox"]'),instant=q('[data-k="instantBuild"]');
+ const hidden=()=>sandbox.closest('.godrow').classList.contains('hidden')&&instant.closest('.godrow').classList.contains('hidden');
+ assert.ok(hidden());assert.ok(sandbox.disabled&&instant.disabled);
+ game.eco.godMode=true;ui.updateIslandName();assert.ok(hidden(),'an existing sandbox alone must not reveal the controls');
+ game.islandName=' godmode ';ui.updateIslandName();assert.equal(hidden(),false);assert.equal(sandbox.disabled,false);assert.equal(instant.disabled,false);
+ game.islandName='Aztlan';ui.updateIslandName();assert.ok(hidden());assert.ok(sandbox.disabled&&instant.disabled);
+ (globalThis as any).confirm=()=>true;sandbox.onclick();assert.equal(game.newMode,undefined);
+ game.islandName='GODMODE';ui.syncSettingsControls();assert.equal(hidden(),false);
 });

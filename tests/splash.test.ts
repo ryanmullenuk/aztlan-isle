@@ -40,7 +40,11 @@ test('portrait, landscape, tablet and ultrawide layouts retain title and charact
   assert.ok(fit==='cover'||fit==='contain');
   const scale=(fit==='cover'?Math.max:Math.min)(width/1672,height/941),left=(width-1672*scale)/2,top=(height-941*scale)/2;
   for(const a of areas){const x=left+a.x*scale,y=top+a.y*scale;assert.ok(x>=0&&y>=0&&x+a.w*scale<=width&&y+a.h*scale<=height,`${width}x${height} clipped composition`);}
-  const titleBottom=top+(areas[0].y+areas[0].h)*scale;assert.ok(height*.58>titleBottom,'Play is below the title');
+  const desktopRule=rules.find(r=>r.conditionText===query);
+  const uiRule=[...desktopRule.cssRules].find((r:any)=>r.selectorText==='.splash-ui') as any;
+  const bottomPercent=Number(uiRule.style.getPropertyValue('bottom').match(/([\d.]+)%/)[1]);
+  const titleBottom=top+(areas[0].y+areas[0].h)*scale;
+  assert.ok(height*(1-bottomPercent/100)-160>titleBottom,'lowered Play block stays below the title');
   const peopleRight=left+(areas[1].x+areas[1].w)*scale;assert.ok(width*.5-100>peopleRight,'centred Play stays clear of the islanders');
  }
 });

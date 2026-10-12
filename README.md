@@ -149,7 +149,7 @@ Open **Village** beneath the clock to choose **Balanced**, **Food**, **Materials
 **Health**
 - Now and then someone falls sick (adults and children alike), and jaguars and alligators maul people. The sick and the mauled stop working and walk to the nearest Healing Centre, where they lie on a bed (or are cared for indoors when the beds are full); with no Healing Centre they rest at home.
 - Untreated, they die after an hour of game time, with a warning ten minutes before. The Healing Centre's card lists its patients, how long each has left and a Cure button: 50 food for sickness, 100 for a mauling. Cured islanders get up and go back to work. Tuning lives in `HEALTH` in `config.ts`.
-- In god mode (the island named GODMODE) nobody dies and curing is free.
+- In Sandbox mode nobody dies and curing is free. Naming the island GODMODE reveals the Sandbox and Instant Building settings; changing the name hides them again. Renaming alone does not switch game modes.
 - Each Healing Centre has its own healer, dressed all in white with a feathered headdress, who walks between the beds and the hall door, tends each bedside a while and sometimes raises their arms in blessing. The healer is scenery: not a villager, and never counted among your islanders.
 
 **Defence**
@@ -241,7 +241,7 @@ All tuning values live in `src/config.ts`.
 
 - [three.js](https://threejs.org) (MIT) for rendering and post-processing.
 - Built with [Vite](https://vite.dev) and TypeScript.
-- The startup screen retains the original phone artwork and controls. Screens at least 1024px wide with a ratio of 4:3 or wider select the landscape WebP through a responsive picture. Beyond 21:9 the complete image sits over blurred scenery using the same cached asset, keeping its title and characters in view without black bars. Image selection follows resizing/rotation automatically. The supplied 3.6 MB desktop PNG is delivered as a 398 KB WebP. Source/CSS consistency and composition geometry are checked at ten phone/tablet/desktop sizes; browser screenshots and network verification remain unavailable because Chromium crashes in this environment.
+- The startup screen retains the original phone artwork with the Play controls lowered away from the central scenery. Screens at least 1024px wide with a ratio of 4:3 or wider select the landscape WebP through a responsive picture. Beyond 21:9 the complete image sits over blurred scenery using the same cached asset, keeping its title and characters in view without black bars. Image selection follows resizing/rotation automatically. The supplied 3.6 MB desktop PNG is delivered as a 398 KB WebP. Source/CSS consistency and composition geometry are checked at ten phone/tablet/desktop sizes; browser screenshots and network verification remain unavailable because Chromium crashes in this environment.
 - The splash art was supplied by the project owner. Every model, texture, piece of music and sound effect is generated procedurally at runtime.
 
 ## Known limitations

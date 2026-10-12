@@ -97,7 +97,7 @@ html.brand-open, html.brand-open body { background: #000; }
 }
 .splash-art { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
 .splash-ui {
-  position: absolute; left: 12%; right: 12%; top: 82%; bottom: 3%;
+  position: absolute; left: 12%; right: 12%; top: 84%; bottom: 1.5%;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2.2cqw;
 }
 /*
@@ -114,7 +114,7 @@ html.brand-open, html.brand-open body { background: #000; }
   }
   .splash-frame { position: absolute; inset: 0; width: auto; aspect-ratio: auto; }
   .splash-art { object-fit: cover; object-position: 50% 45%; }
-  .splash-ui { top: auto; height: 15%; bottom: calc(3% + var(--overscan, 0px) + var(--safe-b)); }
+  .splash-ui { top: auto; height: 15%; bottom: calc(1% + var(--overscan, 0px) + var(--safe-b)); }
 }
 .splash-ui .loading-sub { margin: 0; color: #ffe08a; font-size: max(10px, 3.2cqw); text-shadow: 0 1px 4px #004e53; text-align: center; }
 /* "Add to Home Screen" means nothing inside the installed app. */
@@ -842,7 +842,7 @@ body.watching-wildlife #hud * { pointer-events: none !important; }
   .splash-frame { position: absolute; inset: 0; width: auto; aspect-ratio: auto; isolation: isolate; }
   .splash-picture { position: absolute; inset: 0; display: block; }
   .splash-art { object-fit: cover; object-position: 50% 50%; }
-  .splash-ui { left: 38%; right: 38%; top: 58%; bottom: auto; height: auto; gap: 12px; }
+  .splash-ui { left: 38%; right: 38%; top: auto; bottom: max(4%, var(--safe-b)); height: auto; gap: 12px; }
   .splash-ui .play { font-size: clamp(18px, 1.8vw, 26px); min-height: 48px; padding: 12px 44px; }
   .splash-ui .play.small { font-size: 14px; min-height: 44px; padding: 10px 20px; }
   .splash-ui .loading-sub { font-size: clamp(14px, 1.2vw, 18px); padding: 8px 12px; }

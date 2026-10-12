@@ -15,7 +15,7 @@ export function settingsMarkup(): string {
       <p class="settings-note">Progress autosaves. Copy island creates a file you can share or keep.</p>
       <h2>Help</h2>${action('help', 'How to play', 'o_help')}${action('tutorial', 'Tutorial', 'o_tutorial')}
       <label class="settings-row settings-switch-row godrow hidden"><span>Instant building</span><input type="checkbox" role="switch" data-k="instantBuild"></label>
-      <details class="settings-disclosure settings-new"><summary>Start a new island<span aria-hidden="true">›</span></summary><div class="settings-details"><p class="settings-note">Starting again replaces your current island. Copy it first to keep it.</p>${action('new', 'Normal game', 'o_new')}${action('sandbox', 'Sandbox · unlimited resources', 'o_new')}</div></details>
+      <details class="settings-disclosure settings-new"><summary>Start a new island<span aria-hidden="true">›</span></summary><div class="settings-details"><p class="settings-note">Starting again replaces your current island. Copy it first to keep it.</p>${action('new', 'Normal game', 'o_new')}<div class="godrow hidden">${action('sandbox', 'Sandbox · unlimited resources', 'o_new')}</div></div></details>
       <input type="file" data-a="island-file" accept=".json,application/json" hidden>
     </section>
     <section id="settings-graphics" role="tabpanel" aria-labelledby="settings-tab-graphics" hidden>

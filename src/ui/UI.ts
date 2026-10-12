@@ -12,7 +12,7 @@ import type { Game } from '../Game';
 import { Building } from '../buildings/Buildings';
 import { HALL, HEAL } from '../buildings/models';
 import { CONDITION_LABEL, ROLE_LABEL, type Islander } from '../entities/Islander';
-import { randomIslandName } from '../world/names';
+import { GOD_NAME, randomIslandName } from '../world/names';
 import { Ground } from '../world/World';
 import { ICONS, icon } from './icons';
 import type { Where } from './where';
@@ -135,7 +135,20 @@ export class UI {
     this.isleNameEl.classList.toggle('hidden', !this.isleNameEl.textContent);
     if (this.nameInput && document.activeElement !== this.nameInput) this.nameInput.value = n;
     // God-mode-only settings.
-    this.settings?.querySelector('.godrow')?.classList.toggle('hidden', !this.game.eco.godMode);
+    this.syncGodOptions();
+  }
+
+  private godOptionsUnlocked(): boolean {
+    return this.game.islandName.trim().toUpperCase() === GOD_NAME;
+  }
+
+  private syncGodOptions(): void {
+    const unlocked = this.godOptionsUnlocked();
+    this.settings?.querySelectorAll('.godrow').forEach(row => row.classList.toggle('hidden', !unlocked));
+    const instant = this.settings?.querySelector<HTMLInputElement>('[data-k="instantBuild"]');
+    const sandbox = this.settings?.querySelector<HTMLButtonElement>('[data-a="sandbox"]');
+    if (instant) instant.disabled = !unlocked;
+    if (sandbox) sandbox.disabled = !unlocked;
   }
 
   private buildTopLeft(): void {
@@ -631,6 +644,7 @@ export class UI {
       if (confirm('Start again from the beginning? Your progress on this island will be lost.')) this.game.newIsland();
     };
     card.querySelector<HTMLButtonElement>('[data-a="sandbox"]')!.onclick = () => {
+      if (!this.godOptionsUnlocked()) return;
       if (confirm('Start a new Sandbox with all buildings unlocked and unlimited resources? Your current island will be replaced.')) this.game.newIsland(true);
     };
     card.querySelector<HTMLButtonElement>('[data-a="save"]')!.onclick = () => {
@@ -790,6 +804,7 @@ export class UI {
   private settingsOpener: HTMLElement | null = null;
 
   private syncSettingsControls(): void {
+    this.syncGodOptions();
     const s = this.game.settings;
     this.settings.querySelectorAll<HTMLInputElement>('input[data-k]').forEach(inp => {
       const key = inp.dataset.k as keyof typeof s;

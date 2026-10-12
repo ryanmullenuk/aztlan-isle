@@ -59,7 +59,7 @@ import { softenMapEdge } from './world/mapEdge';
 import { shapeWaterfall } from './world/waterfallSite';
 import { Bridges } from './buildings/Bridges';
 import { TradeFleet } from './entities/Trade';
-import { randomIslandName } from './world/names';
+import { GOD_NAME, randomIslandName } from './world/names';
 import { FAUNA, GREAT_HALL, SPECIES, TIME } from './config';
 import { MONKEY_BASE } from './entities/Monkeys';
 import { DOG_BASE, Dogs } from './entities/Dogs';
@@ -353,7 +353,7 @@ export class Game {
     this.buildings.recordProgress = event => this.progression.record(event);
     this.buildings.recordPrayer = seconds => this.progression.pray(seconds);
     this.buildings.onComplete = (b) => this.onBuildingComplete(b);
-    this.buildings.instantBuild = () => this.eco.godMode && this.settings.instantBuild;
+    this.buildings.instantBuild = () => this.islandName.toUpperCase() === GOD_NAME && this.settings.instantBuild;
 
     this.lighting = new Lighting(this.scene, cfg.shadowSize);
     this.skyBodies = new SkyBodies();
