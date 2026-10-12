@@ -366,13 +366,23 @@ export class SeaTurtles {
     }
   }
 
+  /** Interpolate a point a fixed distance along the mother's trail, including her latest movement. */
+  private followPoint(mother: Turtle, gap: number): { x: number; z: number } {
+    let x = mother.x, z = mother.z;
+    for (const p of mother.trail!) {
+      const d = Math.hypot(p.x - x, p.z - z);
+      if (d > 1e-6 && gap <= d) return { x: lerp(x, p.x, gap / d), z: lerp(z, p.z, gap / d) };
+      gap -= d; x = p.x; z = p.z;
+    }
+    return { x, z };
+  }
+
   /** Offshore mothers wander gently; babies follow their mother's recent safe track. */
   private familyThink(t: Turtle, dt: number): void {
     const mother = t.mother >= 0 ? this.list[t.mother] : null;
     t.stroke += dt * (mother ? .9 : .55);
     if (mother) {
-      const trail = mother.trail!;
-      const p = trail[Math.min(trail.length - 1, 5 + t.slot * 3)];
+      const p = this.followPoint(mother, .6 + t.slot * .36);
       t.tx = p.x; t.tz = p.z; t.ty = mother.ty - .025;
     } else {
       t.wanderTimer = (t.wanderTimer ?? 0) - dt;
@@ -386,12 +396,14 @@ export class SeaTurtles {
       }
     }
     const dx = t.tx - t.x, dz = t.tz - t.z, d = Math.hypot(dx, dz);
-    t.heading = turn(t.heading, Math.atan2(dx, dz), dt * (mother ? 2.5 : .65));
+    if (d > .015) t.heading = turn(t.heading, Math.atan2(dx, dz), 1 - Math.exp(-dt * (mother ? 2.5 : .65)));
     const lagging = !mother && this.list.some(b => b.mother >= 0 && this.list[b.mother] === t && Math.hypot(b.x - t.x, b.z - t.z) > 2.3);
-    const sp = d < .08 || lagging ? 0 : Math.min(d / Math.max(dt, .001), TURTLES.swimSpeed * (mother ? 1.3 : .8) * (t.state === 'breathe' ? .7 : 1));
+    const desiredSpeed = lagging ? 0 : Math.min(d * (mother ? 3 : 1), TURTLES.swimSpeed * (mother ? 1.3 : .8) * (t.state === 'breathe' ? .7 : 1));
+    const easedSpeed = lerp(t.speed, desiredSpeed, 1 - Math.exp(-dt * 3));
+    const sp = lagging ? 0 : Math.min(easedSpeed, d / Math.max(dt, .001));
     let moved = false;
     // Try shallow steering around a newly blocked section; every candidate is swept before moving.
-    for (const offset of [0, .7, -.7, 1.4, -1.4]) {
+    for (const offset of [0, dt * 1.5, -dt * 1.5, dt * 3, -dt * 3]) {
       const h = t.heading + offset, x = t.x + Math.sin(h) * sp * dt, z = t.z + Math.cos(h) * sp * dt;
       if (this.waterClear(t.x, t.z, x, z, t.scale)) { t.x = x; t.z = z; t.heading = h; moved = true; break; }
     }
@@ -426,7 +438,10 @@ export class SeaTurtles {
 
   update(dt: number): void {
     this.time += dt;
-    if (dt > 0) for (const t of this.list) this.think(t, dt);
+    if (dt > 0) {
+      const steps = Math.max(1, Math.ceil(dt / .05)), step = dt / steps;
+      for (let k = 0; k < steps; k++) for (const t of this.list) this.think(t, step);
+    }
     this.draw(dt);
   }
 

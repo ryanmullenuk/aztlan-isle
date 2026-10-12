@@ -110,3 +110,25 @@ test('a mother waits when a baby falls behind instead of separating the family',
   baby.x = mother.x - 1;
   system.think(mother, .1); assert.ok(mother.speed > 0);
 });
+
+
+test('baby follow targets move continuously between trail samples and swimming eases speed', () => {
+  const { turtles, mothers, system } = fixture(), mother = mothers[0];
+  const baby = turtles.list.find(t => t.mother === turtles.list.indexOf(mother))!;
+  mother.x = 0; mother.z = 0; mother.heading = 0;
+  mother.trail = Array.from({ length: 30 }, (_, k) => ({ x: 0, z: -k * .12 }));
+  const before = system.followPoint(mother, .6);
+  mother.z += .01; const after = system.followPoint(mother, .6);
+  assert.ok(Math.abs(after.z - before.z - .01) < 1e-6);
+  Object.assign(baby, { x: 0, z: -1.5, heading: 0, speed: 0, state: 'swim', breath: 100 });
+  let speed = 0, heading = baby.heading;
+  for (let n = 0; n < 120; n++) {
+    mother.z += .36 / 60;
+    if (Math.hypot(mother.x - mother.trail![0].x, mother.z - mother.trail![0].z) >= .12) mother.trail!.unshift({ x: mother.x, z: mother.z });
+    system.think(baby, 1 / 60);
+    assert.ok(Math.abs(baby.speed - speed) < .04, 'baby speed jumped');
+    assert.ok(Math.abs(baby.heading - heading) < .08, 'baby heading snapped');
+    speed = baby.speed; heading = baby.heading;
+  }
+  assert.ok(baby.z > -1);
+});

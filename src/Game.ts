@@ -1,3 +1,4 @@
+import { fadeOceanShadows } from './render/OceanShadows';
 import { StormFire } from './buildings/StormFire';
 import { animalName } from './entities/Animals';
 import { buildingSafe } from './buildings/BuildingCondition';
@@ -482,6 +483,7 @@ export class Game {
     // A new game (or a save from before anyone landed) starts with the arrival canoe.
     if (this.colony.list.length === 0) this.beginSettlement();
     else if (!this.buildings.hasCampfire) this.awaitingFire = true;
+    fadeOceanShadows(this.scene);
     this.applySettings();
     if (save) this.ui.toast('Welcome back. Your island was restored.');
     window.addEventListener('resize', () => this.resize());
