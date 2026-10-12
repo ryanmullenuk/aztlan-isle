@@ -30,6 +30,11 @@ export interface Torch {
   phase: number;
 }
 
+/** Seconds the scaffold takes to sink into the ground once a building is finished. */
+export const SCAFFOLD_SINK = 2.5;
+/** Ease in and out (0..1). */
+const ease = (t: number) => { const u = Math.min(1, Math.max(0, t)); return u * u * (3 - 2 * u); };
+
 export class Building {
   id: number;
   key: BuildingKey;
@@ -62,6 +67,8 @@ export class Building {
   group = new THREE.Group();
   foundation!: THREE.Mesh;
   scaffold!: THREE.Mesh;
+  /** Seconds left of the scaffold sinking into the ground once the work is done (0 = not sinking). */
+  scaffoldSink = 0;
   finished!: THREE.Mesh;
   torches: Torch[] = [];
   /** Door / access point in world space (where islanders walk to). */
@@ -308,7 +315,11 @@ export class BuildingSystem {
   progressionUpgrade: (b: Building) => string = () => '';
   recordProgress: (event:string) => void = () => {};
   recordPrayer: (seconds:number) => void = () => {};
+  /** True while rebuilding from a save: nothing is replayed or announced. */
+  private restoring = false;
   onComplete: (b: Building) => void = () => {};
+  /** Called once a newly finished building stands clear, its scaffold sunk away (the moment to announce it). */
+  onRevealed: (b: Building) => void = () => {};
   onRebuilt: (b: Building) => void = () => {};
   /** Called when a building is removed (pens release animals, etc.). */
   onRemove: (b: Building) => void = () => {};
@@ -678,7 +689,9 @@ export class BuildingSystem {
   restore(key: BuildingKey, cx: number, cz: number, rot: number, d: { complete: boolean; progress: number; tier: number; upgrading: boolean; growth: number; stock: number; bless: number; integrity?: number; fire?: number; ruined?: boolean; repairing?: boolean; repairProgress?: number; fireAlerted?: boolean }): Building {
     const hook = this.onComplete;
     this.onComplete = () => {};
+    this.restoring = true;
     const b = this.place(key, cx, cz, rot, true);
+    this.restoring = false;
     this.onComplete = hook;
     if (d.tier > 1) {
       b.tier = d.tier;
@@ -995,7 +1008,8 @@ export class BuildingSystem {
     if (b.bell) b.bell.visible = b.complete;
     if (b.complete && !b.upgrading) {
       b.foundation.visible = false;
-      b.scaffold.visible = b.repairing;
+      b.scaffold.visible = b.repairing || b.scaffoldSink > 0;
+      if (!b.scaffoldSink) { b.scaffold.position.y = 0; b.scaffold.scale.y = 1; }
       b.finished.visible = true;
       b.finished.scale.y = 1;
       if(b.key==='greattemple') b.finished.geometry.setDrawRange(0,Infinity);
@@ -1005,6 +1019,9 @@ export class BuildingSystem {
     if (b.upgrading) {
       b.foundation.visible = false;
       b.scaffold.visible = true;
+      b.scaffold.position.y = 0;
+      // The scaffold goes up round the old building before work on the new storey starts.
+      b.scaffold.scale.y = Math.max(0.02, ease(Math.min(1, b.progress / 0.25)));
       b.finished.visible = true;
       b.finished.scale.y = 1;
       return;
@@ -1020,10 +1037,13 @@ export class BuildingSystem {
       for(const t of b.torches)t.flame.visible=false;
       return;
     }
+    // The foundation is laid, the scaffold is raised round it, then the building rises inside it.
     b.foundation.visible = p < 0.35;
-    b.scaffold.visible = p >= 0.12 && p < 1;
+    b.scaffold.visible = p > 0;
+    b.scaffold.position.y = 0;
+    b.scaffold.scale.y = Math.max(0.02, ease(Math.min(1, p / 0.3)));
     b.finished.visible = p >= 0.3;
-    b.finished.scale.y = Math.max(0.01, (p - 0.3) / 0.7);
+    b.finished.scale.y = Math.max(0.01, ease((p - 0.3) / 0.7));
     for (const t of b.torches) t.flame.visible = false;
     if (b.crops) b.crops.visible = false;
     for (const f of b.fills) f.visible = false;
@@ -1074,6 +1094,9 @@ export class BuildingSystem {
     b.complete = true;
     b.progress = 1;
     b.builders.clear();
+    // Built in play: the scaffold sinks away before the building is announced.
+    if (b.scaffold.visible && !this.restoring) b.scaffoldSink = SCAFFOLD_SINK;
+    else if (!this.restoring) this.onRevealed(b);
     this.updateStageVisuals(b);
     if (b.crops) b.crops.visible = true;
     this.recomputeCaps();
@@ -1188,6 +1211,17 @@ export class BuildingSystem {
 
   update(dt: number, time: number, night: number, seasonIndex: number, raining: boolean, camTarget: THREE.Vector3): void {
     this.demolitions = this.demolitions.filter(effect => !effect.update(dt));
+    for (const b of this.list) {
+      if (b.scaffoldSink <= 0) continue;
+      b.scaffoldSink = Math.max(0, b.scaffoldSink - dt);
+      // Down into the ground, slowly at first; gone, the building is announced.
+      const h = b.scaffold.geometry.boundingBox?.max.y ?? (b.scaffold.geometry.computeBoundingBox(), b.scaffold.geometry.boundingBox!.max.y);
+      b.scaffold.position.y = -h * ease(1 - b.scaffoldSink / SCAFFOLD_SINK);
+      if (b.scaffoldSink === 0) {
+        this.updateStageVisuals(b);
+        this.onRevealed(b);
+      }
+    }
     this.lodTimer -= dt;
     if (this.lodTimer <= 0) {
       this.lodTimer = 0.25;

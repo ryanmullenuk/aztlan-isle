@@ -353,6 +353,7 @@ export class Game {
     this.buildings.recordProgress = event => this.progression.record(event);
     this.buildings.recordPrayer = seconds => this.progression.pray(seconds);
     this.buildings.onComplete = (b) => this.onBuildingComplete(b);
+    this.buildings.onRevealed = (b) => this.onBuildingRevealed(b);
     this.buildings.instantBuild = () => this.islandName.toUpperCase() === GOD_NAME && this.settings.instantBuild;
 
     this.lighting = new Lighting(this.scene, cfg.shadowSize);
@@ -1894,9 +1895,13 @@ export class Game {
   }
 
   private onBuildingComplete(b: Building): void {
+    this.completeHandler?.(b);
+  }
+
+  /** A finished building stands clear of its scaffold: announce it. */
+  private onBuildingRevealed(b: Building): void {
     this.audio?.sfx('complete', b.x, b.z);
     if (b.key !== 'campfire') this.ui?.toast(`The ${b.label} is complete.`, 'info', { x: b.x, z: b.z });
-    this.completeHandler?.(b);
   }
 
   // ---------------- Hooks for later systems ----------------
