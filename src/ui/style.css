@@ -835,3 +835,25 @@ body.watching-wildlife #hud * { pointer-events: none !important; }
 
 .toast.encounter { pointer-events: auto; display: flex; flex-wrap: wrap; gap: 6px; text-align: left; }
 .toast.encounter .encounter-text { flex-basis: 100%; }
+
+/* Match the picture source exactly; portrait artwork and controls retain their existing rules. */
+@media (min-width: 1024px) and (min-aspect-ratio: 4/3) {
+  #loading { padding: 0; }
+  .splash-frame { position: absolute; inset: 0; width: auto; aspect-ratio: auto; isolation: isolate; }
+  .splash-picture { position: absolute; inset: 0; display: block; }
+  .splash-art { object-fit: cover; object-position: 50% 50%; }
+  .splash-ui { left: 38%; right: 38%; top: 58%; bottom: auto; height: auto; gap: 12px; }
+  .splash-ui .play { font-size: clamp(18px, 1.8vw, 26px); min-height: 48px; padding: 12px 44px; }
+  .splash-ui .play.small { font-size: 14px; min-height: 44px; padding: 10px 20px; }
+  .splash-ui .loading-sub { font-size: clamp(14px, 1.2vw, 18px); padding: 8px 12px; }
+  .splash-ui .splash-hint { font-size: 11px; padding: 6px 10px; max-width: 380px; }
+}
+/* Beyond 21:9, retain the entire composition; scenery fills the remaining screen space. */
+@media (min-width: 1024px) and (min-aspect-ratio: 21/9) {
+  .splash-frame::before {
+    content: ''; position: absolute; inset: -24px; z-index: -1;
+    background: url('/splash-desktop.webp?v=1') center / cover no-repeat;
+    filter: blur(12px) brightness(0.8);
+  }
+  .splash-art { object-fit: contain; }
+}

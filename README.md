@@ -241,6 +241,7 @@ All tuning values live in `src/config.ts`.
 
 - [three.js](https://threejs.org) (MIT) for rendering and post-processing.
 - Built with [Vite](https://vite.dev) and TypeScript.
+- The startup screen retains the original phone artwork and controls. Screens at least 1024px wide with a ratio of 4:3 or wider select the landscape WebP through a responsive picture. Beyond 21:9 the complete image sits over blurred scenery using the same cached asset, keeping its title and characters in view without black bars. Image selection follows resizing/rotation automatically. The supplied 3.6 MB desktop PNG is delivered as a 398 KB WebP. Source/CSS consistency and composition geometry are checked at ten phone/tablet/desktop sizes; browser screenshots and network verification remain unavailable because Chromium crashes in this environment.
 - The splash art was supplied by the project owner. Every model, texture, piece of music and sound effect is generated procedurally at runtime.
 
 ## Known limitations

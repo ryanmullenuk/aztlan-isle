@@ -82,7 +82,10 @@
     <div id="hud"></div>
     <div id="loading">
       <div class="splash-frame">
-        <img class="splash-art" src="./splash.webp?v=5" alt="Aztlan Isle" />
+        <picture class="splash-picture">
+          <source media="(min-width: 1024px) and (min-aspect-ratio: 4/3)" srcset="./splash-desktop.webp?v=1" type="image/webp" />
+          <img class="splash-art" src="./splash.webp?v=5" alt="Aztlan Isle" />
+        </picture>
         <div class="splash-ui">
           <div class="loading-sub" id="loading-text">Shaping the island…</div>
           <button id="play-btn" class="play hidden">Play</button>
