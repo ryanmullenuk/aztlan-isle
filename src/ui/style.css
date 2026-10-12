@@ -931,3 +931,94 @@ body.notice-showing .toasts { margin-top: min(130px, 21vw); }
   .nb-line { font-size: 2.75cqw; }
   .nb-benefit { font-size: 2.6cqw; }
 }
+
+/* ======================================================================================
+   Aztec frames, game-wide: every panel, card, menu, notice, tooltip and button wears the
+   same dark plate inside a double gold line with stepped corners and small corner bars
+   (a 9-slice SVG painted as the border image, so it stretches to any size without
+   changing layout). Selected buttons take a gold-lit plate; warnings a red-edged one.
+   ====================================================================================== */
+:root {
+  --az-frame: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60' viewBox='0 0 60 60'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%232a241b'/%3E%3Cstop offset='1' stop-color='%2315120e'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M7 2.5H53L57.5 7V53L53 57.5H7L2.5 53V7Z' fill='url(%23g)' fill-opacity='0.93'/%3E%3Cpath d='M11 6.6H49V8.6H53.4V51.4H49V53.4H11V51.4H6.6V8.6H11Z' fill='none' stroke='%23a97d30' stroke-width='1.5'/%3E%3Cpath d='M7 2.5H53L57.5 7V53L53 57.5H7L2.5 53V7Z' fill='none' stroke='%23e2ad46' stroke-width='2.4'/%3E%3Cpath d='M8.5 0.9H17.5M42.5 0.9H51.5M8.5 59.1H17.5M42.5 59.1H51.5' stroke='%23e2ad46' stroke-width='1.8'/%3E%3C/svg%3E");
+  --az-frame-on: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60' viewBox='0 0 60 60'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%235b4419'/%3E%3Cstop offset='1' stop-color='%232c200b'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M7 2.5H53L57.5 7V53L53 57.5H7L2.5 53V7Z' fill='url(%23g)' fill-opacity='0.95'/%3E%3Cpath d='M11 6.6H49V8.6H53.4V51.4H49V53.4H11V51.4H6.6V8.6H11Z' fill='none' stroke='%23e2ad46' stroke-width='1.5'/%3E%3Cpath d='M7 2.5H53L57.5 7V53L53 57.5H7L2.5 53V7Z' fill='none' stroke='%23ffd86e' stroke-width='2.4'/%3E%3Cpath d='M8.5 0.9H17.5M42.5 0.9H51.5M8.5 59.1H17.5M42.5 59.1H51.5' stroke='%23ffd86e' stroke-width='1.8'/%3E%3C/svg%3E");
+  --az-frame-warn: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60' viewBox='0 0 60 60'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%2333201a'/%3E%3Cstop offset='1' stop-color='%231a100d'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M7 2.5H53L57.5 7V53L53 57.5H7L2.5 53V7Z' fill='url(%23g)' fill-opacity='0.94'/%3E%3Cpath d='M11 6.6H49V8.6H53.4V51.4H49V53.4H11V51.4H6.6V8.6H11Z' fill='none' stroke='%23a8452f' stroke-width='1.5'/%3E%3Cpath d='M7 2.5H53L57.5 7V53L53 57.5H7L2.5 53V7Z' fill='none' stroke='%23e8664c' stroke-width='2.4'/%3E%3Cpath d='M8.5 0.9H17.5M42.5 0.9H51.5M8.5 59.1H17.5M42.5 59.1H51.5' stroke='%23e8664c' stroke-width='1.8'/%3E%3C/svg%3E");
+}
+.panel, .card, .info, .buildmenu, .popup, .toast, .tooltip, .hint, .placement-controls, .toolbar, .beliefbar,
+.alert-panel, .tr, .wildlife-caption, .tutorial, .inventory-panel, .village-priorities,
+#hud button, .obtn, .btn, .ib, .slot, .bm-item, .tp-item, .wildlife-ui button {
+  --az-w: 9px;
+  border: 1px solid transparent !important;
+  border-image: var(--az-frame) 20 fill / var(--az-w) stretch !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
+}
+/* Inside the HUD some older rules set the border shorthand (which would clear the frame): restate it
+   with a doubled id so it always wins. */
+#hud#hud :is(.panel, .card, .info, .buildmenu, .popup, .toast, .tooltip, .hint, .placement-controls, .toolbar, .beliefbar,
+.alert-panel, .tr, .wildlife-caption, .tutorial, .inventory-panel, .village-priorities, button, .obtn, .btn, .ib, .slot, .bm-item, .tp-item) {
+  border: 1px solid transparent !important;
+  border-image: var(--az-frame) 20 fill / var(--az-w) stretch !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
+}
+#hud#hud :is(button.on, button[aria-pressed="true"], button[aria-expanded="true"], .slot.on, .village-choice[aria-pressed="true"], .toast.milestone) {
+  border-image-source: var(--az-frame-on) !important;
+}
+#hud#hud :is(.toast.warn, .alert-button.unread) { border-image-source: var(--az-frame-warn) !important; }
+/* Big plates carry a heavier frame; small icon buttons a lighter one. */
+.panel, .card, .info, .buildmenu, .popup, .placement-controls, .alert-panel, .tutorial, .inventory-panel, .village-priorities { --az-w: 12px; }
+.toolbar, .tr, .beliefbar { --az-w: 11px; }
+.ib, .slot, .tp-item { --az-w: 7px; }
+.ib.small { --az-w: 6px; }
+/* Selected: the gold-lit plate replaces the old outline ring. */
+#hud button.on, #hud button[aria-pressed="true"], #hud button[aria-expanded="true"], .slot.on, .seg .btn.on,
+#hud .village-choice[aria-pressed="true"], .toast.milestone {
+  border-image-source: var(--az-frame-on) !important;
+  outline: none !important;
+}
+.toast.warn, #hud .alert-button.unread { border-image-source: var(--az-frame-warn) !important; }
+/* Hover brightens the frame; keyboard focus keeps a clear ring. */
+#hud button:hover:not(:disabled), .obtn:hover, .bm-item:hover, .tp-item:hover { filter: brightness(1.18); outline: none !important; }
+#hud button:focus-visible, .obtn:focus-visible { outline: 2px solid #fff0a6 !important; outline-offset: 3px; }
+/* Text sits clear of the frame's double line. */
+.toast { padding: 9px 14px !important; }
+.tooltip { padding: 9px 12px !important; }
+
+/* Top-left panels: an icon compartment, a gold divider, then the label (as the clock's sun). */
+#hud .inventory-toggle { justify-content: flex-start; gap: 0; padding: 6px 12px 6px 8px; min-height: 40px; }
+.az-ico { display: grid; place-items: center; width: 34px; flex: none; align-self: stretch; margin-right: 10px; padding-right: 9px; border-right: 1.5px solid rgba(226, 173, 70, 0.75); color: var(--gold); }
+.az-ico svg { width: 22px; height: 22px; }
+.az-lbl { flex: 1; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.time-panel .sunicon { box-sizing: content-box; padding-right: 10px; border-right: 1.5px solid rgba(226, 173, 70, 0.75); }
+@media (max-width: 720px) {
+  #hud .inventory-toggle { min-height: 28px; padding: 3px 8px 3px 5px; }
+  .az-ico { width: 18px; margin-right: 6px; padding-right: 5px; }
+  .az-ico svg { width: 14px; height: 14px; }
+  .time-panel .sunicon { padding-right: 5px; }
+}
+
+/* Building placement: status, a legend of the ground colours, and four framed actions. */
+.placement-controls { width: min(720px, calc(100vw - 24px)) !important; padding: 12px 14px !important; gap: 8px; }
+.placement-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 18px; font-size: 13px; color: #f1e6cf; }
+.pl-key { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.pl-sw { width: 16px; height: 16px; border-radius: 3px; display: inline-block; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35); }
+.pl-sw.ok { background: #8fd16a; }
+.pl-sw.grow { background: #e2b54c; }
+.pl-sw.walk { background: #c9c6b6; }
+.pl-sw.bad { background: #e05a4c; }
+.placement-actions { gap: 10px !important; }
+#hud .placement-actions .pl-btn { --az-w: 10px; flex: 1; display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 52px; padding: 8px 10px !important; font-size: 15px !important; font-weight: 700; color: #f6e6c2 !important; text-transform: none; letter-spacing: 0.01em; }
+.pl-ico { width: 24px; height: 24px; flex: none; color: var(--gold); }
+.pl-ico svg { width: 100%; height: 100%; display: block; }
+.pl-lbl { white-space: nowrap; }
+@media (max-width: 560px) {
+  .placement-legend { font-size: 11px; gap: 4px 10px; }
+  .pl-sw { width: 12px; height: 12px; }
+  .placement-actions { gap: 5px !important; }
+  #hud .placement-actions .pl-btn { flex-direction: column; gap: 3px; min-height: 54px; padding: 6px 4px !important; font-size: 11.5px !important; }
+  .pl-ico { width: 20px; height: 20px; }
+}

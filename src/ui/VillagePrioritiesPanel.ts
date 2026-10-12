@@ -1,4 +1,5 @@
 import { VILLAGE_PRIORITIES, type VillagePriority } from '../ai/VillagePriority';
+import { PANEL_ICONS } from './panelIcons';
 
 /** Small, collapsible workforce controls; simulation changes wait for its normal job tick. */
 export class VillagePrioritiesPanel {
@@ -57,7 +58,7 @@ export class VillagePrioritiesPanel {
     const priority = this.get();
     if (priority === this.current) return;
     this.current = priority;
-    this.button.innerHTML = `<span>Village · ${VILLAGE_PRIORITIES[priority].label}</span><span class="inventory-chevron" aria-hidden="true">⌄</span>`;
+    this.button.innerHTML = `<span class="az-ico" aria-hidden="true">${PANEL_ICONS.temple}</span><span class="az-lbl">Village · ${VILLAGE_PRIORITIES[priority].label}</span><span class="inventory-chevron" aria-hidden="true">⌄</span>`;
     this.button.setAttribute('aria-label', `Village priorities: ${VILLAGE_PRIORITIES[priority].label}`);
     for (const button of this.choices) button.setAttribute('aria-pressed', String(button.dataset.priority === priority));
   }

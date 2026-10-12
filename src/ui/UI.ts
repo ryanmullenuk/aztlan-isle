@@ -1,4 +1,5 @@
 import { fireBuildingCard } from './FireBuildingCard';
+import { PANEL_ICONS } from './panelIcons';
 import { NoticeBanner, type Notice } from './NoticeBanner';
 import { animalName } from '../entities/Animals';
 import { VillagePrioritiesPanel } from './VillagePrioritiesPanel';
@@ -46,6 +47,19 @@ interface TutorialStep {
 }
 
 /** The whole HTML overlay: HUD, toolbar, menus, info panels, minimap, modals, tutorial and toasts. */
+/** Icons for the building placement actions (drawn in the button's colour). */
+const PL_ICONS = {
+  place: '<svg viewBox="0 0 24 24"><path d="M4.5 12.5l5 5 10-11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  rotate: '<svg viewBox="0 0 24 24"><path d="M19 12a7 7 0 1 1-2.05-4.95" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M19.5 3.5v4.5H15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  snap: '<svg viewBox="0 0 24 24">' + [5, 12, 19].flatMap((y) => [5, 12, 19].map((x) => `<rect x="${x - 2}" y="${y - 2}" width="4" height="4" rx="0.6" fill="currentColor"/>`)).join('') + '</svg>',
+  cancel: '<svg viewBox="0 0 24 24"><path d="M5.5 5.5l13 13M18.5 5.5l-13 13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>',
+};
+/** Change a placement action's label, leaving its icon. */
+const setLabel = (b: HTMLButtonElement, text: string) => {
+  const l = b.querySelector('.pl-lbl');
+  if (l && l.textContent !== text) l.textContent = text;
+};
+
 export class UI {
   private root = document.getElementById('hud')!;
   private tl!: HTMLDivElement;
@@ -179,7 +193,7 @@ export class UI {
       this.resEls[k] = v;
       grid.appendChild(r);
     }
-    const inventory = el('button', 'inventory-toggle', '<span>Inventory</span><span class="inventory-chevron" aria-hidden="true">⌄</span>');
+    const inventory = el('button', 'inventory-toggle', `<span class="az-ico" aria-hidden="true">${PANEL_ICONS.crate}</span><span class="az-lbl">Inventory</span><span class="inventory-chevron" aria-hidden="true">⌄</span>`);
     inventory.type = 'button';
     inventory.setAttribute('aria-controls', grid.id);
     inventory.setAttribute('aria-expanded', 'false');
@@ -356,16 +370,21 @@ export class UI {
     this.placementStatus = el('div', 'placement-status');
     this.placementStatus.setAttribute('role', 'status');
     this.placementStatus.setAttribute('aria-live', 'polite');
-    this.placementPlace = el('button', 'btn', 'Place') as HTMLButtonElement;
-    this.placementRotate = el('button', 'btn', 'Rotate 90°') as HTMLButtonElement;
-    this.placementSnap = el('button', 'btn', 'Snap: On') as HTMLButtonElement;
-    const place = this.placementPlace, rotate = this.placementRotate, cancel = el('button', 'btn', 'Cancel');
+    // Each action: its icon and a label (only the label changes, e.g. Place / Move here).
+    const action = (svg: string, label: string) => el('button', 'btn pl-btn', `<span class="pl-ico">${svg}</span><span class="pl-lbl">${label}</span>`) as HTMLButtonElement;
+    this.placementPlace = action(PL_ICONS.place, 'Place');
+    this.placementRotate = action(PL_ICONS.rotate, 'Rotate 90°');
+    this.placementSnap = action(PL_ICONS.snap, 'Snap: On');
+    const place = this.placementPlace, rotate = this.placementRotate, cancel = action(PL_ICONS.cancel, 'Cancel');
     this.placementSnap.title = 'Snap to suitable ground within one square; grid alignment stays on';
     this.placementSnap.onclick = () => this.game.togglePlacementSnap();
     place.onclick=()=>this.game.confirmPlacement();rotate.onclick=()=>this.game.rotatePlacement();cancel.onclick=()=>this.game.cancelPlacement();
     const actions = el('div', 'placement-actions');
     actions.append(place, rotate, this.placementSnap, cancel);
-    this.placementControls.append(this.placementStatus, actions);
+    // What the coloured squares under the building mean.
+    const legend = el('div', 'placement-legend', [['ok', 'Valid position'], ['grow', 'Expansion'], ['walk', 'Walkway'], ['bad', 'Blocked']]
+      .map(([k, t]) => `<span class="pl-key"><i class="pl-sw ${k}"></i>${t}</span>`).join(''));
+    this.placementControls.append(this.placementStatus, legend, actions);
     bottom.appendChild(this.placementControls);
     // Shown until the village is founded, in case the campfire placement is closed.
     this.foundBtn = el('button', 'btn found-btn hidden', `${ICONS.belief} Place campfire`) as HTMLButtonElement;
@@ -1077,16 +1096,15 @@ export class UI {
         const ready = !!status?.ok;
         const dock = g0.placing === 'jetty' || g0.placing === 'tradedock';
         this.placementPlace.disabled = !ready;
-        this.placementPlace.textContent = g0.moving ? 'Move here' : 'Place';
+        setLabel(this.placementPlace, g0.moving ? 'Move here' : 'Place');
         this.placementRotate.disabled = dock;
-        this.placementRotate.textContent = dock ? 'Faces shore' : 'Rotate 90°';
+        setLabel(this.placementRotate, dock ? 'Faces shore' : 'Rotate 90°');
         this.placementSnap.disabled = dock;
-        this.placementSnap.textContent = `Snap: ${g0.placementSnap ? 'On' : 'Off'}`;
+        setLabel(this.placementSnap, `Snap: ${g0.placementSnap ? 'On' : 'Off'}`);
         this.placementSnap.setAttribute('aria-pressed', String(g0.placementSnap));
         this.placementStatus.classList.toggle('invalid', !ready);
         const lines = [ready ? 'Ready to place' : status?.reason || 'Drag the building onto the island',
-          status?.slope || 'Slope: choose a position',
-          `${status?.snapped ? 'Snapped to nearby ground' : 'Aligned to grid'} · Green: footprint · Gold: expansion · Pale: walkway · Red: blocked`];
+          `${status?.slope || 'Slope: choose a position'} · ${status?.snapped ? 'Snapped to nearby ground' : 'Aligned to grid'}`];
         if (this.placementStatus.textContent !== lines.join('\n')) this.placementStatus.textContent = lines.join('\n');
       }
       this.refresh(false);
