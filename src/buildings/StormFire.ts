@@ -70,7 +70,7 @@ export class StormFire {
   ignite(b: Building): boolean {
     if (!this.unlocked || !this.buildings.list.includes(b) || !b.complete || b.ruined || b.fire > 0 || b.key === 'campfire' ||
       this.buildings.list.filter(x => x.fire > 0).length >= F.maxFires) return false;
-    b.fire = .7; b.integrity = Math.min(b.integrity, .94);
+    b.fire = F.initialStrength; b.integrity = Math.min(b.integrity, .94);
     this.active = true; this.wells = this.buildings.of('well'); b.builders.clear();
     this.colony.evacuateBuilding(b);
     if (!b.fireAlerted) {
@@ -120,8 +120,12 @@ export class StormFire {
     for (const b of this.buildings.list) {
       if (b.fire <= 0 || b.ruined) continue;
       this.active = true;
-      b.integrity = Math.max(0, b.integrity - dt * F.damagePerSecond * b.fire * (this.wet ? F.wetDamageMultiplier : 1));
-      b.fire = Math.min(1, b.fire + dt * (this.wet ? F.wetGrowth : F.dryGrowth));
+      const growth = this.wet ? F.wetGrowth : F.dryGrowth;
+      // Integrate the ramp and the capped full fire exactly, so frame size/speed cannot change damage.
+      const rampTime = Math.min(dt, (1 - b.fire) / growth);
+      const exposure = b.fire * rampTime + .5 * growth * rampTime * rampTime + (dt - rampTime);
+      b.integrity = Math.max(0, b.integrity - exposure * F.damagePerSecond * (this.wet ? F.wetDamageMultiplier : 1));
+      b.fire = Math.min(1, b.fire + dt * growth);
       if (b.integrity <= 0) { this.colony.evacuateBuilding(b); this.buildings.ruin(b); }
     }
     this.dispatchIn = Math.max(0, this.dispatchIn - dt);
@@ -130,7 +134,7 @@ export class StormFire {
     if (this.smokeIn <= 0) {
       this.smokeIn = .2;
       for (const b of this.buildings.list) if (b.fire > 0) {
-        this.smoke.spawn(b.x, this.roofY(b) + .5, b.z, .08, .7, -.04, 3, .6, .35);
+        this.smoke.spawn(b.x, this.roofY(b) + .5, b.z, .08, .7, -.04, 3, .35 + b.fire * .6, .35);
       }
     }
     this.smoke.update(dt, -.02);
@@ -175,9 +179,13 @@ export class StormFire {
     const o = this.object;
     for (const b of this.buildings.list) {
       if (b.fire > 0) for (let n = 0; n < 3 && flames < this.flames.instanceMatrix.count; n++) {
-        o.position.set(b.x + (n - 1) * .35, this.roofY(b) - .25, b.z + (n % 2) * .3);
+        const growth = THREE.MathUtils.smoothstep(b.fire, F.initialStrength, 1);
+        const spread = .12 + growth * .23;
+        o.position.set(b.x + (n - 1) * spread, this.roofY(b) - .15, b.z + (n % 2) * spread * .65);
         o.quaternion.identity(); const pulse = 1 + Math.sin(time * 5 + b.id + n) * .08;
-        o.scale.set(.9 * pulse, (2 + b.fire) * pulse, .9 * pulse); o.updateMatrix(); this.flames.setMatrixAt(flames++, o.matrix);
+        // VillageFire's bonfire uses the same torch geometry at width 6.5 / height 13.
+        const width = 1.8 + growth * 4.7, height = (2.5 + growth * 10.5) * (n === 1 ? 1 : .8);
+        o.scale.set(width * pulse, height * pulse, width * pulse); o.updateMatrix(); this.flames.setMatrixAt(flames++, o.matrix);
       }
       if ((b.integrity >= 1 && !b.ruined) || bars >= this.bars.instanceMatrix.count) continue;
       this.position.set(b.x, this.roofY(b) + 2, b.z);

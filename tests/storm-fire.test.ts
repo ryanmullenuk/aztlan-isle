@@ -89,6 +89,7 @@ test('rain slows damage, Calm stops new strikes, and extinguishing never restore
 test('water collection and pouring use real queued routes, carry no inventory resources and extinguish fires', () => {
   const h = setup(), well = h.add('well', -5), house = h.add('hut', 5), p = h.person();
   h.fires.unlocked = true; h.fires.ignite(house);
+  house.fire = 1; // A developed fire requires repeated water trips even with stronger buckets.
   const wood = h.eco.res.wood, stone = h.eco.res.stone, phases = new Set<number>();
   for (let n = 0; n < 1500 && house.fire > 0; n++) {
     h.tick(); if (p.task?.kind === 'firefight') phases.add(p.task.phase ?? 0);
@@ -355,4 +356,41 @@ test('fire destruction frees the old jetty boat slots for rebuilding', () => {
   const h = setup(), jetty = h.add('jetty'); jetty.boats = [17,18]; jetty.tradeBoats = 2;
   h.bld.ruin(jetty); assert.deepEqual(jetty.boats, []); assert.equal(jetty.tradeBoats, 0);
   h.bld.repair(jetty); h.bld.addProgress(jetty, 1000); assert.equal(jetty.ruined, false); assert.equal(jetty.boats.length, 0);
+});
+
+test('small lightning fires grow to bonfire height using the same bounded flame batch', async () => {
+  const {villageFire}=await import('../src/buildings/VillageFire');
+  const h=setup(),house=h.add('hut');h.fires.unlocked=true;h.fires.ignite(house);
+  const camera=new THREE.PerspectiveCamera(),small=new THREE.Matrix4(),large=new THREE.Matrix4();
+  h.fires.render(0,camera);const flames=(h.fires as any).flames as THREE.InstancedMesh;flames.getMatrixAt(1,small);
+  assert.equal(flames.count,3);house.fire=1;h.fires.render(0,camera);flames.getMatrixAt(1,large);
+  const smallScale=new THREE.Vector3().setFromMatrixScale(small),largeScale=new THREE.Vector3().setFromMatrixScale(large);
+  flames.geometry.computeBoundingBox();const flameHeight=flames.geometry.boundingBox!.max.y;
+  const bonfire=villageFire();bonfire.geometry.computeBoundingBox();const bonfireHeight=bonfire.geometry.boundingBox!.max.y;
+  assert.ok(smallScale.y*flameHeight<.6);assert.ok(Math.abs(largeScale.y*flameHeight/bonfireHeight-1)<.09);
+  assert.ok(largeScale.x>smallScale.x*3);assert.equal(flames.count,3);assert.equal((h.fires as any).bars.count,1);
+  h.fires.pour(house);h.fires.render(0,camera);const watered=new THREE.Matrix4();flames.getMatrixAt(1,watered);
+  assert.ok(new THREE.Vector3().setFromMatrixScale(watered).y<largeScale.y,'water visibly reduces the fire');
+});
+
+test('a healthy unattended storm fire destroys a building in about 60 game seconds',()=>{
+  for(const weather of ['rain','storm'] as const){
+    const h=setup(),house=h.add('hut');h.fires.unlocked=true;h.fires.ignite(house);
+    for(let k=0;k<590;k++)h.fires.update(.1,weather);
+    assert.equal(house.ruined,false);assert.ok(house.integrity<.04);
+    for(let k=0;k<20;k++)h.fires.update(.1,weather);
+    assert.equal(house.ruined,true);assert.equal(house.fire,0);assert.equal(house.integrity,0);
+  }
+  const dry=setup(),house=dry.add('hut');dry.fires.unlocked=true;dry.fires.ignite(house);
+  dry.fires.update(49,'clear');assert.equal(house.ruined,false);dry.fires.update(1,'clear');assert.equal(house.ruined,true);
+});
+
+test('fire growth and damage agree across frame sizes and retain their current state on pause',()=>{
+  const results=[];
+  for(const dt of [.05,.1,1,10]){
+    const h=setup(),house=h.add('hut');h.fires.unlocked=true;h.fires.ignite(house);
+    for(let k=0;k<40/dt;k++)h.fires.update(dt,'rain');
+    const state={fire:house.fire,integrity:house.integrity};h.fires.update(0,'rain');assert.deepEqual({fire:house.fire,integrity:house.integrity},state);results.push(state);
+  }
+  for(const state of results){assert.ok(Math.abs(state.fire-results[0].fire)<1e-10);assert.ok(Math.abs(state.integrity-results[0].integrity)<1e-10);}
 });

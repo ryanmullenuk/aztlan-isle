@@ -1012,6 +1012,7 @@ export const BOAT_WORKSHOP = {
 /** Game-time storm hazards; two simultaneous fires and four firefighters at most. */
 export const BUILDING_FIRE = {
   strikeSeconds: [22, 38] as const, buildingChance: .18, maxFires: 2, firefighters: 2,
-  damagePerSecond: .006, wetDamageMultiplier: .55, dryGrowth: .002, wetGrowth: .0005,
-  waterReduction: .45, retrySeconds: 20,
+  // A healthy unattended building lasts ~60 game seconds in rain/storms (~49 when dry).
+  initialStrength: .12, damagePerSecond: .026, wetDamageMultiplier: .85, dryGrowth: .03, wetGrowth: .022,
+  waterReduction: .9, retrySeconds: 20,
 };
