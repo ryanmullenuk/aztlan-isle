@@ -464,33 +464,6 @@ export function legGeometry(len: number, r: number, hoof: number, mat: 'coat' | 
   return soft(b);
 }
 
-// ---------------- Spider monkeys ----------------
-
-const MONKEY = 0x2a2220, MONKEY_TAN = 0xb8935e;
-
-export function monkeyHead(): THREE.BufferGeometry {
-  const b = new GeoBuilder();
-  b.add(ball(0.045), C(MONKEY), M.t(0, 0.04, 0));
-  b.add(ball(0.028), C(0x6e5a48), M.t(0, 0.03, 0.03, 0, 0, 0, 1, 0.9, 0.7));
-  return soft(b);
-}
-/** Long prehensile tail with a curl at the tip. Pivot at the base, trailing along -z. */
-export function monkeyTail(): THREE.BufferGeometry {
-  const pts: THREE.Vector3[] = [];
-  for (let k = 0; k <= 14; k++) {
-    const t = k / 14;
-    if (t < 0.7) pts.push(new THREE.Vector3(0, Math.sin(t * 2.2) * 0.12, -t * 0.34));
-    else {
-      const a = (t - 0.7) / 0.3 * Math.PI * 1.5;
-      pts.push(new THREE.Vector3(0, 0.12 + Math.sin(a) * 0.05, -0.24 - Math.cos(a - Math.PI / 2) * 0.05 - 0.05));
-    }
-  }
-  const g = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 18, 0.009, 4, false);
-  const b = new GeoBuilder();
-  b.add(g, C(MONKEY));
-  return soft(b);
-}
-
 // ---------------- Birds ----------------
 
 export function toucanBody(): THREE.BufferGeometry {
@@ -674,35 +647,42 @@ export function footSegment(len: number, r: number, hoof: number, kind: 'split' 
 
 // ---------------- Jointed monkey parts ----------------
 
-/** Pelvis (hips) with the joint to the chest at y = 0.08. */
-export function monkeyPelvis(): THREE.BufferGeometry {
+/** Geoffroy's spider monkey: golden body, black head cap, forearms, shins, hands and feet. */
+export const MONKEY = { gold: 0x96592c, black: 0x1d1714, palm: 0x2c2420 };
+
+/** One limb segment (upper arm, forearm, thigh or shin) hanging from its joint: a smooth taper. */
+export function monkeySeg(len: number, r0: number, r1: number, color: number = MONKEY.gold): THREE.BufferGeometry {
   const b = new GeoBuilder();
-  b.add(new THREE.CapsuleGeometry(0.046, 0.04, 3, 6), C(MONKEY), M.t(0, 0.05, 0));
-  b.add(ball(0.048), C(MONKEY), M.t(0, 0.03, -0.005, 0, 0, 0, 1.1, 0.7, 1));
-  b.add(ball(0.03), C(MONKEY_TAN), M.t(0, 0.05, 0.028, 0, 0, 0, 0.9, 1.1, 0.5));
+  b.add(ball(r0 * 1.05), C(color), M.t(0, 0, 0));
+  b.add(P.cyl(r1, r0, len, 14), C(color), M.t(0, -len / 2, 0));
+  b.add(ball(r1), C(color), M.t(0, -len, 0));
   return soft(b);
 }
-/** Chest and shoulders above the waist joint (origin at the waist). */
-export function monkeyChest(): THREE.BufferGeometry {
+
+/**
+ * Long, narrow hand or foot from the wrist / ankle (along −y, palm toward +z). Spider monkeys
+ * have no thumbs: four long fingers end in a hook for hanging from branches. Feet add a gripping
+ * big toe set out to the side.
+ */
+export function monkeyHand(len: number, foot = false): THREE.BufferGeometry {
   const b = new GeoBuilder();
-  b.add(new THREE.CapsuleGeometry(0.05, 0.04, 3, 6), C(MONKEY), M.t(0, 0.035, 0));
-  b.add(ball(0.034), C(MONKEY_TAN), M.t(0, 0.03, 0.026, 0, 0, 0, 0.9, 1.2, 0.55));
-  b.add(ball(0.05), C(MONKEY), M.t(0, 0.065, 0, 0, 0, 0, 1.25, 0.6, 0.9));
-  return soft(b);
-}
-/** One limb segment (upper arm, forearm, thigh or shin) from its joint. */
-export function monkeySeg(len: number, r0: number, r1: number): THREE.BufferGeometry {
-  const b = new GeoBuilder();
-  b.add(ball(r0 * 1.1), C(MONKEY), M.t(0, 0, 0));
-  b.add(P.cyl(r1, r0, len, 14), C(MONKEY), M.t(0, -len / 2, 0));
-  return soft(b);
-}
-/** Long-fingered hand or foot from the wrist / ankle. */
-export function monkeyHand(len: number): THREE.BufferGeometry {
-  const b = new GeoBuilder();
-  b.add(ball(0.012), C(MONKEY), M.t(0, 0, 0));
-  b.add(P.box(0.022, len, 0.012), C(0x3a302a), M.t(0, -len / 2, 0.004));
-  for (const x of [-0.007, 0, 0.007]) b.add(P.box(0.005, len * 0.45, 0.006), C(0x3a302a), M.t(x, -len * 1.1, 0.007, 0.3, 0, 0));
+  b.add(ball(0.0105), C(MONKEY.black), M.t(0, 0, 0));
+  b.add(ball(0.5), C(MONKEY.black), M.t(0, -len * 0.42, 0.002, 0, 0, 0, 0.021, len * 0.95, 0.011));
+  b.add(ball(0.5), C(MONKEY.palm), M.t(0, -len * 0.45, 0.006, 0, 0, 0, 0.016, len * 0.75, 0.006));
+  for (let k = 0; k < 4; k++) {
+    const x = (k - 1.5) * 0.0052, l = len * (k === 1 || k === 2 ? 1 : 0.88);
+    const pts = [
+      new THREE.Vector3(x, -l * 0.8, 0.003),
+      new THREE.Vector3(x * 1.1, -l * 1.15, 0.006),
+      new THREE.Vector3(x * 1.15, -l * 1.38, 0.013),
+      new THREE.Vector3(x * 1.15, -l * 1.46, 0.022),
+    ];
+    b.add(outward(tube(pts, (t) => 0.0029 * (1 - t * 0.3), 8, 8)), C(MONKEY.black));
+  }
+  if (foot) {
+    const pts = [new THREE.Vector3(0.008, -len * 0.25, 0.004), new THREE.Vector3(0.015, -len * 0.45, 0.01), new THREE.Vector3(0.016, -len * 0.62, 0.018)];
+    b.add(outward(tube(pts, (t) => 0.0034 * (1 - t * 0.3), 8, 6)), C(MONKEY.black));
+  }
   return soft(b);
 }
 

@@ -8,7 +8,7 @@ import { SpatialHash } from '../world/SpatialHash';
 import { World } from '../world/World';
 import { Islander } from './Islander';
 import * as models from './animalModels';
-import { GeoBuilder, M, P, facet } from '../render/GeoBuilder';
+import { GeoBuilder, M, P } from '../render/GeoBuilder';
 
 /** Monkey ids are offset so the colony's hunting hooks can tell them from land animals. */
 export const MONKEY_BASE = 1_000_000;
@@ -237,11 +237,11 @@ export class Monkeys {
     mk('chest', chestGeometry(), n);
     mk('head', headGeometry(), n);
     mk('uarm', models.monkeySeg(ARM[0], 0.013, 0.01), n * 2);
-    mk('farm', models.monkeySeg(ARM[1], 0.0105, 0.008), n * 2);
+    mk('farm', models.monkeySeg(ARM[1], 0.0105, 0.008, models.MONKEY.black), n * 2);
     mk('hand', models.monkeyHand(HAND), n * 2);
     mk('thigh', models.monkeySeg(LEG[0], 0.016, 0.011), n * 2);
-    mk('shin', models.monkeySeg(LEG[1], 0.0115, 0.008), n * 2);
-    mk('foot', models.monkeyHand(FOOT), n * 2);
+    mk('shin', models.monkeySeg(LEG[1], 0.0115, 0.008, models.MONKEY.black), n * 2);
+    mk('foot', models.monkeyHand(FOOT, true), n * 2);
     mk('tail', tailGeometry(false), n * (TAIL_N - 1));
     mk('tailtip', tailGeometry(true), n);
     mk('loot', lootGeometry(), n);
@@ -1199,50 +1199,83 @@ function lootGeometry(): THREE.BufferGeometry {
 
 // ---------------- Spider monkey geometry (pivots match the skeleton constants above) ----------------
 
-const FUR = 0x2a2220, FUR_PALE = 0x43362c, FACE = 0xc9a585, FACE_PALE = 0xdcc2a2, SKIN = 0x5a4238;
+/**
+ * Geoffroy's spider monkey: a golden coat, redder along the back, cream chest and belly, a black
+ * cap over the head and black forearms, shins, hands and feet; a dark face with pale eye rings
+ * and muzzle. Smooth, rounded forms throughout.
+ */
+const GOLD = new THREE.Color(0x96592c), BACK = new THREE.Color(0x5e3018), CREAM = new THREE.Color(0xcfa66c);
+const CAP = new THREE.Color(0x1d1714), FACE = 0x3b2b25, PALE = 0xd8b48e, IRIS = 0x5a3218, DARK = 0x120d0b;
 const C = (c: number) => ({ color: c });
+const ball = (r: number) => P.uvSphere(r, 18, 12);
+const ss = (e0: number, e1: number, x: number) => {
+  const t = THREE.MathUtils.clamp((x - e0) / (e1 - e0), 0, 1);
+  return t * t * (3 - 2 * t);
+};
+/** Coat: gold on the flanks, deep russet down the back, cream on the front below `creamTop`. */
+const coat = (creamTop: number) => ({
+  color: (p: THREE.Vector3, n: THREE.Vector3) => GOLD.clone()
+    .lerp(BACK, ss(0.15, 0.7, -n.z) * 0.85)
+    .lerp(CREAM, ss(0.25, 0.75, n.z) * ss(creamTop + 0.01, creamTop - 0.02, p.y))
+    .multiplyScalar(grain(p)),
+});
+/** A faint streaky grain so the coat reads as fur rather than bare skin. */
+const grain = (p: THREE.Vector3) => 0.93 + 0.07 * Math.sin(p.x * 410 + p.y * 170) * Math.sin(p.z * 380 - p.y * 90);
 
 /** Hips and the spider monkey's round pot belly; the waist joint is at y = WAIST. */
 function pelvisGeometry(): THREE.BufferGeometry {
   const b = new GeoBuilder();
-  b.add(new THREE.CapsuleGeometry(0.043, 0.035, 3, 7), C(FUR), M.t(0, 0.045, 0));
-  b.add(P.sphere(0.047, 1), C(FUR), M.t(0, 0.028, -0.006, 0, 0, 0, 1.1, 0.72, 1));
-  b.add(P.sphere(0.045, 1), C(FUR_PALE), M.t(0, 0.058, 0.016, 0, 0, 0, 0.95, 1.05, 0.95));
-  return facet(b.build());
+  b.add(new THREE.CapsuleGeometry(0.043, 0.035, 8, 18), coat(0.09), M.t(0, 0.045, 0));
+  b.add(ball(0.047), coat(0.09), M.t(0, 0.03, -0.006, 0, 0, 0, 1.1, 0.72, 1));
+  b.add(ball(0.044), coat(0.09), M.t(0, 0.055, 0.014, 0, 0, 0, 0.92, 1.02, 0.95));
+  return b.build();
 }
 
 /** Narrow chest under broad, long-armed shoulders, with a short neck to the head joint. */
 function chestGeometry(): THREE.BufferGeometry {
   const b = new GeoBuilder();
-  b.add(new THREE.CapsuleGeometry(0.041, 0.04, 3, 7), C(FUR), M.t(0, 0.035, 0));
-  b.add(P.sphere(0.03, 0), C(FUR_PALE), M.t(0, 0.03, 0.028, 0, 0, 0, 0.9, 1.2, 0.5));
-  b.add(P.sphere(0.048, 1), C(FUR), M.t(0, SHOULDER - 0.004, 0, 0, 0, 0, 1.22, 0.7, 0.85));
-  b.add(P.cyl(0.018, 0.024, 0.035, 6), C(FUR), M.t(0, 0.09, 0.004));
-  return facet(b.build());
+  b.add(new THREE.CapsuleGeometry(0.04, 0.04, 8, 18), coat(0.055), M.t(0, 0.035, 0));
+  b.add(ball(0.048), coat(0.04), M.t(0, SHOULDER - 0.004, 0, 0, 0, 0, 1.22, 0.7, 0.85));
+  b.add(P.cyl(0.018, 0.024, 0.035, 16), coat(0.0), M.t(0, 0.09, 0.004));
+  return b.build();
 }
 
-/** Small round head, plain pale face mask and a softly raised crown. */
+/**
+ * Small round head: a black cap over the crown and back, golden sideburns framing a dark face,
+ * pale rings round big brown eyes, a pale muzzle with a dark nose and mouth, and small bare ears.
+ */
 function headGeometry(): THREE.BufferGeometry {
   const b = new GeoBuilder();
-  b.add(P.sphere(0.04, 1), C(FUR), M.t(0, 0.04, -0.004, 0, 0, 0, 0.95, 1, 1));
-  b.add(P.sphere(0.025, 1), C(FUR), M.t(0, 0.066, -0.012, 0, 0, 0, 0.9, 0.7, 1));
-  b.add(P.sphere(0.03, 1), C(FACE), M.t(0, 0.035, 0.024, 0, 0, 0, 1, 1.05, 0.7));
-  b.add(P.sphere(0.019, 1), C(FACE), M.t(0, 0.021, 0.045, 0, 0, 0, 1.05, 0.85, 0.85));
+  const head = { color: (_p: THREE.Vector3, n: THREE.Vector3) => GOLD.clone().lerp(CAP, Math.max(ss(-0.1, 0.35, n.y), ss(0.1, 0.5, -n.z))) };
+  b.add(ball(0.04), head, M.t(0, 0.042, -0.004, 0, 0, 0, 0.95, 1, 1));
+  b.add(ball(0.025), C(CAP.getHex()), M.t(0, 0.068, -0.012, 0, 0, 0, 0.9, 0.62, 1));
+  // Face: dark bare skin, a soft brow, pale eye rings and muzzle.
+  b.add(ball(0.029), C(FACE), M.t(0, 0.035, 0.024, 0, 0, 0, 1, 1.05, 0.62));
+  b.add(ball(0.022), C(DARK), M.t(0, 0.053, 0.038, 0, 0, 0, 1.25, 0.32, 0.5));
+  b.add(ball(0.016), C(PALE), M.t(0, 0.021, 0.045, 0, 0, 0, 1.05, 0.82, 0.85));
+  b.add(ball(0.009), C(DARK), M.t(0, 0.013, 0.055, 0, 0, 0, 1.15, 0.2, 0.4));
   for (const x of [-1, 1]) {
-    b.add(P.sphere(0.009, 0), C(SKIN), M.t(x * 0.037, 0.042, 0.0, 0, 0, 0, 0.5, 1, 0.9));
+    b.add(ball(0.0108), C(PALE), M.t(x * 0.0128, 0.041, 0.042, 0, 0, 0, 1, 0.92, 0.45));
+    b.add(ball(0.0062), C(IRIS), M.t(x * 0.0128, 0.041, 0.0465, 0, 0, 0, 1, 1, 0.5));
+    b.add(ball(0.0034), C(DARK), M.t(x * 0.0128, 0.041, 0.0494, 0, 0, 0, 1, 1, 0.5));
+    b.add(ball(0.0013), C(0xfff4e4), M.t(x * 0.0128 + 0.002, 0.0432, 0.0508));
+    b.add(ball(0.0026), C(DARK), M.t(x * 0.0042, 0.027, 0.059, 0, 0, 0, 1, 0.7, 0.6));
+    b.add(ball(0.0105), C(0x4a3830), M.t(x * 0.038, 0.04, 0.002, 0, 0, 0, 0.32, 1, 0.82));
   }
-  return facet(b.build());
+  return b.build();
 }
 
 /** One tail piece from its joint back along -z; the tip piece curls and has the bare grip pad underneath. */
 function tailGeometry(tip: boolean): THREE.BufferGeometry {
   const b = new GeoBuilder();
   const len = TAIL_SEG;
-  b.add(P.sphere(0.0108, 0), C(FUR), M.t(0, 0, 0));
-  b.add(P.cyl(0.0102, 0.0094, len, 5), C(FUR), M.t(0, 0, -len / 2, Math.PI / 2, 0, 0));
+  const fur = { color: (_p: THREE.Vector3, n: THREE.Vector3) => GOLD.clone().lerp(BACK, ss(0.0, 0.8, n.y) * 0.8) };
+  b.add(ball(0.0108), fur, M.t(0, 0, 0));
+  b.add(P.cyl(0.0102, 0.0094, len, 14), fur, M.t(0, 0, -len / 2, Math.PI / 2, 0, 0));
   if (tip) {
-    b.add(P.cyl(0.0094, 0.006, len * 0.7, 5), C(FUR), M.t(0, 0.012, -len * 1.2, Math.PI / 2 + 0.7, 0, 0));
-    b.add(P.box(0.009, 0.004, len * 0.9), C(SKIN), M.t(0, -0.008, -len * 0.6));
+    b.add(P.cyl(0.0094, 0.0055, len * 0.7, 14), fur, M.t(0, 0.012, -len * 1.2, Math.PI / 2 + 0.7, 0, 0));
+    b.add(ball(0.0058), fur, M.t(0, 0.024, -len * 1.45));
+    b.add(ball(0.5), C(0x3a2c26), M.t(0, -0.008, -len * 0.6, 0, 0, 0, 0.009, 0.005, len * 0.9));
   }
-  return facet(b.build());
+  return b.build();
 }
