@@ -10,7 +10,7 @@ import { Explore } from './render/Explore';
 import { WildlifeView, wildlifeBehaviour, type WildlifeSubject } from './render/WildlifeView';
 import * as THREE from 'three';
 import type { Where } from './ui/where';
-import { PATHS, BUILDINGS, BuildingKey, CAMERA, ISLANDER, MILESTONES, POWERS, PresetName, RENDER, SAVE, isFarm, SETTLERS } from './config';
+import { WORLD, PATHS, BUILDINGS, BuildingKey, CAMERA, ISLANDER, MILESTONES, POWERS, PresetName, RENDER, SAVE, isFarm, SETTLERS } from './config';
 import { World } from './world/World';
 import { generateIsland } from './world/generator';
 import { GameTime } from './world/Time';
@@ -461,6 +461,7 @@ export class Game {
 
     this.input = new Input(canvas, this.rig, {
       onTap: (x, y) => this.onTap(x, y),
+      onPress: (x, y) => this.oceanPress(x, y),
       wantsPlacementDrag: () => !!this.placing,
       onPlacementDrag: (x,y) => {this.touchPlacement=true;this.onHover(x,y);},
       onCancel: () => this.cancel(),
@@ -1308,6 +1309,18 @@ export class Game {
       this.brush.scale.setScalar(r);
       this.brush.position.set(p.x, Math.max(0, p.y) + 0.08, p.z);
     }
+  }
+
+  /** Ocean feedback starts on contact, so a camera drag still leaves one ripple. */
+  private oceanPress(x: number, y: number): void {
+    const p = this.pickGround(x, y);
+    if (!p || p.y > SEA_SURFACE) return;
+    // pickGround handles foreground terrain; refine its sea hit to the rendered water plane.
+    const hit = this.ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -SEA_SURFACE), new THREE.Vector3());
+    if (!hit || Math.abs(hit.x) > WORLD.oceanSize / 2 || Math.abs(hit.z) > WORLD.oceanSize / 2 || this.world.heightAt(hit.x, hit.z) >= 0) return;
+    this.water.tapRipple(hit.x, hit.z);
+    // Interaction feedback stays audible when the clicked water is far from the camera target.
+    this.audio?.sfx('waterdrop');
   }
 
   private onTap(x: number, y: number, preview?:THREE.Vector3): void {

@@ -301,8 +301,8 @@ export class AudioEngine {
     if (!this.ready) return;
     const ctx = this.ctx!;
     const now = ctx.currentTime;
-    const minGap: Record<string, number> = { chop: 0.12, mine: 0.12, build: 0.1, sculpt: 0.09, drop: 0.1, flap: 0.15, mark: 0.05, splash: 0.2, bark: 0.12, growl: 0.5, yelp: 0.3, bell: 3 };
-    const lastT = this.last.get(name) ?? 0;
+    const minGap: Record<string, number> = { chop: 0.12, mine: 0.12, build: 0.1, sculpt: 0.09, drop: 0.1, waterdrop: 0.08, flap: 0.15, mark: 0.05, splash: 0.2, bark: 0.12, growl: 0.5, yelp: 0.3, bell: 3 };
+    const lastT = this.last.get(name) ?? -Infinity;
     if (now - lastT < (minGap[name] ?? 0.03)) return;
     this.last.set(name, now);
     let vol = 1;
@@ -353,6 +353,7 @@ export class AudioEngine {
       case 'treefall': burst('lowpass', 500, 1, 0.9, 0.35, 120); tone('sine', 90, 45, 0.6, 0.4); break;
       case 'drop': tone('sine', 260, 160, 0.12, 0.18); break;
       case 'harvest': burst('bandpass', 2600, 1.5, 0.25, 0.12); break;
+      case 'waterdrop': tone('sine', 480, 1700, 0.12, 0.14); burst('lowpass', 1800, 0.7, 0.055, 0.025); break;
       case 'splash': burst('lowpass', 3000, 0.8, 0.5, 0.3, 300); burst('bandpass', 1500, 2, 0.3, 0.15, undefined, 0.08); break;
       case 'flap': for (let k = 0; k < 4; k++) burst('bandpass', 1100, 1.2, 0.05, 0.12, undefined, k * 0.06); break;
       case 'sculpt': burst('lowpass', 260, 1, 0.22, 0.28, 90); break;

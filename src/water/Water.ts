@@ -294,9 +294,19 @@ const waterFrag = /* glsl */ `
       for (int i = 0; i < 6; i++) {
         vec4 rp = uRip[i];
         float age = t - rp.z;
-        if (rp.w <= 0.0 || age < 0.0 || age > 14.0) continue;
+        if (rp.w == 0.0 || age < 0.0 || age > 14.0) continue;
         vec2 dv = p - rp.xy;
         float r = length(dv) + 1e-3;
+        // Small player touches use the same bounded pool, with short clean rings rather than churn.
+        if (rp.w < 0.0) {
+          if (age > 2.5) continue;
+          float x = r - (0.12 + age * 1.7);
+          float env = exp(-x * x / 0.13) * (-rp.w) * exp(-age * 1.4);
+          float ph = x * 16.0;
+          grad += (dv / r) * cos(ph) * env * 0.35;
+          ripFoam += env * (0.5 + 0.5 * cos(ph)) * 0.32;
+          continue;
+        }
         float front = 0.6 + age * 2.2;
         float x = r - front;
         float env = exp(-x * x / (0.8 + age * 0.7)) * rp.w * exp(-age * 0.3) / (1.0 + front * 0.2);
@@ -738,6 +748,10 @@ export class Water {
     const slots = this.shared.uRip.value;
     slots[this.ripSlot].set(x, z, this.shared.uTime.value, strength);
     this.ripSlot = (this.ripSlot + 1) % slots.length;
+  }
+  /** A brief droplet ripple, sharing the six disturbance slots without extra meshes or particles. */
+  tapRipple(x: number, z: number): void {
+    this.disturb(x, z, -0.85);
   }
   /** The current (or next) swell set; `wait` counts down the calm before it. */
   private set = { wait: SWELL_SET.firstAfter, t: 0, dur: 1, amp: 0, k: 0.25, w: 0.8, width: 30, dx: 1, dz: 0, speed: 1, phi: 0, active: false };

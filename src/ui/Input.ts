@@ -4,6 +4,8 @@ import { CameraRig } from '../render/CameraRig';
 export interface InputHandlers {
   /** A short click/tap without drag. */
   onTap(sx: number, sy: number): void;
+  /** First pointer contact, including presses that become camera navigation. */
+  onPress?(sx: number, sy: number): void;
   /** Right click / long-press (cancel). */
   onCancel(): void;
   /** Whether a left-drag should go to the active tool (sculpting) instead of panning. */
@@ -79,6 +81,7 @@ export class Input {
   private down = (e: PointerEvent) => {
     if (!this.enabled) return;
     this.h.onInteract();
+    if (this.pointers.size === 0) this.h.onPress?.(e.clientX, e.clientY);
     try {
       this.el.setPointerCapture?.(e.pointerId);
     } catch {
