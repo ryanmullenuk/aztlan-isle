@@ -78,8 +78,12 @@ interface Rig {
   /** Vertices nearer the middle than this (|x|, metres) are never part of an arm. */
   armX?: number;
   /** The women's underskirt: radii across and front-to-back at its top and hem, and its centre. */
-  skirt?: { rx: [number, number]; rz: [number, number]; cz: number } | null;
+  skirt?: SkirtFit | null;
 }
+/** The wrap that closes a skirt or kilt: radii across and front-to-back at its top and hem, its
+ * centre, and (when measured from the model) its hem height and the cloth and hem texels. */
+interface SkirtFit { rx: [number, number]; rz: [number, number]; cz: number; hemY?: number; cream?: [number, number]; gold?: [number, number] }
+
 /** A rig from the left-side limb joints and the spine heights (all mirrored for the right). */
 function rig(L: Record<'shoulder' | 'upper_arm' | 'forearm' | 'hand' | 'thigh' | 'shin' | 'foot', V3>, spine: { hips: V3; spine: V3; chest: V3; neck: V3; head: V3 },
   rest: Omit<Rig, 'joint'>): Rig {
@@ -172,7 +176,7 @@ function segDist(p: THREE.Vector3, a: THREE.Vector3, b: THREE.Vector3): number {
  * swinging forward carries the hem with it instead of poking through. Hair (flagged by `hair`) hangs
  * from the head, handing over to the chest down the back, so raised arms don't drag it.
  */
-function autoSkin(P: THREE.BufferAttribute, index: ArrayLike<number>, rig: Rig, hair: Uint8Array, skirtFollow = 0.55): { si: Float32Array; sw: Float32Array } {
+function autoSkin(P: THREE.BufferAttribute, index: ArrayLike<number>, rig: Rig, hair: Uint8Array, skirtFollow = 0.55, skirtX = 0): { si: Float32Array; sw: Float32Array } {
   const v = (p: V3) => new THREE.Vector3(p[0], p[1], p[2]);
   const J = rig.joint;
   type Seg = { b: number; a: THREE.Vector3; e: THREE.Vector3; r: number; side: number; kind: 'torso' | 'head' | 'arm' | 'shoulder' | 'leg' };
@@ -203,7 +207,9 @@ function autoSkin(P: THREE.BufferAttribute, index: ArrayLike<number>, rig: Rig, 
   const p = new THREE.Vector3();
   const thighL = segs.find((s) => s.b === BI.thighL)!, thighR = segs.find((s) => s.b === BI.thighR)!;
   const allowed = (s: Seg) =>
-    !((s.kind === 'arm' && (p.x * s.side < (rig.armX ?? 0.13) || segDist(p, s.a, s.e) - s.r > 0.07 * Lm)) ||
+    !((s.kind === 'arm' && (p.x * s.side < (rig.armX ?? 0.13) || segDist(p, s.a, s.e) - s.r > 0.07 * Lm ||
+        // Below the waist, the skirt's own width is never part of an arm (the hands hang beside it).
+        (p.y < hipY + 0.02 && p.x * s.side < skirtX + 0.015))) ||
       (s.kind === 'shoulder' && (p.x * s.side < 0.03 || p.y < chestY)) ||
       (s.kind === 'leg' && (p.x * s.side < -0.02 || p.y > hipY + 0.03)) ||
       (s.kind === 'head' && p.y < neckY - 0.02));
@@ -398,6 +404,86 @@ function hairMask(P: THREE.BufferAttribute, uv: THREE.BufferAttribute, map: THRE
   return out;
 }
 
+/** Read texture colours by vertex (its texture coordinate), from a canvas copy of the map. */
+function texelReader(map: THREE.Texture, UV: THREE.BufferAttribute): ((i: number) => number[]) | null {
+  const img = map.image as CanvasImageSource & { width: number; height: number };
+  const cv = document.createElement('canvas');
+  cv.width = img.width; cv.height = img.height;
+  const cx = cv.getContext('2d', { willReadFrequently: true });
+  if (!cx) return null;
+  cx.drawImage(img, 0, 0);
+  const D = cx.getImageData(0, 0, cv.width, cv.height).data;
+  return (i: number) => {
+    const x = THREE.MathUtils.clamp(Math.floor(UV.getX(i) * cv.width), 0, cv.width - 1);
+    const y = THREE.MathUtils.clamp(Math.floor(UV.getY(i) * cv.height), 0, cv.height - 1);
+    const k = (y * cv.width + x) * 4;
+    return [D[k], D[k + 1], D[k + 2]];
+  };
+}
+/** The skirt's cream cloth, its gold hem (yellow, not the orange of skin) and the red sash. */
+const isCream = (c: number[]) => c[0] > 190 && c[1] > 175 && c[2] > 140 && Math.max(...c) - Math.min(...c) < 72;
+const isGold = (c: number[]) => c[0] > 195 && c[1] > 165 && c[1] / c[0] > 0.74 && c[2] < 120;
+const isRed = (c: number[]) => c[0] > 110 && c[1] < c[0] * 0.45;
+const isCloth = (c: number[]) => isCream(c) || isGold(c) || isRed(c);
+
+/**
+ * Triangles of thigh skin hidden under a skirt (between the waist and just above the hem, on the
+ * thigh and coloured as bare skin, never the cloth around it) are left out.
+ */
+function hideThighs(P: THREE.BufferAttribute, index: number[], si: Float32Array, sw: Float32Array, J: Record<BoneName, THREE.Vector3>, hemY: number, limb: number, texel: ((i: number) => number[]) | null): number[] {
+  const thighs = [[BI.thighL, J.thighL, J.shinL], [BI.thighR, J.thighR, J.shinR]] as const;
+  const p = new THREE.Vector3();
+  const hidden = (i: number) => {
+    p.fromBufferAttribute(P, i);
+    if (p.y > J.hips.y - 0.02 || p.y < hemY - 0.005) return false;
+    // Never the skirt's own cloth, even where it hugs the leg.
+    if (!texel || isCloth(texel(i))) return false;
+    // Not the hands or arms hanging beside the skirt.
+    let arm = 0;
+    for (let k = 0; k < 4; k++) if (ARM.has(si[i * 4 + k])) arm += sw[i * 4 + k];
+    if (arm > 0.4) return false;
+    // On (or close round) either thigh, however it is weighted: thick thighs reach past the leg's radius.
+    for (const [, a, e] of thighs) if (segDist(p, a, e) < 0.16 * limb) return true;
+    return false;
+  };
+  const out: number[] = [];
+  for (let t = 0; t < index.length; t += 3) {
+    if (hidden(index[t]) && hidden(index[t + 1]) && hidden(index[t + 2])) continue;
+    out.push(index[t], index[t + 1], index[t + 2]);
+  }
+  return out;
+}
+
+/**
+ * Measure a model's skirt or kilt from the mesh and its colours: the cream cloth and gold hem
+ * around the hips (arms and hair left out), so the wrap that closes its sides sits just inside the
+ * real panels, reaches their hem, and is cut from the same cloth. Null if no cloth is found.
+ */
+function fitSkirt(P: THREE.BufferAttribute, UV: THREE.BufferAttribute, map: THREE.Texture, J: Record<BoneName, THREE.Vector3>, hair: Uint8Array): SkirtFit | null {
+  const texel = texelReader(map, UV);
+  if (!texel) return null;
+
+  // Clear of the hands hanging beside the skirt.
+  const maxX = Math.max(0.15, J.handL.x - 0.09), hipY = J.hips.y;
+  let X = 0, Z0 = Infinity, Z1 = -Infinity, low = Infinity, cream: [number, number] | null = null, gold: [number, number] | null = null, back = Infinity, goldBack = Infinity;
+  for (let i = 0; i < P.count; i++) {
+    const x = P.getX(i), y = P.getY(i), z = P.getZ(i);
+    if (hair[i] || Math.abs(x) > maxX || y > hipY || y < J.shinL.y - 0.05) continue;
+    const c = texel(i), cloth = isCream(c), hem = isGold(c);
+    if (!cloth && !hem) continue;
+    // The hem: the lowest cloth at the back middle of the skirt (nothing else hangs there).
+    if (Math.abs(x) < 0.1 && z < J.hips.z) low = Math.min(low, y);
+    if (y > hipY - 0.22 && y < hipY - 0.08) {
+      X = Math.max(X, Math.abs(x)); Z0 = Math.min(Z0, z); Z1 = Math.max(Z1, z);
+      if (cloth && Math.abs(x) < 0.08 && z < back) { back = z; cream = [UV.getX(i), UV.getY(i)]; }
+    }
+    if (hem && Math.abs(x) < 0.12 && z < goldBack) { goldBack = z; gold = [UV.getX(i), UV.getY(i)]; }
+  }
+  if (!cream || !Number.isFinite(Z0) || X < 0.05) return null;
+  const rx = X * 0.86, rz = ((Z1 - Z0) / 2) * 0.86, cz = (Z0 + Z1) / 2;
+  return { rx: [rx, rx * 1.18], rz: [rz, rz * 1.22], cz, hemY: low + 0.012, cream, gold: gold ?? cream };
+}
+
 /**
  * The women's skirt is a front and a back panel, open at the hips: from the side, and with every
  * stride, the bare thigh showed between them. This wrap closes it: an elliptical tube of the same
@@ -405,9 +491,9 @@ function hairMask(P: THREE.BufferAttribute, uv: THREE.BufferAttribute, map: THRE
  * flaring a little. The top rides the hips; lower down each side follows its thigh more and more,
  * the front and back middle shared, so it moves with the legs without letting them through.
  */
-function underskirt(P: THREE.BufferAttribute, UV: THREE.BufferAttribute, J: Record<BoneName, THREE.Vector3>, size: NonNullable<Rig['skirt']>): THREE.BufferGeometry {
+function underskirt(P: THREE.BufferAttribute, UV: THREE.BufferAttribute, J: Record<BoneName, THREE.Vector3>, size: SkirtFit): THREE.BufferGeometry {
   // From under the waistband to a little below the panels' hem, nearer the knee.
-  const hipY = J.hips.y, topY = hipY + 0.01, hemY = J.shinL.y + 0.075, cz = size.cz;
+  const hipY = J.hips.y, topY = hipY + 0.01, hemY = size.hemY ?? J.shinL.y + 0.075, cz = size.cz;
   // Texture coordinates of the skirt's cream cloth (middle of the back panel) and its gold hem.
   const uvAt = (x: number, y: number, z: number) => {
     let best = Infinity, at = 0;
@@ -418,7 +504,7 @@ function underskirt(P: THREE.BufferAttribute, UV: THREE.BufferAttribute, J: Reco
     return [UV.getX(at), UV.getY(at)];
   };
   const back = cz - size.rz[0] * 0.95;
-  const cream = uvAt(0.04, hipY - 0.17, back), gold = uvAt(0.04, J.shinL.y + 0.165, back);
+  const cream = size.cream ?? uvAt(0.04, hipY - 0.17, back), gold = size.gold ?? uvAt(0.04, J.shinL.y + 0.165, back);
   const rows: { y: number; uv: number[] }[] = [
     { y: topY, uv: cream }, { y: hipY - 0.1, uv: cream }, { y: hipY - 0.2, uv: cream }, { y: hemY + 0.12, uv: cream },
     { y: hemY + 0.035, uv: cream }, { y: hemY + 0.03, uv: gold }, { y: hemY - 0.01, uv: gold },
@@ -504,9 +590,12 @@ async function loadOne(loader: GLTFLoader, g: BaseModelKey): Promise<GlbModel> {
   const armpit = joint.upper_armL.y - 0.12;
   // The women's skirt panels follow the thighs more closely, so a striding leg stays under them.
   const follow = FEMALE.has(g) ? 0.8 : 0.55;
-  const first = autoSkin(P, tris, rig, hair, follow);
+  // Measure the skirt first: its width keeps the hands from claiming its cloth.
+  const fit = g === 'm' ? null : fitSkirt(P, src.getAttribute('uv') as THREE.BufferAttribute, map, joint, hair);
+  const skirtX = fit && g !== 'f' ? fit.rx[0] / 0.86 : 0;
+  const first = autoSkin(P, tris, rig, hair, follow, skirtX);
   const kept = cutBridges(P, tris, first.si, first.sw, armpit);
-  const { si, sw } = autoSkin(P, kept, rig, hair, follow);
+  const { si, sw } = autoSkin(P, kept, rig, hair, follow, skirtX);
   snapArms(P, si, sw, armpit);
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', P);
@@ -542,7 +631,12 @@ async function loadOne(loader: GLTFLoader, g: BaseModelKey): Promise<GlbModel> {
   geometry.setAttribute('aSkinW', new THREE.Float32BufferAttribute(sw, 4));
   geometry.setIndex(cutBridges(P, kept, si, sw, armpit));
   // The founding woman's skirt is closed by a wrap underneath; the other women's models by one sized to them.
-  const skirt = g === 'f' ? { rx: [0.2, 0.25] as [number, number], rz: [0.128, 0.165] as [number, number], cz: 0.065 } : rig.skirt;
+  // The founding woman's skirt keeps its tuned wrap; every other model's skirt or kilt gets one
+  // measured from its own mesh and cloth (the founding man's kilt needs none).
+  const skirt = g === 'f' ? { rx: [0.2, 0.25] as [number, number], rz: [0.128, 0.165] as [number, number], cz: 0.065, cream: fit?.cream, gold: fit?.gold } : g === 'm' ? null : fit ?? rig.skirt;
+  // Under a closed skirt the thighs are never seen: drop their skin between the waist and the hem,
+  // so a striding leg can't push through the panels (the wrap shows cloth behind it instead).
+  if (skirt) geometry.setIndex(hideThighs(P, Array.from(geometry.getIndex()!.array as ArrayLike<number>), si, sw, joint, skirt.hemY ?? joint.shinL.y + 0.075, rig.girth?.limb ?? 1, texelReader(map, UV)));
   const body = skirt ? mergeGeometries([geometry, underskirt(P, UV, joint, skirt)])! : geometry;
   body.computeBoundingSphere();
   const tip = new THREE.Vector3(...rig.tipL);
