@@ -1,3 +1,4 @@
+import { withBuildingGround } from './BuildingGround';
 import { buildingOperational, buildingSafe } from './BuildingCondition';
 import { Demolition } from './Demolition';
 import { villageFire, fireEmbers } from './VillageFire';
@@ -581,6 +582,7 @@ export class BuildingSystem {
     }
     this.eco.add('wood', this.veg.clearArea(cx, cz, b.w, b.d));
     this.setPen(b);
+    if (b.finished) { const model=this.modelFor(b); replaceFinished(b, withBuildingGround(model.finished,b,this.world)); model.canopy?.dispose(); }
     b.group.position.set(b.x, b.y, b.z);
     b.group.rotation.y = (rot * Math.PI) / 2;
     const e = new THREE.Euler(0, (rot * Math.PI) / 2, 0);
@@ -701,7 +703,7 @@ export class BuildingSystem {
     if (d.tier > 1) {
       b.tier = d.tier;
       const model = this.modelFor(b);
-      replaceFinished(b, model.finished);
+      replaceFinished(b, withBuildingGround(model.finished,b,this.world));
       this.setTorches(b, model.torches);
     }
     b.growth = d.growth;
@@ -843,6 +845,7 @@ export class BuildingSystem {
     const model = this.modelFor(b);
     b.group.position.set(b.x, b.y, b.z);
     b.group.rotation.y = (b.rot * Math.PI) / 2;
+    model.finished = withBuildingGround(model.finished,b,this.world);
     b.finished = new THREE.Mesh(model.finished, mat);
     b.finishedHi = model.finished;
     b.lodFar = false;
@@ -1093,7 +1096,7 @@ export class BuildingSystem {
       b.upgrading = false;
       b.tier++;
       const model = this.modelFor(b);
-      replaceFinished(b, model.finished);
+      replaceFinished(b, withBuildingGround(model.finished,b,this.world));
       this.setTorches(b, model.torches);
       b.scaffold.geometry.dispose();
       b.scaffold.geometry = models.scaffoldGeometry(b.def.size[0], b.def.size[1], model.height + 1);

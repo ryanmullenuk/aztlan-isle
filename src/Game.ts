@@ -509,9 +509,13 @@ export class Game {
 
   /** Wire the later systems (wildlife, boats, powers, audio, saving) into the colony, buildings and UI. */
   private connectSystems(): void {
-    this.colony.hooks.takePenAnimal = (b) => this.wildlife.takeFromPen(b);
+
     this.colony.hooks.penCount = (b) => this.wildlife.penCount(b);
     const A = this.wildlife.animals;
+    this.colony.hooks.reserveSlaughter=(b,i,blocked)=>A.reserveSlaughter(b,i,blocked);
+    this.colony.hooks.collectSlaughter=(id,i)=>A.collectSlaughter(id,i);
+    this.colony.hooks.finishSlaughter=(id,i)=>A.finishSlaughter(id,i);
+    this.colony.hooks.cancelSlaughter=(id,i)=>A.cancelSlaughter(id,i);
     const MK = this.wildlife.monkeys;
     this.colony.hooks.animalInfo = (id) => {
       if (id >= MONKEY_BASE) return MK.get(id) ? { name: 'Spider monkey', food: true, needsPen: false, mode: 'hunt', meat: FAUNA.monkeyMeat } : null;

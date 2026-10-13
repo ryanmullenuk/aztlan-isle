@@ -1,3 +1,4 @@
+import { buildingOperational } from '../buildings/BuildingCondition';
 import * as THREE from 'three';
 import { View } from '../render/View';
 import { FAUNA, SPECIES, SpeciesDef, SpeciesKey, WARRIOR, WILDLIFE } from '../config';
@@ -15,12 +16,11 @@ import { CHICKEN_WING, FOLDED, flapPose, mixPose, pose, wingMatrices, wingParts 
 /** Roaming radius of penned animals per pen building (anything else: 0.9, the butcher's pen). */
 const PEN_RADIUS: Partial<Record<string, number>> = { farm: 0.36, butcher: 0.9, pigpen: 1.8, chickenpen: 1.7 };
 /** A pen: its centre and roaming radius, and whether a body of radius r can stand at (x, z) in it. */
-interface Pen { x: number; z: number; r: number; key: string; free: (x: number, z: number, r: number) => boolean }
+interface Pen { building: Building; x: number; z: number; r: number; key: string; free: (x: number, z: number, r: number) => boolean }
 /** Footprint radius of each species (scaled per animal): animals keep at least this far apart. */
 const BODY_R: Record<string, number> = { chicken: 0.09, pig: 0.2, goat: 0.16, tapir: 0.36 };
 const bodyR = (a: { sp: string; scale: number }) => (BODY_R[a.sp] ?? 0.2) * a.scale;
-/** A butcher also takes livestock from pig pens within this distance. */
-const BUTCHER_REACH = 24;
+
 
 const _fp = pose();
 const _wp = pose();
@@ -340,6 +340,7 @@ export class Animals {
   private rng: RNG;
   private meshes = new Map<string, { mesh: THREE.InstancedMesh; acc: THREE.InstancedBufferAttribute; n: number }>();
   private pens = new Map<number, Pen>();
+  private slaughter = new Map<number,{worker:Islander;source:Building}>();
   private leash: THREE.LineSegments;
   private time = 0;
   /** Counts draw calls so each animal can tell whether it was posed last frame. */
@@ -585,7 +586,7 @@ export class Animals {
   registerPen(b: Building): void {
     // A farm's chicken run is small, the butcher's pen roomier; the pig and chicken pens have a whole yard.
     const r = PEN_RADIUS[b.key] ?? 0.9, layout = penLayout(b.key);
-    const p: Pen = { x: b.penX, z: b.penZ, r, key: b.key as string, free: () => true };
+    const p: Pen = { building:b, x: b.penX, z: b.penZ, r, key: b.key as string, free: () => true };
     // Pens with a laid-out yard: open ground only, clear of the sty, coop, troughs and feeders.
     // Others (the butcher's and the farm's small runs): anywhere within their radius.
     p.free = layout && typeof b.toLocal === 'function'
@@ -626,15 +627,15 @@ export class Animals {
     }
     this.pens.delete(id);
   }
-  /** Pens a building's worker can take animals from: its own, and for a butcher any pig pen within reach (nearest first). */
+  /** Captured stock only, with the slaughterhouse's own yard first and other pens nearest first. */
   private sourcePens(b: Building): number[] {
     const ids = [b.id];
     if (b.key !== 'butcher') return ids;
     const near: [number, number][] = [];
     for (const [id, p] of this.pens) {
-      if (p.key !== 'pigpen') continue;
+      if (!['pigpen','chickenpen','farm'].includes(p.key)||!buildingOperational(p.building)) continue;
       const d = Math.hypot(p.x - b.x, p.z - b.z);
-      if (d <= BUTCHER_REACH) near.push([id, d]);
+      near.push([id, d]);
     }
     near.sort((a, c) => a[1] - c[1]);
     return ids.concat(near.map((n) => n[0]));
@@ -643,15 +644,37 @@ export class Animals {
     const ids = this.sourcePens(b);
     return this.list.filter((a) => a.alive && ids.includes(a.pen)).length;
   }
-  takeFromPen(b: Building): boolean {
-    for (const id of this.sourcePens(b)) {
-      const a = this.list.find((x) => x.alive && x.pen === id);
-      if (!a) continue;
-      this.consume(a.id);
-      return true;
-    }
-    return false;
+  /** Reserve a real penned animal; acquisition and processing are separate movement phases. */
+  reserveSlaughter(b:Building,worker:Islander,blocked:(id:number)=>boolean=()=>false):{id:number;pen:number;meat:number}|null {
+    if(b.key!=='butcher'||!buildingOperational(b))return null;
+    for(const pen of this.sourcePens(b)){
+      const source=this.pens.get(pen)?.building;if(!source||!buildingOperational(source))continue;
+      const animal=this.list.find(a=>a.alive&&a.pen===pen&&!a.heldBy&&!this.slaughter.has(a.id)&&!blocked(a.id));
+      if(!animal)continue;
+      this.slaughter.set(animal.id,{worker,source});
+      return {id:animal.id,pen,meat:SPECIES[animal.sp].meat};
+    }return null;
   }
+  collectSlaughter(id:number,worker:Islander):'carry'|'lead'|null {
+    const reservation=this.slaughter.get(id),a=this.get(id);
+    if(!reservation||reservation.worker!==worker||!a?.alive||a.pen!==reservation.source.id||!buildingOperational(reservation.source)||a.heldBy||Math.hypot(a.x-worker.x,a.z-worker.z)>1.2)return null;
+    a.pen=-1;return this.grab(id,worker) as 'carry'|'lead';
+  }
+  finishSlaughter(id:number,worker:Islander):boolean {
+    const reservation=this.slaughter.get(id),a=this.get(id);
+    if(!reservation||reservation.worker!==worker||!a?.alive||a.heldBy!==worker)return false;
+    this.slaughter.delete(id);this.consume(id);return true;
+  }
+  cancelSlaughter(id:number,worker:Islander):void {
+    const reservation=this.slaughter.get(id);if(!reservation||reservation.worker!==worker)return;
+    const a=this.get(id);this.slaughter.delete(id);
+    if(a?.alive&&a.heldBy===worker){
+      if(this.pens.has(reservation.source.id)&&buildingOperational(reservation.source))this.putInPen(id,reservation.source);
+      else this.release(id);
+    }
+  }
+  /** Legacy callers cannot convert pen stock remotely. */
+  takeFromPen(_b:Building):boolean {return false;}
 
   get(id: number): Animal | undefined {
     return this.list[id];
@@ -698,6 +721,8 @@ export class Animals {
   release(id: number): void {
     const a = this.list[id];
     if (!a) return;
+    const slaughter=this.slaughter.get(id);
+    if(slaughter){this.cancelSlaughter(id,slaughter.worker);return;}
     a.chasedBy = null;
     if (a.heldBy) {
       a.x = a.heldBy.x + 0.3;
@@ -734,6 +759,7 @@ export class Animals {
   consume(id: number): void {
     const a = this.list[id];
     if (!a) return;
+    this.slaughter.delete(id);
     a.alive = false;
     a.pen = -1;
     a.heldBy = null;
@@ -1615,10 +1641,16 @@ export class Animals {
   // ---------------- Save / load ----------------
 
   serialize(): number[][] {
-    return this.list.map((a) => [a.alive ? 1 : 0, Math.round(a.x * 10) / 10, Math.round(a.z * 10) / 10, a.pen, Math.round(a.respawn)]);
+    return this.list.map(a=>{
+      const reservation=this.slaughter.get(a.id),source=reservation?.source;
+      const origin=source&&this.pens.has(source.id)&&buildingOperational(source)?source:undefined;
+      // Worker tasks are transient in saves: in-transit stock returns to its source pen on reload.
+      return [a.alive?1:0,Math.round((origin?.penX??(reservation&&a.heldBy?a.heldBy.x:a.x))*10)/10,Math.round((origin?.penZ??(reservation&&a.heldBy?a.heldBy.z:a.z))*10)/10,origin?.id??a.pen,Math.round(a.respawn)];
+    });
   }
 
   restore(data: number[][], idMap: Map<number, number>): void {
+    this.slaughter.clear();
     if (this.baseCount < 0) this.baseCount = this.list.length;
     // Chickens brought home by voyages, saved after the island's own animals.
     for (let i = this.list.length; i < data.length; i++) this.addChicken(data[i][1], data[i][2]);
@@ -1630,6 +1662,7 @@ export class Animals {
       a.z = d[2];
       a.pen = d[3] >= 0 ? idMap.get(d[3]) ?? -1 : -1;
       a.respawn = d[4];
+      a.heldBy=null;a.heldMode=null;a.chasedBy=null;
       a.state = a.pen >= 0 ? 'penned' : 'idle';
       a.y = this.world.groundY(a.x, a.z);
       if (a.pen >= 0 && !this.pens.has(a.pen)) a.pen = -1;

@@ -28,7 +28,10 @@ export interface ColonyHooks {
   /** Where the player is looking from: camera position, the point it looks at, and view radius. */
   viewer?: () => { x: number; y: number; z: number; tx: number; tz: number; r: number };
   /** Take an animal from a butcher's pen; returns true if one was available. */
-  takePenAnimal?: (b: Building) => boolean;
+  reserveSlaughter?: (b:Building,worker:Islander,blocked:(id:number)=>boolean)=>{id:number;pen:number;meat:number}|null;
+  collectSlaughter?: (id:number,worker:Islander)=>'carry'|'lead'|null;
+  finishSlaughter?: (id:number,worker:Islander)=>boolean;
+  cancelSlaughter?: (id:number,worker:Islander)=>void;
   /** Fisher reached the jetty: board a boat. Returns true if a boat accepted the crew. */
   boardBoat?: (isl: Islander, jetty: Building) => boolean;
   sfx?: (name: string, x: number, z: number) => void;
@@ -173,7 +176,7 @@ export class Colony {
   private requestPath(isl: Islander, x: number, z: number, opts: PathOptions = {}, force = false): void {
     const old = this.routes.get(isl);
     const compatible = old && old.task === isl.task && this.sameOptions(old.opts, opts);
-    const moving = isl.task?.kind === 'capture' || isl.task?.kind === 'follow';
+    const moving = isl.task?.kind === 'capture' || isl.task?.kind === 'follow' || (isl.task?.kind==='butcher'&&isl.task.phase===1);
     if (!force && old && compatible && isl.pathPending && (this.sameGoal(old,x,z) || moving)) {
       // Track a moving target at execution time without sending its pending request to the back.
       if (moving && !this.sameGoal(old,x,z)) { old.x = x; old.z = z; }
@@ -226,7 +229,7 @@ export class Colony {
     if (route?.task === t) {
       const changed = route.version !== this.world.version || route.navigationVersion !== this.world.navigationVersion;
       if (!this.sameOptions(route.opts,opts,false) || (!this.sameGoal(route,x,z) &&
-          Math.hypot(route.x-x,route.z-z) > (t.kind === 'capture' || t.kind === 'follow' ? 1.5 : .001))) {
+          Math.hypot(route.x-x,route.z-z) > (t.kind === 'capture' || t.kind === 'follow' || (t.kind==='butcher'&&t.phase===1) ? 1.5 : .001))) {
         this.requestPath(isl,x,z,opts);
       } else if (!isl.pathPending && (changed || this.clock >= route.checkAt)) {
         route.checkAt = this.clock + .5 + (isl.id % 8) * .03;
@@ -423,6 +426,8 @@ export class Colony {
   }
 
   /** Release any reservations held by the current task. */
+  private slaughterBlocked=new Map<number,{until:number;version:number}>();
+
   private releaseTask(isl: Islander): void {
     isl.slipping = false;
     const t = isl.task;
@@ -438,6 +443,10 @@ export class Colony {
     if (t.kind === 'capture' && (t.phase ?? 0) < 2) {
       this.hooks.releaseAnimal?.(t.target);
       if (isl.carry?.kind === 'chicken') isl.carry = null;
+    }
+    if(t.kind==='butcher'&&t.animal!==undefined){
+      this.hooks.cancelSlaughter?.(t.animal,isl);
+      if(isl.carry?.kind==='chicken')isl.carry=null;
     }
     isl.task = null;
     isl.path = null;
@@ -1161,10 +1170,17 @@ export class Colony {
       }
       case 'butcher': {
         const b = this.bld.byId(isl.workplace);
-        if (!b) return false;
-        // Only animals the player has had captured and penned are butchered.
-        if ((this.hooks.penCount?.(b) ?? 0) === 0) return false;
-        this.setTask(isl, 'butcher', b.id, b.penX, b.penZ);
+        if (!b || !buildingOperational(b)) return false;
+        for(const [id,failed] of this.slaughterBlocked)if(failed.until<=this.clock||failed.version!==this.world.navigationVersion)this.slaughterBlocked.delete(id);
+        const stock=this.hooks.reserveSlaughter?.(b,isl,id=>{
+          const failed=this.slaughterBlocked.get(id);
+          return !!failed&&failed.until>this.clock&&failed.version===this.world.navigationVersion;
+        });
+        if(!stock)return false;
+        const pen=this.bld.byId(stock.pen);
+        if(!pen){this.hooks.cancelSlaughter?.(stock.id,isl);return false;}
+        this.setTask(isl,'butcher',b.id,pen.door.x,pen.door.z);
+        Object.assign(isl.task!,{animal:stock.id,sourcePen:stock.pen,meatYield:stock.meat,building:b.id,phase:0});
         return true;
       }
       case 'fisher': {
@@ -1599,34 +1615,44 @@ export class Colony {
         break;
       }
       case 'butcher': {
-        const b = this.bld.byId(t.target);
-        if (!b || !b.complete) return this.releaseTask(isl);
-        isl.tool = 'axe';
-        if (t.stage < 2) {
-          const r = this.travel(isl, dt, b.door.x, b.door.z, { allowBuilding: b.id, goalRadius: 1 });
-          if (r === 'failed') return this.fail(isl);
-          if (r !== 'arrived') return;
-          const got = this.hooks.takePenAnimal?.(b) ?? false;
-          if (!got) {
-            isl.anim = 'idle';
-            t.timer += dt;
-            if (t.timer > 6) this.releaseTask(isl);
-            t.stage = 1;
-            isl.path = [];
-            isl.pathIdx = 0;
-            return;
-          }
-          t.stage = 2;
-          t.timer = 8;
+        const b=this.bld.byId(t.target),pen=this.bld.byId(t.sourcePen??-1),id=t.animal;
+        if(!b||!buildingOperational(b)||id===undefined)return this.releaseTask(isl);
+        const pos=this.hooks.animalPos?.(id);
+        if(!pos)return this.releaseTask(isl);
+        const phase=t.phase??0;
+        const failed=()=>{this.slaughterBlocked.set(id,{until:this.clock+30,version:w.navigationVersion});this.fail(isl);};
+        isl.tool='none';
+        if(phase===0){
+          if(!pen||!buildingOperational(pen))return this.releaseTask(isl);
+          const r=this.travel(isl,dt,pen.door.x,pen.door.z,{allowBuilding:pen.id,goalRadius:1,requireGoal:true});
+          if(r==='failed')return failed();if(r!=='arrived')return;
+          t.phase=1;
         }
-        isl.anim = 'chop';
-        const before = t.timer;
-        t.timer -= dt;
-        if (Math.floor(before * 1.4) !== Math.floor(t.timer * 1.4)) this.hooks.sfx?.('chop', isl.x, isl.z);
-        if (t.timer <= 0) {
-          isl.carry = { kind: 'meat', res: 'meat', n: 6 };
-          this.releaseTask(isl);
-          this.deliver(isl);
+        if(t.phase===1){
+          t.timer+=dt;if(t.timer>30)return failed();
+          if(!pen||!buildingOperational(pen))return this.releaseTask(isl);
+          const r=this.travel(isl,dt,pos.x,pos.z,{allowBuilding:pen.id,goalRadius:.6,requireGoal:true});
+          if(r==='failed')return failed();if(r!=='arrived')return;
+          if(Math.hypot(pos.x-isl.x,pos.z-isl.z)>1.1){t.stage=0;return;}
+          const mode=this.hooks.collectSlaughter?.(id,isl);if(!mode)return this.releaseTask(isl);
+          if(mode==='carry')isl.carry={kind:'chicken',res:'meat',n:0};
+          t.phase=2;t.stage=0;t.timer=0;return;
+        }
+        if(t.phase===2){
+          const info=this.hooks.animalInfo?.(id);
+          const r=this.travel(isl,dt,b.door.x,b.door.z,{allowBuilding:b.id,goalRadius:.7,requireGoal:true,allowWater:info?.mode==='lead'});
+          if(r==='failed')return failed();if(r!=='arrived')return;
+          // A leashed animal must arrive too; do not slaughter it remotely across an obstacle.
+          if(info?.mode==='lead'&&Math.hypot(pos.x-isl.x,pos.z-isl.z)>1.2){
+            isl.anim='idle';t.timer+=dt;if(t.timer>12)return failed();return;
+          }
+          t.phase=3;t.timer=8;
+        }
+        isl.tool='axe';isl.anim='chop';t.timer-=dt;
+        if(t.timer<=0){
+          const meat=t.meatYield??0;
+          if(!this.hooks.finishSlaughter?.(id,isl))return this.releaseTask(isl);
+          this.releaseTask(isl);isl.carry={kind:'meat',res:'meat',n:meat};this.deliver(isl);
         }
         break;
       }
@@ -2768,7 +2794,7 @@ export class Colony {
         } else this.runTask(isl, dt);
       }
       if (!isl.hidden) {
-        isl.y = isl.floorY ?? (isl.task?.kind === 'capture' && isl.task.phase === 1 && isl.carry?.kind !== 'chicken'
+        isl.y = isl.floorY ?? (((isl.task?.kind === 'capture' && isl.task.phase === 1) || (isl.task?.kind === 'butcher' && (isl.task.phase ?? 0) >= 2)) && isl.carry?.kind !== 'chicken'
           ? escortSurfaceY(this.world, isl.x, isl.z, 0.48) : this.world.groundY(isl.x, isl.z));
         this.grid.insert(isl);
       }
@@ -2877,7 +2903,7 @@ export class Colony {
       case 'wander': return 'Strolling';
       case 'spearfish': return (t.stage ?? 0) < 2 ? 'Heading to the shore to fish' : 'Spear fishing';
       case 'patrol': return 'Patrolling';
-      case 'butcher': return 'Butchering';
+      case 'butcher': return (t.phase??0)<2?'Collecting a penned animal':t.phase===2?'Taking an animal to the slaughterhouse':'Preparing meat at the slaughterhouse';
       case 'fish': return t.stage >= 3 ? 'Out fishing' : 'Heading to the jetty';
       case 'capture': return (t.phase ?? 0) === 0 ? 'Hunting an animal' : isl.carry?.kind === 'chicken' ? 'Carrying a chicken to the pen' : 'Leading an animal to the pen';
       case 'train': return t.stage >= 2 ? 'Training at the War Room' : 'Going to train';

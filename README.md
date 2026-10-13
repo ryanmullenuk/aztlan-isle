@@ -171,7 +171,7 @@ Open **Village** beneath the clock to choose **Balanced**, **Food**, **Materials
 - Livestock and game, each with colour variants, groups, habitat and its own avoidance (comfortable → alert → move away → flee):
   - Chickens (hens, speckled hens, roosters) peck, scratch and make short runs around the settlement.
   - Pigs root about in groups of 2–5 at the jungle edge; goats graze calmly at the settlement edges and on hills; tapirs keep to the jungle alone or as a parent and young, and are wary and hard to catch.
-- Animals are never taken automatically. The player chooses one: an islander chases it (it tires), catches it, then leads pigs and goats on a leash to a Butcher or Farm pen, carries chickens to a pen (or straight to the store), or brings a hunted tapir home as meat. Butchers only use penned animals.
+- Animals are never taken automatically. The player chooses one: an islander chases it (it tires), catches it, then leads pigs and goats on a leash to a Butcher or Farm pen, carries chickens to a pen (or straight to the store), or brings a hunted tapir home as meat. Slaughterhouse workers only use penned animals: they reserve one, walk to its pen, carry a chicken or lead livestock back, then prepare and deliver its species-specific meat. Pig pens, chicken pens and farm runs keep their stock until a completed, operational Slaughterhouse is available. Interrupted trips return surviving stock to its source pen; save restoration also returns in-transit stock there. Blocked trips are delayed before retrying.
 - Spider monkeys live in the canopy in troops of 2–5: they sit, walk along branches, climb, hang and swing by their arms with their tails up, eat and watch passers-by, and leap only between trees within reach.
 - Toucans perch, look about, hop and fly curved paths between trees. Gulls fly in boids flocks of 3–8 and land on rocks and beaches; the pointer makes them notice, bank away, then scatter with staggered reactions before regrouping. Panning or pinching the camera never disturbs wildlife.
 - Crabs scuttle sideways on the beaches and burrow when startled; stingrays glide over the shallow seabed with soft shadows.
@@ -271,3 +271,5 @@ keep a backup. Copies progress independently; this is not a live multiplayer lin
 Files must come from a compatible version of the game and island layout.
 
 Save-file checks: `npx tsx --test tests/island-file.test.ts`.
+
+Building plots have deterministic, irregular earth margins with sparse grass, shrubs and flowers merged into the existing finished mesh. Decoration is kept clear of paths, neighbours and water when generated, and rebuilt when the building moves, upgrades or loads. Footprints, occupancy, soil, construction costs and collision rules are unchanged. No extra building draw calls are added.

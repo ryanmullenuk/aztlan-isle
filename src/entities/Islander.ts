@@ -74,6 +74,9 @@ export interface Task {
   care?: number;
   /** Temporary bucket; never part of resource inventory. */
   water?: boolean;
+  animal?: number;
+  sourcePen?: number;
+  meatYield?: number;
 }
 
 export interface Islander {
