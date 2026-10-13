@@ -4,7 +4,7 @@ import { Demolition } from './Demolition';
 import { villageFire, fireEmbers } from './VillageFire';
 import * as THREE from 'three';
 import { processMedicine } from './Herbalist';
-import { needsStonemason, masonryCost, STONEMASON, BOAT_WORKSHOP } from '../config';
+import { needsStonemason, masonryCost, STONEMASON, BOAT_WORKSHOP, DECREES, PALACE_RULES, type DecreeKey } from '../config';
 import { BUILDINGS, BuildingDef, BuildingKey, ECONOMY, FARM, HOMES, JETTY, TEMPLE, FARM_TYPES, isFarm } from '../config';
 import { Economy, Cost } from '../economy/Economy';
 import { buildingMaterial, canopyMaterial, fireMaterial, flameMaterial, FX } from '../render/materials';
@@ -17,7 +17,10 @@ import * as models from './models';
 /** Flame size per building; fires are visible only from dusk until dawn. */
 /** Triangles smaller than this (m²) are left out of a building's far-away model. */
 const LOD_MIN_AREA = 0.002;
-const FLAME_SCALE: Partial<Record<BuildingKey, number>> = { campfire: 0.85, bonfire: 1, firepit: 0.9, torch: 1.25, greathall: 3.0, watchtower: 1.1, greattemple: 1.5 };
+/** Monuments built phase by phase (their model records where each phase's geometry ends). */
+const phased = (b: Building): boolean => !!b.finishedHi?.userData.constructionPhases;
+
+const FLAME_SCALE: Partial<Record<BuildingKey, number>> = { campfire: 0.85, bonfire: 1, firepit: 0.9, torch: 1.25, greathall: 3.0, watchtower: 1.1, greattemple: 1.5, palace: 1.2 };
 import { Particles } from '../render/Particles';
 import { GeoBuilder } from '../render/GeoBuilder';
 import { FireLights, FireSpot } from './FireLights';
@@ -83,6 +86,8 @@ export class Building {
   stock = 0;
   /** Paid monument phases; undefined means a legacy site paid its full cost up front. */
   monumentPaid?: number;
+  /** Tlatoani's Palace: the decree in force (the first one until the player picks another). */
+  decree?: DecreeKey;
   /** Goods displayed for exchange; included in the village stockpile, not extra resources. */
   marketStock: Partial<Record<import('../config').ResourceKey, number>> = {};
   tendTimer = 0;
@@ -342,6 +347,26 @@ export class BuildingSystem {
   at(cellIndex: number): Building | undefined {
     const o = this.world.occ[cellIndex];
     return o ? this.byId(o - 1) : undefined;
+  }
+
+  /** The decree in force from a standing palace, or null with none. */
+  decree(): DecreeKey | null {
+    const p = this.of('palace')[0];
+    return p ? p.decree ?? PALACE_RULES.firstDecree : null;
+  }
+
+  /** How much a decree speeds up its work (1 when it isn't the one in force). */
+  decreeFactor(k: DecreeKey): number {
+    return this.decree() === k ? DECREES[k].factor : 1;
+  }
+
+  /** Issue a new decree from a palace (costs Belief); false if it is already in force or unaffordable. */
+  setDecree(b: Building, k: DecreeKey): boolean {
+    if (b.key !== 'palace' || !b.complete || (b.decree ?? PALACE_RULES.firstDecree) === k) return false;
+    const cost = { wood: 0, stone: 0, belief: PALACE_RULES.decreeCost };
+    if (!this.eco.spend(cost)) return false;
+    b.decree = k;
+    return true;
   }
 
   of(key: BuildingKey, completeOnly = true): Building[] {
@@ -820,6 +845,7 @@ export class BuildingSystem {
       case 'firepit': return models.firepitModel();
       case 'kennel': return models.kennelModel();
       case 'greathall': return models.greatHallModel();
+      case 'palace': return models.palaceModel();
       case 'market': return models.marketSquareModel();
       case 'boatworkshop': return models.boatWorkshopModel(b.tier);
       case 'stonemason': return models.stonemasonModel(b.tier);
@@ -985,7 +1011,7 @@ export class BuildingSystem {
     for (const b of this.list) {
       if (!b.finished || !b.finishedHi) continue;
       const d = this.camPos.distanceTo(b.group.position);
-      const far = b.key==='greattemple' && !b.complete ? false : b.lodFar ? d > leave : d > enter;
+      const far = phased(b) && !b.complete ? false : b.lodFar ? d > leave : d > enter;
       if (far === b.lodFar) continue;
       b.lodFar = far;
       b.finished.geometry = far ? modelLo(b.finishedHi) : b.finishedHi;
@@ -1020,7 +1046,7 @@ export class BuildingSystem {
       if (!b.scaffoldSink) { b.scaffold.position.y = 0; b.scaffold.scale.y = 1; }
       b.finished.visible = true;
       b.finished.scale.y = 1;
-      if(b.key==='greattemple') b.finished.geometry.setDrawRange(0,Infinity);
+      if(phased(b)) b.finished.geometry.setDrawRange(0,Infinity);
       for (const t of b.torches) t.flame.visible = true;
       return;
     }
@@ -1035,13 +1061,14 @@ export class BuildingSystem {
       return;
     }
     const p = b.progress;
-    if (b.key==='greattemple' && b.finishedHi?.userData.constructionPhases) {
-      const ranges=b.finishedHi.userData.constructionPhases as number[];
-      const phase=Math.min(3,Math.floor(p*4)), fraction=p*4-phase;
+    if (phased(b)) {
+      // Monuments go up phase by phase (platform, stairs, halls, roofs), each drawn in as it is built.
+      const ranges=b.finishedHi!.userData.constructionPhases as number[], n=ranges.length;
+      const phase=Math.min(n-1,Math.floor(p*n)), fraction=p*n-phase;
       const start=phase===0?0:ranges[phase-1];
-      b.finishedHi.setDrawRange(0,start+Math.floor((ranges[phase]-start)*fraction/3)*3);
-      b.finished.geometry=b.finishedHi;b.lodFar=false;b.finished.visible=true;b.finished.scale.y=1;
-      b.foundation.visible=p<0.25;b.scaffold.visible=p<1;
+      b.finishedHi!.setDrawRange(0,start+Math.floor((ranges[phase]-start)*fraction/3)*3);
+      b.finished.geometry=b.finishedHi!;b.lodFar=false;b.finished.visible=true;b.finished.scale.y=1;
+      b.foundation.visible=p<1/n;b.scaffold.visible=p<1;
       for(const t of b.torches)t.flame.visible=false;
       return;
     }
@@ -1067,7 +1094,7 @@ export class BuildingSystem {
     if (dt <= 0 || b.fire > 0) return;
     if (b.repairing) {
       // Repairs take a fraction of the original build (at least 20 seconds of work).
-      b.repairProgress = Math.min(1, b.repairProgress + dt / Math.max(20, b.def.buildTime * .3));
+      b.repairProgress = Math.min(1, b.repairProgress + (dt * (this.decreeFactor?.('build') ?? 1)) / Math.max(20, b.def.buildTime * .3));
       if (b.repairProgress >= 1) {
         const wasRuined = b.ruined;
         b.repairing = false; b.ruined = false; b.integrity = 1; b.fireAlerted = false; b.builders.clear();
@@ -1078,7 +1105,7 @@ export class BuildingSystem {
     }
     if (b.ruined || b.integrity < 1) return;
     const time = b.upgrading ? (b.key === 'boatworkshop' ? (BOAT_WORKSHOP.upgrades[b.tier-1]?.time ?? b.def.buildTime) : b.key === 'stonemason' ? (STONEMASON.upgrades[b.tier - 1]?.time ?? b.def.buildTime) : b.key === 'home' ? HOMES.upgradeTime[b.tier + 1] : TEMPLE.upgradeTime[b.tier + 1]) : b.def.buildTime;
-    let next = Math.min(1, b.progress + dt / time);
+    let next = Math.min(1, b.progress + (dt * (this.decreeFactor?.('build') ?? 1)) / time);
     if(b.key==='greattemple' && !b.complete && b.monumentPaid!==undefined) {
       while(next>b.monumentPaid/4 && b.monumentPaid<4) {
         if(!this.eco.spend(b.def.cost)){next=b.monumentPaid/4;break;}

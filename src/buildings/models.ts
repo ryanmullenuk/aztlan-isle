@@ -2810,3 +2810,409 @@ export function boatWorkshopModel(tier=1):BuildingModel {
   }
   return {finished:b.build(),torches:[],height:2.02};
 }
+
+// ---------------- Tlatoani's Palace ----------------
+
+/** A box whose top is a smaller rectangle than its base (the sloping talud of a platform), centred on its mid-height. */
+function frustumBox(w0: number, d0: number, w1: number, d1: number, h: number): THREE.BufferGeometry {
+  const g = new THREE.BoxGeometry(1, h, 1);
+  const p = g.getAttribute('position');
+  for (let i = 0; i < p.count; i++) {
+    const top = p.getY(i) > 0;
+    p.setXYZ(i, p.getX(i) * (top ? w1 : w0), p.getY(i), p.getZ(i) * (top ? d1 : d0));
+  }
+  g.computeVertexNormals();
+  return g;
+}
+
+/** Palace colours: the Great Hall's sandstone and cream plaster, red and turquoise paint and gold. */
+const PAL = {
+  sand: c(0xdcb57c),
+  sandDark: c(0xc39a62),
+  // Warm lime plaster (reads as plastered adobe, not grey stone, in shade).
+  plaster: c(0xf0d6a6),
+  plasterShade: c(0xe3c491),
+  red: c(0xa64032),
+  redDeep: c(0x8e2a22),
+  turquoise: c(0x227f80),
+  gold: c(0xc8a451),
+  water: c(0x2f8a92),
+  plume: c(0x1f8a5a),
+  plumeLight: c(0x3fb36e),
+};
+
+/**
+ * Tlatoani's Palace: the ruler's house, a raised palace round an open courtyard, twice the Great
+ * Hall's size (14 × 14). A two-tiered sandstone platform (sloping talud under upright tablero
+ * panels picked out in red) carries it, climbed by a grand central stair between balustrades
+ * that end in feathered-serpent heads. Across the front runs a portico of red-and-cream columns
+ * under a frieze of golden stepped frets, with a taller entrance pavilion bearing a sun disc; side
+ * ranges of rooms enclose a garden courtyard with a pool and fountain; the throne hall at the back
+ * rises a second storey to a crest with a great golden sun and quetzal-feather fans. Stepped
+ * merlons line every roof. In the plaza before it lie two lily pools, braziers and banners.
+ * Built in four phases (platform, stair and plaza, halls, roofs and gardens), like the Great Temple.
+ */
+export function palaceModel(): BuildingModel {
+  const b = new GeoBuilder();
+  const rng = new RNG(1414);
+  const torches: THREE.Vector3[] = [];
+  const S = PAL;
+  const masonry = (p: THREE.Vector3, n: THREE.Vector3) =>
+    (n.y > 0.5 ? S.sand : S.sandDark).clone().multiplyScalar(0.97 + 0.035 * Math.sin(Math.floor(p.x * 3) * 21 + Math.floor(p.z * 3) * 13 + Math.floor(p.y * 4) * 7));
+  const H = PALACE.h, CZ = PALACE.cz, TW = PALACE.topW, TD = PALACE.topD;
+  const top = { x0: -TW / 2, x1: TW / 2, z0: CZ - TD / 2, z1: CZ + TD / 2 };
+
+  // ---- Phase 1: the paved plaza and the two-tiered platform ----
+  b.add(P.box(13.9, 0.012, 13.9), { color: c(0x9c917f) }, M.t(0, 0.056, 0));
+  const pave = (i: number, j: number) => c(0xcfc5b3).lerp(c(0xa39683), ((i * 7 + j * 13) % 5) / 6 + rng.range(0, 0.15));
+  const pools = PALACE.pools;
+  slabs(b, -6.95, -6.95, 20, 20, 13.9 / 20, 0.064, 0.028, pave, (x, z) =>
+    (Math.abs(x) < 6.0 && z > CZ - 5.35 && z < CZ + 5.35) || (Math.abs(x) < 2.0 && z < PALACE.stairFoot + 0.2) ||
+    pools.some((p) => Math.abs(x - p.x) < p.w / 2 + 0.25 && Math.abs(z - p.z) < p.d / 2 + 0.25));
+  // Lower tier: talud and tablero; upper tier set back on it.
+  const tier = (w: number, d: number, y: number, tal: number, tab: number, inset: number) => {
+    b.add(frustumBox(w, d, w - inset * 2, d - inset * 2, tal), { color: masonry }, M.t(0, y + tal / 2, CZ));
+    const tw = w - inset * 2, td = d - inset * 2, ty = y + tal;
+    b.add(P.box(tw, tab, td), { color: S.sand }, M.t(0, ty + tab / 2, CZ));
+    b.add(P.box(tw + 0.08, 0.05, td + 0.08), { color: S.sandDark }, M.t(0, ty + tab + 0.025, CZ));
+    // Recessed red panels framed in cream along each tablero (kept clear of the stair).
+    for (let side = 0; side < 4; side++) {
+      const ry = (side * Math.PI) / 2, along = side % 2 ? td : tw, out = side % 2 ? tw / 2 : td / 2;
+      const n = Math.max(2, Math.round(along / 1.25));
+      for (let k = 0; k < n; k++) {
+        const u = -along / 2 + (along / n) * (k + 0.5);
+        if (side === 0 && Math.abs(u) < 2.0) continue;
+        const m = M.t(Math.sin(ry) * (out + 0.01), ty + tab / 2, CZ + Math.cos(ry) * (out + 0.01), 0, ry, 0).multiply(M.t(u, 0, 0));
+        b.add(P.box(along / n - 0.2, tab * 0.62, 0.02), { color: S.plaster }, m);
+        b.add(P.box(along / n - 0.34, tab * 0.38, 0.026), { color: S.red }, m.clone().multiply(M.t(0, 0, 0.002)));
+      }
+    }
+    return ty + tab + 0.05;
+  };
+  const y1 = tier(11.7, 10.4, 0.07, 0.28, 0.3, 0.16);
+  tier(11.0, 9.7, y1, 0.18, 0.26, 0.1);
+  // The floor of the palace: cream plaster over the whole top.
+  b.add(P.box(TW, 0.03, TD), { color: S.plaster }, M.t(0, H - 0.015, CZ));
+  const phases = [b.indexCount];
+
+  // ---- Phase 2: the grand stair, its serpent balustrades and the plaza ----
+  const front = top.z1, foot = PALACE.stairFoot, half = PALACE.stairHalf;
+  const steps = 12, run = (foot - front) / steps, rise = H / steps;
+  for (let k = 0; k < steps; k++) {
+    const h = H - k * rise, z = front + run * (k + 0.5);
+    b.add(P.box(half * 2, h - 0.025, run + 0.01), { color: S.red }, M.t(0, (h - 0.025) / 2, z));
+    b.add(P.box(half * 2 + 0.02, 0.025, run + 0.02), { color: S.plaster }, M.t(0, h - 0.0125, z));
+  }
+  // Balustrades (alfardas): sloping stone cheeks with a turquoise stripe, a serpent head at the foot.
+  const cheek = new THREE.ExtrudeGeometry(new THREE.Shape([
+    new THREE.Vector2(front - 0.3, 0), new THREE.Vector2(foot + 0.05, 0), new THREE.Vector2(foot + 0.05, 0.2), new THREE.Vector2(front - 0.3, H + 0.22),
+  ]), { depth: 0.36, bevelEnabled: false });
+  const slope = Math.atan2(H + 0.02, foot - front + 0.35), slopeLen = Math.hypot(H + 0.02, foot - front + 0.35);
+  for (const sx of [-1, 1]) {
+    const x = sx * (half + 0.18);
+    b.add(cheek, { color: S.sandDark }, M.t(x + 0.18, 0, 0, 0, -Math.PI / 2, 0));
+    b.add(P.box(0.12, 0.02, slopeLen), { color: S.turquoise }, M.t(x, (H + 0.42) / 2 + 0.01, (front - 0.3 + foot + 0.05) / 2, slope, 0, 0));
+    // Feathered-serpent head: snout forward, jaws open on a red tongue, gold eyes, a turquoise crest.
+    const hz = foot + 0.2, hy = 0.2;
+    b.add(P.rbox(0.42, 0.3, 0.5, 0.06), { color: S.sand }, M.t(x, hy + 0.15, hz));
+    b.add(P.rbox(0.36, 0.1, 0.3, 0.03), { color: S.sandDark }, M.t(x, hy + 0.02, hz + 0.2));
+    b.add(P.box(0.08, 0.025, 0.18), { color: S.red }, M.t(x, hy + 0.08, hz + 0.32));
+    for (const ex of [-1, 1]) {
+      b.add(P.box(0.08, 0.07, 0.03), { color: S.gold }, M.t(x + ex * 0.13, hy + 0.24, hz + 0.25));
+      b.add(P.box(0.04, 0.12, 0.04), { color: S.plaster }, M.t(x + ex * 0.1, hy + 0.06, hz + 0.33));
+    }
+    for (let k = 0; k < 5; k++) b.add(P.box(0.06, 0.16, 0.06), { color: k % 2 ? S.turquoise : S.plume }, M.t(x - 0.16 + k * 0.08, hy + 0.36, hz - 0.12, -0.5, 0, 0));
+  }
+  // Braziers: at the stair head and on stone pedestals at its foot.
+  const brazier = (x: number, y: number, z: number, s = 1) => {
+    b.add(P.box(0.46 * s, 0.14 * s, 0.46 * s), { color: S.sandDark }, M.t(x, y + 0.07 * s, z));
+    b.add(P.box(0.3 * s, 0.32 * s, 0.3 * s), { color: S.sand }, M.t(x, y + 0.3 * s, z));
+    b.add(P.box(0.5 * s, 0.08 * s, 0.5 * s), { color: S.gold }, M.t(x, y + 0.5 * s, z));
+    b.add(P.cyl(0.22 * s, 0.13 * s, 0.13 * s, 10), { color: c(0x7d746c) }, M.t(x, y + 0.6 * s, z));
+    b.add(P.cyl(0.19 * s, 0.19 * s, 0.02, 10), { color: c(0xa16c3e) }, M.t(x, y + 0.665 * s, z));
+    torches.push(new THREE.Vector3(x, y + 0.68 * s, z));
+  };
+  for (const sx of [-1, 1]) {
+    brazier(sx * (half + 0.18), H, front - 0.15, 0.85);
+    brazier(sx * 2.45, 0.07, foot + 0.15);
+  }
+  /** A stone kerb round a pool (w × d inside), capped in a second colour. */
+  const rim = (x: number, y: number, z: number, w: number, d: number, h: number, col: THREE.Color, cap: THREE.Color) => {
+    const t = 0.14;
+    for (const s of [-1, 1]) {
+      b.add(P.box(w + 2 * t, h, t), { color: col }, M.t(x, y + h / 2, z + s * (d / 2 + t / 2)));
+      b.add(P.box(t, h, d), { color: col }, M.t(x + s * (w / 2 + t / 2), y + h / 2, z));
+      b.add(P.box(w + 2 * t + 0.04, 0.035, t + 0.04), { color: cap }, M.t(x, y + h + 0.017, z + s * (d / 2 + t / 2)));
+      b.add(P.box(t + 0.04, 0.035, d), { color: cap }, M.t(x + s * (w / 2 + t / 2), y + h + 0.017, z));
+    }
+  };
+  // Lily pools either side of the approach: stone rims, still water, pads and pink blooms.
+  for (const p of pools) {
+    b.add(P.box(p.w, 0.11, p.d), { color: S.sandDark }, M.t(p.x, 0.055, p.z));
+    b.add(P.box(p.w, 0.02, p.d), { color: S.water }, M.t(p.x, 0.12, p.z));
+    rim(p.x, 0, p.z, p.w, p.d, 0.18, S.sandDark, S.plaster);
+    for (let k = 0; k < 9; k++) {
+      const px = p.x + rng.range(-p.w / 2 + 0.15, p.w / 2 - 0.15), pz = p.z + rng.range(-p.d / 2 + 0.15, p.d / 2 - 0.15);
+      b.add(P.cyl(0.11, 0.11, 0.008, 8), { color: c(0x3f8a34), leaf: 1 }, M.t(px, 0.135, pz));
+      if (k % 3 === 0) b.add(FLOWER, { color: c(0xef9ab0), leaf: 1 }, M.t(px + 0.04, 0.16, pz, 0, k, 0, 0.9, 0.6, 0.9));
+    }
+  }
+  // Banner poles at the plaza's front corners.
+  for (const sx of [-1, 1]) {
+    const x = sx * 6.35, z = 6.35;
+    b.add(P.box(0.3, 0.2, 0.3), { color: S.sandDark }, M.t(x, 0.1, z));
+    b.add(P.cyl(0.04, 0.05, 2.3, 6), { color: K.timberDark }, M.t(x, 1.25, z));
+    b.add(P.box(0.46, 0.04, 0.04), { color: K.timberDark }, M.t(x, 2.2, z));
+    sunBanner(b, M.t(x, 1.72, z + 0.04), 0.38, 0.86);
+    plumes(b, x, 2.4, z, 0.7);
+  }
+  phases.push(b.indexCount);
+
+  // ---- Phase 3: the halls round the courtyard ----
+  const WH = PALACE.wallH, T = 0.16, F = H;
+  const plasterWall = (p: THREE.Vector3) => S.plaster.clone().lerp(S.plasterShade, Math.min(1, Math.max(0, (F + WH - p.y) / WH)) * 0.6);
+  /** A wall along x (at z) or along z (at x), with doorway gaps given by their centres. */
+  const wall = (axis: 'x' | 'z', at: number, from: number, to: number, h: number, doors: (number | [number, number, number])[], dw0: number, dh0: number, y = F) => {
+    const cuts = doors.map((d) => (typeof d === 'number' ? [d - dw0 / 2, d + dw0 / 2, dh0] : [d[0] - d[1] / 2, d[0] + d[1] / 2, d[2]])).sort((a, b) => a[0] - b[0]);
+    let u = from;
+    const piece = (u0: number, u1: number, y0: number, hh: number) => {
+      if (u1 - u0 < 0.01 || hh <= 0) return;
+      const mid = (u0 + u1) / 2, len = u1 - u0;
+      b.add(P.box(axis === 'x' ? len : T, hh, axis === 'x' ? T : len), { color: plasterWall }, axis === 'x' ? M.t(mid, y0 + hh / 2, at) : M.t(at, y0 + hh / 2, mid));
+    };
+    for (const [c0, c1, dh] of cuts) {
+      const dw = c1 - c0;
+      piece(u, c0, y, h);
+      piece(c0, c1, y + dh, h - dh);
+      // Dark doorway with a stone lintel.
+      const mid = (c0 + c1) / 2;
+      b.add(P.box(axis === 'x' ? dw : T * 0.4, dh, axis === 'x' ? T * 0.4 : dw), { color: K.door }, axis === 'x' ? M.t(mid, y + dh / 2, at) : M.t(at, y + dh / 2, mid));
+      b.add(P.box(axis === 'x' ? dw + 0.16 : T + 0.06, 0.07, axis === 'x' ? T + 0.06 : dw + 0.16), { color: S.sand }, axis === 'x' ? M.t(mid, y + dh + 0.035, at) : M.t(at, y + dh + 0.035, mid));
+      u = c1;
+    }
+    piece(u, to, y, h);
+    // Red dado round the foot.
+    b.add(P.box(axis === 'x' ? to - from : T + 0.02, 0.16, axis === 'x' ? T + 0.02 : to - from), { color: S.redDeep }, axis === 'x' ? M.t((from + to) / 2, y + 0.08, at) : M.t(at, y + 0.08, (from + to) / 2));
+  };
+  const column = (x: number, z: number, h: number, y = F) => {
+    b.add(P.box(0.4, 0.12, 0.4), { color: S.sandDark }, M.t(x, y + 0.06, z));
+    b.add(P.box(0.3, h * 0.42, 0.3), { color: S.red }, M.t(x, y + 0.12 + h * 0.21, z));
+    b.add(P.box(0.29, h * 0.5, 0.29), { color: S.plaster }, M.t(x, y + 0.12 + h * 0.42 + h * 0.25, z));
+    b.add(P.box(0.32, 0.04, 0.32), { color: S.gold }, M.t(x, y + 0.12 + h * 0.42, z));
+    b.add(P.box(0.42, 0.1, 0.42), { color: S.sand }, M.t(x, y + 0.12 + h * 0.92 + 0.05, z));
+  };
+  const C = PALACE.court;
+  // Front range: a portico of ten columns before a wall with three doorways into the courtyard.
+  const porticoZ = top.z1 - 0.3, colH = WH - 0.12;
+  wall('x', C.z1, top.x0 + 0.1, top.x1 - 0.1, WH, [-2.9, [0, 1.2, 1.12], 2.9], 0.6, 0.9);
+  for (let k = 0; k < 10; k++) {
+    const x = -4.6 + k * (9.2 / 9);
+    if (Math.abs(x) < 0.6) continue;
+    column(x, porticoZ, colH);
+  }
+  for (const x of [-0.75, 0.75]) column(x, porticoZ, colH);
+  // Gold-and-red sun banners hung between the front columns.
+  for (const x of [-3.06, -1.53, 1.53, 3.06]) sunBanner(b, M.t(x, F + 0.9, C.z1 + 0.1), 0.34, 0.66);
+  // Side ranges of rooms: outer and courtyard walls, doorways onto the court and windows out.
+  for (const sx of [-1, 1]) {
+    wall('z', sx * (top.x1 - 0.12), C.z0 - 0.05, C.z1, WH, [], 0, 0);
+    wall('z', sx * C.x1, C.z0, C.z1, WH, [C.z0 + 1.2, C.z1 - 1.4], 0.55, 0.85);
+    for (const z of [C.z0 + 0.4, C.z1 - 2.2]) {
+      b.add(P.box(0.03, 0.22, 0.4), { color: K.door }, M.t(sx * (top.x1 - 0.12 + 0.08 * 1), F + 0.95, z));
+      b.add(P.box(0.06, 0.04, 0.5), { color: S.sand }, M.t(sx * (top.x1 - 0.12 + 0.09), F + 0.82, z));
+    }
+    wall('x', C.z0 - 0.05, sx > 0 ? C.x1 : top.x0 + 0.1, sx > 0 ? top.x1 - 0.1 : -C.x1, WH, [], 0, 0);
+  }
+  // Throne hall across the back: tall walls, a loggia of six columns onto the court, the throne.
+  const HB = PALACE.hall;
+  wall('x', top.z0 + 0.12, top.x0 + 0.1, top.x1 - 0.1, HB.h, [], 0, 0);
+  for (const sx of [-1, 1]) wall('z', sx * (top.x1 - 0.12), top.z0 + 0.12, C.z0 - 0.05, HB.h, [], 0, 0);
+  for (const x of [-4.4, -2.65, -0.9, 0.9, 2.65, 4.4]) column(x, C.z0 - 0.2, HB.h - 0.12);
+  // Dais and throne: stepped platform, a woven seat under a jaguar-skin throw, a tall gold back.
+  const tz = top.z0 + 0.75;
+  b.add(P.box(2.4, 0.12, 1.2), { color: S.sandDark }, M.t(0, F + 0.06, tz + 0.2));
+  b.add(P.box(1.6, 0.12, 0.9), { color: S.sand }, M.t(0, F + 0.18, tz + 0.1));
+  b.add(P.box(0.7, 0.28, 0.5), { color: K.timber }, M.t(0, F + 0.38, tz + 0.1));
+  b.add(P.box(0.72, 0.03, 0.52), { color: c(0xd9a441) }, M.t(0, F + 0.535, tz + 0.1));
+  for (let k = 0; k < 6; k++) b.add(P.box(0.06, 0.005, 0.05), { color: c(0x3a2a20) }, M.t(-0.25 + (k % 3) * 0.25, F + 0.552, tz + (k < 3 ? 0 : 0.2)));
+  b.add(P.box(0.86, 1.05, 0.08), { color: S.gold }, M.t(0, F + 0.8, tz - 0.17));
+  b.add(P.box(0.62, 0.8, 0.09), { color: S.red }, M.t(0, F + 0.82, tz - 0.17));
+  b.add(P.cyl(0.18, 0.18, 0.02, 14), { color: S.gold }, M.t(0, F + 0.95, tz - 0.11, Math.PI / 2, 0, 0));
+  // Wall hangings behind the throne.
+  for (const x of [-1.6, 1.6]) sunBanner(b, M.t(x, F + 1.1, top.z0 + 0.21), 0.42, 0.9);
+  // Courtyard: chequered floor, a pool with a fountain, planted corners.
+  slabs(b, C.x0, C.z0 + 0.12, 10, 7, 0.7, F, 0.02, (i, j) => ((i + j) % 2 ? S.plasterShade.clone() : c(0xe2bd86)), (x, z) => Math.abs(x) < 1.35 && Math.abs(z - PALACE.pool.z) < 0.95);
+  const PO = PALACE.pool;
+  b.add(P.box(PO.w, 0.02, PO.d), { color: S.water }, M.t(0, F + 0.07, PO.z));
+  rim(0, F, PO.z, PO.w, PO.d, 0.15, S.sand, S.turquoise);
+  b.add(P.cyl(0.18, 0.24, 0.3, 8), { color: S.sand }, M.t(0, F + 0.25, PO.z));
+  b.add(P.cyl(0.3, 0.14, 0.1, 10), { color: S.gold }, M.t(0, F + 0.44, PO.z));
+  b.add(P.cyl(0.26, 0.26, 0.012, 10), { color: S.water }, M.t(0, F + 0.49, PO.z));
+  phases.push(b.indexCount);
+
+  // ---- Phase 4: roofs, frieze, merlons, crest, plumes and gardens ----
+  const roofY = F + WH, roofT = 0.16;
+  const slab = (x0: number, x1: number, z0: number, z1: number, y: number, t = roofT) => {
+    b.add(P.box(x1 - x0, t, z1 - z0), { color: S.sand }, M.t((x0 + x1) / 2, y + t / 2, (z0 + z1) / 2));
+    b.add(P.box(x1 - x0 + 0.06, 0.04, z1 - z0 + 0.06), { color: S.sandDark }, M.t((x0 + x1) / 2, y + 0.02, (z0 + z1) / 2));
+  };
+  slab(top.x0, top.x1, C.z1 - 0.1, top.z1 - 0.05, roofY);
+  for (const sx of [-1, 1]) slab(sx > 0 ? C.x1 - 0.1 : top.x0, sx > 0 ? top.x1 : -C.x1 + 0.1, C.z0 - 0.15, C.z1 - 0.1, roofY);
+  const hallY = F + HB.h;
+  slab(top.x0, top.x1, top.z0, C.z0 - 0.05, hallY);
+  /** A frieze of golden stepped frets (xicalcoliuhqui) on a red band, along x at z facing +z (or -z). */
+  const frieze = (x0: number, x1: number, y: number, z: number, face: 1 | -1, h = 0.26) => {
+    const len = x1 - x0, m = (x: number, yy: number, w: number, hh: number, col: THREE.Color, dz = 0.012) =>
+      b.add(P.box(w, hh, 0.02), { color: col }, M.t(x, yy, z + face * dz));
+    b.add(P.box(len, h, 0.03), { color: S.red }, M.t((x0 + x1) / 2, y, z));
+    b.add(P.box(len + 0.04, 0.035, 0.05), { color: S.gold }, M.t((x0 + x1) / 2, y + h / 2 + 0.01, z));
+    b.add(P.box(len + 0.04, 0.035, 0.05), { color: S.gold }, M.t((x0 + x1) / 2, y - h / 2 - 0.01, z));
+    const u = 0.44, n = Math.floor(len / u);
+    for (let k = 0; k < n; k++) {
+      const cx = x0 + (len - n * u) / 2 + u * (k + 0.5), base = y - h / 2 + 0.05;
+      for (let s = 0; s < 3; s++) m(cx - 0.15 + s * 0.06, base + 0.025 * (s + 1), 0.06, 0.05 * (s + 1), S.gold);
+      m(cx + 0.06, base + 0.08, 0.035, 0.16, S.gold);
+      m(cx + 0.11, base + 0.145, 0.1, 0.035, S.gold);
+      m(cx + 0.145, base + 0.11, 0.035, 0.05, S.gold);
+    }
+  };
+  // Lintel beams over the portico and the throne loggia, faced with the frieze.
+  b.add(P.box(TW, 0.3, 0.42), { color: S.sand }, M.t(0, roofY - 0.15, top.z1 - 0.23));
+  b.add(P.box(TW - 0.2, 0.3, 0.36), { color: S.sand }, M.t(0, hallY - 0.15, C.z0 - 0.2));
+  frieze(top.x0 + 0.05, top.x1 - 0.05, roofY - 0.16, top.z1 - 0.005, 1);
+  frieze(top.x0 + 0.1, top.x1 - 0.1, hallY - 0.16, C.z0 - 0.005, 1);
+  // The back and the flanks: the fret frieze across the back, a red-and-gold band along the sides,
+  // windows and sun banners on the throne hall's back wall.
+  frieze(top.x0 + 0.05, top.x1 - 0.05, hallY - 0.16, top.z0 + 0.025, -1);
+  for (const sx of [-1, 1]) {
+    for (const [y, z0, z1] of [[roofY, C.z0, top.z1 - 0.05], [hallY, top.z0 + 0.05, C.z0]] as const) {
+      const x = sx * (top.x1 - 0.025), mid = (z0 + z1) / 2, len = z1 - z0;
+      b.add(P.box(0.03, 0.24, len), { color: S.red }, M.t(x, y - 0.16, mid));
+      for (const dy of [-0.13, 0.13]) b.add(P.box(0.05, 0.035, len + 0.04), { color: S.gold }, M.t(x, y - 0.16 + dy, mid));
+      for (let k = 0; k < Math.floor(len / 0.5); k++) b.add(P.box(0.04, 0.1, 0.1), { color: S.gold }, M.t(x + sx * 0.005, y - 0.16, z0 + 0.25 + k * 0.5, 0, 0, Math.PI / 4));
+    }
+    sunBanner(b, M.t(sx * 2.6, F + 1.05, top.z0 + 0.03, 0, Math.PI, 0), 0.42, 0.95);
+    for (const x of [sx * 0.9, sx * 4.2]) {
+      b.add(P.box(0.36, 0.26, 0.03), { color: K.door }, M.t(x, F + 1.45, top.z0 + 0.03));
+      b.add(P.box(0.46, 0.05, 0.06), { color: S.sand }, M.t(x, F + 1.3, top.z0 + 0.02));
+    }
+  }
+  /** Stepped merlons (almenas) along a roof edge, from (x0, z0) to (x1, z1). */
+  const merlons = (x0: number, z0: number, x1: number, z1: number, y: number) => {
+    const len = Math.hypot(x1 - x0, z1 - z0), n = Math.max(2, Math.round(len / 0.48)), ry = Math.atan2(x1 - x0, z1 - z0) - Math.PI / 2;
+    for (let k = 0; k <= n; k++) {
+      const x = x0 + ((x1 - x0) * k) / n, z = z0 + ((z1 - z0) * k) / n;
+      b.add(P.box(0.24, 0.12, 0.1), { color: S.plaster }, M.t(x, y + 0.06, z, 0, ry, 0));
+      b.add(P.box(0.15, 0.11, 0.1), { color: S.plaster }, M.t(x, y + 0.175, z, 0, ry, 0));
+      b.add(P.box(0.07, 0.07, 0.11), { color: S.red }, M.t(x, y + 0.265, z, 0, ry, 0));
+    }
+  };
+  const ry0 = roofY + roofT;
+  merlons(top.x0 + 0.1, top.z1 - 0.1, top.x1 - 0.1, top.z1 - 0.1, ry0);
+  for (const sx of [-1, 1]) {
+    merlons(sx * (top.x1 - 0.1), top.z1 - 0.1, sx * (top.x1 - 0.1), C.z0 - 0.1, ry0);
+    merlons(sx * C.x1, C.z1 - 0.15, sx * C.x1, C.z0 - 0.1, ry0);
+  }
+  const hy0 = hallY + roofT;
+  merlons(top.x0 + 0.1, C.z0 - 0.1, top.x1 - 0.1, C.z0 - 0.1, hy0);
+  merlons(top.x0 + 0.1, top.z0 + 0.1, top.x1 - 0.1, top.z0 + 0.1, hy0);
+  // Entrance pavilion over the portico's centre: a raised block with a sun disc and its own merlons.
+  const pv = { x: 1.45, z0: C.z1 - 0.1, z1: top.z1 - 0.05, y: ry0 };
+  b.add(P.box(pv.x * 2, 0.6, pv.z1 - pv.z0), { color: plasterWall }, M.t(0, pv.y + 0.3, (pv.z0 + pv.z1) / 2));
+  frieze(-pv.x, pv.x, pv.y + 0.3, pv.z1 + 0.005, 1, 0.3);
+  slab(-pv.x - 0.08, pv.x + 0.08, pv.z0 - 0.05, pv.z1 + 0.05, pv.y + 0.6, 0.12);
+  merlons(-pv.x, pv.z1, pv.x, pv.z1, pv.y + 0.72);
+  const sun = (x: number, y: number, z: number, r: number) => {
+    b.add(P.cyl(r, r, 0.04, 18), { color: S.gold }, M.t(x, y, z, Math.PI / 2, 0, 0));
+    b.add(P.cyl(r * 0.62, r * 0.62, 0.05, 16), { color: S.turquoise }, M.t(x, y, z + 0.01, Math.PI / 2, 0, 0));
+    b.add(P.cyl(r * 0.36, r * 0.36, 0.06, 12), { color: S.gold }, M.t(x, y, z + 0.02, Math.PI / 2, 0, 0));
+    for (let k = 0; k < 12; k++) {
+      const a = (k / 12) * Math.PI * 2;
+      b.add(P.cone(r * 0.16, r * 0.42, 4), { color: S.gold }, M.t(x + Math.cos(a) * r * 1.18, y + Math.sin(a) * r * 1.18, z, 0, 0, a - Math.PI / 2));
+    }
+  };
+  // Throne hall's upper storey and roof crest with the great sun and feather fans.
+  const up = PALACE.upper;
+  b.add(P.box(up.w, up.h, up.d), { color: plasterWall }, M.t(0, hy0 + up.h / 2, up.z));
+  frieze(-up.w / 2, up.w / 2, hy0 + up.h - 0.18, up.z + up.d / 2 + 0.005, 1, 0.24);
+  for (const x of [-1.5, -0.5, 0.5, 1.5]) {
+    b.add(P.box(0.32, 0.4, 0.03), { color: K.door }, M.t(x, hy0 + 0.42, up.z + up.d / 2 + 0.005));
+    b.add(P.box(0.42, 0.05, 0.06), { color: S.sand }, M.t(x, hy0 + 0.64, up.z + up.d / 2 + 0.02));
+  }
+  slab(-up.w / 2 - 0.1, up.w / 2 + 0.1, up.z - up.d / 2 - 0.1, up.z + up.d / 2 + 0.1, hy0 + up.h, 0.14);
+  const crestY = hy0 + up.h + 0.14;
+  merlons(-up.w / 2, up.z + up.d / 2, up.w / 2, up.z + up.d / 2, crestY);
+  b.add(P.box(2.0, 0.9, 0.14), { color: S.red }, M.t(0, crestY + 0.45, up.z - 0.2));
+  b.add(P.box(2.1, 0.06, 0.18), { color: S.gold }, M.t(0, crestY + 0.93, up.z - 0.2));
+  sun(0, crestY + 0.52, up.z - 0.11, 0.3);
+  b.add(P.cyl(0.3, 0.3, 0.04, 18), { color: S.gold }, M.t(0, crestY + 0.52, up.z - 0.29, Math.PI / 2, 0, 0));
+  b.add(P.cyl(0.18, 0.18, 0.05, 14), { color: S.turquoise }, M.t(0, crestY + 0.52, up.z - 0.3, Math.PI / 2, 0, 0));
+  for (const sx of [-1, 1]) plumes(b, sx * 1.05, crestY + 0.96, up.z - 0.2, 1.0);
+  // Quetzal-feather standards at the four corners of the roof.
+  for (const sx of [-1, 1]) for (const [z, y] of [[top.z1 - 0.3, ry0], [top.z0 + 0.3, hy0]] as const) {
+    const x = sx * (top.x1 - 0.3);
+    b.add(P.cyl(0.035, 0.04, 0.9, 6), { color: K.timberDark }, M.t(x, y + 0.45, z));
+    b.add(P.box(0.32, 0.5, 0.02), { color: S.red }, M.t(x - sx * 0.17, y + 0.62, z));
+    b.add(P.box(0.32, 0.04, 0.03), { color: S.gold }, M.t(x - sx * 0.17, y + 0.88, z));
+    plumes(b, x, y + 0.9, z, 0.6);
+  }
+  // Rooftop braziers flanking the pavilion and on the throne hall.
+  for (const sx of [-1, 1]) {
+    brazier(sx * 2.3, ry0, top.z1 - 0.55, 0.7);
+    brazier(sx * 3.6, hy0, C.z0 - 0.5, 0.7);
+  }
+  // Courtyard garden: planters in the corners and potted palms along the walls.
+  const planter = (x: number, z: number, w: number, d: number, y: number, seed: number) => {
+    b.add(P.box(w, 0.22, d), { color: S.sand }, M.t(x, y + 0.11, z));
+    b.add(P.box(w + 0.03, 0.05, d + 0.03), { color: S.red }, M.t(x, y + 0.245, z));
+    b.add(P.box(w - 0.08, 0.02, d - 0.08), { color: c(0x4a3624) }, M.t(x, y + 0.266, z));
+    const long = Math.max(w, d), along = w >= d, n = Math.max(1, Math.round(long / 0.42));
+    for (let k = 0; k < n; k++) {
+      const u = -long / 2 + (long / n) * (k + 0.5);
+      const px = along ? x + u : x + rng.range(-0.04, 0.04), pz = along ? z + rng.range(-0.06, 0.06) : z + u;
+      if (k % 2) broadLeaf(b, px, y + 0.27, pz, 1.35 + rng.range(-0.2, 0.25), seed + k);
+      else fern(b, px, y + 0.27, pz, 1.25 + rng.range(-0.15, 0.25), seed + k);
+    }
+    blooms(b, x, y + 0.26, z, Math.round(long * 9), w / 2 - 0.08, d / 2 - 0.08, seed + 50);
+  };
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) planter(sx * (C.x1 - 0.55), sz > 0 ? C.z1 - 0.45 : C.z0 + 0.45, 0.8, 0.6, F, 600 + sx * 3 + sz);
+  for (const sx of [-1, 1]) {
+    planter(sx * 1.9, PO.z, 0.5, 1.2, F, 640 + sx);
+    // Long planters along the platform's flanks and beside the stair foot.
+    planter(sx * 6.28, CZ - 1.5, 0.5, 3.6, 0.07, 660 + sx);
+    planter(sx * 6.28, CZ + 2.8, 0.5, 1.6, 0.07, 670 + sx);
+  }
+  phases.push(b.indexCount);
+  const finished = b.build();
+  finished.userData.constructionPhases = phases;
+  return { finished, torches, height: crestY + 1.1 };
+}
+
+/** A fan of quetzal feathers rising from a gold mount (centre at its base). */
+function plumes(b: GeoBuilder, x: number, y: number, z: number, s: number): void {
+  b.add(P.cyl(0.05 * s, 0.07 * s, 0.08 * s, 8), { color: PAL.gold }, M.t(x, y + 0.04 * s, z));
+  for (let k = 0; k < 7; k++) {
+    const a = (k - 3) * 0.28;
+    b.add(P.box(0.06 * s, 0.5 * s, 0.015), { color: k % 2 ? PAL.plumeLight : PAL.plume, leaf: 1, sway: 0.5 }, M.t(x, y + 0.08 * s, z, 0, 0, a).multiply(M.t(0, 0.25 * s, 0)));
+  }
+}
+
+/**
+ * Layout of the palace (model-local, door faces +z): platform height and the extent of its top,
+ * the courtyard, the throne hall, the pools before it and the grand stair.
+ */
+export const PALACE = {
+  h: 1.19,
+  /** Centre z of the platform, and the width and depth of its top. */
+  cz: -1.3,
+  topW: 10.8,
+  topD: 9.5,
+  wallH: 1.45,
+  court: { x0: -3.5, x1: 3.5, z0: -3.6, z1: 1.55 },
+  pool: { w: 2.2, d: 1.4, z: -1.0 },
+  hall: { h: 2.15 },
+  upper: { w: 4.6, h: 0.95, d: 1.3, z: -5.0 },
+  pools: [-4.3, 4.3].map((x) => ({ x, z: 5.25, w: 2.3, d: 1.5 })),
+  stairHalf: 1.45,
+  stairFoot: 6.15,
+};

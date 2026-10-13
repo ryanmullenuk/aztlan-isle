@@ -1,5 +1,5 @@
 import { isVillagePriority } from '../ai/VillagePriority';
-import { BUILDINGS, TEMPLE, WORLD } from '../config';
+import { BUILDINGS, DECREES, TEMPLE, WORLD } from '../config';
 import type { SaveData } from './Save';
 
 export const MAX_ISLAND_FILE_BYTES = 8 * 1024 * 1024;
@@ -67,6 +67,7 @@ export function parseIslandFile(raw: string): SaveData {
     if(b.boatBuild!==undefined && (!number(b.boatBuild)||b.boatBuild<0||b.boatBuild>1000))return fail();
     if(b.boatSail!==undefined && typeof b.boatSail!=='boolean')return fail();
     if(b.boatSails!==undefined && (!list(b.boatSails,100)||b.boatSails.length!==b.boats||!b.boatSails.every((x:unknown)=>typeof x==='boolean')))return fail();
+    if (b.decree !== undefined && !(typeof b.decree === 'string' && b.decree in DECREES)) return fail();
     if (b.monumentPaid!==undefined && (!Number.isInteger(b.monumentPaid)||b.monumentPaid<1||b.monumentPaid>4)) return fail();
     if (b.marketStock !== undefined && (!obj(b.marketStock) || !Object.entries(b.marketStock).every(([key,n]) => ['wood','stone','grain','fruit','meat','fish'].includes(key) && number(n) && (n as number) >= 0 && (n as number) <= 32))) return fail();
     ids.add(b.id);

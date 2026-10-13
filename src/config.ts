@@ -254,7 +254,7 @@ export const ECONOMY = {
   varietyHappiness: 0.05,
 };
 
-export type BuildingKey = 'boatworkshop' | 'campfire' | 'hut' | 'home' | 'temple' | 'greattemple' | 'farm' | 'maizefarm' | 'chinampa' | 'butcher' | 'smokehouse' | 'woodstore' | 'grainstore' | 'warroom' | 'jetty' | 'torch' | 'bonfire' | 'firepit' | 'well' | 'tradedock' | 'kennel' | 'greathall' | 'pigpen' | 'chickenpen' | 'healer' | 'herbalist' | 'herbalgarden' | 'stonemason' | 'market' | 'watchtower';
+export type BuildingKey = 'boatworkshop' | 'campfire' | 'hut' | 'home' | 'temple' | 'greattemple' | 'farm' | 'maizefarm' | 'chinampa' | 'butcher' | 'smokehouse' | 'woodstore' | 'grainstore' | 'warroom' | 'jetty' | 'torch' | 'bonfire' | 'firepit' | 'well' | 'tradedock' | 'kennel' | 'greathall' | 'pigpen' | 'chickenpen' | 'healer' | 'herbalist' | 'herbalgarden' | 'stonemason' | 'market' | 'watchtower' | 'palace';
 
 export interface BuildingDef {
   key: BuildingKey;
@@ -294,6 +294,7 @@ export const BUILDINGS: Record<BuildingKey, BuildingDef> = {
   bonfire: { key: 'bonfire', name: 'Bonfire', description: 'A great stone-ringed fire with towering orange flames. In the evenings villagers gather here to sing and tell stories: they grow happier and the tribe gains Belief.', size: [3, 3], cost: { wood: 20, stone: 6, belief: 0 }, buildTime: 90, builders: 2, workers: 0, placeable: true },
   firepit: { key: 'firepit', name: 'Cooking Firepit', description: 'A large stone hearth with roaring flames. Islanders gather and dance here at night; roasted meat also makes meals more filling.', size: [2, 2], cost: { wood: 12, stone: 8, belief: 0 }, buildTime: 75, builders: 2, workers: 0, placeable: true },
   well: { key: 'well', name: 'Well', description: 'Provides fresh water for the village and supplies islanders fighting building fires. Keep a well nearby and accessible to help protect your buildings.', size: [2, 2], cost: { wood: 6, stone: 20, belief: 0 }, buildTime: 120, builders: 2, workers: 0, placeable: true },
+  palace: { key: 'palace', name: 'Tlatoani’s Palace', description: 'The ruler’s palace, twice the size of the Great Hall: a raised sandstone platform with a grand serpent stair, a red-columned portico under golden frets, a garden courtyard with a pool, and the throne hall crowned with a great sun. From the throne the Tlatoani issues one decree at a time for the whole island: Build Together, Bountiful Harvest or Honour the Gods.', size: [14, 14], cost: { wood: 140, stone: 220, belief: 60, carvedStone: 60 }, buildTime: 1800, builders: 10, workers: 0, placeable: true },
   greathall: { key: 'greathall', name: 'Great Hall', description: 'A raised stone hall under a striped canopy, with fire braziers and a bronze bell. Seats up to 100 islanders on its benches; when a jaguar is spotted the bell rings and everyone runs to the hall or home for sanctuary.', size: [7, 7], cost: { wood: 70, stone: 60, belief: 20 }, buildTime: 720, builders: 5, workers: 0, placeable: true },
   herbalist: { key: 'herbalist', name: 'Herbalist’s Garden', description: 'An adobe shelter with drying herbs and clay pots. Processes one delivered herb bundle into one medicine every three game minutes. Medicine supplies automatic treatment at Healing Centres.', size: [4, 4], cost: { wood: 30, stone: 18, belief: 0 }, buildTime: 210, builders: 3, workers: 0, placeable: true },
   herbalgarden: { key: 'herbalgarden', name: 'Herbal Garden', description: 'A small garden of multicoloured medicinal plants. Two islanders tend and harvest its raised beds, then carry herbs to a completed Herbalist’s Garden for processing into medicine.', size: [3, 3], cost: { wood: 14, stone: 8, belief: 0 }, buildTime: 120, builders: 2, workers: 2, placeable: true },
@@ -998,6 +999,18 @@ export const STONEMASON = {
     { cost: { wood: 110, stone: 140, food: 120, belief: 0 }, time: 540, unlock: 'Great Temple' },
   ],
 };
+
+/**
+ * Decrees issued from Tlatoani's Palace: one is in force at a time, island-wide, while a palace
+ * stands; changing it costs Belief.
+ */
+export type DecreeKey = 'build' | 'harvest' | 'gods';
+export const DECREES: Record<DecreeKey, { name: string; text: string; factor: number }> = {
+  build: { name: 'Build Together', text: 'Construction and repairs go 25% faster', factor: 1.25 },
+  harvest: { name: 'Bountiful Harvest', text: 'Farm harvests yield 25% more', factor: 1.25 },
+  gods: { name: 'Honour the Gods', text: 'Happy islanders bring 30% more Belief', factor: 1.3 },
+};
+export const PALACE_RULES = { decreeCost: 15, firstDecree: 'build' as DecreeKey };
 
 export const MARKET = { batch: 8, stallCap: 32, foodReserve: 30, foodPerIslander: 4, woodReserve: 40, stoneReserve: 30 };
 

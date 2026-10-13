@@ -19,6 +19,7 @@ export interface FinishedBuilding {
 /** Short statements of what a building does once built, for those with no number to report. */
 const ROLE: Partial<Record<BuildingKey, string>> = {
   greathall: 'Shelters up to 100 islanders',
+  palace: 'Royal decrees can now be issued',
   kennel: 'Room for 3 village dogs',
   watchtower: 'Guards against jaguars and alligators',
   well: 'Fresh water for fighting fires',

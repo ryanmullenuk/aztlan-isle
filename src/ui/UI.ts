@@ -7,7 +7,7 @@ import { VillagePrioritiesPanel } from './VillagePrioritiesPanel';
 import { settingsMarkup, wireSettingsTabs } from './SettingsPanel';
 import { serialize } from '../world/Save';
 import { islandFile, parseIslandFile, downloadIsland, MAX_ISLAND_FILE_BYTES } from '../world/IslandFile';
-import { DEFENCE, DOGS, GOODS, GOOD_KEYS, GoodKey, VOYAGE, FAUNA, PATHS, BUILDINGS, BuildingKey, CAMERA, JETTY, MILESTONES, PresetName, SAVE, SPECIES, WARRIOR, FARM_TYPES, SMOKE, STONEMASON, BOAT_WORKSHOP, TRADE, TradeOffer, ResourceKey } from '../config';
+import { DEFENCE, DOGS, GOODS, GOOD_KEYS, GoodKey, VOYAGE, FAUNA, PATHS, BUILDINGS, BuildingKey, CAMERA, JETTY, MILESTONES, PresetName, SAVE, SPECIES, WARRIOR, FARM_TYPES, SMOKE, STONEMASON, BOAT_WORKSHOP, TRADE, TradeOffer, ResourceKey, DECREES, PALACE_RULES, type DecreeKey } from '../config';
 import { MONKEY_BASE } from '../entities/Monkeys';
 import { DOG_BASE } from '../entities/Dogs';
 import { JAG_BASE } from '../entities/Jaguars';
@@ -37,7 +37,7 @@ const BUILD_ICON: Record<BuildingKey, string> = {
   campfire: 'belief', hut: 'b_hut', home: 'b_home', temple: 'b_temple', greattemple: 'b_greattemple', farm: 'b_farm', butcher: 'b_butcher',
   woodstore: 'b_woodstore', grainstore: 'b_grainstore', warroom: 'b_warroom', jetty: 'b_jetty',
   maizefarm: 'b_maize', chinampa: 'b_chinampa', smokehouse: 'b_smoke',
-  tradedock: 'b_trade', torch: 'b_torch', bonfire: 'b_bonfire', firepit: 'b_firepit', well: 'b_well', kennel: 'b_kennel', greathall: 'b_greathall',
+  tradedock: 'b_trade', torch: 'b_torch', bonfire: 'b_bonfire', firepit: 'b_firepit', well: 'b_well', kennel: 'b_kennel', greathall: 'b_greathall', palace: 'b_palace',
   pigpen: 'b_pigpen', chickenpen: 'b_chickenpen', healer: 'b_healer', watchtower: 'b_tower',
 };
 
@@ -1316,7 +1316,7 @@ export class UI {
         <div class="actions"><button class="btn small" data-a="capture" ${free && (!d.needsPen || hasPen) ? '' : 'disabled'}>${ICONS.harvest} ${label}</button></div>
         <p class="muted small">Tip: select an islander first, then tap an animal to send them after it.</p>`;
     } else if (b) {
-      key = `b${b.id}|${['pigpen','chickenpen'].includes(b.key) ? g.wildlife.penCount(b)+'/'+g.buildings.of('butcher',true).filter(buildingOperational).length : ''}|${Math.round(b.integrity * 100)}:${b.fire > 0}:${b.ruined}:${b.repairing}:${Math.round(b.repairProgress * 100)}:${g.powers.state}:${g.fires.status(b)}:${g.eco.canAfford(g.buildings.repairCost(b))}|${Math.floor(g.eco.goods.carvedstone)}|${g.progression.summary}|${g.buildings.boatRequirement(3)}|${g.buildings.constructionRequirement('home')}|${g.buildings.list.filter(x=>x.key==='stonemason' && x.complete).map(x=>x.tier).join(',')}|${Math.floor(g.eco.food)}|${b.key === 'tradedock' || b.key === 'market' ? g.trade.visitKey(b) + '|' + g.voyage.key() + '|' + JSON.stringify(g.eco.goods) : ''}|${b.key === 'greathall' ? JSON.stringify(g.colony.hallCount(b)) : ''}|${b.key === 'healer' ? g.colony.patients(b).map((p) => `${p.id}:${p.condition}:${Math.ceil(p.conditionT / 60)}:${p.task?.slot}:${g.colony.canCure(p)}`).join(',') + JSON.stringify(g.eco.goods) : ''}|${b.key === 'watchtower' ? `${g.defence.stats(b).shots}|${g.defence.stats(b).kills}|` : ''}${b.key === 'kennel' ? `${g.dogs.alive.length}|${g.dogs.alive.filter((d) => d.puppy).length}|${Math.ceil(b.breedT)}|${Math.ceil(b.breedCool / 5)}|${b.dogRole}|${Math.floor(g.eco.food / 4)}|` : ''}${b.key === 'market' ? JSON.stringify(b.marketStock) : ''}|${b.key === 'herbalist' || b.key === 'stonemason' ? JSON.stringify(g.eco.goods) : ''}|${b.complete}|${Math.round(b.progress * 50)}|${b.tier}|${b.residents.length}|${b.upgrading}|${Math.round(b.growth * 20)}|${b.boats.length}|${b.boatBuild > 0}|${b.training.length}|${Math.floor(g.eco.res.wood / 5)}|${Math.floor(g.eco.res.stone / 5)}|${Math.floor(g.eco.res.belief / 5)}`;
+      key = `b${b.id}|${['pigpen','chickenpen'].includes(b.key) ? g.wildlife.penCount(b)+'/'+g.buildings.of('butcher',true).filter(buildingOperational).length : ''}|${Math.round(b.integrity * 100)}:${b.fire > 0}:${b.ruined}:${b.repairing}:${Math.round(b.repairProgress * 100)}:${g.powers.state}:${g.fires.status(b)}:${g.eco.canAfford(g.buildings.repairCost(b))}|${Math.floor(g.eco.goods.carvedstone)}|${g.progression.summary}|${g.buildings.boatRequirement(3)}|${g.buildings.constructionRequirement('home')}|${g.buildings.list.filter(x=>x.key==='stonemason' && x.complete).map(x=>x.tier).join(',')}|${Math.floor(g.eco.food)}|${b.key === 'tradedock' || b.key === 'market' ? g.trade.visitKey(b) + '|' + g.voyage.key() + '|' + JSON.stringify(g.eco.goods) : ''}|${b.key === 'greathall' ? JSON.stringify(g.colony.hallCount(b)) : ''}|${b.key === 'palace' ? b.decree ?? '' : ''}|${b.key === 'healer' ? g.colony.patients(b).map((p) => `${p.id}:${p.condition}:${Math.ceil(p.conditionT / 60)}:${p.task?.slot}:${g.colony.canCure(p)}`).join(',') + JSON.stringify(g.eco.goods) : ''}|${b.key === 'watchtower' ? `${g.defence.stats(b).shots}|${g.defence.stats(b).kills}|` : ''}${b.key === 'kennel' ? `${g.dogs.alive.length}|${g.dogs.alive.filter((d) => d.puppy).length}|${Math.ceil(b.breedT)}|${Math.ceil(b.breedCool / 5)}|${b.dogRole}|${Math.floor(g.eco.food / 4)}|` : ''}${b.key === 'market' ? JSON.stringify(b.marketStock) : ''}|${b.key === 'herbalist' || b.key === 'stonemason' ? JSON.stringify(g.eco.goods) : ''}|${b.complete}|${Math.round(b.progress * 50)}|${b.tier}|${b.residents.length}|${b.upgrading}|${Math.round(b.growth * 20)}|${b.boats.length}|${b.boatBuild > 0}|${b.training.length}|${Math.floor(g.eco.res.wood / 5)}|${Math.floor(g.eco.res.stone / 5)}|${Math.floor(g.eco.res.belief / 5)}`;
       html = this.buildingHtml(b);
     }
     if (!force && key === this.infoKey) return;
@@ -1335,6 +1335,7 @@ export class UI {
       return fireBuildingCard(b, g.fires.status(b), cost, g.eco.canAfford(cost), g.powers.state === 'storm');
     }
     let body = '';
+    if(b.key==='palace'&&!b.complete){const names=['Platform','Grand stair and plaza','Halls and courtyard','Roofs, crest and gardens'];const phase=Math.min(3,Math.floor(b.progress*4));body+=`<p>${names[phase]} · Phase ${phase+1}/4</p>`;}
     if(b.key==='greattemple'&&!b.complete){const names=['Foundations','Terraces','Stairs','Shrines'];const phase=Math.min(3,Math.floor(b.progress*4));body+=`<p>${names[phase]} · Phase ${phase+1}/4</p><p class="muted small">Each phase: 40 wood · 120 stone · 30 carved stone · 50 Belief. Builders pause until the next phase can be supplied.</p>`;}
     if (!b.complete) body += `${this.bar(`Building ${Math.round(b.progress * 100)}%`, b.progress, 'good')}<div class="kv"><span>Builders</span><b>${b.builders.size} / ${b.def.builders}</b></div>`;
     else if (b.upgrading) body += `${this.bar(`Upgrading ${Math.round(b.progress * 100)}%`, b.progress, 'good')}`;
@@ -1395,6 +1396,10 @@ export class UI {
         <div class="kv"><span>Capacity</span><b>${all.length}/${D.capacity}</b></div>
         <div class="kv"><span>Food</span><b>~${(adults + pups * 0.5) * DOGS.foodPerMinute < 1 ? ((adults + pups * 0.5) * DOGS.foodPerMinute).toFixed(1) : Math.round((adults + pups * 0.5) * DOGS.foodPerMinute)} per minute</b></div>`;
     }
+    if (b.key === 'palace' && b.complete) {
+      const now = b.decree ?? PALACE_RULES.firstDecree;
+      body += `<div class="sec-h">${ICONS.b_palace} Royal decree</div><div class="kv"><span>In force</span><b>${DECREES[now].name}</b></div><p class="muted small">${DECREES[now].text}. One decree is in force across the island at a time; issuing a new one costs ${PALACE_RULES.decreeCost} Belief.</p>`;
+    }
     if (b.key === 'greathall' && b.complete) {
       const h = g.colony.hallCount(b);
       body += `<div class="kv"><span>Seats</span><b>100</b></div><div class="kv"><span>Resting</span><b>${h.resting}</b></div>
@@ -1423,6 +1428,13 @@ export class UI {
     }
     let actions = '';
     if (b.complete && (b.key === 'pigpen' || b.key === 'chickenpen')) actions += `<button class="btn small" data-a="roundup">${ICONS.people} ROUND UP</button><p class="muted small">Send idle adults to catch ${b.key === 'pigpen' ? 'pigs' : 'chickens'} and bring them to this pen.</p>`;
+    if (b.key === 'palace' && b.complete) {
+      const now = b.decree ?? PALACE_RULES.firstDecree;
+      for (const k of Object.keys(DECREES) as DecreeKey[]) {
+        if (k === now) continue;
+        actions += `<button class="btn small" data-a="decree:${k}" ${g.eco.res.belief >= PALACE_RULES.decreeCost ? '' : 'disabled'} title="${DECREES[k].text}">${DECREES[k].name} <span class="c">${icon('belief')}${PALACE_RULES.decreeCost}</span></button>`;
+      }
+    }
     if (b.key === 'greathall' && b.complete) actions += `<button class="btn small" data-a="bell">${ICONS.bell} Ring the bell (drill)</button>`;
     const up = g.buildings.canUpgrade(b);
     if (b.complete && !b.upgrading && (b.key === 'hut' || (b.key === 'home' && b.tier < (b.def.maxTier ?? 1)) || (b.key === 'temple' && b.tier < 3) || (b.key === 'stonemason' && b.tier < 4) || (b.key === 'boatworkshop' && b.tier < 3))) {
@@ -1525,6 +1537,11 @@ export class UI {
       }
       if (a === 'roundup') g.roundUpAnimals(b);
       if (a === 'bell') g.ringHallBell(b);
+      if (a.startsWith('decree:')) {
+        const k = a.slice(7) as DecreeKey;
+        if (k in DECREES && g.buildings.setDecree(b, k)) this.toast(`The Tlatoani decrees ${DECREES[k].name}: ${DECREES[k].text.toLowerCase()}.`);
+        else this.toast(`Issuing a decree needs ${PALACE_RULES.decreeCost} Belief.`, 'warn');
+      }
       if (a === 'helpers') {
         const came = g.colony.callHelpers(b);
         this.toast(came.length ? `${came.length === 1 ? came[0].name + ' is' : came.length + ' villagers are'} coming to help build the ${b.label}.` : 'Nobody is free nearby to help.', came.length ? 'info' : 'warn');

@@ -1530,7 +1530,7 @@ export class Colony {
         if (harvesting) {
           if (f.key === 'herbalgarden' && !this.bld.list.some(b => b.key === 'herbalist' && buildingOperational(b) && !b.upgrading)) return this.releaseTask(isl);
           if (f.growth >= 1) {
-            f.stock += FARM_TYPES[f.key]?.yield ?? FARM.grainYield;
+            f.stock += Math.round((FARM_TYPES[f.key]?.yield ?? FARM.grainYield) * (this.bld.decreeFactor?.('harvest') ?? 1));
             f.growth = 0;
             this.hooks.sfx?.('harvest', isl.x, isl.z);
           }
@@ -2824,7 +2824,7 @@ export class Colony {
       }
     }
     this.separate(dt);
-    this.eco.add('belief', happy * ISLANDER.beliefPerHappyPerSecond * dt);
+    this.eco.add('belief', happy * ISLANDER.beliefPerHappyPerSecond * (this.bld.decreeFactor?.('gods') ?? 1) * dt);
     void JETTY;
   }
 

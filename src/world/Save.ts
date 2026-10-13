@@ -3,7 +3,7 @@ import type { StormFireSave } from '../buildings/StormFire';
 import { villagePriority, type VillagePriority } from '../ai/VillagePriority';
 import { GOD_NAME } from './names';
 import type { VolcanoSave } from '../entities/Volcano';
-import { BuildingKey, GOOD_KEYS, GoodKey, ResourceKey, SAVE } from '../config';
+import { BuildingKey, DECREES, GOOD_KEYS, GoodKey, ResourceKey, SAVE, type DecreeKey } from '../config';
 import type { Game } from '../Game';
 import type { Islander, Role } from '../entities/Islander';
 import { PlantState } from '../vegetation/Vegetation';
@@ -39,6 +39,7 @@ export interface SaveData {
     /** Kennel: litter timer, breeding rest, dog role (1 = guard). */
     breed?: number; cool?: number; guard?: number;
     monumentPaid?: number;
+    decree?: DecreeKey;
     boatBuild?: number;
     boatSail?: boolean;
     boatSails?: boolean[];
@@ -142,6 +143,7 @@ export function serialize(g: Game): SaveData {
     layout: 1,
     buildings: g.buildings.list.map((b) => ({
       ...(b.monumentPaid!==undefined ? {monumentPaid:b.monumentPaid} : {}),
+      ...(b.decree ? { decree: b.decree } : {}),
       ...((b.integrity < 1 || b.ruined || b.fire > 0 || b.repairing) ? {
         integrity: b.integrity, fire: b.fire, ruined: b.ruined, repairing: b.repairing,
         repairProgress: b.repairProgress, fireAlerted: b.fireAlerted,
@@ -230,6 +232,7 @@ export function applyRest(g: Game, d: SaveData): void {
   for (const b of d.buildings) {
     const nb = g.buildings.restore(b.key, b.cx, b.cz, b.rot, b);
     nb.monumentPaid = b.monumentPaid;
+    if (b.decree && b.decree in DECREES) nb.decree = b.decree;
     nb.boatBuild = b.boatBuild??0;nb.boatSail=b.boatSail??false;
     idMap.set(b.id, nb.id);
     if (b.key === 'market') nb.marketStock = { ...(b.marketStock ?? {}) };

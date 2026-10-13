@@ -2,7 +2,7 @@ import { needsStonemason, type BuildingKey } from '../config';
 import type { Building } from '../buildings/Buildings';
 
 export const STAGES=['First landing','Small settlement','Skilled village','Community','Worship','Prosperity','Monumental settlement'] as const;
-export const BUILD_STAGE:Partial<Record<BuildingKey,number>>={boatworkshop:1,woodstore:2,grainstore:2,jetty:1,pigpen:2,chickenpen:2,stonemason:3,home:3,maizefarm:3,chinampa:3,well:3,smokehouse:3,butcher:3,herbalgarden:3,herbalist:3,healer:3,bonfire:3,firepit:2,market:4,greathall:4,kennel:4,watchtower:4,warroom:5,temple:5,tradedock:6,greattemple:7};
+export const BUILD_STAGE:Partial<Record<BuildingKey,number>>={boatworkshop:1,woodstore:2,grainstore:2,jetty:1,pigpen:2,chickenpen:2,stonemason:3,home:3,maizefarm:3,chinampa:3,well:3,smokehouse:3,butcher:3,herbalgarden:3,herbalist:3,healer:3,bonfire:3,firepit:2,market:4,greathall:4,kennel:4,watchtower:4,warroom:5,temple:5,tradedock:6,palace:6,greattemple:7};
 export interface ProgressState {buildings:Building[];population:number;food:number;carved:number;sandbox:boolean;milestones:Set<string>}
 /** Permanent achievements are stored with the island's milestones. Costs still apply each time. */
 export class Progression {
