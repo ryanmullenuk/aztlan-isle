@@ -49,5 +49,9 @@ export function withBuildingGround(model:THREE.BufferGeometry,b:Building,w:World
   const apron=geometry.build();
   const merged=mergeGeometries([model,apron]);apron.dispose();
   if(!merged)return model;
+  // Decoration must not discard the monument’s staged construction metadata.
+  merged.userData = { ...model.userData };
+  const phases = merged.userData.constructionPhases as number[] | undefined;
+  if (phases) merged.userData.constructionPhases = [...phases.slice(0,-1), merged.index!.count];
   model.dispose();return merged;
 }

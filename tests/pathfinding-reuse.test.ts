@@ -242,3 +242,27 @@ test('demolition keeps rubble blocked for ten seconds and clears the correct occ
   assert.equal(h.w.occ[h.w.idx(103,100)],0);assert.equal(h.w.occ[h.w.idx(104,101)],8);
   assert.equal(h.pf.walkable(h.w.idx(103,100)),true);
 });
+
+test('repeated replans cannot restart recovery forever on a looping journey',()=>{
+ const h=setup(),p=route(h);let result='walking';
+ // A changing local obstruction repeatedly causes the same route to be requested.
+ // Small backwards/forwards motion and touching waypoint zero are not journey progress.
+ for(let i=0;i<240&&result==='walking';i++){
+  p.x=.5+(i%2)*.08;p.z=.5;p.y=h.w.groundY(p.x,p.z);
+  h.c.clock+=.1;
+  if(i%10===0){h.c.requestPath(p,20.5,.5,{},true);h.c.processPaths();}
+  result=h.c.travel(p,.1,20.5,.5);
+ }
+ assert.equal(result,'failed','same destination must eventually release a looping task');
+ assert.ok(h.colony.pathStats.completed<25,'recovery stays within existing request budget');
+});
+
+test('genuine progress on a long detour is not confused with circling',()=>{
+ const h=setup();
+ for(let z=-8;z<=8;z++)h.w.occ[h.w.cellIndexAt(5.5,z+.5)]=9;
+ const p=route(h,12.5,.5);let result='walking';
+ for(let i=0;i<1000&&result==='walking';i++){
+  h.c.clock+=.1;h.c.processPaths();result=h.c.travel(p,.1,12.5,.5);p.y=h.w.groundY(p.x,p.z);
+ }
+ assert.equal(result,'arrived');assert.ok(Math.hypot(p.x-12.5,p.z-.5)<.4);
+});

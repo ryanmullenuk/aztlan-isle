@@ -63,6 +63,8 @@ interface PathReq {
 }
 
 interface RouteState extends PathReq {
+  remaining?: number[];
+  progress?: { best: number; elapsed: number };
   path: Islander['path'];
   version: number;
   navigationVersion: number;
@@ -197,6 +199,8 @@ export class Colony {
     const ordered = isl.manualRole || isl.task?.kind === 'goto' || isl.task?.kind === 'capture';
     const req: RouteState = { isl, task: isl.task, x, z, opts: { ...opts }, path: null,
       version: this.world.version, navigationVersion: this.world.navigationVersion,
+      progress: old && old.task === isl.task && this.sameOptions(old.opts,opts,false) && this.sameGoal(old,x,z) && old.version === this.world.version &&
+        old.navigationVersion === this.world.navigationVersion ? old.progress : undefined,
       requestedAt: this.clock, checkAt: 0, priority: urgent ? 2 : ordered ? 1 : 0,
       readyAt: this.clock + (urgent || ordered || force ? 0 : (isl.id % 8) * .05) };
     isl.pathPending = true;
@@ -225,6 +229,20 @@ export class Colony {
     // Shut inside a building's footprint they don't belong in (it went up, or was moved, where
     // they stood): walk straight out to open ground first, then find the way again.
     if (this.escape(isl, dt, opts)) return 'walking';
+    // Measure the whole remaining journey, not just a waypoint. Replanning and repeatedly
+    // visiting the start waypoint must not reset the recovery timer for the same destination.
+    const activeRoute = this.routes.get(isl);
+    if (activeRoute?.remaining && isl.path && isl.pathIdx < isl.path.length && this.sameGoal(activeRoute,x,z)) {
+      const wp = isl.path[isl.pathIdx];
+      const remaining = Math.hypot(wp.x-isl.x,wp.z-isl.z) + activeRoute.remaining[isl.pathIdx];
+      const progress = activeRoute.progress ??= { best: remaining, elapsed: 0 };
+      if (remaining < progress.best - .3) { progress.best = remaining; progress.elapsed = 0; }
+      else progress.elapsed += dt;
+      if (progress.elapsed > 18) {
+        isl.path = null;
+        return 'failed';
+      }
+    }
     const route = this.routes.get(isl);
     if (route?.task === t) {
       const changed = route.version !== this.world.version || route.navigationVersion !== this.world.navigationVersion;
@@ -266,7 +284,7 @@ export class Colony {
     }
     const velocity = avoidCrowd(isl, dx, dz, speed, this.avoidanceGrid, (nx, nz) => {
       const next = this.world.cellIndexAt(nx, nz);
-      return next >= 0 && this.pf.walkable(next, opts.allowBuilding, opts.allowWater)
+      return next >= 0 && this.pf.segmentClear(isl.x, isl.z, nx, nz, opts)
         && Math.abs((opts.allowWater ? escortSurfaceY(this.world, nx, nz, 0.48) : this.world.groundY(nx, nz)) - isl.y) < 0.65;
     });
     // Boxed in by people (a knot round the fire or a store door, where nobody has a clear way, or
@@ -275,7 +293,7 @@ export class Colony {
     if (forward < speed * 0.25 && (isl.noProg ?? 0) > 1.5 && d > 0.001) {
       const vx = (dx / d) * speed * 0.6, vz = (dz / d) * speed * 0.6;
       const nx = isl.x + vx * 0.3, nz = isl.z + vz * 0.3, next = this.world.cellIndexAt(nx, nz);
-      if (next >= 0 && this.pf.walkable(next, opts.allowBuilding, opts.allowWater)
+      if (next >= 0 && this.pf.segmentClear(isl.x, isl.z, nx, nz, opts)
         && Math.abs((opts.allowWater ? escortSurfaceY(this.world, nx, nz, 0.48) : this.world.groundY(nx, nz)) - isl.y) < 0.65) {
         velocity.x = vx; velocity.z = vz;
         isl.slipping = true;
@@ -2717,7 +2735,13 @@ export class Colony {
       q.isl.path = this.pf.find(q.isl.x, q.isl.z, q.x, q.z, q.opts);
       q.isl.pathIdx = 0;
       q.isl.pathPending = false;
-      this.routes.set(q.isl, { ...q, path: q.isl.path, version: this.world.version,
+      const previous = this.routes.get(q.isl);
+      const remaining = q.isl.path?.map(() => 0);
+      if (remaining && q.isl.path) for (let k = remaining.length - 2; k >= 0; k--) {
+        const a = q.isl.path[k], b = q.isl.path[k+1];
+        remaining[k] = remaining[k+1] + Math.hypot(b.x-a.x,b.z-a.z);
+      }
+      this.routes.set(q.isl, { ...q, remaining, progress: previous?.progress, path: q.isl.path, version: this.world.version,
         navigationVersion: this.world.navigationVersion, requestedAt: this.clock,
         checkAt: this.clock + .5 + (q.isl.id % 8) * .03 });
       done++;

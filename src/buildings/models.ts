@@ -654,21 +654,23 @@ export function greatTempleModel(): BuildingModel {
     b.add(P.box(0.18,0.11,0.025),{color:col},M.t(x,H+1.69,z+0.815));
   };
   shrine(-1.1,K.red); shrine(1.1,turquoise);
-  const brazier = (x:number,y:number,z:number) => {
-    b.add(P.box(0.48,0.14,0.48),{color:shade},M.t(x,y+0.07,z));
+  const brazier = (x:number,y:number,z:number, foot=0.48, plinth=0.14) => {
+    b.add(P.box(foot,plinth,foot),{color:shade},M.t(x,y+plinth/2,z));
+    y += plinth - 0.14;
     b.add(P.box(0.32,0.34,0.32),{color:stone},M.t(x,y+0.29,z));
     b.add(P.box(0.52,0.09,0.52),{color:K.gold},M.t(x,y+0.5,z));
     b.add(P.box(0.36,0.035,0.36),{color:c(0x46352b)},M.t(x,y+0.56,z));
     torches.push(new THREE.Vector3(x,y+0.6,z));
   };
   for(const side of [-1,1]) {
-    brazier(side*1.18,0.12,3.56);
-    brazier(side*2.68,1.96,2.67);
+    // Tall front plinths clear the sloping foundation; terrace fires stay outside the next tier.
+    brazier(side*1.18,0.12,3.94,0.36,0.48);
+    brazier(side*2.68,1.96,3.18);
     brazier(side*1.98,H,1.97);
     brazier(side*1.98,H,-1.95);
-    sunBanner(b,M.t(side*2.0,0.99,3.622,-Math.atan2(0.6,1.72),0,0),0.66,1.22);
-    sunBanner(b,M.t(side*1.55,2.85,2.69,-Math.atan2(0.55,1.72),0,0),0.6,1.25);
-    sunBanner(b,M.t(side*3.64,1.0,side*1.9,0,side*Math.PI/2,0).multiply(M.t(0,0,0,-Math.atan2(0.6,1.72),0,0)),0.65,1.2);
+    sunBanner(b,M.t(side*2.0,0.99,3.68,-Math.atan2(0.6,1.72),0,0),0.66,1.22);
+    sunBanner(b,M.t(side*1.55,2.85,2.75,-Math.atan2(0.55,1.72),0,0),0.6,1.25);
+    sunBanner(b,M.t(side*3.70,1.0,side*1.9,0,side*Math.PI/2,0).multiply(M.t(0,0,0,-Math.atan2(0.6,1.72),0,0)),0.65,1.2);
     for(const [x,y,z] of [[3.3,0.12,2.65],[2.8,1.96,0.8],[1.8,H,-1.75]]) {
       broadLeaf(b,side*x,y,z,1.8,Math.round(x*31+side));
       fern(b,side*(x-0.25),y,z+0.15,1.1,Math.round(x*50+side));
@@ -2140,13 +2142,16 @@ export function greatHallModel(): BuildingModel {
     b.add(P.box(2 * E - 0.5, 0.012, 0.08), { color: K.red }, M.t(0, H + 0.022, s * (E - 0.3)));
     b.add(P.box(0.08, 0.012, 2 * E - 0.5), { color: K.red }, M.t(s * (E - 0.3), H + 0.022, 0));
   }
-  b.add(P.box(0.42, 0.014, 4.6), { color: c(0xa92c22) }, M.t(0, H + 0.024, 0.3));
+  b.add(P.box(0.5, 0.024, 4.6), { color: c(0xa92c22) }, M.t(0, H + 0.042, 0.3));
   // Front stair: red risers, cream treads, stone cheeks either side.
   const steps = 5, run = (HALL.stairFoot - E) / steps, rise = H / steps;
   for (let k = 0; k < steps; k++) {
     const top = H - k * rise, z = E + run * (k + 0.5);
     b.add(P.box(HALL.stairHalf * 2, top - 0.025, run), { color: K.red }, M.t(0, (top - 0.025) / 2, z));
     b.add(P.box(HALL.stairHalf * 2 + 0.02, 0.025, run + 0.02), { color: cream }, M.t(0, top - 0.0125, z));
+    // Continue the carpet down every tread, clearly above the paving and coping.
+    b.add(P.box(0.5, 0.018, run + 0.012), { color: c(0xa92c22) }, M.t(0, top + 0.021, z));
+    b.add(P.box(0.5, rise - 0.018, 0.016), { color: c(0xa92c22) }, M.t(0, top - rise / 2, z + run / 2 + 0.009));
   }
   // Sloped stone cheeks either side of the stair.
   const cheekShape = new THREE.Shape([
