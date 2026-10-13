@@ -71,7 +71,7 @@ const mir = (p: V3): V3 => [-p[0], p[1], p[2]];
  * other than the founding pair) how thick its body and limbs are and how far out the arms hang, so
  * a heavy belly or a child's big head is weighted to the right bones.
  */
-interface Rig {
+export interface Rig {
   joint: Record<BoneName, V3>; top: V3; tipL: V3; toeL: V3; hat: { y: number; z: number; s: number };
   /** Radius multipliers for the torso, the limbs and the head (1 = the founding pair). */
   girth?: { torso: number; limb: number; head: number };
@@ -82,7 +82,7 @@ interface Rig {
 }
 /** The wrap that closes a skirt or kilt: radii across and front-to-back at its top and hem, its
  * centre, and (when measured from the model) its hem height and the cloth and hem texels. */
-interface SkirtFit { rx: [number, number]; rz: [number, number]; cz: number; hemY?: number; cream?: [number, number]; gold?: [number, number] }
+export interface SkirtFit { rx: [number, number]; rz: [number, number]; cz: number; hemY?: number; cream?: [number, number]; gold?: [number, number] }
 
 /** A rig from the left-side limb joints and the spine heights (all mirrored for the right). */
 function rig(L: Record<'shoulder' | 'upper_arm' | 'forearm' | 'hand' | 'thigh' | 'shin' | 'foot', V3>, spine: { hips: V3; spine: V3; chest: V3; neck: V3; head: V3 },
@@ -98,7 +98,7 @@ function rig(L: Record<'shoulder' | 'upper_arm' | 'forearm' | 'hand' | 'thigh' |
   };
 }
 
-const RIGS: Record<BaseModelKey, Rig> = {
+export const RIGS: Record<BaseModelKey, Rig> = {
   m: (() => {
     const L = { shoulder: [0.06, 1.38, -0.04] as V3, upper_arm: [0.2, 1.38, -0.06] as V3, forearm: [0.28, 1.15, -0.06] as V3, hand: [0.32, 0.95, -0.01] as V3, thigh: [0.1, 0.97, -0.03] as V3, shin: [0.17, 0.48, -0.03] as V3, foot: [0.21, 0.1, -0.05] as V3 };
     return {
@@ -160,6 +160,27 @@ const RIGS: Record<BaseModelKey, Rig> = {
   ),
 };
 
+/** Four bone influences per vertex: indices into BONES and their weights. */
+type Skin = { si: Float32Array; sw: Float32Array };
+
+/**
+ * The weights stored in a skinned GLB (exported from Blender with bones named as in BONES),
+ * remapped to the rig's bone order; null for a static mesh.
+ */
+function storedSkin(m: THREE.Mesh): Skin | null {
+  const sk = m as THREE.SkinnedMesh;
+  const I = m.geometry.getAttribute('skinIndex'), W = m.geometry.getAttribute('skinWeight');
+  if (!sk.isSkinnedMesh || !I || !W) return null;
+  const map = sk.skeleton.bones.map((b) => (b.name in BI ? BI[b.name as BoneName] : -1));
+  if (map.some((b) => b < 0)) return null;
+  const si = new Float32Array(I.count * 4), sw = new Float32Array(I.count * 4);
+  for (let i = 0; i < I.count; i++) for (let k = 0; k < 4; k++) {
+    si[i * 4 + k] = map[I.getComponent(i, k)];
+    sw[i * 4 + k] = W.getComponent(i, k);
+  }
+  return { si, sw };
+}
+
 /** Distance from p to the segment ab. */
 function segDist(p: THREE.Vector3, a: THREE.Vector3, b: THREE.Vector3): number {
   const abx = b.x - a.x, aby = b.y - a.y, abz = b.z - a.z;
@@ -175,8 +196,12 @@ function segDist(p: THREE.Vector3, a: THREE.Vector3, b: THREE.Vector3): number {
  * The skirt hangs from the hips, drawn partly toward the thigh on its side lower down, so a leg
  * swinging forward carries the hem with it instead of poking through. Hair (flagged by `hair`) hangs
  * from the head, handing over to the chest down the back, so raised arms don't drag it.
+ *
+ * Given `base` weights (painted in Blender, see scripts/blender), the body takes those instead,
+ * less any bone that may not move that vertex (an arm on the skirt, a leg on the other side);
+ * hair and skirts are still weighted here.
  */
-function autoSkin(P: THREE.BufferAttribute, index: ArrayLike<number>, rig: Rig, hair: Uint8Array, skirtFollow = 0.55, skirtX = 0): { si: Float32Array; sw: Float32Array } {
+function autoSkin(P: THREE.BufferAttribute, index: ArrayLike<number>, rig: Rig, hair: Uint8Array, skirtFollow = 0.55, skirtX = 0, base?: Skin | null): Skin {
   const v = (p: V3) => new THREE.Vector3(p[0], p[1], p[2]);
   const J = rig.joint;
   type Seg = { b: number; a: THREE.Vector3; e: THREE.Vector3; r: number; side: number; kind: 'torso' | 'head' | 'arm' | 'shoulder' | 'leg' };
@@ -314,6 +339,15 @@ function autoSkin(P: THREE.BufferAttribute, index: ArrayLike<number>, rig: Rig, 
       else list.push([p.x > 0 ? BI.thighL : BI.thighR, t]);
       set(list);
       continue;
+    }
+    if (base) {
+      const ok = new Set(segs.filter(allowed).map((s) => s.b));
+      const list: [number, number][] = [];
+      for (let k = 0; k < 4; k++) if (base.sw[i * 4 + k] > 0.01 && ok.has(base.si[i * 4 + k])) list.push([base.si[i * 4 + k], base.sw[i * 4 + k]]);
+      if (list.length) {
+        set(list);
+        continue;
+      }
     }
     const cand: [number, number][] = [];
     segs.forEach((s, k) => {
@@ -561,6 +595,7 @@ async function loadOne(loader: GLTFLoader, g: BaseModelKey): Promise<GlbModel> {
   if (!mesh) throw new Error(`${FILES[g].mesh}: no mesh`);
   const m = mesh as THREE.Mesh;
   const src = m.geometry.clone().applyMatrix4(m.matrixWorld);
+  const painted = storedSkin(m);
   const rig = RIGS[g];
   const joint = {} as Record<BoneName, THREE.Vector3>;
   for (const b of BONES) joint[b] = new THREE.Vector3(...rig.joint[b]);
@@ -593,9 +628,9 @@ async function loadOne(loader: GLTFLoader, g: BaseModelKey): Promise<GlbModel> {
   // Measure the skirt first: its width keeps the hands from claiming its cloth.
   const fit = g === 'm' ? null : fitSkirt(P, src.getAttribute('uv') as THREE.BufferAttribute, map, joint, hair);
   const skirtX = fit && g !== 'f' ? fit.rx[0] / 0.86 : 0;
-  const first = autoSkin(P, tris, rig, hair, follow, skirtX);
+  const first = autoSkin(P, tris, rig, hair, follow, skirtX, painted);
   const kept = cutBridges(P, tris, first.si, first.sw, armpit);
-  const { si, sw } = autoSkin(P, kept, rig, hair, follow, skirtX);
+  const { si, sw } = autoSkin(P, kept, rig, hair, follow, skirtX, painted);
   snapArms(P, si, sw, armpit);
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', P);
