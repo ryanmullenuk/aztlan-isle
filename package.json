@@ -14,7 +14,7 @@
     "test": "node --import tsx --test tests/*.test.ts",
     "perf": "node --import tsx scripts/performance.ts",
     "perf:paths": "node --import tsx scripts/pathfinding-performance.ts",
-    "rig:blender": "tsx scripts/blender/dump-rigs.ts output/rigs.json && /Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup --python scripts/blender/rig_islanders.py -- output/rigs.json art/islanders public/models"
+    "rig:blender": "tsx scripts/blender/dump-rigs.ts output/rigs.json && /Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup --python scripts/blender/rig_islanders.py -- output/rigs.json public/models public/models"
   },
   "dependencies": {
     "@capacitor/core": "^8.5.2",

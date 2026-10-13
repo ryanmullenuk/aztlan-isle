@@ -4,7 +4,7 @@ Rig the islander models in Blender: build the game's 19-bone skeleton at the mea
 automatic (bone heat) weights, and write the skinned model back as a GLB. The game reads those
 weights in place of its own automatic ones (hair and skirts keep the game's handling).
 
-  npm run rig:blender            (all models: the unrigged meshes in art/islanders, rigged into public/models)
+  npm run rig:blender            (all models, re-rigged in place in public/models)
   blender -b --factory-startup --python scripts/blender/rig_islanders.py -- rigs.json src_dir out_dir [keys...]
 
 Open any output GLB in Blender to look at or repaint the weights by hand, and export it back
