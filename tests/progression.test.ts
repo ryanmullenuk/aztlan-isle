@@ -49,10 +49,11 @@ test('Great Temple charges each new phase exactly once, pauses without resources
  const b={key:'greattemple',def:BUILDINGS.greattemple,progress:0,monumentPaid:1,complete:false} as any;
  const sys={eco,updateStageVisuals:()=>{},finish:(b:any)=>{b.complete=true;}} as any;
  const work=(dt:number)=>BuildingSystem.prototype.addProgress.call(sys,b,dt);
- work(300);assert.equal(b.progress,.25);assert.equal(b.monumentPaid,1);
+ const phase=BUILDINGS.greattemple.buildTime/4;
+ work(phase+60);assert.equal(b.progress,.25);assert.equal(b.monumentPaid,1);
  assert.equal(BuildingSystem.prototype.waitingForMaterials.call(sys,b),true);
  Object.assign(eco.res,{wood:120,stone:360,belief:150});eco.goods.carvedstone=90;
- work(721);assert.equal(b.complete,true);assert.equal(b.monumentPaid,4);
+ work(phase*3+1);assert.equal(b.complete,true);assert.equal(b.monumentPaid,4);
  assert.equal(eco.res.wood,0);assert.equal(eco.res.stone,0);assert.equal(eco.res.belief,0);assert.equal(eco.goods.carvedstone,0);
- const legacy={...b,complete:false,progress:0,monumentPaid:undefined};BuildingSystem.prototype.addProgress.call(sys,legacy,960);assert.equal(legacy.complete,true);
+ const legacy={...b,complete:false,progress:0,monumentPaid:undefined};BuildingSystem.prototype.addProgress.call(sys,legacy,BUILDINGS.greattemple.buildTime);assert.equal(legacy.complete,true);
 });

@@ -35,7 +35,8 @@ test('research consumes resources and builder work before unlocking the next boa
  workshop.scaffold={visible:false};
  assert.equal(BuildingSystem.prototype.upgrade.call(bld,workshop),workshop);
  assert.equal(workshop.tier,1);assert.equal(eco.res.wood,960);
- BuildingSystem.prototype.addProgress.call(bld,workshop,89);assert.equal(workshop.tier,1);
+ const research=BOAT_WORKSHOP.upgrades[0].time;
+ BuildingSystem.prototype.addProgress.call(bld,workshop,research-1);assert.equal(workshop.tier,1);
  BuildingSystem.prototype.addProgress.call(bld,workshop,1);assert.equal(workshop.tier,2);
 });
 test('workshop is available early, research follows settlement progression, and placement needs nearby sea',()=>{

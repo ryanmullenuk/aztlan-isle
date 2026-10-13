@@ -156,7 +156,7 @@ test('production and active worker tasks stop when damaged and resume only after
   h.bld.repair(farm); assert.equal(farm.repairing, true); assert.equal(h.eco.res.wood, before - cost.wood);
   h.bld.repair(farm); assert.equal(h.eco.res.wood, before - cost.wood);
   p.role = 'builder'; p.workplace = farm.id; h.c.work(p); h.c.travel = () => 'arrived';
-  for (let n = 0; n < 10 && farm.repairing; n++) { if (!p.task) h.c.work(p); h.c.runTask(p, 4); }
+  for (let n = 0; n < 40 && farm.repairing; n++) { if (!p.task) h.c.work(p); h.c.runTask(p, 4); }
   assert.equal(farm.integrity, 1); assert.equal(farm.repairing, false); assert.equal(farm.progress, 1);
   h.bld.update(1, 2, 0, 0, false, new THREE.Vector3()); assert.ok(farm.growth > .2);
 });

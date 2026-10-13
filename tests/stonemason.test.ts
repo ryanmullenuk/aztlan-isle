@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { BUILDINGS, masonryCost, needsStonemason } from '../src/config';
+import { BUILDINGS, STONEMASON, masonryCost, needsStonemason } from '../src/config';
 import { Building, BuildingSystem } from '../src/buildings/Buildings';
 import { stonemasonModel } from '../src/buildings/models';
 import { Economy } from '../src/economy/Economy';
@@ -95,7 +95,7 @@ test('workshop upgrades charge wood, stone and mixed food once, and unlock only 
     assert.equal(workshop.tier,level);assert.equal(workshop.upgrading,true);
     assert.equal(eco.res.wood,before.wood-next.cost.wood);assert.equal(eco.res.stone,before.stone-next.cost.stone);assert.equal(eco.food,before.food-next.cost.food);
     assert.equal(system.canUpgrade(workshop).ok,false);
-    const duration=[60,90,120][level-1];
+    const duration=STONEMASON.upgrades[level-1].time;
     BuildingSystem.prototype.addProgress.call(system,workshop,duration-1);assert.equal(workshop.tier,level);
     BuildingSystem.prototype.addProgress.call(system,workshop,1);assert.equal(workshop.tier,level+1);assert.equal(workshop.upgrading,false);
   }

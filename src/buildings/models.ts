@@ -337,21 +337,103 @@ function stairs(b: GeoBuilder, x: number, z: number, n: number, stepH: number, s
   }
 }
 
-/** Level 1 house: a small adobe hut with a thatched awning (2 people). */
+/**
+ * Hut (level 1): the first homes, before the islanders have masonry. Entirely wood and thatch: a
+ * plank floor, vertical plank walls between log corner posts and rails lashed with rope, plank
+ * gable ends, an open doorway in a log frame, and a deep thatch of overlapping stick shingles
+ * under a ridge log whose crossed ends stand above each gable. Door faces +z.
+ */
 export function hutModel(): BuildingModel {
   const b = new GeoBuilder();
-  baseBand(b, 1.2, 1.1, 0, 0, 0.12);
-  adobeBlock(b, 1.2, 0.72, 1.1, 0, 0, 0);
-  adobeBlock(b, 0.55, 0.36, 0.55, -0.26, 0.72, -0.2);
-  tealDoor(b, 0.1, 0.02, 0.56);
-  adobeWindow(b, -0.36, 0.9, -0.2 + 0.28);
-  adobeWindow(b, 0.61, 0.46, -0.1, true);
-  // Thatched lean-to over the door.
-  b.add(P.box(1.1, 0.05, 0.42), { color: thatchColor, leaf: 0.2 }, M.t(0.05, 0.66, 0.74, 0.3, 0, 0));
-  for (const x of [-0.4, 0.5]) b.add(P.cyl(0.025, 0.03, 0.6, 5), { color: AD.post }, M.t(x, 0.3, 0.9));
-  pottedPlant(b, 0.62, 0, 0.72, 0.9);
-  const t = torchPole(b, -0.62, 0.78, 0.7);
-  return { finished: b.build(), torches: [t], height: 1.4 };
+  const rng = new RNG(911);
+  const W = 1.1, D = 1.0, H = 0.6, hw = W / 2, hd = D / 2, rise = 0.42, eave = 0.2, side = 0.14;
+  const LOG = c(0x8a5530), LOG_D = c(0x6e4124), ROPE = c(0xd6b06a), FLOOR = c(0x9a6a3a);
+  const plank = () => c(0xb07a42).multiplyScalar(0.88 + rng.next() * 0.2);
+  const straw = () => c(0xe49a3c).multiplyScalar(0.86 + rng.next() * 0.22);
+  const lash = (x: number, y: number, z: number, r = 0.05) => b.add(P.torus(r, 0.008, 4, 10), { color: ROPE }, M.t(x, y, z, Math.PI / 2, 0, 0));
+  // Plank floor on low sleepers, running out over the threshold.
+  b.add(P.box(W + 0.08, 0.06, D + 0.08), { color: FLOOR }, M.t(0, 0.03, 0));
+  for (let k = 0; k < 6; k++) b.add(P.box(0.012, 0.004, D + 0.06), { color: LOG_D }, M.t(-hw + (k + 0.5) * (W / 6), 0.062, 0));
+  b.add(P.box(0.5, 0.05, 0.14), { color: FLOOR }, M.t(0, 0.035, hd + 0.08));
+  // Walls of vertical planks (front: either side of the doorway; sides: rising into the gables).
+  const door = 0.21, wallY = 0.06;
+  const planks = (axis: 'x' | 'z', fixed: number, from: number, to: number, top: (u: number) => number) => {
+    const n = Math.max(2, Math.round((to - from) / 0.1));
+    for (let k = 0; k < n; k++) {
+      const u = from + ((k + 0.5) * (to - from)) / n, h = top(u) - wallY, w = (to - from) / n - 0.008;
+      const t = M.t(axis === 'x' ? u : fixed, wallY + h / 2, axis === 'x' ? fixed : u, 0, 0, 0, 1, 1, 1);
+      b.add(P.box(axis === 'x' ? w : 0.035, h, axis === 'x' ? 0.035 : w), { color: plank() }, t);
+    }
+  };
+  const flat = () => H;
+  const gable = (z: number) => H + rise * (1 - Math.abs(z) / hd);
+  planks('x', hd, -hw, -door, flat);
+  planks('x', hd, door, hw, flat);
+  planks('x', -hd, -hw, hw, flat);
+  planks('z', -hw, -hd, hd, gable);
+  planks('z', hw, -hd, hd, gable);
+  // Above the doorway, and the dark room inside.
+  b.add(P.box(door * 2, H - 0.5, 0.035), { color: plank() }, M.t(0, 0.5 + (H - 0.5) / 2, hd));
+  b.add(P.box(W - 0.1, H - 0.08, 0.01), { color: c(0x3a2414) }, M.t(0, wallY + (H - 0.08) / 2, -hd + 0.03));
+  b.add(P.box(W - 0.1, 0.01, D - 0.1), { color: c(0x5a3a20) }, M.t(0, 0.065, 0));
+  // Doorway frame: two posts and a lintel, lashed.
+  for (const x of [-door, door]) b.add(P.cyl(0.028, 0.03, 0.52, 7), { color: LOG }, M.t(x, 0.32, hd + 0.03));
+  b.add(P.cyl(0.026, 0.026, door * 2 + 0.16, 7), { color: LOG }, M.t(0, 0.56, hd + 0.04, 0, 0, Math.PI / 2));
+  for (const x of [-door, door]) lash(x, 0.56, hd + 0.04, 0.034);
+  // Log corner posts with lashings top and bottom, and log rails along the wall tops.
+  for (const [x, z] of [[-hw, -hd], [hw, -hd], [-hw, hd], [hw, hd]] as const) {
+    b.add(P.cyl(0.042, 0.048, H + 0.08, 8), { color: LOG }, M.t(x, (H + 0.08) / 2, z));
+    lash(x, H - 0.04, z); lash(x, 0.16, z);
+  }
+  for (const z of [-hd, hd]) b.add(P.cyl(0.032, 0.032, W + 0.16, 7), { color: LOG }, M.t(0, H, z + Math.sign(z) * 0.015, 0, 0, Math.PI / 2));
+  for (const x of [-hw, hw]) b.add(P.cyl(0.03, 0.03, D + 0.12, 7), { color: LOG_D }, M.t(x + Math.sign(x) * 0.015, H - 0.02, 0, Math.PI / 2, 0, 0));
+  // A collar beam and king post in each gable, lashed where they cross.
+  for (const x of [-hw, hw]) {
+    const sx = x + Math.sign(x) * 0.03;
+    b.add(P.cyl(0.022, 0.022, D * 0.62, 6), { color: LOG_D }, M.t(sx, H + rise * 0.42, 0, Math.PI / 2, 0, 0));
+    b.add(P.cyl(0.022, 0.022, rise * 0.95, 6), { color: LOG_D }, M.t(sx, H + rise * 0.5, 0));
+    lash(sx, H + rise * 0.42, 0, 0.03);
+  }
+  // Thatch: two slopes of overlapping stick shingles. Each course lies over the top of the one
+  // below it, so the slope steps down in three ragged rows to the eaves.
+  const slopeLen = Math.hypot(hd + eave, rise), ang = Math.atan2(rise, hd + eave);
+  const stick = (l: number) => P.rbox(0.06, 0.04, l, 0.014, 2);
+  for (const s of [1, -1]) {
+    const nrm = new THREE.Vector3(0, Math.cos(ang), s * Math.sin(ang));
+    for (let row = 0; row < 3; row++) {
+      const n = Math.round((W + side * 2) / 0.066);
+      for (let k = 0; k < n; k++) {
+        const x = -hw - side + (k + 0.5) * ((W + side * 2) / n) + (rng.next() - 0.5) * 0.012;
+        const l = 0.36 + (rng.next() - 0.5) * 0.07;
+        // Lower end of this course (distance down the slope from the ridge), ragged.
+        const low = slopeLen * (1 - row * 0.3) + (rng.next() - 0.5) * 0.03;
+        const mid = low - l / 2;
+        const lift = 0.025 + row * 0.022;
+        const px = x, py = H + rise + 0.05 - mid * Math.sin(ang) + nrm.y * lift, pz = s * mid * Math.cos(ang) + nrm.z * lift;
+        b.add(stick(l), { color: straw(), leaf: 0.2 }, M.t(px, py, pz, s * ang + (rng.next() - 0.5) * 0.04, (rng.next() - 0.5) * 0.05, (rng.next() - 0.5) * 0.04));
+      }
+    }
+    // The underlayer, so no light shows between the sticks.
+    b.add(P.box(W + side * 2, 0.025, slopeLen), { color: c(0xa8742c), leaf: 0.2 },
+      M.t(0, H + rise / 2 + 0.03, s * (hd + eave) / 2, s * ang, 0, 0));
+  }
+  // A bundled ridge cap along the top.
+  b.add(P.cyl(0.06, 0.06, W + side * 2, 8), { color: c(0xc98e3c), leaf: 0.2 }, M.t(0, H + rise + 0.075, 0, 0, 0, Math.PI / 2, 1, 0.8, 1));
+  // Ridge log, and log bargeboards down each gable edge, crossing just above the ridge and tied.
+  const ridgeY = H + rise + 0.13;
+  b.add(P.cyl(0.04, 0.04, W + side * 2 + 0.1, 8), { color: LOG }, M.t(0, ridgeY, 0, 0, 0, Math.PI / 2));
+  for (const x of [-hw - side - 0.02, hw + side + 0.02]) {
+    for (const s of [1, -1]) {
+      // From the eave corner, up past the ridge.
+      const ex = s * (hd + eave + 0.03), ey = H + 0.02;
+      const ux = -s * (hd + eave), uy = rise + 0.11, ul = Math.hypot(ux, uy);
+      const L = ul + 0.16, cx = ex + (ux / ul) * L / 2, cy = ey + (uy / ul) * L / 2;
+      b.add(P.cyl(0.032, 0.034, L, 7), { color: LOG }, M.t(x, cy, cx, Math.atan2(ux, uy), 0, 0));
+    }
+    lash(x, ridgeY, 0, 0.05);
+    b.add(P.box(0.012, 0.075, 0.075), { color: ROPE }, M.t(x, ridgeY, 0, Math.PI / 4, 0, 0));
+  }
+  return { finished: b.build(), torches: [], height: 1.25 };
 }
 
 /**

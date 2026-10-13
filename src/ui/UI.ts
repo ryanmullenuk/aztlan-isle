@@ -54,6 +54,11 @@ const PL_ICONS = {
   snap: '<svg viewBox="0 0 24 24">' + [5, 12, 19].flatMap((y) => [5, 12, 19].map((x) => `<rect x="${x - 2}" y="${y - 2}" width="4" height="4" rx="0.6" fill="currentColor"/>`)).join('') + '</svg>',
   cancel: '<svg viewBox="0 0 24 24"><path d="M5.5 5.5l13 13M18.5 5.5l-13 13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>',
 };
+/** How long a building takes: one islander alone, and with its full crew of builders. */
+export function buildTimeText(seconds: number, builders: number): string {
+  const t = (s: number) => (s >= 90 ? `${Math.round(s / 60 * 10) / 10} min` : `${Math.round(s)} s`);
+  return builders > 1 ? `Build time: ${t(seconds)} for one islander, ${t(seconds / builders)} with ${builders}` : `Build time: ${t(seconds)}`;
+}
 /** Change a placement action's label, leaving its icon. */
 const setLabel = (b: HTMLButtonElement, text: string) => {
   const l = b.querySelector('.pl-lbl');
@@ -501,7 +506,7 @@ export class UI {
         if (reason) this.toast(reason, 'warn');
         else this.game.startPlacing(key);
       };
-      this.addTip(b, `<b>${def.name}</b><br>${def.description}<br><span class="c">${cost || 'Free'} · ${def.size[0]}×${def.size[1]}</span>`);
+      this.addTip(b, `<b>${def.name}</b><br>${def.description}<br><span class="c">${cost || 'Free'} · ${def.size[0]}×${def.size[1]}</span><br><span class="muted">${buildTimeText(def.buildTime, def.builders)}</span>`);
       grid.appendChild(b);
       this.buildItems.set(key, b);
     }

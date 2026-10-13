@@ -263,7 +263,7 @@ export interface BuildingDef {
   /** Footprint in cells (width x depth). */
   size: [number, number];
   cost: { wood: number; stone: number; belief: number; carvedStone?: number };
-  /** Worker-seconds of construction. */
+  /** Seconds for one islander working alone; each extra builder (up to `builders`) adds the same again. */
   buildTime: number;
   /** Max builders at once. */
   builders: number;
@@ -279,35 +279,35 @@ export interface BuildingDef {
 
 export const BUILDINGS: Record<BuildingKey, BuildingDef> = {
   campfire: { key: 'campfire', name: 'Tribal Fire', description: 'The heart of the tribe. Stores a little of everything.', size: [2, 2], cost: { wood: 0, stone: 0, belief: 0 }, buildTime: 1, builders: 1, workers: 0, placeable: false },
-  hut: { key: 'hut', name: 'Hut', description: 'Level 1 house: a small adobe home for 2 islanders.', size: [2, 2], cost: { wood: 12, stone: 0, belief: 0 }, buildTime: 22, builders: 2, workers: 0, housing: 2, upgradeTo: 'home', placeable: true },
-  market: { key: 'market', name: 'Market Square', description: 'Sandstone stalls and woven awnings around an open courtyard. Two market keepers carry surplus food, wood and stone here from the stores. Visiting canoes stop at the nearest accessible shore and offer occasional exchanges. Accept their bargains from this square’s card.', size: [5, 5], cost: { wood: 36, stone: 24, belief: 0 }, buildTime: 55, builders: 3, workers: 2, placeable: true },
-  boatworkshop: { key: 'boatworkshop', name: 'Boat Workshop', description: 'A coastal adobe boatyard with a half-built hull. Complete it to build canoes at Fishing Jetties. Research larger fishing boats, then trade boats. Must stand on dry land near the sea.', size: [4, 4], cost: { wood: 24, stone: 8, belief: 0 }, buildTime: 40, builders: 2, workers: 0, maxTier: 3, placeable: true },
-  stonemason: { key: 'stonemason', name: 'Stonemason’s Workshop', description: 'Stone blocks, unfinished carvings and tools beneath a shaded timber workspace. Two stonemasons turn 4 raw stone into 2 carved stone per minute of work. Complete this workshop to enable masonry; settlement milestones unlock houses and advanced village buildings. Three further upgrades unlock Temples, Great Pyramid upgrades and the Great Temple. Carved stone is required for stone buildings and house or temple upgrades.', size: [4, 3], cost: { wood: 24, stone: 12, belief: 0 }, buildTime: 40, builders: 2, workers: 2, maxTier: 4, placeable: true },
-  home: { key: 'home', name: 'Family House', description: 'Adobe family house (level 2, 4 people). Upgrade it up to level 5 for 16. A couple in any house may have one child, who plays around the village.', size: [3, 3], cost: { wood: 26, stone: 14, belief: 0 }, buildTime: 45, builders: 3, workers: 0, housing: 4, maxTier: 4, placeable: true },
-  temple: { key: 'temple', name: 'Temple', description: 'Stepped pyramid that generates Belief. Upgrade twice to raise the Great Pyramid.', size: [4, 4], cost: { wood: 20, stone: 36, belief: 20 }, buildTime: 70, builders: 4, workers: 2, maxTier: 3, placeable: true },
-  greattemple: { key: 'greattemple', name: 'Great Temple', description: 'A monumental twin-shrine sanctuary, four times the Great Pyramid footprint. Built in four phases, each costing 40 wood, 120 stone, 30 carved stone and 50 Belief. Each worshipper earns 1 Belief per 5 minutes of prayer; progress is kept between visits.', size: [8, 8], cost: { wood: 40, stone: 120, belief: 50 }, buildTime: 960, builders: 8, workers: 12, placeable: true },
-  farm: { key: 'farm', name: 'Vegetable Farm', description: 'Beans climbing poles, squash and chillies. Quick to grow; farmers also catch wild chickens for the pen.', size: [4, 4], cost: { wood: 16, stone: 0, belief: 0 }, buildTime: 25, builders: 2, workers: 2, placeable: true },
-  maizefarm: { key: 'maizefarm', name: 'Maize Farm', description: 'A big field of tall maize with a granary crib. Slower to ripen but the richest grain harvest.', size: [5, 5], cost: { wood: 26, stone: 4, belief: 0 }, buildTime: 35, builders: 2, workers: 3, placeable: true },
-  chinampa: { key: 'chinampa', name: 'Water Garden', description: 'Raised garden beds between water channels, built beside a river, pool or shore. Rich, wet soil grows crops fast in every season.', size: [4, 4], cost: { wood: 20, stone: 8, belief: 0 }, buildTime: 40, builders: 2, workers: 2, placeable: true },
-  tradedock: { key: 'tradedock', name: 'Trade Dock', description: 'A long pier and trading house on the shore, facing open water. Build trade boats here and send them to trade your spare goods for what you need.', size: [2, 2], cost: { wood: 40, stone: 20, belief: 0 }, buildTime: 45, builders: 3, workers: 0, placeable: true },
-  torch: { key: 'torch', name: 'Torch', description: 'A tall torch on a post. Place it along paths or anywhere to light the village at night. Villagers can walk past it.', size: [1, 1], cost: { wood: 3, stone: 0, belief: 0 }, buildTime: 4, builders: 1, workers: 0, placeable: true },
-  bonfire: { key: 'bonfire', name: 'Bonfire', description: 'A great stone-ringed fire with towering orange flames. In the evenings villagers gather here to sing and tell stories: they grow happier and the tribe gains Belief.', size: [3, 3], cost: { wood: 20, stone: 6, belief: 0 }, buildTime: 20, builders: 2, workers: 0, placeable: true },
-  firepit: { key: 'firepit', name: 'Cooking Firepit', description: 'A large stone hearth with roaring flames. Islanders gather and dance here at night; roasted meat also makes meals more filling.', size: [2, 2], cost: { wood: 12, stone: 8, belief: 0 }, buildTime: 18, builders: 1, workers: 0, placeable: true },
-  well: { key: 'well', name: 'Well', description: 'Provides fresh water for the village and supplies islanders fighting building fires. Keep a well nearby and accessible to help protect your buildings.', size: [2, 2], cost: { wood: 6, stone: 20, belief: 0 }, buildTime: 25, builders: 2, workers: 0, placeable: true },
-  greathall: { key: 'greathall', name: 'Great Hall', description: 'A raised stone hall under a striped canopy, with fire braziers and a bronze bell. Seats up to 100 islanders on its benches; when a jaguar is spotted the bell rings and everyone runs to the hall or home for sanctuary.', size: [7, 7], cost: { wood: 70, stone: 60, belief: 20 }, buildTime: 110, builders: 5, workers: 0, placeable: true },
-  herbalist: { key: 'herbalist', name: 'Herbalist’s Garden', description: 'An adobe shelter with drying herbs and clay pots. Processes one delivered herb bundle into one medicine every three game minutes. Medicine supplies automatic treatment at Healing Centres.', size: [4, 4], cost: { wood: 30, stone: 18, belief: 0 }, buildTime: 45, builders: 2, workers: 0, placeable: true },
-  herbalgarden: { key: 'herbalgarden', name: 'Herbal Garden', description: 'A small garden of multicoloured medicinal plants. Two islanders tend and harvest its raised beds, then carry herbs to a completed Herbalist’s Garden for processing into medicine.', size: [3, 3], cost: { wood: 14, stone: 8, belief: 0 }, buildTime: 30, builders: 2, workers: 2, placeable: true },
-  healer: { key: 'healer', name: 'Healing Centre', description: 'A walled sandstone courtyard with four beds and a herb table under a striped awning. The sick and the injured come here to be cared for: cure them with food before their time runs out.', size: [5, 5], cost: { wood: 40, stone: 30, belief: 0 }, buildTime: 60, builders: 3, workers: 0, placeable: true },
-  kennel: { key: 'kennel', name: 'Dog Kennel', description: 'A timber-and-adobe dog house with a shaded run. Village dogs sleep here, raise puppies and bark the alarm when a jaguar comes near. Each kennel holds up to 3 dogs.', size: [2, 2], cost: { wood: 18, stone: 6, belief: 0 }, buildTime: 20, builders: 2, workers: 0, placeable: true },
-  smokehouse: { key: 'smokehouse', name: 'Smokehouse', description: 'Smokes raw fish and meat over a slow fire: 4 raw become 7 preserved (burns a little wood). Also stores food.', size: [3, 3], cost: { wood: 20, stone: 10, belief: 0 }, buildTime: 30, builders: 2, workers: 1, foodCap: 40, placeable: true },
-  butcher: { key: 'butcher', name: 'Butcher & Animal Yard', description: 'The butcher tracks down wild pigs and goats, leads them back on a leash to the pen, and turns them into meat.', size: [4, 3], cost: { wood: 22, stone: 6, belief: 0 }, buildTime: 35, builders: 2, workers: 1, placeable: true },
-  pigpen: { key: 'pigpen', name: 'Pig Pen', description: 'A wattle-fenced yard with a thatched sty, a muddy wallow and troughs. Captured pigs and goats led home on a leash are kept here; a nearby Butcher turns them into meat.', size: [5, 5], cost: { wood: 24, stone: 6, belief: 0 }, buildTime: 30, builders: 2, workers: 0, placeable: true },
-  chickenpen: { key: 'chickenpen', name: 'Chicken Pen', description: 'A fenced, straw-strewn yard with a raised thatched coop, nest boxes, perches and feeders. Captured chickens are carried here to scratch and peck.', size: [5, 5], cost: { wood: 22, stone: 4, belief: 0 }, buildTime: 28, builders: 2, workers: 0, placeable: true },
-  woodstore: { key: 'woodstore', name: 'Wood & Stone Store', description: 'Stores wood and stone. Logs stack up as it fills.', size: [3, 2], cost: { wood: 16, stone: 0, belief: 0 }, buildTime: 20, builders: 2, workers: 0, woodCap: 120, placeable: true },
-  grainstore: { key: 'grainstore', name: 'Food Store', description: 'Stores grain, fruit, meat and fish. Baskets fill visibly.', size: [2, 2], cost: { wood: 18, stone: 4, belief: 0 }, buildTime: 24, builders: 2, workers: 0, foodCap: 140, placeable: true },
-  warroom: { key: 'warroom', name: 'Warrior Lodge', description: 'Trains Jaguar and Eagle warriors who patrol the island.', size: [3, 3], cost: { wood: 30, stone: 30, belief: 15 }, buildTime: 55, builders: 3, workers: 0, placeable: true },
-  jetty: { key: 'jetty', name: 'Fishing Jetty', description: 'Wooden pier into the shallows. Builds canoes and fishing boats.', size: [2, 2], cost: { wood: 24, stone: 0, belief: 0 }, buildTime: 30, builders: 2, workers: 3, placeable: true },
-  watchtower: { key: 'watchtower', name: 'Watchtower', description: 'A tall closed timber lookout on a stone footing, with a torch burning on its roof at night. It needs nobody to man it: arrows fly from its windows at jaguars and alligators that come close.', size: [2, 2], cost: { wood: 30, stone: 16, belief: 0 }, buildTime: 40, builders: 2, workers: 0, placeable: true },
+  hut: { key: 'hut', name: 'Hut', description: 'Level 1 house: a small adobe home for 2 islanders.', size: [2, 2], cost: { wood: 12, stone: 0, belief: 0 }, buildTime: 60, builders: 2, workers: 0, housing: 2, upgradeTo: 'home', placeable: true },
+  market: { key: 'market', name: 'Market Square', description: 'Sandstone stalls and woven awnings around an open courtyard. Two market keepers carry surplus food, wood and stone here from the stores. Visiting canoes stop at the nearest accessible shore and offer occasional exchanges. Accept their bargains from this square’s card.', size: [5, 5], cost: { wood: 36, stone: 24, belief: 0 }, buildTime: 360, builders: 4, workers: 2, placeable: true },
+  boatworkshop: { key: 'boatworkshop', name: 'Boat Workshop', description: 'A coastal adobe boatyard with a half-built hull. Complete it to build canoes at Fishing Jetties. Research larger fishing boats, then trade boats. Must stand on dry land near the sea.', size: [4, 4], cost: { wood: 24, stone: 8, belief: 0 }, buildTime: 240, builders: 3, workers: 0, maxTier: 3, placeable: true },
+  stonemason: { key: 'stonemason', name: 'Stonemason’s Workshop', description: 'Stone blocks, unfinished carvings and tools beneath a shaded timber workspace. Two stonemasons turn 4 raw stone into 2 carved stone per minute of work. Complete this workshop to enable masonry; settlement milestones unlock houses and advanced village buildings. Three further upgrades unlock Temples, Great Pyramid upgrades and the Great Temple. Carved stone is required for stone buildings and house or temple upgrades.', size: [4, 3], cost: { wood: 24, stone: 12, belief: 0 }, buildTime: 240, builders: 3, workers: 2, maxTier: 4, placeable: true },
+  home: { key: 'home', name: 'Family House', description: 'Adobe family house (level 2, 4 people). Upgrade it up to level 5 for 16. A couple in any house may have one child, who plays around the village.', size: [3, 3], cost: { wood: 26, stone: 14, belief: 0 }, buildTime: 180, builders: 3, workers: 0, housing: 4, maxTier: 4, placeable: true },
+  temple: { key: 'temple', name: 'Temple', description: 'Stepped pyramid that generates Belief. Upgrade twice to raise the Great Pyramid.', size: [4, 4], cost: { wood: 20, stone: 36, belief: 20 }, buildTime: 480, builders: 4, workers: 2, maxTier: 3, placeable: true },
+  greattemple: { key: 'greattemple', name: 'Great Temple', description: 'A monumental twin-shrine sanctuary, four times the Great Pyramid footprint. Built in four phases, each costing 40 wood, 120 stone, 30 carved stone and 50 Belief. Each worshipper earns 1 Belief per 5 minutes of prayer; progress is kept between visits.', size: [8, 8], cost: { wood: 40, stone: 120, belief: 50 }, buildTime: 2400, builders: 8, workers: 12, placeable: true },
+  farm: { key: 'farm', name: 'Vegetable Farm', description: 'Beans climbing poles, squash and chillies. Quick to grow; farmers also catch wild chickens for the pen.', size: [4, 4], cost: { wood: 16, stone: 0, belief: 0 }, buildTime: 120, builders: 2, workers: 2, placeable: true },
+  maizefarm: { key: 'maizefarm', name: 'Maize Farm', description: 'A big field of tall maize with a granary crib. Slower to ripen but the richest grain harvest.', size: [5, 5], cost: { wood: 26, stone: 4, belief: 0 }, buildTime: 150, builders: 3, workers: 3, placeable: true },
+  chinampa: { key: 'chinampa', name: 'Water Garden', description: 'Raised garden beds between water channels, built beside a river, pool or shore. Rich, wet soil grows crops fast in every season.', size: [4, 4], cost: { wood: 20, stone: 8, belief: 0 }, buildTime: 180, builders: 3, workers: 2, placeable: true },
+  tradedock: { key: 'tradedock', name: 'Trade Dock', description: 'A long pier and trading house on the shore, facing open water. Build trade boats here and send them to trade your spare goods for what you need.', size: [2, 2], cost: { wood: 40, stone: 20, belief: 0 }, buildTime: 300, builders: 3, workers: 0, placeable: true },
+  torch: { key: 'torch', name: 'Torch', description: 'A tall torch on a post. Place it along paths or anywhere to light the village at night. Villagers can walk past it.', size: [1, 1], cost: { wood: 3, stone: 0, belief: 0 }, buildTime: 15, builders: 1, workers: 0, placeable: true },
+  bonfire: { key: 'bonfire', name: 'Bonfire', description: 'A great stone-ringed fire with towering orange flames. In the evenings villagers gather here to sing and tell stories: they grow happier and the tribe gains Belief.', size: [3, 3], cost: { wood: 20, stone: 6, belief: 0 }, buildTime: 90, builders: 2, workers: 0, placeable: true },
+  firepit: { key: 'firepit', name: 'Cooking Firepit', description: 'A large stone hearth with roaring flames. Islanders gather and dance here at night; roasted meat also makes meals more filling.', size: [2, 2], cost: { wood: 12, stone: 8, belief: 0 }, buildTime: 75, builders: 2, workers: 0, placeable: true },
+  well: { key: 'well', name: 'Well', description: 'Provides fresh water for the village and supplies islanders fighting building fires. Keep a well nearby and accessible to help protect your buildings.', size: [2, 2], cost: { wood: 6, stone: 20, belief: 0 }, buildTime: 120, builders: 2, workers: 0, placeable: true },
+  greathall: { key: 'greathall', name: 'Great Hall', description: 'A raised stone hall under a striped canopy, with fire braziers and a bronze bell. Seats up to 100 islanders on its benches; when a jaguar is spotted the bell rings and everyone runs to the hall or home for sanctuary.', size: [7, 7], cost: { wood: 70, stone: 60, belief: 20 }, buildTime: 720, builders: 5, workers: 0, placeable: true },
+  herbalist: { key: 'herbalist', name: 'Herbalist’s Garden', description: 'An adobe shelter with drying herbs and clay pots. Processes one delivered herb bundle into one medicine every three game minutes. Medicine supplies automatic treatment at Healing Centres.', size: [4, 4], cost: { wood: 30, stone: 18, belief: 0 }, buildTime: 210, builders: 3, workers: 0, placeable: true },
+  herbalgarden: { key: 'herbalgarden', name: 'Herbal Garden', description: 'A small garden of multicoloured medicinal plants. Two islanders tend and harvest its raised beds, then carry herbs to a completed Herbalist’s Garden for processing into medicine.', size: [3, 3], cost: { wood: 14, stone: 8, belief: 0 }, buildTime: 120, builders: 2, workers: 2, placeable: true },
+  healer: { key: 'healer', name: 'Healing Centre', description: 'A walled sandstone courtyard with four beds and a herb table under a striped awning. The sick and the injured come here to be cared for: cure them with food before their time runs out.', size: [5, 5], cost: { wood: 40, stone: 30, belief: 0 }, buildTime: 300, builders: 3, workers: 0, placeable: true },
+  kennel: { key: 'kennel', name: 'Dog Kennel', description: 'A timber-and-adobe dog house with a shaded run. Village dogs sleep here, raise puppies and bark the alarm when a jaguar comes near. Each kennel holds up to 3 dogs.', size: [2, 2], cost: { wood: 18, stone: 6, belief: 0 }, buildTime: 90, builders: 2, workers: 0, placeable: true },
+  smokehouse: { key: 'smokehouse', name: 'Smokehouse', description: 'Smokes raw fish and meat over a slow fire: 4 raw become 7 preserved (burns a little wood). Also stores food.', size: [3, 3], cost: { wood: 20, stone: 10, belief: 0 }, buildTime: 150, builders: 2, workers: 1, foodCap: 40, placeable: true },
+  butcher: { key: 'butcher', name: 'Butcher & Animal Yard', description: 'The butcher tracks down wild pigs and goats, leads them back on a leash to the pen, and turns them into meat.', size: [4, 3], cost: { wood: 22, stone: 6, belief: 0 }, buildTime: 180, builders: 3, workers: 1, placeable: true },
+  pigpen: { key: 'pigpen', name: 'Pig Pen', description: 'A wattle-fenced yard with a thatched sty, a muddy wallow and troughs. Captured pigs and goats led home on a leash are kept here; a nearby Butcher turns them into meat.', size: [5, 5], cost: { wood: 24, stone: 6, belief: 0 }, buildTime: 140, builders: 2, workers: 0, placeable: true },
+  chickenpen: { key: 'chickenpen', name: 'Chicken Pen', description: 'A fenced, straw-strewn yard with a raised thatched coop, nest boxes, perches and feeders. Captured chickens are carried here to scratch and peck.', size: [5, 5], cost: { wood: 22, stone: 4, belief: 0 }, buildTime: 130, builders: 2, workers: 0, placeable: true },
+  woodstore: { key: 'woodstore', name: 'Wood & Stone Store', description: 'Stores wood and stone. Logs stack up as it fills.', size: [3, 2], cost: { wood: 16, stone: 0, belief: 0 }, buildTime: 100, builders: 2, workers: 0, woodCap: 120, placeable: true },
+  grainstore: { key: 'grainstore', name: 'Food Store', description: 'Stores grain, fruit, meat and fish. Baskets fill visibly.', size: [2, 2], cost: { wood: 18, stone: 4, belief: 0 }, buildTime: 110, builders: 2, workers: 0, foodCap: 140, placeable: true },
+  warroom: { key: 'warroom', name: 'Warrior Lodge', description: 'Trains Jaguar and Eagle warriors who patrol the island.', size: [3, 3], cost: { wood: 30, stone: 30, belief: 15 }, buildTime: 300, builders: 3, workers: 0, placeable: true },
+  jetty: { key: 'jetty', name: 'Fishing Jetty', description: 'Wooden pier into the shallows. Builds canoes and fishing boats.', size: [2, 2], cost: { wood: 24, stone: 0, belief: 0 }, buildTime: 150, builders: 2, workers: 3, placeable: true },
+  watchtower: { key: 'watchtower', name: 'Watchtower', description: 'A tall closed timber lookout on a stone footing, with a torch burning on its roof at night. It needs nobody to man it: arrows fly from its windows at jaguars and alligators that come close.', size: [2, 2], cost: { wood: 30, stone: 16, belief: 0 }, buildTime: 240, builders: 3, workers: 0, placeable: true },
 };
 
 /** Watchtowers: how far they shoot, how often, and how hard predators are to bring down. */
@@ -363,7 +363,7 @@ export const HOMES = {
     { wood: 45, stone: 45, belief: 10 },
     { wood: 60, stone: 70, belief: 25 },
   ],
-  upgradeTime: [0, 0, 40, 55, 70],
+  upgradeTime: [0, 0, 240, 300, 360],
 };
 
 export const TEMPLE = {
@@ -374,7 +374,7 @@ export const TEMPLE = {
     { wood: 40, stone: 90, belief: 60 },
     { wood: 70, stone: 180, belief: 150 },
   ],
-  upgradeTime: [0, 0, 90, 140],
+  upgradeTime: [0, 0, 600, 900],
   prayBelief: 0.06,
   greatPrayerSeconds: 300,
   greatBeliefCapTiers: 12,
@@ -993,9 +993,9 @@ for (const def of Object.values(BUILDINGS)) if (needsStonemason(def.key)) def.co
 export const STONEMASON = {
   batchSeconds: 60, input: 4, output: 2, cap: 200,
   upgrades: [
-    { cost: { wood: 40, stone: 40, food: 40, belief: 0 }, time: 60, unlock: 'Temples' },
-    { cost: { wood: 70, stone: 80, food: 80, belief: 0 }, time: 90, unlock: 'Great Pyramid upgrades' },
-    { cost: { wood: 110, stone: 140, food: 120, belief: 0 }, time: 120, unlock: 'Great Temple' },
+    { cost: { wood: 40, stone: 40, food: 40, belief: 0 }, time: 300, unlock: 'Temples' },
+    { cost: { wood: 70, stone: 80, food: 80, belief: 0 }, time: 420, unlock: 'Great Pyramid upgrades' },
+    { cost: { wood: 110, stone: 140, food: 120, belief: 0 }, time: 540, unlock: 'Great Temple' },
   ],
 };
 
@@ -1003,8 +1003,8 @@ export const MARKET = { batch: 8, stallCap: 32, foodReserve: 30, foodPerIslander
 
 export const BOAT_WORKSHOP = {
   upgrades: [
-    {cost:{wood:40,stone:16,food:24,belief:0},time:90,unlock:'Larger fishing boats'},
-    {cost:{wood:70,stone:30,food:50,belief:20},time:150,unlock:'Trade boats'},
+    {cost:{wood:40,stone:16,food:24,belief:0},time:360,unlock:'Larger fishing boats'},
+    {cost:{wood:70,stone:30,food:50,belief:20},time:540,unlock:'Trade boats'},
   ],
   largeCost:{wood:28,stone:4,belief:0},
 };

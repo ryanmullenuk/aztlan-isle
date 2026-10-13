@@ -1063,7 +1063,8 @@ export class BuildingSystem {
   addProgress(b: Building, dt: number): void {
     if (dt <= 0 || b.fire > 0) return;
     if (b.repairing) {
-      b.repairProgress = Math.min(1, b.repairProgress + dt / Math.max(20, b.def.buildTime * .6));
+      // Repairs take a fraction of the original build (at least 20 seconds of work).
+      b.repairProgress = Math.min(1, b.repairProgress + dt / Math.max(20, b.def.buildTime * .3));
       if (b.repairProgress >= 1) {
         const wasRuined = b.ruined;
         b.repairing = false; b.ruined = false; b.integrity = 1; b.fireAlerted = false; b.builders.clear();
