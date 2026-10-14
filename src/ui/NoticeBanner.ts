@@ -41,16 +41,34 @@ export class NoticeBanner {
   private image: HTMLImageElement;
   private icon: HTMLElement;
   private timers: number[] = [];
+  /** The frame image has loaded (or given up waiting): notices may show. */
+  private ready = false;
+  private waiting = false;
+  private frameReady: Promise<void>;
 
   constructor(parent: HTMLElement = document.body, private base = '') {
     this.el = document.createElement('div');
     this.el.className = 'notice-banner';
     this.el.setAttribute('role', 'status');
     this.el.setAttribute('aria-live', 'polite');
-    // An absolute address: a url() inside a custom property resolves against the stylesheet that
-    // uses it (assets/ in a built site), not the page, so a relative path would miss the image.
-    this.el.style.setProperty('--nb-frame', `url("${new URL(`${base}ui/notice-frame.webp`, document.baseURI).href}")`);
     this.el.innerHTML = `<div class="nb-shimmer"></div><div class="nb-body"><div class="nb-icon"></div><div class="nb-text"><div class="nb-title"></div><div class="nb-line"></div><div class="nb-benefit"></div></div><div class="nb-pic"><img alt=""></div></div>`;
+    // The frame by its absolute address, set on the elements themselves: a url() kept in a CSS
+    // variable resolves against the stylesheet using it (assets/ in a built game), not the page.
+    const frame = new URL(`${base}ui/notice-frame.webp`, document.baseURI).href;
+    const css = `url("${frame}")`;
+    this.el.style.setProperty('--nb-frame', css);
+    this.el.style.backgroundImage = css;
+    const shimmer = this.el.querySelector<HTMLElement>('.nb-shimmer')!;
+    shimmer.style.setProperty('-webkit-mask-image', css);
+    shimmer.style.setProperty('mask-image', css);
+    // Fetch it now (a hidden banner's background isn't loaded until it shows), and hold the first
+    // notice until it is ready so no banner ever appears without its frame (at most a few seconds).
+    const img = new Image();
+    img.src = frame;
+    this.frameReady = Promise.race([
+      (img.decode ? img.decode() : new Promise<void>((ok) => { img.onload = () => ok(); })).catch(() => {}),
+      new Promise<void>((ok) => { const t = setTimeout(ok, 4000) as unknown as { unref?: () => void }; t.unref?.(); }),
+    ]).then(() => { this.ready = true; });
     this.title = this.el.querySelector('.nb-title')!;
     this.line = this.el.querySelector('.nb-line')!;
     this.benefit = this.el.querySelector('.nb-benefit')!;
@@ -62,7 +80,12 @@ export class NoticeBanner {
   /** Show a notice now, or after the ones already waiting. */
   push(n: Notice): void {
     this.queue.push(n);
-    if (!this.showing) this.next();
+    if (this.showing || this.waiting) return;
+    if (this.ready) this.next();
+    else {
+      this.waiting = true;
+      this.frameReady.then(() => { this.waiting = false; if (!this.showing) this.next(); });
+    }
   }
 
   /** How many are shown or waiting (for tests and the toast offset). */
