@@ -47,7 +47,9 @@ export class NoticeBanner {
     this.el.className = 'notice-banner';
     this.el.setAttribute('role', 'status');
     this.el.setAttribute('aria-live', 'polite');
-    this.el.style.setProperty('--nb-frame', `url("${base}ui/notice-frame.webp")`);
+    // An absolute address: a url() inside a custom property resolves against the stylesheet that
+    // uses it (assets/ in a built site), not the page, so a relative path would miss the image.
+    this.el.style.setProperty('--nb-frame', `url("${new URL(`${base}ui/notice-frame.webp`, document.baseURI).href}")`);
     this.el.innerHTML = `<div class="nb-shimmer"></div><div class="nb-body"><div class="nb-icon"></div><div class="nb-text"><div class="nb-title"></div><div class="nb-line"></div><div class="nb-benefit"></div></div><div class="nb-pic"><img alt=""></div></div>`;
     this.title = this.el.querySelector('.nb-title')!;
     this.line = this.el.querySelector('.nb-line')!;
