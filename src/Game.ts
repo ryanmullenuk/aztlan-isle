@@ -8,13 +8,15 @@ import { buildingSafe } from './buildings/BuildingCondition';
 import { snapPlacement, placementSlope } from './buildings/Placement';
 import { pickBuilding } from './buildings/Picking';
 import { Progression } from './economy/Progression';
+import { Research } from './economy/Research';
+import { Forecaster, type Hazard } from './economy/Forecast';
 import { idleForGroup, IdleGroupTap } from './ai/GroupSelection';
 import { Volcano, VOLCANO_COST, VOLCANO_HAPPINESS } from './entities/Volcano';
 import { Explore } from './render/Explore';
 import { WildlifeView, wildlifeBehaviour, type WildlifeSubject } from './render/WildlifeView';
 import * as THREE from 'three';
 import type { Where } from './ui/where';
-import { WORLD, PATHS, BUILDINGS, BuildingKey, CAMERA, ISLANDER, MILESTONES, POWERS, PresetName, RENDER, SAVE, isFarm, SETTLERS } from './config';
+import { WORLD, PATHS, BUILDINGS, BuildingKey, CAMERA, ISLANDER, MILESTONES, POWERS, PresetName, RENDER, SAVE, isFarm, SETTLERS, RESEARCH, RESEARCH_UPGRADE_LABEL } from './config';
 import { World } from './world/World';
 import { generateIsland } from './world/generator';
 import { GameTime } from './world/Time';
@@ -236,6 +238,15 @@ export class Game {
   followId = -1;
   stats = { sculpted: 0, marked: 0, boats: 0 };
   milestones = new Set<string>();
+  /** Observatory research (village-wide: kept through damage, demolition and rebuilding). */
+  readonly research = new Research({
+    stage: () => this.progression.stage,
+    bypass: () => this.eco.godMode,
+    canAfford: (c) => this.eco.canAfford(c),
+    spend: (c) => this.eco.spend(c),
+  });
+  /** Storm and volcano forecasts from a staffed Observatory. */
+  readonly forecaster = new Forecaster();
   readonly progression = new Progression(()=>({buildings:this.buildings.list,population:this.colony.list.length,food:this.eco.food,carved:this.eco.goods.carvedstone,sandbox:this.eco.godMode,milestones:this.milestones}));
   /** -1, 0 or 1 while a rotate button is held. */
   rotateHold = 0;
@@ -350,8 +361,9 @@ export class Game {
     this.scene.add(this.rig3d.group);
     this.sculptor = new Sculptor(this.world, this.terrain, this.water, this.veg, this.eco);
     this.buildings.earnedWorkshopTier = () => this.progression.workshopTier;
-    this.buildings.progressionRequirement = key => this.progression.requirement(key);
-    this.buildings.progressionUpgrade = b => this.progression.upgradeRequirement(b);
+    this.buildings.progressionRequirement = key => this.progression.requirement(key) || this.research.requirement(key);
+    this.buildings.progressionUpgrade = b => this.progression.upgradeRequirement(b) ||
+      (b.key === 'temple' ? this.research.upgradeRequirement('templeUpgrade') : b.key === 'boatworkshop' && b.tier === 2 ? this.research.upgradeRequirement('tradeBoats') : '');
     this.buildings.recordProgress = event => this.progression.record(event);
     this.buildings.recordPrayer = seconds => this.progression.pray(seconds);
     this.buildings.onComplete = (b) => this.onBuildingComplete(b);
@@ -2222,6 +2234,10 @@ export class Game {
     const vcfg = RENDER.presets[this.preset];
     this.veg.update(dt, this.rig.camera.position, this.rig.target, vcfg.lodDist, growth, t, vcfg.vegLod);
     this.colony.update(dt);
+    // Observatory research: priests on duty this frame study the active tier.
+    const studied = this.research.advance(dt, this.colony.observing);
+    if (studied) this.onResearched(studied);
+    this.forecaster.tick(dt > 0 ? realDt : 0);
     const fire = this.buildings.list.find((b) => b.key === 'campfire');
     this.jaguars.update(dt, this.time.isNight, fire ? { x: fire.x, z: fire.z } : null);
     // Sanctuary: once no jaguar has prowled near for a few seconds, sound the all clear.
@@ -2304,8 +2320,52 @@ export class Game {
       this.milestoneTimer = 1;
       this.progression.refresh();
       this.checkMilestones();
+      this.updateForecasts();
     }
     this.ui.update(realDt);
+  }
+
+  /** A staffed, operational Observatory (forecasts and research need one). */
+  get observatoryStaffed(): boolean {
+    return this.colony.observatoryStaff() > 0;
+  }
+
+  /** The volcano's next stirring, while it sleeps (none on islands without one). */
+  get volcanoOutlook(): { cycle: number; inSeconds: number } | null {
+    const v = this.volcano;
+    return v?.group.visible && v.state.phase === 'dormant' ? { cycle: v.state.cycle, inSeconds: v.state.remaining } : null;
+  }
+
+  /** Once a second: post, re-state or withdraw the Observatory's forecasts. */
+  private updateForecasts(): void {
+    if (!this.ui) return;
+    const actions = this.forecaster.update({
+      staffed: this.observatoryStaffed,
+      storm: this.powers.stormOutlook,
+      stormActive: this.powers.state === 'storm',
+      volcano: this.volcanoOutlook,
+      volcanoActive: !!this.volcano?.group.visible && this.volcano.state.active,
+      speed: this.time.speed,
+      tier: this.research.done,
+    });
+    const key = (h: Hazard) => `forecast:${h}`;
+    for (const a of actions) {
+      if (a.kind === 'announce') this.ui.toast(a.text, 'warn', undefined, { key: key(a.hazard), onView: () => {}, noFocus: true });
+      else if (a.kind === 'update') this.ui.updateAlert(key(a.hazard), a.text);
+      else if (a.kind === 'withdraw') {
+        this.ui.dismissAlert(key(a.hazard));
+        if (a.reason === 'cancelled') this.ui.toast(a.hazard === 'storm' ? 'Observatory: the storm the priests foresaw has passed the island by.' : 'Observatory: the fire mountain has settled again.');
+      }
+    }
+  }
+
+  /** A research tier has been completed: say what it unlocked. */
+  private onResearched(tier: number): void {
+    const t = RESEARCH[tier - 1];
+    const unlocks = [...t.unlocks.map((k) => BUILDINGS[k].name), ...t.upgrades.map((u) => RESEARCH_UPGRADE_LABEL[u]), ...t.gains];
+    this.ui?.toast(`Research complete: ${t.name}. Unlocked: ${unlocks.join(', ')}.`, 'milestone');
+    this.ui?.renderInfo(true);
+    this.saveHandler?.();
   }
 
   private checkMilestones(): void {

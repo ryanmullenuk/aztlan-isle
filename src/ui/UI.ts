@@ -7,7 +7,7 @@ import { VillagePrioritiesPanel } from './VillagePrioritiesPanel';
 import { settingsMarkup, wireSettingsTabs } from './SettingsPanel';
 import { serialize } from '../world/Save';
 import { islandFile, parseIslandFile, downloadIsland, MAX_ISLAND_FILE_BYTES } from '../world/IslandFile';
-import { DEFENCE, DOGS, GOODS, GOOD_KEYS, GoodKey, VOYAGE, FAUNA, PATHS, BUILDINGS, BuildingKey, CAMERA, JETTY, MILESTONES, PresetName, SAVE, SPECIES, WARRIOR, FARM_TYPES, SMOKE, STONEMASON, BOAT_WORKSHOP, TRADE, TradeOffer, ResourceKey, DECREES, PALACE_RULES, type DecreeKey } from '../config';
+import { DEFENCE, DOGS, GOODS, GOOD_KEYS, GoodKey, VOYAGE, FAUNA, PATHS, BUILDINGS, BuildingKey, CAMERA, JETTY, MILESTONES, PresetName, SAVE, SPECIES, WARRIOR, FARM_TYPES, SMOKE, STONEMASON, BOAT_WORKSHOP, TRADE, TradeOffer, ResourceKey, DECREES, PALACE_RULES, type DecreeKey, RESEARCH, RESEARCH_UPGRADE_LABEL, OBSERVATORY, TIME } from '../config';
 import { MONKEY_BASE } from '../entities/Monkeys';
 import { DOG_BASE } from '../entities/Dogs';
 import { JAG_BASE } from '../entities/Jaguars';
@@ -37,7 +37,7 @@ const BUILD_ICON: Record<BuildingKey, string> = {
   campfire: 'belief', hut: 'b_hut', home: 'b_home', temple: 'b_temple', greattemple: 'b_greattemple', farm: 'b_farm', butcher: 'b_butcher',
   woodstore: 'b_woodstore', grainstore: 'b_grainstore', warroom: 'b_warroom', jetty: 'b_jetty',
   maizefarm: 'b_maize', chinampa: 'b_chinampa', smokehouse: 'b_smoke',
-  tradedock: 'b_trade', torch: 'b_torch', bonfire: 'b_bonfire', firepit: 'b_firepit', well: 'b_well', kennel: 'b_kennel', greathall: 'b_greathall', palace: 'b_palace',
+  tradedock: 'b_trade', torch: 'b_torch', bonfire: 'b_bonfire', firepit: 'b_firepit', well: 'b_well', kennel: 'b_kennel', greathall: 'b_greathall', palace: 'b_palace', observatory: 'b_observatory',
   pigpen: 'b_pigpen', chickenpen: 'b_chickenpen', healer: 'b_healer', watchtower: 'b_tower',
 };
 
@@ -769,6 +769,7 @@ export class UI {
         <li>A finished <b>Trade Dock</b> can build the great <b>voyage ship</b>. Tap the ship, load goods with − and + (pearls fetch the most), and set sail with two villagers. Out past the horizon it may meet storms (calm them with Belief from the dock's card in time!), raiders, good markets or a green island. It comes home with chickens, <b>herbs</b> (processed into medicine at a Herbalist’s Garden) and <b>spices</b> (which cure the sick and injured at a Healing Centre) and goods, and waits under a green orb for you to unload. Some voyages never come back. A green orb over a visiting trader's boat means bargains are on offer.</li>
         <li>Idle villagers help build by day without being asked. Give them a job yourself and they keep to it.</li>
         <li>Felled trees lie where they fall until woodcutters have carried all their wood home, a load at a time, then sink into the ground and later regrow from the stump.</li>
+        <li>Build an <b>Observatory</b> and its priests will warn you of storms and eruptions minutes before they come, and study ten tiers of research that unlock new buildings. Without one, watch the sky and the mountain yourself.</li>
         <li>When the <b>volcano</b> starts smoking you have five minutes before it erupts. Tap it and use <b>Calm</b> (50 Belief) to settle it and reassure your people.</li>
         <li>Light rain is fine and gentle; storms pour. Calm a storm for Belief.</li>
         <li>At night in first-person view, look up: the stars and the Milky Way are out on a clear night.</li>
@@ -1009,6 +1010,17 @@ export class UI {
     }
   }
 
+  /** Change a standing alert's words (a forecast re-stated) without a new pop-up. */
+  updateAlert(key: string, text: string): void {
+    const a = this.alerts.find((x) => x.key === key);
+    if (!a || a.text === text) return;
+    a.text = text;
+    const msg = a.toast?.querySelector('.encounter-text');
+    if (msg) msg.textContent = text;
+    else if (a.toast) a.toast.textContent = text;
+    this.renderAlerts();
+  }
+
   dismissAlert(key: string): void {
     const old = this.alerts.find(a => a.key === key);
     if (!old) return;
@@ -1209,6 +1221,57 @@ export class UI {
 
   // ---------------- Info panel ----------------
 
+  /** What changes the Observatory card (so it redraws only when something shown has changed). */
+  private observatoryKey(): string {
+    const g = this.game, r = g.research, s = g.powers.stormOutlook, v = g.volcanoOutlook;
+    return `${r.done}:${r.active}:${Math.round(r.fraction * 100)}:${g.colony.observatoryStaff()}:${g.colony.observing > 0}:${g.time.seasonIndex}:${Math.round(g.time.secondsToNextSeason / 30)}:${s ? Math.round(s.inSeconds / 30) : -1}:${v ? Math.round(v.inSeconds / 30) : -1}:${g.volcano?.state.phase}:${Math.floor(g.eco.food / 5)}:${g.time.speed}`;
+  }
+
+  /** The Observatory card: staff, seasons, forecasts and the ten tiers of research. */
+  private observatoryHtml(): string {
+    const g = this.game, r = g.research, staff = g.colony.observatoryStaff(), onDuty = g.colony.observing;
+    const speed = Math.max(1, g.time.speed);
+    const mins = (s: number) => { const m = Math.max(1, Math.round(s / 60)); return `about ${m} min`; };
+    let h = `<div class="kv"><span>Priests on staff</span><b>${staff} / ${BUILDINGS.observatory.workers}${staff ? ` · ${onDuty} on duty now` : ''}</b></div>`;
+    if (!staff) h += '<p class="muted small">No priest on staff: forecasts and research are paused. A priest joins once the village has four workers (two at eight).</p>';
+    // Seasons.
+    h += `<div class="sec-h">${ICONS.b_observatory} Seasons</div><div class="kv"><span>Now</span><b>${g.time.season}, day ${g.time.dayOfSeason} of ${TIME.daysPerSeason}</b></div>`;
+    h += r.has(1)
+      ? `<div class="kv"><span>Coming</span><b>${g.time.nextSeason} in ${mins(g.time.secondsToNextSeason / speed)}</b></div>`
+      : '<p class="muted small">Study The Count of Seasons to foresee the coming season.</p>';
+    // Forecasts.
+    h += '<div class="sec-h">Forecasts</div>';
+    if (!staff) h += '<p class="muted small">Without a priest watching, only the sky and the mountain’s own signs warn of what is coming.</p>';
+    else {
+      const s = g.powers.stormOutlook;
+      h += `<div class="kv"><span>Storms</span><b>${g.powers.state === 'storm' ? 'A storm is raging now' : s && s.inSeconds <= OBSERVATORY.stormWindow ? `Expected in ${mins(s.inSeconds / speed)}${r.has(10) ? `, lasting ${mins(s.length / speed)}` : ''}` : 'None in sight'}</b></div>`;
+      if (g.volcano?.group.visible) {
+        const v = g.volcanoOutlook, win = r.done >= 3 ? OBSERVATORY.volcanoWindowEarly : OBSERVATORY.volcanoWindow;
+        h += `<div class="kv"><span>Volcano</span><b>${g.volcano.state.active ? 'Active now' : v && v.inSeconds <= win ? `Smoke expected in ${mins(v.inSeconds)}` : 'The mountain sleeps'}</b></div>`;
+      }
+    }
+    // Research.
+    h += `<div class="sec-h">Research · ${r.done} of ${RESEARCH.length}</div>`;
+    if (r.active) {
+      // Estimated from the staff (priests step away to eat and sleep, so the count on duty flickers).
+      const left = r.remaining(Math.min(2, staff));
+      h += this.bar(`${RESEARCH[r.active - 1].name} ${Math.round(r.fraction * 100)}%${Number.isFinite(left) ? ` · ${mins(left / speed)} left` : ' · paused: no priest on staff'}`, r.fraction, 'good');
+    }
+    h += '<ol class="rs-list">';
+    RESEARCH.forEach((t, i) => {
+      const tier = i + 1, st = r.state(tier), why = r.lockReason(tier);
+      const unlocks = [...t.unlocks.map((k) => BUILDINGS[k].name), ...t.upgrades.map((u) => RESEARCH_UPGRADE_LABEL[u]), ...t.gains].join(', ');
+      const cost = `${t.cost.food ? `${icon('grain')}${t.cost.food} ` : ''}${t.cost.wood ? `${icon('wood')}${t.cost.wood} ` : ''}${t.cost.stone ? `${icon('stone')}${t.cost.stone} ` : ''}${t.cost.belief ? `${icon('belief')}${t.cost.belief} ` : ''}· ${Math.round(t.time / 60)} min`;
+      const mark = st === 'done' ? '✓' : st === 'active' ? '◐' : st === 'available' ? '○' : '·';
+      let act = '';
+      if (st === 'available') act = `<button class="btn small" data-a="research:${tier}" ${g.eco.canAfford(t.cost) ? '' : 'disabled title="Not enough food, wood, stone or Belief"'}>Study</button>`;
+      h += `<li class="rs-${st}"><div class="rs-top"><span class="rs-mark" aria-hidden="true">${mark}</span><b>${tier}. ${t.name}</b>${act}</div>
+        <div class="rs-text">${t.text}</div><div class="rs-unl"><span>Unlocks</span> ${unlocks}</div>
+        ${st === 'done' ? '' : `<div class="rs-cost">${cost}</div>`}${st === 'locked' ? `<div class="rs-why">${why}</div>` : ''}</li>`;
+    });
+    return h + '</ol>';
+  }
+
   private bar(label: string, v: number, cls = ''): string {
     return `<div class="need"><span>${label}</span><div class="nb ${cls}"><div style="width:${Math.round(Math.max(0, Math.min(1, v)) * 100)}%"></div></div></div>`;
   }
@@ -1219,7 +1282,7 @@ export class UI {
     return isl.injured > 0 ? `Injured, limping (${Math.ceil(isl.injured)}s)` : '';
   }
 
-  private renderInfo(force: boolean): void {
+  renderInfo(force: boolean): void {
     const g = this.game;
     const isl = g.selectedIslander >= 0 ? g.colony.byId(g.selectedIslander) : undefined;
     const b = g.selectedBuilding >= 0 ? g.buildings.byId(g.selectedBuilding) : undefined;
@@ -1316,7 +1379,7 @@ export class UI {
         <div class="actions"><button class="btn small" data-a="capture" ${free && (!d.needsPen || hasPen) ? '' : 'disabled'}>${ICONS.harvest} ${label}</button></div>
         <p class="muted small">Tip: select an islander first, then tap an animal to send them after it.</p>`;
     } else if (b) {
-      key = `b${b.id}|${['pigpen','chickenpen'].includes(b.key) ? g.wildlife.penCount(b)+'/'+g.buildings.of('butcher',true).filter(buildingOperational).length : ''}|${Math.round(b.integrity * 100)}:${b.fire > 0}:${b.ruined}:${b.repairing}:${Math.round(b.repairProgress * 100)}:${g.powers.state}:${g.fires.status(b)}:${g.eco.canAfford(g.buildings.repairCost(b))}|${Math.floor(g.eco.goods.carvedstone)}|${g.progression.summary}|${g.buildings.boatRequirement(3)}|${g.buildings.constructionRequirement('home')}|${g.buildings.list.filter(x=>x.key==='stonemason' && x.complete).map(x=>x.tier).join(',')}|${Math.floor(g.eco.food)}|${b.key === 'tradedock' || b.key === 'market' ? g.trade.visitKey(b) + '|' + g.voyage.key() + '|' + JSON.stringify(g.eco.goods) : ''}|${b.key === 'greathall' ? JSON.stringify(g.colony.hallCount(b)) : ''}|${b.key === 'palace' ? b.decree ?? '' : ''}|${b.key === 'healer' ? g.colony.patients(b).map((p) => `${p.id}:${p.condition}:${Math.ceil(p.conditionT / 60)}:${p.task?.slot}:${g.colony.canCure(p)}`).join(',') + JSON.stringify(g.eco.goods) : ''}|${b.key === 'watchtower' ? `${g.defence.stats(b).shots}|${g.defence.stats(b).kills}|` : ''}${b.key === 'kennel' ? `${g.dogs.alive.length}|${g.dogs.alive.filter((d) => d.puppy).length}|${Math.ceil(b.breedT)}|${Math.ceil(b.breedCool / 5)}|${b.dogRole}|${Math.floor(g.eco.food / 4)}|` : ''}${b.key === 'market' ? JSON.stringify(b.marketStock) : ''}|${b.key === 'herbalist' || b.key === 'stonemason' ? JSON.stringify(g.eco.goods) : ''}|${b.complete}|${Math.round(b.progress * 50)}|${b.tier}|${b.residents.length}|${b.upgrading}|${Math.round(b.growth * 20)}|${b.boats.length}|${b.boatBuild > 0}|${b.training.length}|${Math.floor(g.eco.res.wood / 5)}|${Math.floor(g.eco.res.stone / 5)}|${Math.floor(g.eco.res.belief / 5)}`;
+      key = `b${b.id}|${['pigpen','chickenpen'].includes(b.key) ? g.wildlife.penCount(b)+'/'+g.buildings.of('butcher',true).filter(buildingOperational).length : ''}|${Math.round(b.integrity * 100)}:${b.fire > 0}:${b.ruined}:${b.repairing}:${Math.round(b.repairProgress * 100)}:${g.powers.state}:${g.fires.status(b)}:${g.eco.canAfford(g.buildings.repairCost(b))}|${Math.floor(g.eco.goods.carvedstone)}|${g.progression.summary}|${g.buildings.boatRequirement(3)}|${g.buildings.constructionRequirement('home')}|${g.buildings.list.filter(x=>x.key==='stonemason' && x.complete).map(x=>x.tier).join(',')}|${Math.floor(g.eco.food)}|${b.key === 'tradedock' || b.key === 'market' ? g.trade.visitKey(b) + '|' + g.voyage.key() + '|' + JSON.stringify(g.eco.goods) : ''}|${b.key === 'greathall' ? JSON.stringify(g.colony.hallCount(b)) : ''}|${b.key === 'palace' ? b.decree ?? '' : ''}|${b.key === 'observatory' ? this.observatoryKey() : ''}|${b.key === 'healer' ? g.colony.patients(b).map((p) => `${p.id}:${p.condition}:${Math.ceil(p.conditionT / 60)}:${p.task?.slot}:${g.colony.canCure(p)}`).join(',') + JSON.stringify(g.eco.goods) : ''}|${b.key === 'watchtower' ? `${g.defence.stats(b).shots}|${g.defence.stats(b).kills}|` : ''}${b.key === 'kennel' ? `${g.dogs.alive.length}|${g.dogs.alive.filter((d) => d.puppy).length}|${Math.ceil(b.breedT)}|${Math.ceil(b.breedCool / 5)}|${b.dogRole}|${Math.floor(g.eco.food / 4)}|` : ''}${b.key === 'market' ? JSON.stringify(b.marketStock) : ''}|${b.key === 'herbalist' || b.key === 'stonemason' ? JSON.stringify(g.eco.goods) : ''}|${b.complete}|${Math.round(b.progress * 50)}|${b.tier}|${b.residents.length}|${b.upgrading}|${Math.round(b.growth * 20)}|${b.boats.length}|${b.boatBuild > 0}|${b.training.length}|${Math.floor(g.eco.res.wood / 5)}|${Math.floor(g.eco.res.stone / 5)}|${Math.floor(g.eco.res.belief / 5)}`;
       html = this.buildingHtml(b);
     }
     if (!force && key === this.infoKey) return;
@@ -1396,6 +1459,7 @@ export class UI {
         <div class="kv"><span>Capacity</span><b>${all.length}/${D.capacity}</b></div>
         <div class="kv"><span>Food</span><b>~${(adults + pups * 0.5) * DOGS.foodPerMinute < 1 ? ((adults + pups * 0.5) * DOGS.foodPerMinute).toFixed(1) : Math.round((adults + pups * 0.5) * DOGS.foodPerMinute)} per minute</b></div>`;
     }
+    if (b.key === 'observatory' && b.complete) body += this.observatoryHtml();
     if (b.key === 'palace' && b.complete) {
       const now = b.decree ?? PALACE_RULES.firstDecree;
       body += `<div class="sec-h">${ICONS.b_palace} Royal decree</div><div class="kv"><span>In force</span><b>${DECREES[now].name}</b></div><p class="muted small">${DECREES[now].text}. One decree is in force across the island at a time; issuing a new one costs ${PALACE_RULES.decreeCost} Belief.</p>`;
@@ -1537,6 +1601,14 @@ export class UI {
       }
       if (a === 'roundup') g.roundUpAnimals(b);
       if (a === 'bell') g.ringHallBell(b);
+      if (a.startsWith('research:')) {
+        const tier = Number(a.slice(9));
+        const err = g.research.start(tier);
+        if (err) this.toast(err, 'warn');
+        else this.toast(`The priests begin to study ${RESEARCH[tier - 1].name}.`);
+        this.renderInfo(true);
+        return;
+      }
       if (a.startsWith('decree:')) {
         const k = a.slice(7) as DecreeKey;
         if (k in DECREES && g.buildings.setDecree(b, k)) this.toast(`The Tlatoani decrees ${DECREES[k].name}: ${DECREES[k].text.toLowerCase()}.`);

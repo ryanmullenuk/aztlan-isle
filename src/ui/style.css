@@ -1047,3 +1047,22 @@ body.notice-showing .toasts { margin-top: min(130px, 21vw); }
 @media (max-width: 720px) {
   .az-pre { display: none; }
 }
+
+/* Observatory research: ten compact tiers (done, active, available, locked); the card itself scrolls. */
+.rs-list { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 5px; }
+.rs-list li { border: 1px solid rgba(214, 178, 96, 0.28); border-radius: 6px; padding: 6px 8px; background: rgba(255, 255, 255, 0.03); font-size: 12px; line-height: 1.35; }
+.rs-top { display: flex; align-items: center; gap: 6px; }
+.rs-top b { flex: 1; font-size: 12.5px; }
+.rs-top .btn { flex: none; padding: 4px 12px !important; }
+.rs-mark { flex: none; width: 16px; text-align: center; color: var(--gold); font-weight: 700; }
+.rs-text { color: var(--muted); margin: 2px 0 0 22px; }
+.rs-unl { margin: 2px 0 0 22px; }
+.rs-unl span { color: var(--gold); font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; margin-right: 4px; }
+.rs-cost { margin: 3px 0 0 22px; color: var(--muted); font-size: 11.5px; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
+.rs-cost svg { width: 13px; height: 13px; vertical-align: -2px; }
+.rs-why { margin: 3px 0 0 22px; color: #e0a46a; font-size: 11.5px; }
+.rs-done { opacity: 0.72; }
+.rs-done .rs-mark { color: #8fd18a; }
+.rs-active { border-color: rgba(214, 178, 96, 0.75); background: rgba(214, 178, 96, 0.08); }
+.rs-available { border-color: rgba(214, 178, 96, 0.55); }
+.rs-locked { opacity: 0.6; }

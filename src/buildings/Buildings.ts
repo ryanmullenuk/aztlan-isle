@@ -846,6 +846,7 @@ export class BuildingSystem {
       case 'kennel': return models.kennelModel();
       case 'greathall': return models.greatHallModel();
       case 'palace': return models.palaceModel();
+      case 'observatory': return models.observatoryModel();
       case 'market': return models.marketSquareModel();
       case 'boatworkshop': return models.boatWorkshopModel(b.tier);
       case 'stonemason': return models.stonemasonModel(b.tier);

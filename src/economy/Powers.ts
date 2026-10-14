@@ -5,7 +5,8 @@ import { FX } from '../render/materials';
 import { Lighting } from '../render/Lighting';
 import { Lightning } from '../render/Lightning';
 import { SEA_SURFACE, Water } from '../water/Water';
-import { GameTime } from '../world/Time';
+import { GameTime, dayFraction } from '../world/Time';
+import { TIME } from '../config';
 import { Economy } from './Economy';
 import { RainField } from '../render/RainField';
 
@@ -46,6 +47,11 @@ export class Powers {
   private wasNight: boolean | null = null;
   /** Game seconds until a storm that has been rolled for arrives (-1 = none coming). */
   private stormDelay = -1;
+  /** The scheduled storm's id (each new storm decided gets the next) and its length in game seconds. */
+  private stormId = 0;
+  private stormLength = 0;
+  /** The day fraction at the last update, for the storm decisions made ahead of dusk and dawn. */
+  private lastT: number | null = null;
   /** The camera: lightning strikes where it can be seen. */
   camera: THREE.Camera | null = null;
   /** Is (x, z) open, deep sea well away from any coast? Lightning only ever strikes there. */
@@ -123,8 +129,10 @@ export class Powers {
   startStorm(): void {
     const fresh = this.state !== 'storm';
     this.state = 'storm';
+    const scheduled = this.stormDelay >= 0 && this.stormLength > 0;
     this.stormDelay = -1;
-    this.timer = POWERS.stormDuration[0] + this.rnd() * (POWERS.stormDuration[1] - POWERS.stormDuration[0]);
+    this.timer = scheduled ? this.stormLength : POWERS.stormDuration[0] + this.rnd() * (POWERS.stormDuration[1] - POWERS.stormDuration[0]);
+    this.stormLength = 0;
     if (!fresh) return;
     this.strikeTimer = 2 + this.rnd() * 2;
     if (!this.onStormStart()) this.notify('A storm rolls in from the sea. Use Calm (7) to settle it.', 'warn');
@@ -133,6 +141,7 @@ export class Powers {
   /** Clear skies at once (random weather was switched off). */
   clearWeather(): void {
     this.stormDelay = -1;
+    this.stormLength = 0;
     if (this.state !== 'clear') this.endWeather(false);
   }
 
@@ -143,13 +152,43 @@ export class Powers {
     if (was === 'storm') this.onStormEnd(calmed);
   }
 
-  /** Random weather: storms mostly roll in after dusk; by day rain is likelier and storms are rare. */
-  private rollWeather(dusk: boolean): void {
+  /**
+   * Random storms: the coming night's (or day's) storm is decided a few minutes before dusk (or
+   * dawn), arriving the usual while after it; storms mostly roll in after dusk and are rare by day.
+   * Deciding ahead is what lets an Observatory forecast the very storm that will come.
+   */
+  private rollStorm(night: boolean): void {
+    if (this.state === 'storm' || this.stormDelay >= 0) return;
     const wet = this.time.seasonIndex === 2 ? 1.4 : 1;
-    const [d0, d1] = dusk ? POWERS.nightStormDelay : POWERS.dayStormDelay;
-    if (this.state !== 'storm' && this.rnd() < (dusk ? POWERS.stormChancePerNight : POWERS.stormChancePerDay) * wet) {
-      this.stormDelay = d0 + this.rnd() * (d1 - d0);
-    } else if (!dusk && this.state === 'clear' && this.rnd() < POWERS.rainChancePerDay[this.time.seasonIndex]) {
+    const [d0, d1] = night ? POWERS.nightStormDelay : POWERS.dayStormDelay;
+    if (this.rnd() < (night ? POWERS.stormChancePerNight : POWERS.stormChancePerDay) * wet) {
+      this.stormDelay = POWERS.stormRollLead + d0 + this.rnd() * (d1 - d0);
+      this.stormLength = POWERS.stormDuration[0] + this.rnd() * (POWERS.stormDuration[1] - POWERS.stormDuration[0]);
+      this.stormId++;
+    }
+  }
+
+  /** The storm already decided on (none while one rages, or with random weather off). */
+  get stormOutlook(): { id: number; inSeconds: number; length: number } | null {
+    return this.stormDelay >= 0 && this.randomWeather ? { id: this.stormId, inSeconds: this.stormDelay, length: this.stormLength } : null;
+  }
+
+  /** The weather schedule, for saving: the storm on its way (if any). */
+  get schedule(): { delay: number; id: number; length: number } {
+    return { delay: this.stormDelay, id: this.stormId, length: this.stormLength };
+  }
+
+  restoreSchedule(s: { delay?: number; id?: number; length?: number }): void {
+    if (Number.isInteger(s.id) && s.id! >= 0) this.stormId = s.id!;
+    if (Number.isFinite(s.delay) && s.delay! >= 0 && s.delay! < 2000 && Number.isFinite(s.length) && s.length! > 0 && s.length! < 1000) {
+      this.stormDelay = s.delay!;
+      this.stormLength = s.length!;
+    }
+  }
+
+  /** Random rain: rolled at dawn, likelier in the wet seasons. */
+  private rollWeather(dusk: boolean): void {
+    if (!dusk && this.state === 'clear' && this.rnd() < POWERS.rainChancePerDay[this.time.seasonIndex]) {
       this.state = 'rain';
       this.timer = 60 + this.rnd() * 90;
     }
@@ -217,7 +256,17 @@ export class Powers {
     const night = this.time.isNight;
     if (this.wasNight !== null && night !== this.wasNight && this.randomWeather) this.rollWeather(night);
     this.wasNight = night;
-    if (!this.randomWeather) this.stormDelay = -1;
+    // Storm decisions, a few minutes ahead of dusk and of dawn.
+    const t = this.time.t, lead = POWERS.stormRollLead / TIME.dayLength;
+    if (this.lastT !== null && t !== this.lastT && this.randomWeather) {
+      for (const [hour, isNight] of [[20.2, true], [5.5, false]] as const) {
+        const at = (dayFraction(hour) - lead + 1) % 1;
+        const crossed = this.lastT <= t ? this.lastT < at && at <= t : this.lastT < at || at <= t;
+        if (crossed) this.rollStorm(isNight);
+      }
+    }
+    this.lastT = t;
+    if (!this.randomWeather) { this.stormDelay = -1; this.stormLength = 0; }
     if (this.stormDelay >= 0) {
       this.stormDelay -= dt;
       if (this.stormDelay < 0 && this.state !== 'storm') this.startStorm();

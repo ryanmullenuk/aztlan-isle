@@ -5,9 +5,9 @@ import { marketBatch } from '../economy/Market';
 import { needsSelfCare } from './GroupSelection';
 import * as THREE from 'three';
 import type { Where } from '../ui/where';
-import { ECONOMY, FARM, FOOD_KEYS, ISLANDER, JETTY, NAMES, ResourceKey, TEMPLE, WARRIOR, FARM_TYPES, isFarm, SMOKE, COMFORTS, PATHS, GREAT_HALL, HEALTH, HERBALIST, STONEMASON, TIME } from '../config';
+import { ECONOMY, FARM, FOOD_KEYS, ISLANDER, JETTY, NAMES, OBSERVATORY, ResourceKey, TEMPLE, WARRIOR, FARM_TYPES, isFarm, SMOKE, COMFORTS, PATHS, GREAT_HALL, HEALTH, HERBALIST, STONEMASON, TIME } from '../config';
 import { Building, BuildingSystem } from '../buildings/Buildings';
-import { HALL, HEAL } from '../buildings/models';
+import { HALL, HEAL, OBS } from '../buildings/models';
 import { Economy } from '../economy/Economy';
 import { Condition, Islander, Role, Task, makeIslander } from '../entities/Islander';
 import { Plant, PlantState, TREE_FALL, Vegetation } from '../vegetation/Vegetation';
@@ -457,6 +457,7 @@ export class Colony {
     if (t.kind === 'build') this.bld.byId(t.target)?.builders.delete(isl.id);
     if (t.kind === 'hall') this.leaveHall(isl, t);
     if (t.kind === 'heal') this.leaveHeal(isl, t);
+    if (t.kind === 'observe' && t.phase === 1 && t.stage >= 2) isl.floorY = null;
     // Abandoned capture: the animal gets away (or is let go).
     if (t.kind === 'capture' && (t.phase ?? 0) < 2) {
       this.hooks.releaseAnimal?.(t.target);
@@ -477,6 +478,23 @@ export class Colony {
     if (isl.hidden && !isl.sleeping) isl.hidden = false;
     isl.path = null;
     isl.pathPending = false;
+  }
+
+  /** Priests at work at an Observatory this frame (counted as they observe: research speed). */
+  observing = 0;
+
+  /** A priest of a working Observatory: keeps the night watch until tired, like a warrior. */
+  private stargazer(isl: Islander): boolean {
+    if (isl.role !== 'priest' || isl.workplace < 0) return false;
+    const b = this.bld.byId(isl.workplace);
+    return !!b && b.key === 'observatory' && buildingOperational(b);
+  }
+
+  /** Priests on the staff of an operational Observatory, well and able to work (asleep counts: the watch is kept). */
+  observatoryStaff(): number {
+    let n = 0;
+    for (const i of this.list) if (i.role === 'priest' && i.condition === 'well' && !i.child && this.stargazer(i)) n++;
+    return n;
   }
 
   // ---------------- Jobs ----------------
@@ -518,7 +536,7 @@ export class Colony {
       isl.workplace = b.id;
       return `${isl.name} will help build the ${b.label}.`;
     }
-    const map: Partial<Record<string, Role>> = { farm: 'farmer', maizefarm: 'farmer', chinampa: 'farmer', herbalgarden: 'farmer', temple: 'priest', greattemple: 'priest', jetty: 'fisher', butcher: 'butcher', smokehouse: 'smoker', stonemason: 'mason', market: 'merchant', woodstore: 'woodcutter', grainstore: 'gatherer' };
+    const map: Partial<Record<string, Role>> = { farm: 'farmer', maizefarm: 'farmer', chinampa: 'farmer', herbalgarden: 'farmer', temple: 'priest', greattemple: 'priest', observatory: 'priest', jetty: 'fisher', butcher: 'butcher', smokehouse: 'smoker', stonemason: 'mason', market: 'merchant', woodstore: 'woodcutter', grainstore: 'gatherer' };
     if (b.key === 'warroom') {
       isl.manualRole = false;
       return this.trainWarrior(b, this.rnd() < 0.5 ? 'jaguar' : 'eagle', isl) ? `${isl.name} is training as a warrior.` : 'Not enough resources to train a warrior.';
@@ -529,7 +547,7 @@ export class Colony {
       return `Nothing to do at the ${b.label}.`;
     }
     isl.role = role;
-    isl.workplace = isFarm(b.key) || ['temple', 'greattemple', 'jetty', 'butcher', 'smokehouse', 'stonemason', 'market', 'watchtower'].includes(b.key) ? b.id : -1;
+    isl.workplace = isFarm(b.key) || ['temple', 'greattemple', 'observatory', 'jetty', 'butcher', 'smokehouse', 'stonemason', 'market', 'watchtower'].includes(b.key) ? b.id : -1;
     return `${isl.name} now works as a ${role}.`;
   }
 
@@ -608,14 +626,17 @@ export class Colony {
       else if (b.key === 'market') slots.push({ b, role: 'merchant', n: b.def.workers });
       else if (b.key === 'stonemason') slots.push({ b, role: 'mason', n: b.def.workers });
       else if (b.key === 'smokehouse') slots.push({ b, role: 'smoker', n: b.def.workers });
-      else if (b.key === 'temple' || b.key === 'greattemple') slots.push({ b, role: 'priest', n: b.def.workers });
+      else if (b.key === 'temple' || b.key === 'greattemple' || b.key === 'observatory') slots.push({ b, role: 'priest', n: b.def.workers });
       else if (b.key === 'butcher') slots.push({ b, role: 'butcher', n: b.def.workers });
       else if (b.key === 'jetty') slots.push({ b, role: 'fisher', n: Math.min(b.def.workers, b.boats.length) });
     }
     slots.sort((a, b) => jobRank(this.priority, a.role, a.b.key === 'herbalgarden') -
       jobRank(this.priority, b.role, b.b.key === 'herbalgarden'));
     // Priests only once the tribe can spare them; scarce food still reserves gatherers.
-    for (const s of slots) if (s.role === 'priest') s.n = Math.min(s.n, Math.max(0, Math.floor((workers.length - 4) / 3)));
+    for (const s of slots) if (s.role === 'priest') s.n = Math.min(s.n, s.b.key === 'observatory'
+      // A small village can still spare one sky-watcher (two once it has eight workers).
+      ? (workers.length >= 8 ? 2 : workers.length >= 4 ? 1 : 0)
+      : Math.max(0, Math.floor((workers.length - 4) / 3)));
     const lowFood = this.eco.food < this.list.length * 3;
     const maxSpecial = Math.max(1, Math.floor(pool.length * specialistShare(this.priority, lowFood)));
     let budget = maxSpecial;
@@ -876,8 +897,8 @@ export class Colony {
         }
       }
     }
-    // Warriors keep watch through the night, until they tire.
-    const watchman = isl.role === 'warrior';
+    // Warriors keep watch through the night, until they tire; so do the Observatory's sky-watchers.
+    const watchman = isl.role === 'warrior' || this.stargazer(isl);
     if ((night && !watchman) || isl.rest < ISLANDER.sleepThreshold) return this.goSleep(isl);
     if (night && watchman && isl.rest < 0.5) return this.goSleep(isl);
     if (!night && !god && !this.hooks.threat?.()) {
@@ -1175,6 +1196,15 @@ export class Colony {
       case 'priest': {
         const t = this.bld.byId(isl.workplace);
         if (!t) return false;
+        if (t.key === 'observatory') {
+          if (!buildingOperational(t) || t.upgrading) return false;
+          // By night at the sighting post on the deck; by day at the stela keeping the count.
+          const night = this.time.isNight, at = night ? OBS.night : OBS.day;
+          const [x, z] = t.local(at.x, at.z);
+          this.setTask(isl, 'observe', t.id, x, z);
+          isl.task!.phase = night ? 1 : 0;
+          return true;
+        }
         if (t.key === 'greattemple') {
           // Spread the congregation in rows in front of the staircase, outside the blocked footprint.
           const slot = Math.max(0, this.list.filter(i => i.workplace === t.id && i.role === 'priest').indexOf(isl));
@@ -1606,6 +1636,29 @@ export class Colony {
           this.hooks.sfx?.('harvest', isl.x, isl.z);
         }
         this.releaseTask(isl);
+        break;
+      }
+      case 'observe': {
+        const ob = this.bld.byId(t.target);
+        if (!ob || !buildingOperational(ob) || ob.upgrading) return this.releaseTask(isl);
+        isl.tool = 'none';
+        if (t.stage < 2) {
+          const r = this.travel(isl, dt, t.x, t.z, { allowBuilding: ob.id, goalRadius: 0.3 });
+          if (r === 'failed') return this.fail(isl);
+          if (r !== 'arrived') return;
+          t.stage = 2;
+          t.timer = OBSERVATORY.watchSeconds;
+          // Up on the observation deck.
+          if (t.phase === 1) isl.floorY = ob.y + OBS.h;
+        }
+        const look = t.phase === 1 ? OBS.post : OBS.stela;
+        const [lx, lz] = ob.local(look.x, look.z);
+        this.faceTo(isl, lx - isl.x, lz - isl.z, dt);
+        // Arms raised to the sky at the sighting post; hands at work on the codex by day.
+        isl.anim = t.phase === 1 ? 'pray' : 'build';
+        this.observing++;
+        t.timer -= dt;
+        if (t.timer <= 0) this.releaseTask(isl);
         break;
       }
       case 'pray': {
@@ -2272,7 +2325,7 @@ export class Colony {
   /** Where to save a villager: someone in the hall (or in the Healing Centre) is saved at its door. */
   savePos(isl: Islander): { x: number; z: number } {
     const t = isl.task;
-    if ((t?.kind === 'hall' || (t?.kind === 'heal' && t.phase === 1)) && (isl.floorY !== null || isl.hidden)) {
+    if ((t?.kind === 'hall' || t?.kind === 'observe' || (t?.kind === 'heal' && t.phase === 1)) && (isl.floorY !== null || isl.hidden)) {
       const b = this.bld.byId(t.target);
       if (b) return { x: b.door.x, z: b.door.z };
     }
@@ -2283,7 +2336,7 @@ export class Colony {
   evacuateBuilding(b: Building): void {
     for (const isl of this.list) {
       const t = isl.task;
-      if (!t || t.target !== b.id || !['sleep','flee','hall','heal','family','farm','pray','mason','smoke','butcher','build','train','bonfire'].includes(t.kind)) continue;
+      if (!t || t.target !== b.id || !['sleep','flee','hall','heal','family','farm','pray','observe','mason','smoke','butcher','build','train','bonfire'].includes(t.kind)) continue;
       const inside = isl.hidden || isl.sleeping || isl.floorY !== null;
       this.releaseTask(isl); isl.hidden = false; isl.sleeping = false; isl.safe = false; isl.floorY = null;
       if (inside) { isl.x = b.door.x; isl.z = b.door.z; isl.y = this.world.groundY(isl.x, isl.z); }
@@ -2752,6 +2805,7 @@ export class Colony {
   }
 
   update(dt: number): void {
+    this.observing = 0;
     if (dt <= 0) return;
     this.clock += dt;
     this.processPaths();
@@ -2916,6 +2970,7 @@ export class Colony {
       case 'mason': return 'Carving stone at the Stonemason’s Workshop';
       case 'smoke': return 'Smoking fish and meat';
       case 'pray': return 'Praying at the temple';
+      case 'observe': return t.phase === 1 ? 'Watching the night sky from the Observatory' : 'Keeping the count of days at the Observatory';
       case 'eat': return 'Eating';
       case 'family': return 'Gathering with family near home';
       case 'bonfire': return 'Gathering and dancing around the village fire';

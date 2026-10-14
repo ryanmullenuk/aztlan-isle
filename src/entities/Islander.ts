@@ -53,7 +53,7 @@ export const CONDITION_LABEL: Record<Condition, string> = {
 
 /** A task is a small state machine the AI steps through. */
 export interface Task {
-  kind: 'chop' | 'mine' | 'gather' | 'deliver' | 'build' | 'farm' | 'pray' | 'eat' | 'sleep' | 'wander' | 'patrol' | 'butcher' | 'fish' | 'train' | 'goto' | 'follow' | 'capture' | 'spearfish' | 'smoke' | 'bonfire' | 'flee' | 'hall' | 'heal' | 'mason' | 'market' | 'family' | 'firefight';
+  kind: 'chop' | 'mine' | 'gather' | 'deliver' | 'build' | 'farm' | 'pray' | 'eat' | 'sleep' | 'wander' | 'patrol' | 'butcher' | 'fish' | 'train' | 'goto' | 'follow' | 'capture' | 'spearfish' | 'smoke' | 'bonfire' | 'flee' | 'hall' | 'heal' | 'mason' | 'market' | 'family' | 'firefight' | 'observe';
   stage: number;
   /** Plant id, building id or islander id depending on kind. */
   target: number;

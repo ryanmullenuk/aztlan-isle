@@ -20,6 +20,7 @@ export interface FinishedBuilding {
 const ROLE: Partial<Record<BuildingKey, string>> = {
   greathall: 'Shelters up to 100 islanders',
   palace: 'Royal decrees can now be issued',
+  observatory: 'Forecasts and research begin',
   kennel: 'Room for 3 village dogs',
   watchtower: 'Guards against jaguars and alligators',
   well: 'Fresh water for fighting fires',

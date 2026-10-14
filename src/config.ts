@@ -254,7 +254,7 @@ export const ECONOMY = {
   varietyHappiness: 0.05,
 };
 
-export type BuildingKey = 'boatworkshop' | 'campfire' | 'hut' | 'home' | 'temple' | 'greattemple' | 'farm' | 'maizefarm' | 'chinampa' | 'butcher' | 'smokehouse' | 'woodstore' | 'grainstore' | 'warroom' | 'jetty' | 'torch' | 'bonfire' | 'firepit' | 'well' | 'tradedock' | 'kennel' | 'greathall' | 'pigpen' | 'chickenpen' | 'healer' | 'herbalist' | 'herbalgarden' | 'stonemason' | 'market' | 'watchtower' | 'palace';
+export type BuildingKey = 'boatworkshop' | 'campfire' | 'hut' | 'home' | 'temple' | 'greattemple' | 'farm' | 'maizefarm' | 'chinampa' | 'butcher' | 'smokehouse' | 'woodstore' | 'grainstore' | 'warroom' | 'jetty' | 'torch' | 'bonfire' | 'firepit' | 'well' | 'tradedock' | 'kennel' | 'greathall' | 'pigpen' | 'chickenpen' | 'healer' | 'herbalist' | 'herbalgarden' | 'stonemason' | 'market' | 'watchtower' | 'palace' | 'observatory';
 
 export interface BuildingDef {
   key: BuildingKey;
@@ -294,6 +294,7 @@ export const BUILDINGS: Record<BuildingKey, BuildingDef> = {
   bonfire: { key: 'bonfire', name: 'Bonfire', description: 'A great stone-ringed fire with towering orange flames. In the evenings villagers gather here to sing and tell stories: they grow happier and the tribe gains Belief.', size: [3, 3], cost: { wood: 20, stone: 6, belief: 0 }, buildTime: 90, builders: 2, workers: 0, placeable: true },
   firepit: { key: 'firepit', name: 'Cooking Firepit', description: 'A large stone hearth with roaring flames. Islanders gather and dance here at night; roasted meat also makes meals more filling.', size: [2, 2], cost: { wood: 12, stone: 8, belief: 0 }, buildTime: 75, builders: 2, workers: 0, placeable: true },
   well: { key: 'well', name: 'Well', description: 'Provides fresh water for the village and supplies islanders fighting building fires. Keep a well nearby and accessible to help protect your buildings.', size: [2, 2], cost: { wood: 6, stone: 20, belief: 0 }, buildTime: 120, builders: 2, workers: 0, placeable: true },
+  observatory: { key: 'observatory', name: 'Observatory', description: 'Priests observe the sky and volcanic signs to warn of approaching storms and eruptions. Staff the Observatory to receive forecasts and research new village developments.', size: [3, 3], cost: { wood: 30, stone: 16, belief: 0 }, buildTime: 240, builders: 3, workers: 2, placeable: true },
   palace: { key: 'palace', name: 'Tlatoani’s Palace', description: 'The ruler’s palace, twice the size of the Great Hall: a raised sandstone platform with a grand serpent stair, a red-columned portico under golden frets, a garden courtyard with a pool, and the throne hall crowned with a great sun. From the throne the Tlatoani issues one decree at a time for the whole island: Build Together, Bountiful Harvest or Honour the Gods.', size: [14, 14], cost: { wood: 140, stone: 220, belief: 60, carvedStone: 60 }, buildTime: 1800, builders: 10, workers: 0, placeable: true },
   greathall: { key: 'greathall', name: 'Great Hall', description: 'A raised stone hall under a striped canopy, with fire braziers and a bronze bell. Seats up to 100 islanders on its benches; when a jaguar is spotted the bell rings and everyone runs to the hall or home for sanctuary.', size: [7, 7], cost: { wood: 70, stone: 60, belief: 20 }, buildTime: 720, builders: 5, workers: 0, placeable: true },
   herbalist: { key: 'herbalist', name: 'Herbalist’s Garden', description: 'An adobe shelter with drying herbs and clay pots. Processes one delivered herb bundle into one medicine every three game minutes. Medicine supplies automatic treatment at Healing Centres.', size: [4, 4], cost: { wood: 30, stone: 18, belief: 0 }, buildTime: 210, builders: 3, workers: 0, placeable: true },
@@ -782,6 +783,8 @@ export const POWERS = {
   dayStormDelay: [40, 260] as [number, number],
   /** Storm length in game seconds (at night roughly 3-5 in-game hours). */
   stormDuration: [70, 130] as [number, number],
+  /** Game seconds before dusk (and dawn) at which the coming night's (or day's) storm is decided, so it can be forecast. */
+  stormRollLead: 300,
   rainChancePerDay: [0.4, 0.2, 0.45, 0.35],
   /** Happiness every islander gains when the player calms a storm. */
   calmHappy: 0.15,
@@ -987,7 +990,7 @@ export const SAVE = {
 export const HERBALIST = { processSeconds: 180, medicineCap: 40, sickSeconds: 60, mauledSeconds: 90 };
 
 /** The founding fire, huts and the workshop remain available during the first village stage. */
-export const needsStonemason = (key: BuildingKey): boolean => !['boatworkshop', 'campfire', 'hut', 'stonemason', 'farm', 'woodstore', 'grainstore', 'jetty', 'pigpen', 'chickenpen', 'torch', 'firepit'].includes(key);
+export const needsStonemason = (key: BuildingKey): boolean => !['boatworkshop', 'campfire', 'hut', 'stonemason', 'farm', 'woodstore', 'grainstore', 'jetty', 'pigpen', 'chickenpen', 'torch', 'firepit', 'observatory'].includes(key);
 export const masonryCost = (cost: { wood: number; stone: number; belief: number; carvedStone?: number }) =>
   ({ ...cost, ...(cost.stone > 0 ? { carvedStone: cost.carvedStone ?? Math.ceil(cost.stone / 4) } : {}) });
 for (const def of Object.values(BUILDINGS)) if (needsStonemason(def.key)) def.cost = masonryCost(def.cost);
@@ -1011,6 +1014,57 @@ export const DECREES: Record<DecreeKey, { name: string; text: string; factor: nu
   gods: { name: 'Honour the Gods', text: 'Happy islanders bring 30% more Belief', factor: 1.3 },
 };
 export const PALACE_RULES = { decreeCost: 15, firstDecree: 'build' as DecreeKey };
+
+/** An upgrade gated by Observatory research (beside its Stonemason or Boat Workshop requirement). */
+export type ResearchUpgrade = 'tradeBoats' | 'templeUpgrade';
+export interface ResearchTier {
+  name: string;
+  text: string;
+  /** Buildings that need this tier before they can be placed. */
+  unlocks: BuildingKey[];
+  upgrades: ResearchUpgrade[];
+  /** Capabilities gained, as shown to the player (forecast improvements and the like). */
+  gains: string[];
+  cost: { wood: number; stone: number; belief: number; food: number };
+  /** Seconds of research at full staffing (two priests on duty). */
+  time: number;
+  /** Settlement stage the village must have reached to start it. */
+  stage: number;
+}
+/**
+ * Observatory research: ten tiers, studied in order, one at a time, by the priests of a staffed
+ * Observatory. Each gates buildings or upgrades in addition to the existing settlement stages
+ * and Stonemason / Boat Workshop requirements (it never replaces them).
+ */
+export const RESEARCH: ResearchTier[] = [
+  { name: 'The Count of Seasons', text: 'The 365-day calendar tells when to plant and when to store.', unlocks: ['maizefarm', 'chinampa', 'smokehouse'], upgrades: [], gains: ['The coming season, shown at the Observatory'], cost: { food: 20, wood: 10, stone: 0, belief: 0 }, time: 120, stage: 3 },
+  { name: 'Moon and Herb Lore', text: 'Herbs are planted and gathered by the phases of the moon.', unlocks: ['herbalgarden', 'herbalist', 'healer'], upgrades: [], gains: [], cost: { food: 30, wood: 15, stone: 0, belief: 0 }, time: 180, stage: 3 },
+  { name: 'Signs of Fire and Water', text: 'Priests read the smoke and the springs.', unlocks: ['well'], upgrades: [], gains: ['Volcano warnings come earlier (about 5–7 minutes)'], cost: { food: 30, wood: 20, stone: 10, belief: 0 }, time: 240, stage: 3 },
+  { name: 'Market Days', text: 'The calendar sets days for exchange.', unlocks: ['market'], upgrades: [], gains: [], cost: { food: 40, wood: 25, stone: 15, belief: 0 }, time: 300, stage: 4 },
+  { name: 'Horizon Watch', text: 'Watchers learn the signs of danger on the horizon.', unlocks: ['watchtower', 'kennel'], upgrades: [], gains: [], cost: { food: 40, wood: 30, stone: 20, belief: 0 }, time: 300, stage: 4 },
+  { name: 'Council of the Calendar', text: 'The village meets on the days the calendar names.', unlocks: ['greathall'], upgrades: [], gains: [], cost: { food: 50, wood: 40, stone: 30, belief: 0 }, time: 360, stage: 4 },
+  { name: 'The Sacred Count', text: 'The 260-day ritual calendar orders worship and war.', unlocks: ['temple', 'warroom'], upgrades: [], gains: [], cost: { food: 60, wood: 40, stone: 40, belief: 20 }, time: 420, stage: 5 },
+  { name: 'Star Paths', text: 'Navigators steer by the stars.', unlocks: ['tradedock'], upgrades: ['tradeBoats'], gains: [], cost: { food: 70, wood: 60, stone: 40, belief: 20 }, time: 540, stage: 6 },
+  { name: 'The Tribute Calendar', text: 'The ruler counts tribute by the calendar.', unlocks: ['palace'], upgrades: ['templeUpgrade'], gains: [], cost: { food: 90, wood: 80, stone: 80, belief: 40 }, time: 660, stage: 6 },
+  { name: 'The Binding of the Years', text: 'The 52-year New Fire ceremony binds the calendars together.', unlocks: ['greattemple'], upgrades: [], gains: ['Storm forecasts also tell how long the storm will last'], cost: { food: 120, wood: 100, stone: 120, belief: 60 }, time: 900, stage: 7 },
+];
+export const RESEARCH_UPGRADE_LABEL: Record<ResearchUpgrade, string> = { tradeBoats: 'Trade-boat research at the Boat Workshop', templeUpgrade: 'Great Pyramid upgrades' };
+
+/** Observatory staffing, research speed and forecast windows. */
+export const OBSERVATORY = {
+  /** Research speed with one priest on duty, and with two or more (the cap, however many Observatories). */
+  speedOne: 0.6,
+  speedFull: 1,
+  /** Storm warning: announced once the storm is at most this many game seconds away. */
+  stormWindow: 240,
+  /** Volcano warning: announced once smoking is at most this many seconds away (its own clock), before and after Signs of Fire and Water. */
+  volcanoWindow: 300,
+  volcanoWindowEarly: 420,
+  /** A forecast is re-announced only if its timing moves by more than this many seconds. */
+  retime: 45,
+  /** Seconds a priest stays at the sighting post or the stela before choosing again. */
+  watchSeconds: 18,
+};
 
 export const MARKET = { batch: 8, stallCap: 32, foodReserve: 30, foodPerIslander: 4, woodReserve: 40, stoneReserve: 30 };
 

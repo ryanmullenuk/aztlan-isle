@@ -3216,3 +3216,132 @@ export const PALACE = {
   stairHalf: 1.45,
   stairFoot: 6.15,
 };
+
+// ---------------- Observatory ----------------
+
+/**
+ * Layout of the Observatory (model-local, door faces +z): the deck where the night-watch priest
+ * stands at the sighting post, and the stela where the day priest keeps the count.
+ */
+export const OBS = {
+  /** Height of the base's top (the deck is level with it). */
+  h: 0.34,
+  /** The railed observation deck on the +x side: extent and where the priest stands on it. */
+  deck: { x0: 0.62, x1: 1.42, z0: 0.18, z1: 1.12 },
+  night: { x: 1.0, z: 0.62 },
+  post: { x: 1.22, z: 0.36 },
+  /** The day priest's place, facing the stela and its codex table. */
+  day: { x: -0.92, z: 1.3 },
+  stela: { x: -1.05, z: 0.86 },
+};
+
+/**
+ * Observatory: the round temple of the wind god Ehécatl. An irregular two-tiered stone base,
+ * a cylindrical plastered tower with a red band and a turquoise stepped fret under a conical
+ * thatch roof, a framed doorway up a short stair beneath a golden wind jewel, a railed
+ * observation deck with crossed sighting sticks, and a carved stela with a codex table for the
+ * day's count. One brazier. Door faces +z.
+ */
+export function observatoryModel(): BuildingModel {
+  const b = new GeoBuilder();
+  const rng = new RNG(4242);
+  const S = PAL;
+  const stoneCol = (p: THREE.Vector3, n: THREE.Vector3) =>
+    (n.y > 0.5 ? S.sand : S.sandDark).clone().multiplyScalar(0.95 + 0.06 * Math.sin(Math.floor(p.x * 5) * 17 + Math.floor(p.z * 5) * 11 + Math.floor(p.y * 6) * 5));
+  const H = OBS.h;
+  // Irregular tiered base: two rings of uneven stone courses (a jittered nine- and eleven-sided plinth).
+  const ring = (r: number, sides: number, y: number, h: number, jitter: number) => {
+    const g = new THREE.CylinderGeometry(r, r * 1.04, h, sides, 1);
+    const p = g.getAttribute('position');
+    const k = new Map<string, number>();
+    for (let i = 0; i < p.count; i++) {
+      const a = Math.round(Math.atan2(p.getZ(i), p.getX(i)) * 1000);
+      if (!k.has(String(a))) k.set(String(a), 1 + (rng.next() - 0.5) * jitter);
+      const s = k.get(String(a))!;
+      p.setXYZ(i, p.getX(i) * s, p.getY(i), p.getZ(i) * s);
+    }
+    g.computeVertexNormals();
+    b.add(g, { color: stoneCol, facet: true }, M.t(0, y + h / 2, 0));
+  };
+  ring(1.36, 11, 0, 0.18, 0.08);
+  ring(1.1, 9, 0.17, 0.17, 0.07);
+  // Scattered boulders round the foot.
+  for (let k = 0; k < 7; k++) {
+    const a = 0.5 + k * 0.85 + rng.range(-0.2, 0.2);
+    if (Math.abs(Math.sin(a)) > 0.85 && Math.sin(a) > 0) continue;
+    b.add(lumpy(P.sphere(0.09, 0), 0.2, k), { color: S.sandDark }, M.t(Math.cos(a) * 1.38, 0.06, Math.sin(a) * 1.38, 0, k, 0, 1.3, 0.7, 1));
+  }
+  // The tower: plastered drum with a red dado, a turquoise stepped-fret band and a gold rim.
+  const R = 0.66, TH = 1.45, ty = H;
+  b.add(P.cyl(R, R * 1.03, TH, 18), { color: (p) => S.plaster.clone().lerp(S.plasterShade, Math.max(0, 1 - (p.y - ty) / TH) * 0.5) }, M.t(0, ty + TH / 2, 0));
+  b.add(P.cyl(R * 1.035, R * 1.05, 0.14, 18), { color: S.redDeep }, M.t(0, ty + 0.07, 0));
+  b.add(P.cyl(R * 1.02, R * 1.02, 0.17, 18), { color: S.turquoise }, M.t(0, ty + TH - 0.2, 0));
+  for (let k = 0; k < 14; k++) {
+    const a = (k / 14) * Math.PI * 2;
+    if (Math.abs(a - Math.PI / 2) < 0.35) continue;
+    // A stepped fret: three gold steps on the turquoise band.
+    for (let s = 0; s < 3; s++) {
+      const m = M.t(Math.cos(a) * (R * 1.03), ty + TH - 0.27 + s * 0.045, Math.sin(a) * (R * 1.03), 0, -a + Math.PI / 2, 0);
+      b.add(P.box(0.03, 0.035, 0.012), { color: S.gold }, m.multiply(M.t(-0.05 + s * 0.035, 0, 0)));
+    }
+  }
+  b.add(P.cyl(R * 1.08, R * 1.08, 0.04, 18), { color: S.gold }, M.t(0, ty + TH - 0.08, 0));
+  // Doorway on +z: dark opening framed by stone jambs and a lintel, the wind jewel above.
+  const dz = R * 0.98;
+  b.add(P.box(0.34, 0.62, 0.08), { color: K.door }, M.t(0, ty + 0.31, dz));
+  for (const sx of [-1, 1]) b.add(P.box(0.08, 0.68, 0.12), { color: S.sand }, M.t(sx * 0.21, ty + 0.34, dz + 0.02));
+  b.add(P.box(0.52, 0.08, 0.14), { color: S.sand }, M.t(0, ty + 0.7, dz + 0.02));
+  b.add(P.cyl(0.11, 0.11, 0.025, 12), { color: S.gold }, M.t(0, ty + 0.86, dz + 0.035, Math.PI / 2, 0, 0));
+  b.add(P.cyl(0.06, 0.06, 0.03, 10), { color: S.red }, M.t(0, ty + 0.86, dz + 0.045, Math.PI / 2, 0, 0));
+  for (let k = 0; k < 5; k++) {
+    // The cut-conch wind jewel: curling gold hooks round the disc.
+    const a = (k / 5) * Math.PI * 2 + 0.3;
+    b.add(P.box(0.05, 0.025, 0.015), { color: S.gold }, M.t(Math.cos(a) * 0.14, ty + 0.86 + Math.sin(a) * 0.14, dz + 0.04, 0, 0, a + 1.2));
+  }
+  // Short stair up the base to the door.
+  for (let k = 0; k < 3; k++) {
+    const h = H * (3 - k) / 3, z = 0.98 + k * 0.17;
+    b.add(P.box(0.5, h, 0.18), { color: k % 2 ? S.sand : S.sandDark }, M.t(0, h / 2, z));
+  }
+  // Conical thatch roof with a dark band and a gold finial.
+  const roofY = ty + TH - 0.02;
+  b.add(P.cone(R * 1.42, 1.05, 18), { color: thatchColor, leaf: 0.2 }, M.t(0, roofY + 0.525, 0));
+  b.add(P.cyl(R * 1.43, R * 1.45, 0.06, 18), { color: K.thatchDark, leaf: 0.2 }, M.t(0, roofY + 0.02, 0));
+  b.add(P.cyl(0.03, 0.05, 0.22, 6), { color: K.timberDark }, M.t(0, roofY + 1.1, 0));
+  b.add(P.sphere(0.06, 1), { color: S.gold }, M.t(0, roofY + 1.23, 0));
+  // The observation deck: timber boards on the base with a low rail, steps, and crossed sighting sticks.
+  const D = OBS.deck, dw = D.x1 - D.x0, dd = D.z1 - D.z0, dcx = (D.x0 + D.x1) / 2, dcz = (D.z0 + D.z1) / 2;
+  b.add(P.box(dw, H - 0.02, dd), { color: S.sandDark }, M.t(dcx, (H - 0.02) / 2, dcz));
+  for (let k = 0; k < 5; k++) b.add(P.box(dw / 5 - 0.012, 0.03, dd), { color: k % 2 ? K.timber : c(0x9a7550) }, M.t(D.x0 + (dw / 5) * (k + 0.5), H, dcz));
+  for (const [x, z] of [[D.x1, D.z0], [D.x1, D.z1], [D.x0 + 0.05, D.z0]] as const) b.add(P.cyl(0.022, 0.025, 0.3, 5), { color: K.timberDark }, M.t(x - 0.03, H + 0.15, z + (z === D.z0 ? 0.03 : -0.03)));
+  b.add(P.box(0.03, 0.03, dd - 0.06), { color: K.timber }, M.t(D.x1 - 0.03, H + 0.28, dcz));
+  b.add(P.box(dw - 0.06, 0.03, 0.03), { color: K.timber }, M.t(dcx, H + 0.28, D.z0 + 0.03));
+  for (let k = 0; k < 2; k++) {
+    const h = H * (2 - k) / 3, z = D.z1 + 0.09 + k * 0.17;
+    b.add(P.box(0.42, h, 0.17), { color: S.sand }, M.t(dcx + 0.12, h / 2, z));
+  }
+  const post = OBS.post;
+  b.add(P.cyl(0.02, 0.025, 0.62, 5), { color: K.timberDark }, M.t(post.x, H + 0.31, post.z));
+  for (const s of [-1, 1]) b.add(P.cyl(0.012, 0.012, 0.3, 4), { color: K.timber }, M.t(post.x, H + 0.6, post.z, 0, 0, s * 0.7));
+  // Stela and codex table for the day count.
+  const st = OBS.stela;
+  b.add(P.box(0.32, 0.08, 0.18), { color: S.sandDark }, M.t(st.x, 0.04, st.z));
+  b.add(P.box(0.24, 0.62, 0.1), { color: S.sand }, M.t(st.x, 0.39, st.z));
+  b.add(P.box(0.18, 0.18, 0.02), { color: S.red }, M.t(st.x, 0.5, st.z + 0.055));
+  b.add(P.cyl(0.05, 0.05, 0.02, 8), { color: S.gold }, M.t(st.x, 0.5, st.z + 0.067, Math.PI / 2, 0, 0));
+  b.add(P.box(0.36, 0.04, 0.22), { color: K.timber }, M.t(st.x + 0.08, 0.32, st.z + 0.24));
+  for (const sx of [-1, 1]) b.add(P.box(0.04, 0.3, 0.04), { color: K.timberDark }, M.t(st.x + 0.08 + sx * 0.14, 0.15, st.z + 0.24));
+  b.add(P.box(0.22, 0.012, 0.14), { color: c(0xf2e6c4) }, M.t(st.x + 0.08, 0.346, st.z + 0.24));
+  for (let k = 0; k < 4; k++) b.add(P.box(0.03, 0.004, 0.03), { color: k % 2 ? S.red : S.turquoise }, M.t(st.x + 0.01 + k * 0.05, 0.355, st.z + 0.24));
+  // One brazier on the base beside the door.
+  const torches: THREE.Vector3[] = [];
+  b.add(P.cyl(0.07, 0.09, 0.22, 7), { color: S.sandDark }, M.t(-0.55, H + 0.11, 0.78));
+  b.add(P.cyl(0.13, 0.07, 0.08, 8), { color: c(0x7d746c) }, M.t(-0.55, H + 0.26, 0.78));
+  torches.push(new THREE.Vector3(-0.55, H + 0.3, 0.78));
+  // A potted plant or two.
+  for (const [x, z, s] of [[0.5, 1.15, 0.85], [-1.08, 0.28, 0.9]] as const) {
+    b.add(P.cyl(0.08 * s, 0.06 * s, 0.12 * s, 7), { color: K.terracotta }, M.t(x, 0.06 * s, z));
+    fern(b, x, 0.12 * s, z, 0.6 * s, Math.round(x * 100));
+  }
+  return { finished: b.build(), torches, height: roofY + 1.2 };
+}

@@ -1,5 +1,5 @@
 import { isVillagePriority } from '../ai/VillagePriority';
-import { BUILDINGS, DECREES, TEMPLE, WORLD } from '../config';
+import { BUILDINGS, DECREES, RESEARCH, TEMPLE, WORLD } from '../config';
 import type { SaveData } from './Save';
 
 export const MAX_ISLAND_FILE_BYTES = 8 * 1024 * 1024;
@@ -37,6 +37,10 @@ export function parseIslandFile(raw: string): SaveData {
   if (!fields(d.res, ['wood', 'stone', 'grain', 'fruit', 'meat', 'fish', 'belief']) ||
       !Object.values(d.res).every(number) || !fields(d.stats, ['sculpted', 'marked', 'boats'])) return fail();
   if (!obj(d.weather) || !['clear', 'rain', 'storm'].includes(d.weather.state)) return fail();
+  for (const k of ['delay', 'id', 'length']) if (d.weather[k] !== undefined && (!number(d.weather[k]) || d.weather[k] < -1 || d.weather[k] > 1e9)) return fail();
+  if (d.research !== undefined && (!fields(d.research, ['done', 'active', 'progress']) || !Number.isInteger(d.research.done) || d.research.done < 0 || d.research.done > RESEARCH.length ||
+      !Number.isInteger(d.research.active) || d.research.active < 0 || d.research.active > RESEARCH.length || d.research.progress < 0 || d.research.progress > 10000)) return fail();
+  if (d.forecast !== undefined && (!fields(d.forecast, ['storm', 'volcano']) || !Number.isInteger(d.forecast.storm) || !Number.isInteger(d.forecast.volcano))) return fail();
   if (d.villagePriority !== undefined && !isVillagePriority(d.villagePriority)) return fail();
   if (d.wildlifeAlerts !== undefined && typeof d.wildlifeAlerts !== 'boolean') return fail();
   if (d.encounters !== undefined) {

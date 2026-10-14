@@ -3,6 +3,8 @@ import type { StormFireSave } from '../buildings/StormFire';
 import { villagePriority, type VillagePriority } from '../ai/VillagePriority';
 import { GOD_NAME } from './names';
 import type { VolcanoSave } from '../entities/Volcano';
+import type { ResearchSave } from '../economy/Research';
+import type { ForecastSave } from '../economy/Forecast';
 import { BuildingKey, DECREES, GOOD_KEYS, GoodKey, ResourceKey, SAVE, type DecreeKey } from '../config';
 import type { Game } from '../Game';
 import type { Islander, Role } from '../entities/Islander';
@@ -22,7 +24,12 @@ export interface SaveData {
   res: Record<ResourceKey, number>;
   milestones: string[];
   stats: { sculpted: number; marked: number; boats: number };
-  weather: { state: string };
+  /** Weather: its state, and the storm already decided on (if any), so a forecast storm still comes after loading. */
+  weather: { state: string; delay?: number; id?: number; length?: number };
+  /** Observatory research (absent in saves from before the Observatory: migrated on load). */
+  research?: ResearchSave;
+  /** The forecasts already announced, so loading doesn't repeat them. */
+  forecast?: ForecastSave;
   volcano?: VolcanoSave;
   fires?: StormFireSave;
   encounters?: EncounterSave;
@@ -133,7 +140,9 @@ export function serialize(g: Game): SaveData {
     res: { ...g.eco.res },
     milestones: [...g.milestones],
     stats: { ...g.stats },
-    weather: { state: g.powers?.state ?? 'clear' },
+    weather: { state: g.powers?.state ?? 'clear', ...(g.powers ? g.powers.schedule : {}) },
+    ...(g.research ? { research: g.research.save() } : {}),
+    ...(g.forecaster ? { forecast: g.forecaster.save() } : {}),
     ...(g.volcano ? { volcano: g.volcano.save() } : {}),
     world: { layer: toB64(layerU), sandy: q8(w.sandy), forest: q8(w.forest), rocky: q8(w.rocky), wear: q8(w.wear), path: toB64(w.path), bridge: toB64(w.bridge), canal: toB64(w.canal) },
     ...(g.fires ? { fires: g.fires.save() } : {}),
@@ -271,6 +280,17 @@ export function applyRest(g: Game, d: SaveData): void {
   if (g.dogs) g.dogs.restore(d.dogs ?? [], idMap, d.dogsFounded ?? (d.dogs?.length ?? 0) > 0);
   if (g.wildlife) d.schools.forEach((s, i) => g.wildlife!.schools[i] && (g.wildlife!.schools[i].stock = s));
   if (g.powers && d.weather.state === 'storm') g.powers.startStorm();
+  else if (g.powers) g.powers.restoreSchedule(d.weather);
+  if (g.forecaster && d.forecast) g.forecaster.restore(d.forecast);
+  if (g.research) {
+    if (d.research) g.research.restore(d.research);
+    else {
+      // Saves from before the Observatory: credit the research the village has already achieved.
+      const built = (k: BuildingKey) => g.milestones.has('progress:built:' + k) || g.buildings.list.some((b) => b.key === k && b.complete);
+      const tier = (k: BuildingKey) => Math.max(0, ...g.buildings.list.filter((b) => b.key === k && b.complete).map((b) => b.tier));
+      g.research.migrate(built, { templeTier: tier('temple'), boatTier: tier('boatworkshop') });
+    }
+  }
   g.garden?.restore(d.garden ?? []);
   for (const k of GOOD_KEYS) g.eco.goods[k] = Math.max(0, Number(d.goods?.[k]) || 0);
   g.fires?.restore(d.fires);
