@@ -55,10 +55,14 @@ interface Pose {
   /** Shoulder lift (clavicle) per side. */
   shrugL: number;
   shrugR: number;
+  /** How firmly each foot is planted (1 = flat on the ground; 0 = swinging, hanging from the shin). */
+  plantL: number;
+  plantR: number;
   lying: boolean;
   flatBed: boolean;
 }
 
+const smooth01 = (x: number) => { const t = Math.min(1, Math.max(0, x)); return t * t * (3 - 2 * t); };
 const tri = (s: number) => (s < 0.7 ? s / 0.7 : 1 - (s - 0.7) / 0.3);
 const ease = (x: number) => x * x * (3 - 2 * x);
 const pos = (x: number) => Math.max(0, x);
@@ -67,7 +71,7 @@ function blankPose(): Pose {
   return {
     drop: 0, bob: 0, lean: 0, twist: 0, headX: 0, headY: 0, headZ: 0, thL: 0, thR: 0, shL: 0.05, shR: 0.05,
     uaLx: 0, uaLz: 0.16, uaRx: 0, uaRz: 0.16, faL: -0.14, faR: -0.14, hipYaw: 0, roll: 0, hipPitch: 0, spineX: 0, chestX: 0,
-    wrLx: 0.08, wrLz: 0, wrRx: 0.08, wrRz: 0, ftL: 0, ftR: 0, spread: 0, shrugL: 0, shrugR: 0, lying: false, flatBed: false,
+    wrLx: 0.08, wrLz: 0, wrRx: 0.08, wrRz: 0, ftL: 0, ftR: 0, spread: 0, shrugL: 0, shrugR: 0, plantL: 1, plantR: 1, lying: false, flatBed: false,
   };
 }
 
@@ -80,9 +84,14 @@ function stride(p: Pose, ph: number, amp: number, knee: number, stance: number, 
   // Knee: folds most as the leg passes forward (mid-swing), with a small give at heel strike.
   p.shL = stance + Math.pow(pos(-c), 1.4) * knee + pos(-s) * pos(c) * stance * 1.5;
   p.shR = stance + Math.pow(pos(c), 1.4) * knee + pos(s) * pos(-c) * stance * 1.5;
-  // Ankles: toe up reaching forward, pushing off (toe down) behind.
-  p.ftL = 0.5 * pos(s - 0.2) * (0.6 + pos(-c)) - 0.22 * pos(-s);
-  p.ftR = 0.5 * pos(-s - 0.2) * (0.6 + pos(c)) - 0.22 * pos(s);
+  // A foot is planted while its leg sweeps back under the body (c > 0 for L) and swings through
+  // the air otherwise: planted, it lies flat on the ground; swinging, it hangs from the shin, so
+  // the boot follows the leg instead of jutting out level behind it.
+  p.plantL = smooth01((c + 0.3) / 0.35);
+  p.plantR = smooth01((-c + 0.3) / 0.35);
+  // Ankles: toe up reaching forward for the heel strike, rolling onto the toe (toe down) behind.
+  p.ftL = 0.42 * pos(s - 0.25) * p.plantL - 0.2 * pos(-s) * (1 - p.plantL * 0.6) + 0.12 * (1 - p.plantL);
+  p.ftR = 0.42 * pos(-s - 0.25) * p.plantR - 0.2 * pos(s) * (1 - p.plantR * 0.6) + 0.12 * (1 - p.plantR);
   // Hips swing with the leading leg and drop on the swing side; shoulders counter-rotate.
   p.hipYaw = -s * 0.17 * (amp / 0.5);
   p.roll = c * 0.06;
@@ -137,14 +146,14 @@ export function poseFor(isl: Islander, female: boolean, skel?: Skeleton): Pose {
     }
     case 'walk': {
       // The healer walks at half the villagers' pace, so its stride cadence follows that pace.
-      stride(p, t * 7.5 * (isl.npc === 'healer' ? isl.speed / ISLANDER.walkSpeed : 1), 0.38, 0.9, 0.1, 0.9);
+      stride(p, t * 7.5 * (isl.npc === 'healer' ? isl.speed / ISLANDER.walkSpeed : 1), 0.36, 0.72, 0.08, 0.9);
       p.lean = 0.06;
       break;
     }
     case 'carry': {
       // Base gait; drawSkinned solves the final hand contacts against each load's mesh.
       const kind = isl.carry?.kind;
-      stride(p, t * 6.8, 0.38, 0.8, 0.16, 0.8);
+      stride(p, t * 6.8, 0.34, 0.66, 0.12, 0.8);
       p.lean = 0.02;
       p.roll *= 1.4;
       if (kind === 'log') {
@@ -173,7 +182,7 @@ export function poseFor(isl: Islander, female: boolean, skel?: Skeleton): Pose {
     }
     case 'run': {
       const ph = t * 11;
-      stride(p, ph, 0.85, 1.7, 0.2, 1.0);
+      stride(p, ph, 0.72, 1.45, 0.16, 1.0);
       p.faL = p.faR = -1.35;
       p.faL -= pos(-p.uaLx) * 0.3;
       p.faR -= pos(-p.uaRx) * 0.3;
@@ -426,6 +435,10 @@ const TOOLS = ['axe', 'pick', 'hoe', 'spear', 'hammer'] as const;
 const LOADS: Record<string, PartKey> = { log: 'log', stone: 'stone', fruit: 'basket', grain: 'sack', herbs: 'basket', fish: 'fish', meat: 'meat', chicken: 'chicken' };
 /** Ankle height (metres) the planted foot keeps, and the knee's radius when kneeling. */
 const FOOT_H = 0.1;
+/** Seconds to blend from one activity's pose into the next, and the pose values that blend. */
+const BLEND = 0.22;
+const BLEND_KEYS = ['drop', 'bob', 'lean', 'twist', 'headX', 'headY', 'headZ', 'thL', 'thR', 'shL', 'shR', 'uaLx', 'uaLz', 'uaRx', 'uaRz', 'faL', 'faR',
+  'hipYaw', 'roll', 'hipPitch', 'spineX', 'chestX', 'wrLx', 'wrLz', 'wrRx', 'wrRz', 'ftL', 'ftR', 'spread', 'shrugL', 'shrugR', 'plantL', 'plantR'] as const;
 const KNEE_R = 0.06;
 
 /** One character model drawn with GPU skinning: every islander of that model in one draw. */
@@ -579,20 +592,41 @@ export class IslanderRig {
    * so the lower foot's ankle (or a kneeling knee) rests on the ground, so crouches, lunges and
    * strides stay planted without hand-tuned drops.
    */
-  private poseSkeleton(model: GlbModel, p: Pose, headScale: number): void {
+  private poseSkeleton(model: GlbModel, p: Pose, headScale: number, groundL = 0, groundR = 0): void {
     const J = model.joint, L = model.len, W = this.W;
     const hips = J.hips;
     if (p.lying) {
       this.rot(W[BI.hips], 0, 0.16 + p.bob, 0.35, -Math.PI / 2, 0, p.flatBed ? 0 : 0.3);
     } else {
       const hipDY = J.thighL.y - hips.y;
-      // The hips sit where no leg dips below the ground: the leg reaching lowest touches it.
+      // Each foot stands on the ground under it (groundL / groundR: its height above the body's
+      // spot, on slopes and steps). The hips sit where no leg dips below its ground; then a planted
+      // foot left hanging above lower ground lets the hips settle a little, the other knee bending
+      // to keep its foot on its own ground (two-bone IK in the leg's swing plane).
+      // The hip sway (roll) lifts one hip joint and drops the other; the legs splay a little outward.
+      const hx = Math.abs(J.thighL.x - hips.x), splay = Math.cos(0.05 + p.spread);
+      const legs = [[p.thL, p.shL, groundL, p.plantL, -hx * Math.sin(p.roll)], [p.thR, p.shR, groundR, p.plantR, hx * Math.sin(p.roll)]] as const;
+      const ankle = (a: number, k: number) => (-L.thigh * Math.cos(a) - L.shin * Math.cos(a + k)) * splay;
       let need = -Infinity;
-      for (const [th, sh] of [[p.thL, p.shL], [p.thR, p.shR]]) {
+      for (const [th, sh, gnd, , lift] of legs) {
         const a = p.hipPitch + th;
-        const kneeY = -L.thigh * Math.cos(a);
-        const ankleY = kneeY - L.shin * Math.cos(a + sh);
-        need = Math.max(need, Math.max(FOOT_H - ankleY, KNEE_R - kneeY) - hipDY);
+        need = Math.max(need, Math.max(FOOT_H + gnd - ankle(a, sh), KNEE_R + gnd + L.thigh * Math.cos(a) * splay) - hipDY - lift);
+      }
+      let settle = 0;
+      for (const [th, sh, gnd, plant, lift] of legs) {
+        const gap = need + hipDY + lift + ankle(p.hipPitch + th, sh) - (FOOT_H + gnd);
+        // Only the difference in ground height between the feet (on flat ground the stride's own shape stands).
+        if (plant > 0.5 && gap > 0.003) settle = Math.max(settle, Math.min(gap, Math.abs(groundL - groundR), 0.16));
+      }
+      need -= settle;
+      for (const side of [0, 1] as const) {
+        const [th, sh, gnd, , lift] = legs[side], a = p.hipPitch + th;
+        // How far below the hip joint this foot's ankle must be, and the knee bend that gives it.
+        const reach = need + hipDY + lift - (FOOT_H + gnd);
+        if (ankle(a, sh) >= -reach) continue;
+        const c = THREE.MathUtils.clamp((reach / splay - L.thigh * Math.cos(a)) / L.shin, -1, 1);
+        const k = Math.max(sh, Math.acos(c) - a);
+        if (side === 0) p.shL = k; else p.shR = k;
       }
       this.rot(W[BI.hips], 0, need + p.bob, 0, p.hipPitch, p.twist * 0.4 + p.hipYaw, p.roll, 'YXZ');
     }
@@ -618,8 +652,8 @@ export class IslanderRig {
       const a = L_ ? p.thL : p.thR, k = L_ ? p.shL : p.shR;
       this.child(W[th], W[BI.hips], jT.x - hips.x, jT.y - hips.y, jT.z - hips.z, a, 0, side * (0.05 + p.spread));
       this.child(W[sn], W[th], 0, -L.thigh, 0, k, 0, 0);
-      // Feet stay flat to the ground unless the pose tips them.
-      const flat = p.lying ? 0 : -(p.hipPitch + a + k);
+      // A planted foot stays flat to the ground unless the pose tips it; a swinging one hangs from the shin.
+      const flat = p.lying ? 0 : -(p.hipPitch + a + k) * (L_ ? p.plantL : p.plantR);
       this.child(W[ft], W[sn], 0, -L.shin, 0, flat + (L_ ? p.ftL : p.ftR), 0, 0);
     }
   }
@@ -629,6 +663,48 @@ export class IslanderRig {
     attribute.clearUpdateRanges();
     attribute.addUpdateRange(0, Math.min(count, attribute.count) * attribute.itemSize);
     attribute.needsUpdate = true;
+  }
+
+  /** Ground height under a world point (set by the game; flat ground when absent). */
+  groundAt: ((x: number, z: number) => number) | null = null;
+  /** Per islander: the last pose drawn, and a short blend from it when the activity changes. */
+  private blends = new Map<number, { anim: string; from: Pose; last: Pose; t: number }>();
+
+  /** Ease from the previous activity's pose into the new one over a fraction of a second. */
+  private blend(isl: Islander, p: Pose, dt: number): Pose {
+    let b = this.blends.get(isl.id);
+    if (!b) {
+      b = { anim: isl.anim, from: { ...p }, last: { ...p }, t: BLEND };
+      this.blends.set(isl.id, b);
+    }
+    if (b.anim !== isl.anim) {
+      b.anim = isl.anim;
+      Object.assign(b.from, b.last);
+      b.t = 0;
+    }
+    if (b.t < BLEND && !p.lying && !b.from.lying) {
+      b.t = Math.min(BLEND, b.t + Math.max(0, dt));
+      const k = ease(b.t / BLEND);
+      const P = p as unknown as Record<string, number>, F = b.from as unknown as Record<string, number>;
+      for (const key of BLEND_KEYS) P[key] = F[key] + (P[key] - F[key]) * k;
+    }
+    Object.assign(b.last, p);
+    return p;
+  }
+
+  /** How far the ground under each foot sits above (or below) the body's own spot, in model metres. */
+  private feetGround(isl: Islander, model: GlbModel, p: Pose, sc: number): [number, number] {
+    if (!this.groundAt || isl.floorY !== null || p.lying) return [0, 0];
+    const L = model.len, out: [number, number] = [0, 0];
+    const sin = Math.sin(isl.heading), cos = Math.cos(isl.heading);
+    for (const side of [0, 1] as const) {
+      const a = p.hipPitch + (side ? p.thR : p.thL), k = side ? p.shR : p.shL;
+      // The foot's place in the body's frame: out to its side, and forward or back with the stride.
+      const fx = (side ? 1 : -1) * Math.abs(model.joint.footL.x), fz = -(L.thigh * Math.sin(a) + L.shin * Math.sin(a + k));
+      const wx = isl.x + (fx * cos + fz * sin) * sc, wz = isl.z + (-fx * sin + fz * cos) * sc;
+      out[side] = THREE.MathUtils.clamp((this.groundAt(wx, wz) - isl.y) / sc, -0.08, 0.08);
+    }
+    return out;
   }
 
   update(list: Islander[], selected: number, _dt: number, group?: ReadonlySet<number>): void {
@@ -642,7 +718,7 @@ export class IslanderRig {
       if (!View.sees(isl.x, isl.y + 0.35, isl.z, 0.6)) continue;
       const g = isl.gender;
       const sk = SKELETON[g];
-      const p = poseFor(isl, g === 'f', sk);
+      const p = this.blend(isl, poseFor(isl, g === 'f', sk), _dt);
       this.skin.setHex(isl.skin);
       this.accent.setHex(isl.cloth2);
       const sc = S0 * (isl.child ? ISLANDER.childScale : 1) * (g === 'f' ? 0.98 : 1);
@@ -650,7 +726,12 @@ export class IslanderRig {
       // The children's own models have their big heads built in; only the founding pair's would need enlarging.
       const hs = isl.child && !hasChildModel(this.skins) ? 1.22 : 1;
       // Nothing to draw until the character models have loaded.
-      if (skinned) this.drawSkinned(isl, this.skins[characterModelKey(isl)] ?? this.skins[g]!, p, hs);
+      if (skinned) this.drawSkinned(isl, this.skins[characterModelKey(isl)] ?? this.skins[g]!, p, hs, sc);
+    }
+    // Forget the blends of islanders who have gone.
+    if (this.blends.size > list.length + 16) {
+      const alive = new Set(list.map((l) => l.id));
+      for (const id of this.blends.keys()) if (!alive.has(id)) this.blends.delete(id);
     }
     for (const [key, mesh] of this.meshes) {
       const n = this.count.get(key) ?? 0;
@@ -691,7 +772,7 @@ export class IslanderRig {
   }
 
   /** Skinned character model: pose the skeleton, write its skin matrices, then attach props. */
-  private drawSkinned(isl: Islander, set: SkinSet, p: Pose, hs: number): void {
+  private drawSkinned(isl: Islander, set: SkinSet, p: Pose, hs: number, sc = S0): void {
     const i = set.n;
     if (i >= set.mesh.instanceMatrix.count) return;
     const M = this.m, W = this.W, J = set.model.joint;
@@ -706,7 +787,8 @@ export class IslanderRig {
       set.tex.image = { data, width: BONE_COUNT * 4, height: rows };
       set.tex.needsUpdate = true;
     }
-    this.poseSkeleton(set.model, p, hs);
+    const [gL, gR] = this.feetGround(isl, set.model, p, sc);
+    this.poseSkeleton(set.model, p, hs, gL, gR);
     const load = isl.task?.kind === 'firefight' && isl.task.water ? 'water' : isl.carry?.kind ? LOADS[isl.carry.kind] : undefined;
     const gripping = !!load && !p.lying && this.carryPose.apply(load, set.model, W, hs);
     const row = i * BONE_COUNT * 16;

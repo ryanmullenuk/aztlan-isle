@@ -357,6 +357,8 @@ export class Game {
       return { x: c.x, y: c.y, z: c.z, tx: t.x, tz: t.z, r: this.rig.viewRadius };
     };
     this.rig3d = new IslanderRig();
+    // Each foot stands on the ground under it, on slopes and steps.
+    this.rig3d.groundAt = (x, z) => this.world.groundY(x, z);
     this.healers = new Healers(this.buildings);
     this.scene.add(this.rig3d.group);
     this.sculptor = new Sculptor(this.world, this.terrain, this.water, this.veg, this.eco);
