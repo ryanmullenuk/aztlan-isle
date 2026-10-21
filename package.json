@@ -11,6 +11,8 @@
     "typecheck": "tsc --noEmit",
     "ios": "npm run build && cap sync ios && cap open ios",
     "ios:sync": "npm run build && cap sync ios",
+    "mac": "mac/build.sh",
+    "mac:upload": "mac/build.sh upload",
     "test": "node --import tsx --test tests/*.test.ts",
     "perf": "node --import tsx scripts/performance.ts",
     "perf:paths": "node --import tsx scripts/pathfinding-performance.ts",

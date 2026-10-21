@@ -1,0 +1,254 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A1C0DE000000000000000001 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C0DE000000000000000002 /* AppDelegate.swift */; };
+		A1C0DE000000000000000003 /* GameViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C0DE000000000000000004 /* GameViewController.swift */; };
+		A1C0DE000000000000000005 /* GameSchemeHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C0DE000000000000000006 /* GameSchemeHandler.swift */; };
+		A1C0DE000000000000000007 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1C0DE000000000000000008 /* Assets.xcassets */; };
+		A1C0DE000000000000000009 /* dist in Resources */ = {isa = PBXBuildFile; fileRef = A1C0DE00000000000000000A /* dist */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A1C0DE000000000000000002 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		A1C0DE000000000000000004 /* GameViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameViewController.swift; sourceTree = "<group>"; };
+		A1C0DE000000000000000006 /* GameSchemeHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameSchemeHandler.swift; sourceTree = "<group>"; };
+		A1C0DE000000000000000008 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A1C0DE00000000000000000B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A1C0DE00000000000000000C /* AztlanIsle.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AztlanIsle.entitlements; sourceTree = "<group>"; };
+		A1C0DE00000000000000000A /* dist */ = {isa = PBXFileReference; lastKnownFileType = folder; name = dist; path = ../dist; sourceTree = SOURCE_ROOT; };
+		A1C0DE00000000000000000D /* Aztlan Isle.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Aztlan Isle.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A1C0DE00000000000000000E /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A1C0DE00000000000000000F = {
+			isa = PBXGroup;
+			children = (
+				A1C0DE000000000000000010 /* App */,
+				A1C0DE00000000000000000A /* dist */,
+				A1C0DE000000000000000011 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A1C0DE000000000000000010 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				A1C0DE000000000000000002 /* AppDelegate.swift */,
+				A1C0DE000000000000000004 /* GameViewController.swift */,
+				A1C0DE000000000000000006 /* GameSchemeHandler.swift */,
+				A1C0DE000000000000000008 /* Assets.xcassets */,
+				A1C0DE00000000000000000B /* Info.plist */,
+				A1C0DE00000000000000000C /* AztlanIsle.entitlements */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		A1C0DE000000000000000011 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A1C0DE00000000000000000D /* Aztlan Isle.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A1C0DE000000000000000012 /* AztlanIsle */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A1C0DE000000000000000013 /* Build configuration list for PBXNativeTarget "AztlanIsle" */;
+			buildPhases = (
+				A1C0DE000000000000000014 /* Sources */,
+				A1C0DE00000000000000000E /* Frameworks */,
+				A1C0DE000000000000000015 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = AztlanIsle;
+			productName = AztlanIsle;
+			productReference = A1C0DE00000000000000000D /* Aztlan Isle.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A1C0DE000000000000000016 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					A1C0DE000000000000000012 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+				};
+			};
+			buildConfigurationList = A1C0DE000000000000000017 /* Build configuration list for PBXProject "AztlanIsle" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A1C0DE00000000000000000F;
+			productRefGroup = A1C0DE000000000000000011 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A1C0DE000000000000000012 /* AztlanIsle */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A1C0DE000000000000000015 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1C0DE000000000000000007 /* Assets.xcassets in Resources */,
+				A1C0DE000000000000000009 /* dist in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A1C0DE000000000000000014 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1C0DE000000000000000001 /* AppDelegate.swift in Sources */,
+				A1C0DE000000000000000003 /* GameViewController.swift in Sources */,
+				A1C0DE000000000000000005 /* GameSchemeHandler.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A1C0DE000000000000000018 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				SDKROOT = macosx;
+				ONLY_ACTIVE_ARCH = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				DEBUG_INFORMATION_FORMAT = dwarf;
+			};
+			name = Debug;
+		};
+		A1C0DE000000000000000019 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+			};
+			name = Release;
+		};
+		A1C0DE00000000000000001A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = App/AztlanIsle.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 26;
+				DEVELOPMENT_TEAM = 82XX49T84C;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = games.redhead.aztlanisle;
+				PRODUCT_NAME = "Aztlan Isle";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		A1C0DE00000000000000001B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = App/AztlanIsle.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 26;
+				DEVELOPMENT_TEAM = 82XX49T84C;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = games.redhead.aztlanisle;
+				PRODUCT_NAME = "Aztlan Isle";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A1C0DE000000000000000017 /* Build configuration list for PBXProject "AztlanIsle" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1C0DE000000000000000018 /* Debug */,
+				A1C0DE000000000000000019 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A1C0DE000000000000000013 /* Build configuration list for PBXNativeTarget "AztlanIsle" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1C0DE00000000000000001A /* Debug */,
+				A1C0DE00000000000000001B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = A1C0DE000000000000000016 /* Project object */;
+}
