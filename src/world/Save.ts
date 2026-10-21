@@ -123,7 +123,7 @@ export function serialize(g: Game): SaveData {
   const w = g.world;
   const plants = new Uint8Array(g.veg.plants.length * 4);
   g.veg.plants.forEach((p, i) => {
-    plants[i * 4] = p.state | (p.marked ? 8 : 0);
+    plants[i * 4] = p.state | (p.marked ? 8 : 0) | (p.clearing ? 16 : 0);
     plants[i * 4 + 1] = Math.round(p.growth * 255);
     plants[i * 4 + 2] = Math.min(255, Math.round(p.amount * 4));
     plants[i * 4 + 3] = Math.min(255, Math.round(p.fruit * 20));
@@ -230,12 +230,14 @@ export function applyRest(g: Game, d: SaveData): void {
     if (i * 4 + 3 >= u.length) return;
     p.state = (u[i * 4] & 7) as PlantState;
     p.marked = (u[i * 4] & 8) !== 0;
+    p.clearing = (u[i * 4] & 16) !== 0;
     p.growth = u[i * 4 + 1] / 255;
     p.amount = u[i * 4 + 2] / 4;
     p.fruit = u[i * 4 + 3] / 20;
     g.veg.touch(p);
   });
   g.veg.restoreLogs(d.logs ?? []);
+  g.veg.syncClearing?.();
   g.veg.refreshHeights(0, 0, g.world.N - 1, g.world.N - 1);
   const idMap = new Map<number, number>();
   for (const b of d.buildings) {

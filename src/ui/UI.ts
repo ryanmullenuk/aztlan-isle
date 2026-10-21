@@ -1293,7 +1293,7 @@ export class UI {
     if (sa >= MONKEY_BASE && !mk && !dog && !jag) g.select(null);
     const an = g.selectedAnimal >= 0 && g.selectedAnimal < MONKEY_BASE ? g.wildlife.animals.get(g.selectedAnimal) : undefined;
     if (an && !an.alive) g.select(null);
-    if (!isl && !b && !(an && an.alive) && !mk && !dog && !jag) {
+    if (!isl && !b && !(an && an.alive) && !mk && !dog && !jag && !g.areaSel) {
       this.info.classList.add('hidden');
       this.infoKey = '';
       return;
@@ -1301,7 +1301,15 @@ export class UI {
     this.info.classList.remove('hidden');
     let html = '';
     let key = '';
-    if (g.selectedIslanders.size > 0) {
+    if (g.areaSel) {
+      const a = g.areaSel, w = Math.abs(a.x1 - a.x0), d = Math.abs(a.z1 - a.z0);
+      key = `area:${a.x0},${a.z0},${a.x1},${a.z1}`;
+      const row = (label: string, n: number, ic: string) => (n ? `<div class="kv"><span>${ic} ${label}</span><b>${n}</b></div>` : '');
+      html = `<div class="card-head"><span>Selected area</span><span class="tag">${Math.max(1, Math.round(w))} × ${Math.max(1, Math.round(d))}</span></div>
+        ${row('Trees', a.trees.length, icon('wood'))}${row('Fallen logs', a.logs.length, icon('wood'))}${row('Rocks', a.rocks.length, icon('stone'))}
+        <p class="muted small">Clearing puts these first: islanders fell the trees, carry off the logs and quarry the rocks, taking the wood and stone to your stores. The ground is then clear to build on.</p>
+        <div class="actions"><button class="btn small" data-a="clear-area">${ICONS.harvest} Clear area</button><button class="btn small ghost" data-a="cancel-area">Cancel</button></div>`;
+    } else if (g.selectedIslanders.size > 0) {
       const people = [...g.selectedIslanders].map(id => g.colony.byId(id)).filter(Boolean);
       key = `group:${people.map(i => i!.id).join(',')}`;
       html = `<div class="card-head"><span>${people.length} islanders selected</span></div>
@@ -1545,6 +1553,8 @@ export class UI {
   }
 
   private infoAction(a: string, islId: number | undefined, b: Building | undefined, animalId?: number): void {
+    if (a === 'clear-area') { this.game.clearSelectedArea(); this.renderInfo(true); return; }
+    if (a === 'cancel-area') { this.game.clearAreaSelection(); this.renderInfo(true); return; }
     const g = this.game;
     g.audio?.sfx('click');
     if (a === 'group-wood' || a === 'group-stone') {

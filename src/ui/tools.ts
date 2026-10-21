@@ -1,6 +1,6 @@
 import { BuildingKey, POWERS } from '../config';
 
-export type ToolId = 'select' | 'build' | 'raise' | 'lower' | 'flatten' | 'harvest' | 'bless' | 'rain' | 'calm' | 'path' | 'dirtpath' | 'unpath' | 'bridge' | 'canal' | 'regrass' | 'flowers' | 'bushes' | 'shrubs' | 'trees' | 'unplant';
+export type ToolId = 'select' | 'area' | 'build' | 'raise' | 'lower' | 'flatten' | 'harvest' | 'bless' | 'rain' | 'calm' | 'path' | 'dirtpath' | 'unpath' | 'bridge' | 'canal' | 'regrass' | 'flowers' | 'bushes' | 'shrubs' | 'trees' | 'unplant';
 
 /** The drag-to-paint Build tools (paths, bridges, canals, and planting the garden). */
 export const PAINT_TOOLS: ToolId[] = ['path', 'dirtpath', 'unpath', 'bridge', 'canal', 'regrass', 'flowers', 'bushes', 'shrubs', 'trees', 'unplant'];
@@ -18,7 +18,8 @@ export interface ToolDef {
 
 /** Every tool (the sculpt tools sit together under the Terrain slot). */
 export const TOOLS: ToolDef[] = [
-  { id: 'select', name: 'Select', icon: 'select', hint: 'Select islanders and buildings. With an islander selected, click a building or resource to assign them.' },
+  { id: 'select', name: 'Move', icon: 'pan', hint: 'Move around the island and pick islanders and buildings. With an islander picked, click a building or resource to assign them.' },
+  { id: 'area', name: 'Select', icon: 'area', hint: 'Drag over trees and rocks to select an area, then choose Clear area: islanders fell the trees, carry off the logs and quarry the rocks, ready to build on.' },
   { id: 'build', name: 'Build', icon: 'build', hint: 'Open the building menu, then place on flat land.' },
   { id: 'raise', name: 'Raise', icon: 'raise', hint: 'Hold and drag to raise the land one layer.', cost: POWERS.sculptCostPerCell },
   { id: 'lower', name: 'Lower', icon: 'lower', hint: 'Hold and drag to lower the land one layer.', cost: POWERS.sculptCostPerCell },
@@ -39,7 +40,7 @@ export type SlotId = ToolId | 'terrain' | 'flora' | 'blessings';
 
 /** The toolbar (number keys 1–7). */
 export const TOOLBAR: { id: SlotId; name: string; icon: string; hint: string; cost?: number }[] = [
-  ...TOOLS.filter((t) => t.id === 'select' || t.id === 'build'),
+  ...TOOLS.filter((t) => t.id === 'select' || t.id === 'area' || t.id === 'build'),
   { id: 'terrain', name: 'Terrain', icon: 'terrain', hint: 'Shape the land: raise, lower or flatten it. Hold and drag to sculpt.', cost: POWERS.sculptCostPerCell },
   { id: 'flora', name: 'Flora', icon: 'flora', hint: 'Plant flowers, bushes, shrubs and trees: hold and drag over open ground, like laying a path. Trees cost Belief; the rest are free.' },
   // (Harvesting is left to the islanders: they fell, mine and pick by themselves.)

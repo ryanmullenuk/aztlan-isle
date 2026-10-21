@@ -30,6 +30,22 @@ export function buildShoreField(height: Float32Array, distance: Float32Array, si
     out[k + 2] = Math.round((.12 + .88 * (open / angles.length) ** 2) * 255);
     out[k + 3] = Math.round(Math.min(1, slope) * 255);
   }
+  // The first strip of beach above the waterline takes the field of the water beside it, so the
+  // swash can carry on up the sand (the terrain reads this too).
+  for (let z = Math.max(0, z0); z <= Math.min(size - 1, z1); z++) for (let x = Math.max(0, x0); x <= Math.min(size - 1, x1); x++) {
+    const i = z * size + x, k = i * 4;
+    if (height[i] <= .16 || height[i] > .9) continue;
+    let best = -1, bz = 0;
+    for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) {
+      const xx = x + dx, zz = z + dz;
+      if ((!dx && !dz) || xx < 0 || zz < 0 || xx >= size || zz >= size) continue;
+      const j = zz * size + xx;
+      if (height[j] > .16 || distance[j] > 24) continue;
+      const e = out[j * 4 + 2];
+      if (e > bz) { bz = e; best = j; }
+    }
+    if (best >= 0) for (let c = 0; c < 4; c++) out[k + c] = out[best * 4 + c];
+  }
 }
 
 /** Shared shader code; no per-frame CPU work or extra surf geometry. */

@@ -34,7 +34,7 @@ import { FX, setCanopyFade } from './render/materials';
 import { Input } from './ui/Input';
 import { UI } from './ui/UI';
 import { GARDEN_TOOLS, PAINT_TOOLS, TOOLBAR, TOOLS, ToolId } from './ui/tools';
-import { PlantState, Vegetation } from './vegetation/Vegetation';
+import { PlantState, Vegetation, type Plant } from './vegetation/Vegetation';
 import { GrassTufts } from './vegetation/GrassTufts';
 import { Wildflowers } from './vegetation/Wildflowers';
 import { GARDEN, Garden, GardenBrush } from './vegetation/Garden';
@@ -263,6 +263,13 @@ export class Game {
   private hoverPoint: THREE.Vector3 | null = null;
   private brush: THREE.Mesh;
   private harvestDrag = false;
+  /** The Select tool's area: the corner the drag began at, while dragging. */
+  private areaFrom: { x: number; z: number } | null = null;
+  /** The area selected for clearing (its corners and what it holds), shown with its card. */
+  areaSel: { x0: number; z0: number; x1: number; z1: number; trees: Plant[]; logs: Plant[]; rocks: Plant[] } | null = null;
+  /** The selected area drawn on the ground: a soft fill and a gold outline that follow the land. */
+  private areaFill = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color: 0xffd257, transparent: true, opacity: 0.16, depthWrite: false }));
+  private areaLine = new THREE.LineLoop(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xffd257, transparent: true, opacity: 0.95, depthTest: false }));
   private preset: PresetName;
 
   /** Extra per-frame systems registered by later modules (wildlife, boats, powers, audio...). */
@@ -342,6 +349,9 @@ export class Game {
     this.coastRocks = new CoastRocks(this.world, opts.seed, this.veg.plants.filter((p) => p.kind === 'searock' && p.state === PlantState.Alive).map((p) => ({ x: p.x, z: p.z })));
     this.scene.add(this.coastRocks.group);
     this.water = new Water(this.world);
+    // The surf carries on up the beaches: the terrain reads the sea's coastline field and storm.
+    this.terrain.uniforms.uShore.value = this.water.shoreTex;
+    this.terrain.uniforms.uStorm = this.water.shared.uStorm;
     this.bridges = new Bridges(this.world);
     this.scene.add(this.bridges.mesh);
     this.scene.add(this.water.group);
@@ -477,6 +487,10 @@ export class Game {
     this.brush.renderOrder = 30;
     this.brush.visible = false;
     this.scene.add(this.brush);
+    this.areaFill.visible = this.areaLine.visible = false;
+    this.areaFill.renderOrder = 4;
+    this.areaLine.renderOrder = 6;
+    this.scene.add(this.areaFill, this.areaLine);
 
     this.post = new PostFX(this.renderer, this.scene, this.rig.camera);
     this.post.applyPreset(this.preset);
@@ -488,7 +502,7 @@ export class Game {
       wantsPlacementDrag: () => !!this.placing,
       onPlacementDrag: (x,y) => {this.touchPlacement=true;this.onHover(x,y);},
       onCancel: () => this.cancel(),
-      wantsToolDrag: () => this.tool === 'raise' || this.tool === 'lower' || this.tool === 'flatten' || this.tool === 'harvest' || PAINT_TOOLS.includes(this.tool),
+      wantsToolDrag: () => this.tool === 'area' || this.tool === 'raise' || this.tool === 'lower' || this.tool === 'flatten' || this.tool === 'harvest' || PAINT_TOOLS.includes(this.tool),
       onToolDragStart: (x, y) => this.toolDrag(x, y, true),
       onToolDrag: (x, y) => this.toolDrag(x, y, false),
       onToolDragEnd: () => this.toolDragEnd(),
@@ -1203,6 +1217,7 @@ export class Game {
   setTool(id: ToolId): void {
     this.audio?.sfx('click');
     if (this.tool === id && id !== 'select' && !this.placing) id = 'select';
+    if (id !== 'area') this.clearAreaSelection();
     this.tool = id;
     this.placing = null;
     this.moving = null;
@@ -1213,6 +1228,7 @@ export class Game {
       lower: 'Hold and drag to <b>lower</b> the land one layer',
       flatten: 'Hold and drag to <b>level</b> land to the layer you start on',
       harvest: 'Tap or drag over trees, rocks and fruit to mark them · tap a pig, goat, chicken or tapir to hunt it',
+      area: 'Drag over trees and rocks to <b>select an area</b>, then choose <b>Clear area</b> · Esc to finish',
       bless: 'Tap near your farms to bless their crops',
       rain: 'Tap anywhere to summon rain',
       calm: 'Tap the active volcano or a storm to calm it · 50 Belief',
@@ -1457,6 +1473,10 @@ export class Game {
       return;
     }
     switch (this.tool) {
+      case 'area':
+        // A tap (no drag) lets go of the selected area.
+        this.clearAreaSelection();
+        return;
       case 'select':
       case 'build':
         return this.selectAt(x, y, p);
@@ -1848,6 +1868,14 @@ export class Game {
       this.markAt(p, false);
       return;
     }
+    if (this.tool === 'area') {
+      if (start || !this.areaFrom) { this.areaFrom = { x: p.x, z: p.z }; this.areaSel = null; }
+      const a = this.areaFrom, found = this.veg.inRect(a.x, a.z, p.x, p.z);
+      this.drawArea(a.x, a.z, p.x, p.z);
+      this.ui.setHint(`Selecting · <b>${found.trees.length}</b> trees · <b>${found.rocks.length}</b> rocks${found.logs.length ? ` · <b>${found.logs.length}</b> fallen logs` : ''} · let go to choose`);
+      this.areaTo = { x: p.x, z: p.z };
+      return;
+    }
     if (PAINT_TOOLS.includes(this.tool)) {
       // Fill in between pointer samples so a quick drag still lays a continuous path.
       const last = start ? null : this.pathLast;
@@ -1871,7 +1899,67 @@ export class Game {
     this.audio?.sfx('sculpt', p.x, p.z);
   }
 
+  private areaTo: { x: number; z: number } | null = null;
+
+  /** Draw the selected area on the ground between two corners (a fill and an outline following the land). */
+  private drawArea(x0: number, z0: number, x1: number, z1: number): void {
+    const ax = Math.min(x0, x1), bx = Math.max(x0, x1), az = Math.min(z0, z1), bz = Math.max(z0, z1);
+    const nx = Math.min(40, Math.max(1, Math.ceil((bx - ax) / 0.5))), nz = Math.min(40, Math.max(1, Math.ceil((bz - az) / 0.5)));
+    const ground = (x: number, z: number) => Math.max(this.world.groundY(x, z), SEA_SURFACE) + 0.05;
+    const pos: number[] = [], idx: number[] = [];
+    for (let j = 0; j <= nz; j++) for (let i = 0; i <= nx; i++) {
+      const x = ax + ((bx - ax) * i) / nx, z = az + ((bz - az) * j) / nz;
+      pos.push(x, ground(x, z), z);
+      if (i < nx && j < nz) { const a = j * (nx + 1) + i; idx.push(a, a + nx + 1, a + 1, a + 1, a + nx + 1, a + nx + 2); }
+    }
+    const fill = this.areaFill.geometry;
+    fill.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    fill.setIndex(idx);
+    fill.computeBoundingSphere();
+    const ring: number[] = [];
+    const edge = (xa: number, za: number, xb: number, zb: number, n: number) => { for (let k = 0; k < n; k++) { const t = k / n, x = xa + (xb - xa) * t, z = za + (zb - za) * t; ring.push(x, ground(x, z) + 0.02, z); } };
+    edge(ax, az, bx, az, nx); edge(bx, az, bx, bz, nz); edge(bx, bz, ax, bz, nx); edge(ax, bz, ax, az, nz);
+    this.areaLine.geometry.setAttribute('position', new THREE.Float32BufferAttribute(ring, 3));
+    this.areaLine.geometry.computeBoundingSphere();
+    this.areaFill.visible = this.areaLine.visible = true;
+  }
+
+  /** Forget the selected area (and stop drawing it). */
+  clearAreaSelection(): void {
+    this.areaSel = null;
+    this.areaFrom = this.areaTo = null;
+    this.areaFill.visible = this.areaLine.visible = false;
+  }
+
+  /** Order the selected area cleared: islanders fell its trees, carry off its logs and quarry its rocks. */
+  clearSelectedArea(): void {
+    const s = this.areaSel;
+    if (!s) return;
+    const n = this.veg.orderClearing([...s.trees, ...s.logs, ...s.rocks]);
+    if (n) this.colony.startClearing();
+    this.stats.marked = this.veg.markedCount;
+    this.audio?.sfx('mark', (s.x0 + s.x1) / 2, (s.z0 + s.z1) / 2);
+    const parts = [s.trees.length && `${s.trees.length} tree${s.trees.length > 1 ? 's' : ''}`, s.logs.length && `${s.logs.length} fallen log${s.logs.length > 1 ? 's' : ''}`, s.rocks.length && `${s.rocks.length} rock${s.rocks.length > 1 ? 's' : ''}`].filter(Boolean).join(', ');
+    this.ui.toast(n ? `Islanders will clear the area: ${parts}.` : 'That area is already being cleared.');
+    this.clearAreaSelection();
+    this.ui.setHint(null);
+  }
+
   private toolDragEnd(): void {
+    if (this.tool === 'area' && this.areaFrom) {
+      const a = this.areaFrom, b = this.areaTo ?? a;
+      this.areaFrom = null;
+      const found = this.veg.inRect(a.x, a.z, b.x, b.z);
+      if (!found.trees.length && !found.rocks.length && !found.logs.length) {
+        this.clearAreaSelection();
+        this.ui.setHint('No trees or rocks there · drag over an area to select it');
+        return;
+      }
+      this.select(null);
+      this.areaSel = { x0: a.x, z0: a.z, x1: b.x, z1: b.z, ...found };
+      this.ui.setHint(null);
+      return;
+    }
     if (this.harvestDrag) {
       this.harvestDrag = false;
       this.stats.marked = this.veg.markedCount;

@@ -60,6 +60,8 @@ export interface Plant {
   reservedBy: number;
   /** Player marked for priority harvesting. */
   marked: boolean;
+  /** In an area the player asked to be cleared: felled (and its log carried off) or quarried away. */
+  clearing?: boolean;
   cell: number;
   slots: Partial<Record<string, number>>;
   chunk: number;
@@ -803,6 +805,57 @@ export class Vegetation {
     }
     if (n) this.markersDirty = true;
     return n;
+  }
+
+  /** Trees, fallen logs and rocks inside a world rectangle that an area clearing would take. */
+  inRect(x0: number, z0: number, x1: number, z1: number): { trees: Plant[]; logs: Plant[]; rocks: Plant[] } {
+    const out = { trees: [] as Plant[], logs: [] as Plant[], rocks: [] as Plant[] };
+    const w = this.world, [ax, az] = w.cellOf(Math.min(x0, x1), Math.min(z0, z1)), [bx, bz] = w.cellOf(Math.max(x0, x1), Math.max(z0, z1));
+    for (let z = az; z <= bz; z++) for (let x = ax; x <= bx; x++) {
+      if (!w.inBounds(x, z)) continue;
+      for (const p of this.plantsInCell(w.idx(x, z))) {
+        if (p.x < Math.min(x0, x1) || p.x > Math.max(x0, x1) || p.z < Math.min(z0, z1) || p.z > Math.max(z0, z1)) continue;
+        if ((p.kind === 'broadleaf' || p.kind === 'palm') && p.state === PlantState.Alive) out.trees.push(p);
+        else if (this.hasLog(p)) out.logs.push(p);
+        else if (p.kind === 'rock' && p.state === PlantState.Alive && p.amount > 0) out.rocks.push(p);
+      }
+    }
+    return out;
+  }
+
+  /** Plants waiting to be cleared (a short list kept in step with the flags). */
+  clearingIds: number[] = [];
+
+  /** Ask for these plants to be cleared (they also show the priority marker while standing). */
+  orderClearing(plants: Plant[]): number {
+    let n = 0;
+    for (const p of plants) {
+      if (p.clearing) continue;
+      p.clearing = true;
+      if (p.state === PlantState.Alive) p.marked = true;
+      this.clearingIds.push(p.id);
+      n++;
+    }
+    if (n) this.markersDirty = true;
+    return n;
+  }
+
+  /** Whether a plant ordered cleared has been: the tree down and its log carried off, the rock gone. */
+  cleared(p: Plant): boolean {
+    if (p.kind === 'rock') return p.state !== PlantState.Alive || p.amount <= 0;
+    return p.state === PlantState.Gone || (p.state !== PlantState.Alive && p.amount <= 0);
+  }
+
+  /** Cancel every clearing order (their markers too). */
+  cancelClearing(): void {
+    for (const id of this.clearingIds) { const p = this.plants[id]; if (p) { p.clearing = false; p.marked = false; } }
+    this.clearingIds = [];
+    this.markersDirty = true;
+  }
+
+  /** Rebuild the clearing list from the plants' flags (after loading a save). */
+  syncClearing(): void {
+    this.clearingIds = this.plants.filter((p) => p.clearing).map((p) => p.id);
   }
 
   get markedCount(): number {

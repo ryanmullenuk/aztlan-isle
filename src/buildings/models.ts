@@ -1146,90 +1146,162 @@ function amaranthPlant(b: GeoBuilder, rng: RNG, x: number, z: number, ripe: bool
   }
 }
 
-/** Raised chinampa beds (three strips along z): maize, marigolds, beans and greens. */
-function chinampaCrops(w: number, d: number, ripe: boolean): THREE.BufferGeometry {
-  const b = new GeoBuilder();
-  const rng = new RNG(ripe ? 27 : 28);
-  const bedY = CHINAMPA_BED_Y;
-  for (const bx of chinampaBeds(w)) {
-    const n = Math.floor((d - 1.0) / 0.34);
-    for (let k = 0; k <= n; k++) {
-      const z = -d / 2 + 0.5 + k * 0.34;
-      for (const ox of [-0.18, 0.18]) {
-        const x = bx + ox;
-        const pick = (k + (ox > 0 ? 1 : 0)) % 4;
-        const jx = x + rng.range(-0.03, 0.03), jz = z + rng.range(-0.03, 0.03);
-        const sw = (p: THREE.Vector3) => (p.y - bedY) * 0.4;
-        if (pick === 0) {
-          // A young maize plant.
-          const h = rng.range(0.34, 0.52);
-          b.add(P.cyl(0.011, 0.016, h, 4), { color: ripe ? c(0xc8b04a) : c(0x6fae3a), sway: sw }, M.t(jx, bedY + h / 2, jz));
-          for (let k = 0; k < 3; k++) archLeaf(b, jx, bedY + h * (0.25 + k * 0.22), jz, rng.range(0, 6.28), h * 0.42, 0.026, vary(rng, k ? c(0x5f9a34) : c(0x4b8a2c)), sw, 3, 0.55, 0.8);
-          if (ripe) b.add(P.cyl(0.02, 0.016, 0.08, 5), { color: K.gold, sway: 0.3 }, M.t(jx + 0.03, bedY + h * 0.62, jz, 0, 0, 0.4));
-        } else if (pick === 1) {
-          // Cempasuchil marigolds: a feathery clump with ruffled orange and gold heads.
-          for (let k = 0; k < 6; k++) leafBlade(b, jx, bedY + 0.02, jz, rng.range(0, 6.28), rng.range(0.07, 0.1), 0.022, c(0x3f7a2a), c(0x5f9a3a), sw, 0.9, 0.9);
-          const nf = ripe || k % 2 ? rng.int(2, 3) : 0;
-          for (let f = 0; f < nf; f++) {
-            const fx = jx + rng.range(-0.04, 0.04), fz = jz + rng.range(-0.04, 0.04), fy = bedY + rng.range(0.1, 0.15);
-            const col = vary(rng, rng.next() < 0.6 ? c(0xf29a2e) : c(0xf2c230), 0.06);
-            b.add(P.sphere(0.03, 1), { color: (p) => col.clone().multiplyScalar(0.8 + Math.min(1, (p.y - fy + 0.02) / 0.04) * 0.25), sway: 0.3 }, M.t(fx, fy, fz, 0, rng.range(0, 3), 0, 1, 0.7, 1));
-            b.add(P.cyl(0.003, 0.004, fy - bedY, 3, true), { color: c(0x4f8a30), sway: sw }, M.t(fx, (fy + bedY) / 2, fz));
-          }
-        } else if (pick === 2) {
-          // Leafy greens (quelites): a loose rosette of broad leaves.
-          const dk = vary(rng, c(0x3f8a2e)), lt = vary(rng, c(0x8cc85a));
-          for (let k = 0; k < 7; k++) leafBlade(b, jx, bedY + 0.01, jz, (k / 7) * 6.28 + rng.range(-0.3, 0.3), rng.range(0.08, 0.11), 0.04, dk, lt, 0.15, rng.range(0.5, 1.1), 0.9, 0.35);
-        } else {
-          // Beans scrambling up a single cane.
-          const h = rng.range(0.28, 0.36);
-          b.add(P.cyl(0.006, 0.008, h, 3, true), { color: VG.pole, sway: sw }, M.t(jx, bedY + h / 2, jz, rng.range(-0.08, 0.08), 0, rng.range(-0.08, 0.08)));
-          for (let k = 0; k < 4; k++) {
-            const a = rng.range(0, 6.28), y = bedY + h * (0.2 + k * 0.2);
-            for (const da of [-0.7, 0, 0.7]) leafBlade(b, jx, y, jz, a + da, 0.05, 0.021, VG.leafDark, VG.leafLight, sw, 0.2, 0.7);
-          }
-          if (ripe) for (let k = 0; k < 3; k++) b.add(P.cyl(0.005, 0.004, 0.08, 3, true), { color: VG.pod, sway: sw }, M.t(jx + rng.range(-0.03, 0.03), bedY + h * rng.range(0.3, 0.7), jz + rng.range(-0.03, 0.03), rng.range(-0.2, 0.2), 0, rng.range(-0.2, 0.2)));
-        }
-      }
-    }
-  }
-  return b.build();
-}
-
-export const CHINAMPA_BED_Y = 0.14;
+/** Water garden layout (model-local, door faces +z): three raised beds between water channels. */
+const CHB = { bedW: 1.0, z0: -1.5, z1: 1.2, walkZ: 1.62 };
+export const CHINAMPA_BED_Y = 0.17;
 /** Centre x of each raised bed (three beds with two channels between them). */
 export function chinampaBeds(w: number): number[] {
-  const bw = (w - 0.6) / 3;
-  return [-bw - 0.1, 0, bw + 0.1].map((x) => x * 1);
+  const g = (w - 3 * CHB.bedW) / 4;
+  return [-(CHB.bedW + g), 0, CHB.bedW + g];
+}
+
+/** A round, crinkled cabbage: outer leaves cupping a pale heart. */
+function cabbagePlant(b: GeoBuilder, rng: RNG, x: number, z: number, ripe: boolean, s: number): void {
+  const dk = vary(rng, c(0x3f7f3a)), lt = vary(rng, c(0x9ccf7a));
+  for (let k = 0; k < 7; k++) leafBlade(b, x, 0.01, z, (k / 7) * 6.28 + rng.range(-0.3, 0.3), 0.1 * s, 0.06 * s, dk, lt, 0.12, rng.range(0.3, 0.6), 0.5, 0.4);
+  if (ripe || rng.next() < 0.5) b.add(lumpy(P.sphere(0.05 * s, 1), 0.12, rng.int(1, 999), 0.85), { color: (p) => c(0xb8dd94).lerp(c(0x6fae5a), Math.max(0, 0.06 * s - p.y) * 8), facet: true, sway: 0.05 }, M.t(x, 0.045 * s, z));
+}
+
+/** A carrot: a feathery green top over the orange shoulder showing through the soil. */
+function carrotPlant(b: GeoBuilder, rng: RNG, x: number, z: number, ripe: boolean): void {
+  if (ripe) b.add(P.cone(0.022, 0.05, 6), { color: c(0xe8782a), facet: true }, M.t(x, 0.012, z, Math.PI, 0, 0));
+  for (let k = 0; k < 6; k++) leafBlade(b, x, 0.02, z, (k / 6) * 6.28 + rng.range(-0.2, 0.2), rng.range(0.07, 0.11), 0.016, c(0x3f8a2e), c(0x7fbf4a), (p) => p.y * 0.5, 1.1, 0.4, 0.1);
 }
 
 /**
- * Chinampa: three raised beds of dark lake mud edged with woven reed wattle, separated by water
- * channels, tall slim ahuejote willows at the corners and a canoe moored in a channel.
+ * Water garden crops, a different crop to each bed as on a real chinampa: maize, sprawling
+ * squash, and staked tomatoes in front of cabbages and carrots. Built at ground level and lifted
+ * onto the beds' soil.
+ */
+function chinampaCrops(w: number, d: number, ripe: boolean): THREE.BufferGeometry {
+  const b = new GeoBuilder();
+  const rng = new RNG(ripe ? 27 : 28);
+  const [b0, b1, b2] = chinampaBeds(w);
+  const along = (step: number, fn: (z: number, k: number) => void) => {
+    let k = 0;
+    for (let z = CHB.z0 + 0.18; z < CHB.z1 - 0.1; z += step * rng.range(0.9, 1.1)) fn(z + rng.range(-0.03, 0.03), k++);
+  };
+  // Maize in two rows.
+  for (const ox of [-0.24, 0.24]) along(0.3, (z) => maizePlant(b, rng, b0 + ox + rng.range(-0.03, 0.03), z, rng.range(0.5, 0.68), ripe));
+  // Squash vines under their broad leaves.
+  for (const ox of [-0.2, 0.22]) along(0.48, (z) => squashPlant(b, rng, b1 + ox, z, ripe, rng.range(0.8, 1)));
+  // Tomatoes on stakes at the back, cabbages and carrots at the front.
+  const mid = (CHB.z0 + CHB.z1) / 2;
+  for (const ox of [-0.24, 0.24]) along(0.27, (z) => {
+    if (z < mid) tomatoPlant(b, rng, b2 + ox, z, ripe, rng.range(0.75, 0.9));
+    else if (ox < 0) cabbagePlant(b, rng, b2 + ox, z, ripe, rng.range(0.9, 1.15));
+    else { carrotPlant(b, rng, b2 + ox - 0.05, z, ripe); carrotPlant(b, rng, b2 + ox + 0.08, z + 0.1, ripe); }
+  });
+  const g = b.build();
+  g.translate(0, CHINAMPA_BED_Y, 0);
+  return g;
+}
+
+/** An ahuejote willow: a slim leaning trunk and a tall, ragged column of drooping leaf clumps. */
+function ahuejote(b: GeoBuilder, rng: RNG, x: number, z: number, h: number): void {
+  const la = rng.range(0, 6.28), lean = rng.range(0.04, 0.12);
+  const at = (t: number) => new THREE.Vector3(x + Math.cos(la) * lean * t * t * h, h * t, z + Math.sin(la) * lean * t * t * h);
+  b.add(outward(tube([0, 0.35, 0.7, 1].map(at), (u) => 0.045 - u * 0.028, 5, 8)), { color: (p) => K.timberDark.clone().lerp(c(0x8a7458), Math.sin(p.y * 31) * 0.25 + 0.25), sway: (p) => p.y * 0.04 });
+  // A few side branches.
+  for (let k = 0; k < 3; k++) {
+    const t = rng.range(0.45, 0.8), o = at(t), a = rng.range(0, 6.28), L = rng.range(0.15, 0.28);
+    b.add(P.cyl(0.008, 0.016, L, 4), { color: K.timberDark, sway: (p) => p.y * 0.05 }, M.t(o.x + Math.cos(a) * L * 0.4, o.y + L * 0.3, o.z + Math.sin(a) * L * 0.4, Math.sin(a) * 0.9, 0, -Math.cos(a) * 0.9));
+  }
+  // Foliage: clumps of different sizes and greens, crowded toward the top, none in line.
+  const n = Math.round(rng.range(18, 24));
+  for (let k = 0; k < n; k++) {
+    const t = 0.3 + Math.pow(rng.next(), 0.7) * 0.74, o = at(Math.min(1.04, t));
+    const r = rng.range(0.09, 0.19) * (1.2 - t * 0.4), a = rng.range(0, 6.28), off = rng.range(0.03, 0.17) * (1.25 - t * 0.55);
+    const col = c(0x3f7a2e).lerp(c(0x9cc456), rng.range(0, 0.75));
+    b.add(lumpy(P.sphere(r, 1), 0.3, rng.int(1, 9999), rng.range(1.15, 1.7)), { color: (p) => col.clone().multiplyScalar(0.85 + Math.min(0.3, (p.y - o.y + r) / (r * 6))), leaf: 1, sway: (p) => 0.08 + p.y * 0.07 }, M.t(o.x + Math.cos(a) * off, o.y, o.z + Math.sin(a) * off, rng.range(-0.3, 0.3), a, rng.range(-0.3, 0.3)));
+  }
+}
+
+/**
+ * Chinampa (water garden): three raised beds of dark lake mud walled with woven reed bundles
+ * between thick lashed posts, standing in a reed-fringed pool with lily pads; plank bridges cross
+ * the channels and a boardwalk with a rope rail runs along the front. Two irregular ahuejote
+ * willows (their roots bind the beds) stand at the back.
  */
 export function chinampaModel(w: number, d: number): BuildingModel {
   const b = new GeoBuilder();
-  const hw = w / 2 - 0.05, hd = d / 2 - 0.05;
-  const bw = (w - 0.6) / 3 - 0.12;
-  // Water between and around the beds.
-  b.add(P.box(w - 0.1, 0.04, d - 0.1), { color: (p) => c(0x2f9fac).lerp(c(0x56c4c8), Math.sin(p.x * 5 + p.z * 3) * 0.25 + 0.3) }, M.t(0, 0.02, 0));
+  const rng = new RNG(311);
+  const hw = w / 2, hd = d / 2, by = CHINAMPA_BED_Y, wy = 0.06;
+  // A low earth bank round the pool.
+  const bank = (p: THREE.Vector3) => c(0x6b5236).lerp(c(0x8a7050), Math.sin(p.x * 13 + p.z * 7) * 0.3 + 0.3);
+  for (const s of [-1, 1]) {
+    b.add(P.box(w - 0.02, 0.09, 0.14), { color: bank }, M.t(0, 0.045, s * (hd - 0.07)));
+    b.add(P.box(0.14, 0.09, d - 0.3), { color: bank }, M.t(s * (hw - 0.07), 0.045, 0));
+  }
+  // Water: deep teal in the middle, greener and shallower toward the banks, with ripples.
+  const water = new THREE.PlaneGeometry(w - 0.2, d - 0.2, 20, 20).rotateX(-Math.PI / 2);
+  b.add(water, { color: (p) => {
+    const edge = Math.min(hw - 0.1 - Math.abs(p.x), hd - 0.1 - Math.abs(p.z));
+    return c(0x226f78).lerp(c(0x5d9a82), Math.max(0, 1 - edge / 0.4) * 0.75).multiplyScalar(0.94 + 0.06 * Math.sin(p.x * 9 + p.z * 6));
+  } }, M.t(0, wy, 0));
+  for (let k = 0; k < 9; k++) {
+    const [x, z] = [rng.range(-hw + 0.3, hw - 0.3), rng.next() < 0.5 ? rng.range(CHB.z1 + 0.05, CHB.walkZ - 0.2) : rng.range(-hd + 0.25, CHB.z0 - 0.05)];
+    b.add(P.torus(rng.range(0.05, 0.12), 0.004, 3, 16), { color: c(0x8fc3b4) }, M.t(x, wy + 0.004, z, Math.PI / 2, 0, 0));
+  }
+  // Lily pads (a notch cut from each) and a few pink flowers, in the open water.
+  for (let k = 0; k < 16; k++) {
+    const x = rng.next() < 0.5 ? rng.range(-hw + 0.2, hw - 0.2) : chinampaBeds(w)[rng.int(0, 1)] + (CHB.bedW / 2 + 0.08);
+    const z = k < 8 ? rng.range(-hd + 0.2, CHB.z0 - 0.06) : rng.range(CHB.z0, CHB.z1);
+    const r = rng.range(0.04, 0.075);
+    b.add(new THREE.CircleGeometry(r, 9, 0.35, 5.9).rotateX(-Math.PI / 2), { color: vary(rng, c(0x4f8f3e), 0.12), leaf: 1 }, M.t(x, wy + 0.006, z, 0, rng.range(0, 6.28), 0));
+    if (k % 4 === 0) b.add(FLOWER, { color: c(0xf0a4c0), leaf: 1 }, M.t(x + 0.02, wy + 0.025, z, 0, k, 0, 0.7, 0.5, 0.7));
+  }
+  // Reeds along the banks.
+  for (let k = 0; k < 14; k++) {
+    const side = k % 4, u = rng.range(-0.9, 0.9);
+    const x = side < 2 ? (side ? 1 : -1) * (hw - 0.17) : u * hw, z = side < 2 ? u * (hd - 0.4) - 0.2 : -(hd - 0.17);
+    for (let r = 0; r < 5; r++) b.add(P.cone(0.012, rng.range(0.22, 0.38), 3), { color: c(0x6f8f3a).lerp(c(0xb8a85a), rng.next() * 0.5), leaf: 1, sway: (p) => p.y * 0.25 }, M.t(x + rng.range(-0.05, 0.05), wy + 0.13, z + rng.range(-0.05, 0.05), rng.range(-0.15, 0.15), 0, rng.range(-0.15, 0.15)));
+  }
+  // The beds.
+  const reedA = c(0xc9a35a), reedB = c(0xa9853f), soil = c(0x3b2a1c), soilLight = c(0x56402a);
+  const post = (x: number, z: number, h: number, r = 0.035) => {
+    b.add(P.cyl(r * 0.9, r, h, 6), { color: (p) => K.timber.clone().lerp(K.timberDark, Math.max(0, 0.2 - p.y) * 3) }, M.t(x, h / 2, z));
+    b.add(P.cyl(r * 0.85, r * 0.85, 0.012, 6), { color: K.timberDark }, M.t(x, h + 0.006, z));
+    for (const y of [h - 0.05, h - 0.09]) b.add(P.cyl(r + 0.006, r + 0.006, 0.014, 6), { color: K.rope }, M.t(x, y, z));
+  };
   for (const bx of chinampaBeds(w)) {
-    b.add(P.rbox(bw, CHINAMPA_BED_Y, d - 0.5, 0.03), { color: (p) => (p.y > CHINAMPA_BED_Y - 0.02 ? c(0x4a3322) : c(0x5e4630)) }, M.t(bx, CHINAMPA_BED_Y / 2, 0));
-    // Woven wattle edging with stakes.
-    for (const side of [-1, 1]) {
-      b.add(P.box(0.03, 0.1, d - 0.45), { color: (p) => ((p.z * 10) % 1 < 0.5 ? K.timber : K.rope).clone() }, M.t(bx + side * (bw / 2 + 0.01), CHINAMPA_BED_Y - 0.03, 0));
-      for (let k = 0; k <= 5; k++) b.add(P.cyl(0.012, 0.012, 0.22, 4), { color: K.timberDark }, M.t(bx + side * (bw / 2 + 0.02), 0.1, -hd + 0.3 + (k / 5) * (d - 0.8)));
-    }
+    const bw = CHB.bedW, L = CHB.z1 - CHB.z0, cz = (CHB.z0 + CHB.z1) / 2;
+    b.add(P.box(bw - 0.04, by, L - 0.04), { color: soil }, M.t(bx, by / 2, cz));
+    // Furrowed soil on top.
+    for (let r = 0; r < 5; r++) b.add(P.box(0.1, 0.02, L - 0.12), { color: (p) => soil.clone().lerp(soilLight, Math.sin(p.z * 17 + r) * 0.3 + 0.35) }, M.t(bx - bw / 2 + 0.12 + r * ((bw - 0.24) / 4), by + 0.004, cz));
+    // Woven reed walls: upright bundles, bound with two cords, round all four sides.
+    const wall = (x0: number, z0: number, x1: number, z1: number) => {
+      const len = Math.hypot(x1 - x0, z1 - z0), n = Math.floor(len / 0.05), ry = Math.atan2(x1 - x0, z1 - z0);
+      for (let k = 0; k < n; k++) {
+        const t = (k + 0.5) / n, h = by + 0.03 + rng.range(-0.012, 0.012);
+        b.add(P.box(0.032, h, 0.05), { color: (k % 2 ? reedA : reedB).clone().multiplyScalar(0.92 + rng.next() * 0.14) }, M.t(x0 + (x1 - x0) * t, h / 2, z0 + (z1 - z0) * t, 0, ry, 0));
+      }
+      for (const y of [by * 0.45, by - 0.02]) b.add(P.box(0.04, 0.014, len), { color: K.rope }, M.t((x0 + x1) / 2, y, (z0 + z1) / 2, 0, ry, 0));
+    };
+    const x0 = bx - bw / 2, x1 = bx + bw / 2;
+    wall(x0, CHB.z0, x0, CHB.z1); wall(x1, CHB.z0, x1, CHB.z1); wall(x0, CHB.z0, x1, CHB.z0); wall(x0, CHB.z1, x1, CHB.z1);
+    for (const x of [x0, x1]) for (const z of [CHB.z0, cz - L / 4, cz + L / 4, CHB.z1]) post(x, z, by + rng.range(0.12, 0.17), z === CHB.z0 || z === CHB.z1 ? 0.042 : 0.032);
   }
-  // Ahuejote willows: tall, slim columns of foliage anchoring the corners.
-  for (const [x, z] of [[-hw + 0.12, -hd + 0.12], [hw - 0.12, -hd + 0.12], [-hw + 0.12, hd - 0.12], [hw - 0.12, hd - 0.12]]) {
-    b.add(P.cyl(0.035, 0.05, 1.2, 5), { color: K.timberDark, sway: (p) => p.y * 0.05 }, M.t(x, 0.6, z));
-    for (let k = 0; k < 4; k++) b.add(P.sphere(0.16 - k * 0.02, 1), { color: c(0x4f8f38).lerp(c(0x8cbf4a), k * 0.25), leaf: 1, sway: (p) => 0.1 + p.y * 0.08 }, M.t(x, 1.05 + k * 0.28, z, 0, k, 0, 1, 1.5, 1));
+  // Plank bridges across the channels, at the middle of the beds.
+  const beds = chinampaBeds(w);
+  for (let k = 0; k < 2; k++) {
+    const xa = beds[k] + CHB.bedW / 2, xb = beds[k + 1] - CHB.bedW / 2, cx = (xa + xb) / 2;
+    for (let p = 0; p < 4; p++) b.add(P.box(xb - xa + 0.1, 0.022, 0.08), { color: (p % 2 ? K.timber : c(0x9a7550)).clone().multiplyScalar(0.95 + rng.next() * 0.1) }, M.t(cx, by + 0.012, -0.15 + p * 0.09, 0, rng.range(-0.03, 0.03), 0));
   }
-  // Canoe in a channel.
-  const cx = (chinampaBeds(w)[0] + chinampaBeds(w)[1]) / 2;
-  b.add(P.sphere(0.5, 1), { color: K.timber }, M.t(cx, 0.06, hd * 0.35, 0, 0, 0, 0.12, 0.08, 0.7));
-  b.add(P.cyl(0.008, 0.008, 0.7, 3), { color: K.timberDark }, M.t(cx + 0.05, 0.2, hd * 0.35, 0.9, 0, 0));
+  // Front boardwalk on posts, with a rope rail.
+  const walkY = by + 0.01, wz = CHB.walkZ;
+  for (let k = 0; k < 2; k++) b.add(P.box(w - 0.3, 0.03, 0.04), { color: K.timberDark }, M.t(0, walkY - 0.025, wz + (k ? 0.13 : -0.13)));
+  const planks = Math.floor((w - 0.3) / 0.09);
+  for (let k = 0; k < planks; k++) b.add(P.box(0.085, 0.022, 0.36 + rng.range(-0.02, 0.02)), { color: (k % 3 ? K.timber : c(0x9a7550)).clone().multiplyScalar(0.92 + rng.next() * 0.14) }, M.t(-hw + 0.19 + k * 0.09, walkY, wz, 0, rng.range(-0.03, 0.03), 0));
+  const railX = [-hw + 0.2, -hw / 3, hw / 3, hw - 0.2];
+  for (const x of railX) post(x, wz + 0.17, walkY + 0.22, 0.03);
+  for (let k = 0; k < railX.length - 1; k++) b.add(P.cyl(0.008, 0.008, railX[k + 1] - railX[k], 4), { color: K.rope }, M.t((railX[k] + railX[k + 1]) / 2, walkY + 0.16, wz + 0.17, 0, 0, Math.PI / 2));
+  // A basket of the harvest on the boardwalk.
+  b.add(P.cyl(0.09, 0.07, 0.07, 9), { color: K.rope }, M.t(hw - 0.55, walkY + 0.045, wz - 0.05));
+  for (let k = 0; k < 5; k++) b.add(P.sphere(0.03, 1), { color: [c(0xe8862a), c(0xe23a24), c(0x8ccf5a)][k % 3] }, M.t(hw - 0.55 + rng.range(-0.04, 0.04), walkY + 0.09, wz - 0.05 + rng.range(-0.04, 0.04)));
+  // Two ahuejote willows of different heights at the back.
+  ahuejote(b, rng, -hw + 0.24, -hd + 0.22, 1.75);
+  ahuejote(b, rng, hw - 0.32, -hd + 0.28, 1.25);
   return { finished: b.build(), torches: [], height: 0.6 };
 }
 

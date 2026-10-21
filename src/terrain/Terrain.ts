@@ -59,6 +59,10 @@ export class Terrain {
     uPathCol2: { value: new THREE.Color(COLORS.dirtDark) },
     uSoilCol: { value: new THREE.Color(COLORS.soil) },
     uCaustic: { value: 1 },
+    /** The sea's coastline field (offshore direction, exposure, beach) and storm level, shared with
+     * the water so each wave's swash carries on up the sand in step with the sea's own. */
+    uShore: { value: null as THREE.Texture | null },
+    uStorm: { value: 0 },
   };
 
   private sub: number;
@@ -395,6 +399,49 @@ export class Terrain {
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
+        '#include <roughnessmap_fragment>',
+        `float swWet = 0.0;
+        {
+          // Swash: each wave that breaks on a beach runs a little way up the sand as a thin sheet of
+          // water with a lacy foam front, then drains away, leaving the sand dark and glossy for a
+          // moment. The same timing as the sea's own swash (which can only show below sea level).
+          if (vWPos.y > -0.05 && vWPos.y < 0.32 && vMask.z > 0.05) {
+            vec4 coast = texture2D(uShore, clamp((vWPos.xz + uWorld * 0.5) / uWorld, 0.0, 1.0));
+            float exposure = coast.z, beachK = 1.0 - smoothstep(0.25, 0.75, coast.w);
+            if (exposure > 0.01 && beachK > 0.01) {
+              vec2 p = vWPos.xz;
+              float t = uTime;
+              float along = swN(p * 0.055) * 2.8 + swN(p * 0.16 + 4.0) * 0.8;
+              float surfP = t * 1.03 + along * 3.14159 + sin(t * 0.17 + along * 2.1) * 0.35;
+              float setK = 0.72 + 0.28 * sin(surfP * 0.34 + along * 1.7);
+              float fSw = fract(surfP / 6.28318);
+              float reach = mix(0.015, 0.07, mix(0.2, 1.0, exposure)) * setK * mix(0.45, 1.0, beachK) * (1.0 + uStorm * exposure * 0.5);
+              // On the sand the wave carries on a little above the sea's still level.
+              float landReach = reach * 3.0 + 0.03 * exposure;
+              float level = -0.03 + (landReach + 0.03) * swPulse(fSw);
+              float k = vMask.z * beachK * (1.0 - smoothstep(30.0, 70.0, vViewDist));
+              float film = level - vWPos.y;
+              if (film > 0.0) {
+                // A clear, shallow sheet over the sand, then the white front where it runs out.
+                diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.58, 0.78, 0.82) + vec3(0.05, 0.12, 0.13), 0.65 * k * smoothstep(0.0, 0.04, film));
+                float lace = smoothstep(0.3, 0.72, swN(p * 5.5 + vec2(t * 0.4, -t * 0.3)) * 0.7 + swN(p * 13.0 - t * 0.2) * 0.3);
+                float front = 1.0 - smoothstep(0.0, 0.035 + 0.025 * swN(p * 2.7), film);
+                float foam = front * mix(0.5, 1.0, lace) * (1.0 - smoothstep(0.35, 0.7, fSw)) + smoothstep(0.01, 0.06, film) * lace * 0.35 * (1.0 - smoothstep(0.12, 0.3, fSw));
+                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.94, 0.97, 0.96), clamp(foam, 0.0, 1.0) * k);
+                swWet = k;
+              } else {
+                // Sand the wave reached stays wet as it drains, drying before the next.
+                float reached = 1.0 - smoothstep(landReach - 0.02, landReach, vWPos.y);
+                swWet = reached * (1.0 - smoothstep(0.25, 0.95, fSw)) * smoothstep(0.08, 0.2, fSw) * k;
+                diffuseColor.rgb *= mix(1.0, 0.68, swWet);
+              }
+            }
+          }
+        }
+        #include <roughnessmap_fragment>
+        roughnessFactor = mix(roughnessFactor, 0.32, swWet * 0.8);`
+      )
+      .replace(
         '#include <normal_fragment_maps>',
         `#include <normal_fragment_maps>
         {
@@ -451,6 +498,13 @@ export class Terrain {
           }
           return vec3(sqrt(d2) - sqrt(d1), 0.0, th21(id + 5.0));
         }
+        uniform sampler2D uShore;
+        uniform float uStorm;
+        // The sea shader's noise and swash pulse, so the surf on the sand matches the water's.
+        float swH(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        float swN(vec2 p){ vec2 i = floor(p); vec2 f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
+          return mix(mix(swH(i), swH(i + vec2(1.0, 0.0)), u.x), mix(swH(i + vec2(0.0, 1.0)), swH(i + vec2(1.0, 1.0)), u.x), u.y); }
+        float swPulse(float phase){ float f = fract(phase); return smoothstep(0.0, 0.18, f) * (1.0 - smoothstep(0.28, 0.94, f)); }
         /** Height of fine surface relief for rock and earth faces (used to bump the normal). */
         float relief(vec3 p){
           return vn2(p.xz * 3.1 + p.y * 1.7) * 0.6 + vn2(vec2(p.x + p.z, p.y) * 6.0) * 0.4;

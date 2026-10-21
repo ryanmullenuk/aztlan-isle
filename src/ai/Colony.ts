@@ -483,6 +483,62 @@ export class Colony {
   /** Priests at work at an Observatory this frame (counted as they observe: research speed). */
   observing = 0;
 
+  /**
+   * An area the player asked to be cleared comes first: gatherers, woodcutters, miners and idle
+   * hands fell its trees, carry off the logs and quarry its rocks (and, while it is short of hands,
+   * so do others not on a player's order). The wood and stone go to the stores as usual.
+   */
+  private clearWork(isl: Islander): boolean {
+    const ids = this.veg.clearingIds;
+    if (!ids?.length || isl.child || isl.manualRole || isl.role === 'warrior' || isl.condition !== 'well' || isl.carry) return false;
+    // Drop the plants already cleared.
+    let kept = 0;
+    for (const id of ids) {
+      const p = this.veg.plants[id];
+      if (!p?.clearing) continue;
+      if (this.veg.cleared(p)) { p.clearing = false; continue; }
+      ids[kept++] = id;
+    }
+    ids.length = kept;
+    if (!kept) {
+      this.hooks.notify?.('The area is cleared: ready to build on.');
+      return false;
+    }
+    const crew = this.list.filter((o) => (o.task?.kind === 'chop' || o.task?.kind === 'mine') && this.veg.plants[o.task.target]?.clearing).length;
+    const general = isl.role === 'idle' || isl.role === 'woodcutter' || isl.role === 'miner' || isl.role === 'gatherer';
+    const cap = Math.max(2, Math.ceil(this.list.filter((o) => !o.child).length * 0.35));
+    if (crew >= cap || (!general && crew >= 2)) return false;
+    let best: Plant | null = null, bd = Infinity;
+    for (const id of ids) {
+      const p = this.veg.plants[id];
+      const free = p.kind === 'rock' ? this.veg.isMineable(p) : this.veg.isChoppable(p) || this.veg.isLog(p);
+      if (!free || !this.okPlant(p)) continue;
+      const d = (p.x - isl.x) ** 2 + (p.z - isl.z) ** 2;
+      if (d < bd) { bd = d; best = p; }
+    }
+    if (!best) return false;
+    best.reservedBy = isl.id;
+    this.setTask(isl, best.kind === 'rock' ? 'mine' : 'chop', best.id, best.x, best.z);
+    return true;
+  }
+
+  /**
+   * A clearing has just been ordered: gatherers, woodcutters, miners and idle hands who are out
+   * gathering (carrying nothing) drop that and turn to it now, rather than after their next load.
+   */
+  startClearing(): void {
+    for (const isl of this.list) {
+      if (isl.child || isl.manualRole || isl.carry || isl.condition !== 'well' || isl.hidden || isl.sleeping) continue;
+      if (!['idle', 'woodcutter', 'miner', 'gatherer'].includes(isl.role)) continue;
+      const k = isl.task?.kind;
+      if (k && k !== 'chop' && k !== 'mine' && k !== 'gather' && k !== 'wander') continue;
+      if (k && this.veg.plants[isl.task!.target]?.clearing) continue;
+      this.releaseTask(isl);
+      if (this.clearWork(isl)) continue;
+      isl.think = 0;
+    }
+  }
+
   /** A priest of a working Observatory: keeps the night watch until tired, like a warrior. */
   private stargazer(isl: Islander): boolean {
     if (isl.role !== 'priest' || isl.workplace < 0) return false;
@@ -911,6 +967,7 @@ export class Colony {
         return;
       }
     }
+    if (this.clearWork(isl)) return;
     if (this.work(isl)) return;
     if (this.priority === 'construction' && !isl.manualRole && isl.role !== 'warrior' && this.helpBuild(isl)) return;
     // Nothing to do in their own job (store full, nothing left nearby): decide for themselves.
