@@ -2,6 +2,7 @@ import './ui/style.css';
 import { Game, appViewport } from './Game';
 import { PresetName, SAVE, WORLD } from './config';
 import { blockSaves } from './world/Save';
+import { SplashFx } from './ui/SplashFx';
 
 /** Everyone plays the same hand-designed island; old ?seed= links are tidied away. */
 function resolveSeed(): number {
@@ -40,14 +41,18 @@ function enterFullscreen(): void {
   });
 }
 
+const splash = new SplashFx();
+
 async function boot(): Promise<void> {
   text('Shaping the island…');
-  // Let the text paint before the (synchronous) world generation.
+  splash.generating();
+  // Let the text and progress paint before the (synchronous) world generation.
   await new Promise((r) => setTimeout(r, 30));
   const canvas = document.getElementById('game') as HTMLCanvasElement;
   let game: Game;
   try {
     game = new Game(canvas, { seed: resolveSeed(), preset: defaultPreset() });
+    splash.generated();
     // A constructor succeeding does not mean the first rendered frame succeeded.
     // Keep loading until rendering has actually completed, including shader compilation.
     await new Promise<void>((resolve, reject) => game.start(resolve, (error) => {
@@ -62,7 +67,6 @@ async function boot(): Promise<void> {
   booted();
   document.addEventListener('fullscreenchange', () => game.resize());
   window.visualViewport?.addEventListener('resize', () => game.resize());
-  document.getElementById('loading-text')?.classList.add('hidden');
   const btn = document.getElementById('play-btn');
   const loading = document.getElementById('loading');
   let entered = false;
@@ -73,11 +77,14 @@ async function boot(): Promise<void> {
     game.audio.unlock();
     game.play();
     loading?.classList.add('hidden');
+    splash.dispose();
     document.documentElement.classList.remove('splash-open');
     game.resize();
   };
   if (btn) {
-    btn.classList.remove('hidden');
+    splash.ready(() => {
+      if (!(window as unknown as { aztlanBootError?: unknown }).aztlanBootError) btn.classList.remove('hidden');
+    });
     btn.addEventListener('click', go, { once: true });
     // Tap anywhere on the splash too: in mobile browsers the Play button can end up under the
     // browser's own address and tab bars.
@@ -107,6 +114,7 @@ function booted(): void {
  */
 function bootFailed(e: unknown): void {
   blockSaves();
+  splash.failed();
   document.getElementById('loading')?.classList.remove('hidden');
   document.documentElement.classList.add('splash-open');
   document.getElementById('play-btn')?.classList.add('hidden');

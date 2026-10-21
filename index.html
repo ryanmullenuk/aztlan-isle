@@ -59,6 +59,8 @@
         function stuck() {
           if (window.aztlanBooted || window.aztlanBootError || fresh()) return;
           var t = document.getElementById('loading-text');
+          var pr = document.getElementById('splash-progress');
+          if (pr) pr.classList.add('hidden');
           if (t) {
             t.classList.remove('hidden');
             t.textContent = 'The island could not load. Tap to try again.';
@@ -86,8 +88,15 @@
           <source media="(min-width: 1024px) and (min-aspect-ratio: 4/3)" srcset="./splash-desktop.webp?v=1" type="image/webp" />
           <img class="splash-art" src="./splash.webp?v=5" alt="Aztlan Isle" />
         </picture>
+        <div class="splash-shimmer" aria-hidden="true"><i></i></div>
+        <canvas class="splash-pollen" aria-hidden="true"></canvas>
         <div class="splash-ui">
-          <div class="loading-sub" id="loading-text">Shaping the island…</div>
+          <div class="loading-sub hidden" id="loading-text">Shaping the island…</div>
+          <div class="splash-progress" id="splash-progress" role="progressbar" aria-label="Preparing your island" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <div class="sp-head"><span>Preparing your island</span><span class="sp-pct">0%</span></div>
+            <div class="sp-bar"><div class="sp-fill"></div></div>
+            <p class="sp-tip">Every great civilisation begins with a single settlement.</p>
+          </div>
           <button id="play-btn" class="play hidden">Play</button>
           <p class="splash-hint">FOR BEST GAMEPLAY CLICK SHARE &amp; ADD TO HOME SCREEN</p>
         </div>
