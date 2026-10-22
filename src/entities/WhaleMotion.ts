@@ -85,7 +85,11 @@ export function sampleRise(t: number, lean = 12): RisePose {
   // Reduce the dive angle to keep the longer tail above the fixed seabed.
   const sizeScale = 7.8 / MARINE.whaleLength;
   const angle = value('pitch') - 90;
-  const pitchScale = angle > 0 ? sizeScale ** 1.25 : Math.sqrt(sizeScale);
+  // Nose-down dives flatten more than nose-up rises. Blend the two scales across level rather
+  // than switching at it: a hard switch changed the pitch speed in one frame as the whale tipped
+  // back under, a visible hitch.
+  const down = THREE.MathUtils.smoothstep(angle, -12, 12);
+  const pitchScale = Math.sqrt(sizeScale) + (sizeScale ** 1.25 - Math.sqrt(sizeScale)) * down;
   return { y: (value('y') + lift) * sizeScale, h: value('h') * RISE_TRAVEL_SCALE, pitch: 90 + angle * pitchScale, roll: value('roll'), fin: value('fin'), arch: value('arch'), stroke: value('stroke') };
 }
 

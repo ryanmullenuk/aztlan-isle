@@ -3,6 +3,7 @@ import { Game, appViewport } from './Game';
 import { PresetName, SAVE, WORLD } from './config';
 import { blockSaves } from './world/Save';
 import { SplashFx } from './ui/SplashFx';
+import { cloudReveal } from './ui/CloudReveal';
 
 /** Everyone plays the same hand-designed island; old ?seed= links are tidied away. */
 function resolveSeed(): number {
@@ -75,6 +76,8 @@ async function boot(): Promise<void> {
     entered = true;
     enterFullscreen();
     game.audio.unlock();
+    // Cloud covers the splash, then parts to reveal the island as the arrival begins.
+    cloudReveal();
     game.play();
     loading?.classList.add('hidden');
     splash.dispose();

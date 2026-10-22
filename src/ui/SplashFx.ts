@@ -8,12 +8,33 @@ import * as THREE from 'three';
 const TIPS = [
   'Every great civilisation begins with a single settlement.',
   'Homes bring new families to your island.',
-  'Build an Observatory to see storms and eruptions coming.',
   'Select trees and rocks, then clear the ground before you build.',
-  'Water gardens grow food on calm shallows.',
   'Keep the stores full before the seasons turn.',
-  'A Palace lets you issue decrees that shape island life.',
   'Islanders gather wood and stone: build close to what they need.',
+  'Spend Belief to bless crops, summon rain or calm a storm.',
+];
+
+/** What the buildings do, shown between the tips. */
+const BUILDING_TIPS: [string, string][] = [
+  ['Hut', 'a small adobe home for two islanders.'],
+  ['Family House', 'homes four, and grows to sixteen with upgrades.'],
+  ['Vegetable Farm', 'beans, squash and chillies, quick to grow.'],
+  ['Maize Farm', 'slower to ripen, but the richest grain harvest.'],
+  ['Water Garden', 'raised beds beside water that grow crops in every season.'],
+  ['Fishing Jetty', 'builds canoes and fishing boats.'],
+  ['Wood & Stone Store', 'keeps your wood and stone.'],
+  ['Food Store', 'keeps grain, fruit, meat and fish.'],
+  ['Stonemason’s Workshop', 'turns raw stone into carved stone.'],
+  ['Temple', 'a stepped pyramid that generates Belief.'],
+  ['Observatory', 'warns of storms and eruptions, and researches new buildings.'],
+  ['Well', 'fresh water, and help fighting fires.'],
+  ['Bonfire', 'evening songs and stories make villagers happier.'],
+  ['Watchtower', 'arrows fly from its windows at jaguars and alligators.'],
+  ['Healing Centre', 'cares for the sick and the injured.'],
+  ['Market Square', 'visiting canoes stop here to trade.'],
+  ['Great Hall', 'shelter for the whole village when a jaguar is spotted.'],
+  ['Dog Kennel', 'village dogs bark the alarm when a jaguar comes near.'],
+  ['Tlatoani’s Palace', 'your ruler issues decrees for the whole island.'],
 ];
 
 /** Stages of a real boot, as fractions of the bar. Assets fill the band between world and ready. */
@@ -27,18 +48,13 @@ class Progress {
   private shown = 0;
   private assetShare = 0;
   private raf = 0;
-  private tipTimer = 0;
   private full: (() => void) | null = null;
-  private tip = Math.floor(Math.random() * TIPS.length);
   private readonly root = document.getElementById('splash-progress');
   private readonly pct = this.root?.querySelector<HTMLElement>('.sp-pct');
   private readonly fill = this.root?.querySelector<HTMLElement>('.sp-fill');
-  private readonly tipEl = this.root?.querySelector<HTMLElement>('.sp-tip');
 
   constructor() {
     if (!this.root) return;
-    this.showTip();
-    this.tipTimer = window.setInterval(() => this.nextTip(), 4800);
     // Model and texture requests made while booting (character models, textures).
     THREE.DefaultLoadingManager.onProgress = (_url, loaded, total) => {
       this.assetShare = total ? loaded / total : 1;
@@ -76,22 +92,6 @@ class Progress {
     this.root?.setAttribute('aria-valuenow', String(n));
   }
 
-  private showTip(): void {
-    if (this.tipEl) this.tipEl.textContent = TIPS[this.tip];
-  }
-
-  private nextTip(): void {
-    const el = this.tipEl;
-    if (!el) return;
-    this.tip = (this.tip + 1) % TIPS.length;
-    if (reduced()) return this.showTip();
-    el.classList.add('out');
-    window.setTimeout(() => {
-      this.showTip();
-      el.classList.remove('out');
-    }, 420);
-  }
-
   /** Fill to 100%, then let the Play button take the card's place. */
   finish(show: () => void): void {
     const root = this.root;
@@ -121,9 +121,74 @@ class Progress {
 
   stop(): void {
     cancelAnimationFrame(this.raf);
-    clearInterval(this.tipTimer);
     THREE.DefaultLoadingManager.onProgress = () => {};
   }
+}
+
+/**
+ * Tips and what each building does, taking turns, with a soft fade between them. They show in the
+ * loading card, then carry on in their own box under Play until the game starts.
+ */
+class Tips {
+  private timer = 0;
+  private i = 0;
+  private readonly list: string[];
+  private el: HTMLElement | null = document.querySelector('#splash-progress .sp-tip');
+
+  constructor() {
+    const general = shuffle(TIPS), buildings = shuffle(BUILDING_TIPS);
+    this.list = [];
+    for (let k = 0; k < Math.max(general.length, buildings.length); k++) {
+      if (k < general.length) this.list.push(escape(general[k]));
+      if (k < buildings.length) this.list.push(`<b>${escape(buildings[k][0])}</b>: ${escape(buildings[k][1])}`);
+    }
+    // In a browser, the home-screen advice joins the rotation (it used to sit on its own line).
+    if (!document.documentElement.classList.contains('native-app')) this.list.splice(1, 0, 'For the best game, tap Share, then Add to Home Screen.');
+    this.show();
+    this.timer = window.setInterval(() => this.next(), 5200);
+  }
+
+  /** Carry on in the box under Play. */
+  moveTo(el: HTMLElement | null): void {
+    if (!el) return;
+    this.el = el;
+    el.classList.remove('hidden');
+    this.show();
+  }
+
+  private show(): void {
+    // One span, so a flex box keeps the building's name and its line together.
+    if (this.el) this.el.innerHTML = `<span>${this.list[this.i % this.list.length]}</span>`;
+  }
+
+  private next(): void {
+    const el = this.el;
+    if (!el) return;
+    this.i++;
+    if (reduced()) return this.show();
+    el.classList.add('out');
+    window.setTimeout(() => {
+      this.show();
+      el.classList.remove('out');
+    }, 420);
+  }
+
+  stop(): void {
+    clearInterval(this.timer);
+  }
+}
+
+function shuffle<T>(a: readonly T[]): T[] {
+  const r = [...a];
+  for (let i = r.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [r[i], r[j]] = [r[j], r[i]];
+  }
+  return r;
+}
+
+function escape(t: string): string {
+  return t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
 }
 
 /** Where the art is drawn inside its frame (object-fit cover/contain and object-position). */
@@ -327,6 +392,7 @@ function sprite(soft: boolean): HTMLCanvasElement {
 /** The splash's effects, from the moment the game bundle runs until Play. */
 export class SplashFx {
   readonly progress = new Progress();
+  private readonly tips = new Tips();
   private readonly shimmer = new TitleShimmer();
   private readonly pollen = new Pollen();
 
@@ -345,16 +411,22 @@ export class SplashFx {
 
   /** The first frame has rendered: fill the bar, then reveal Play in the card's place. */
   ready(showPlay: () => void): void {
-    this.progress.finish(showPlay);
+    this.progress.finish(() => {
+      showPlay();
+      this.tips.moveTo(document.getElementById('splash-tips'));
+    });
   }
 
   failed(): void {
     this.progress.hide();
+    this.tips.stop();
+    document.getElementById('splash-tips')?.classList.add('hidden');
   }
 
   /** Entering the game: stop and release every splash animation. */
   dispose(): void {
     this.progress.stop();
+    this.tips.stop();
     this.shimmer.stop();
     this.pollen.stop();
   }

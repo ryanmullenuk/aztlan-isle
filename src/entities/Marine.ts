@@ -268,8 +268,17 @@ interface Whale {
   route: { x: number; z: number; r: number; a: number; dir: number };
   /** Cruising, breathing quietly at the surface, or coming right up for air (head and back out). */
   state: 'swim' | 'rise' | 'surface';
-  /** Surfacing to breathe: start depth, time gliding at the surface, whether the flukes lift on the dive. */
-  surf: { y0: number; glide: number; fluke: boolean };
+  /** Surfacing to breathe: start depth and pitch offset (eased out), time gliding at the surface, whether the flukes lift on the dive. */
+  surf: { y0: number; p0: number; glide: number; fluke: boolean; pMax: number; pEnd: number };
+  /** How far the pose is lowered to keep the body under while cruising, and raised to keep it off
+   *  the seabed, each with its speed: springs, so neither correction ever jerks the body. */
+  sink: number;
+  sinkV: number;
+  /** Cruising: how fast depth and pitch are changing (springs toward the swimming pose). */
+  vy: number;
+  vPitch: number;
+  lift: number;
+  liftV: number;
   /** Current pose: tilt from vertical toward yaw (90 = level), spin, depth. */
   pose: { y: number; pitch: number; roll: number; yaw: number };
   turnRate: number;
@@ -355,6 +364,8 @@ export class Marine {
   private rings: { mesh: THREE.Mesh; t: number; life: number; r0: number; r1: number; alpha: number }[] = [];
   private rng: RNG;
   private time = 0;
+  /** This frame's step, for easing done while posing. */
+  private lastDt = 1 / 60;
   sfx: (n: string, x: number, z: number) => void = () => {};
 
   constructor(private world: World, private water: Water) {
@@ -418,7 +429,7 @@ export class Marine {
         root, rig, x: s.x, z: s.z, heading: 0, flapPhase: 0, turnLag: 0,
         track: { c: new THREE.Vector3(), ax: new THREE.Vector3(), lobeL: new THREE.Vector3(), lobeR: new THREE.Vector3(), ok: false },
         route: { x: s.x, z: s.z, r: 10 + this.rng.next() * 10, a, dir: this.rng.chance(0.5) ? 1 : -1 },
-        state: 'swim', surf: { y0: -MARINE.swimDepth, glide: 3, fluke: false }, t: 0,
+        state: 'swim', surf: { y0: -MARINE.swimDepth, p0: 0, glide: 3, fluke: false, pMax: 116, pEnd: 105 }, sink: 0, sinkV: 0, vy: 0, vPitch: 0, lift: 0, liftV: 0, t: 0,
         nextRise: MARINE.firstRise + k * 9 + this.rng.next() * 10, nextSpout: MARINE.firstSurface + k * 5 + this.rng.next() * 8, nextPrint: 1 + this.rng.next() * 3,
         lean: 12, from: { y: 0, pitch: 0, roll: 0 }, travelled: 0, seek: null, wantRise: false, length: L, flags: new Set(), ring, glow, patch, foam,
         swimPhase: 0, pose: { y: -MARINE.swimDepth, pitch: 90, roll: 0, yaw: a }, turnRate: 0, wanderSeed: this.rng.next() * 100,
@@ -590,7 +601,21 @@ export class Marine {
     w.t = 0;
     w.nextSpout = MARINE.surfaceEvery[0] + this.rng.next() * (MARINE.surfaceEvery[1] - MARINE.surfaceEvery[0]);
     // Only lift the flukes clear where the water is deep enough for the steep dive.
-    w.surf = { y0: w.pose.y, glide: 2.6 + this.rng.next() * 1.6, fluke: this.bedAt(w.x, w.z) < -5.4 && this.rng.chance(0.55) };
+    const fluke = this.bedAt(w.x, w.z) < -5.4 && this.rng.chance(0.55);
+    // How steeply it can tip into the dive here: the head (a body length below the raised tail
+    // stock, less the tilt) must stay clear of the shallowest seabed along its path, or the seabed
+    // guard would heave the whole body up mid-dive. Full-size whales in this sea need the cap.
+    const L = w.length, fx = Math.sin(w.pose.yaw), fz = Math.cos(w.pose.yaw);
+    let bed = -Infinity;
+    for (const s of [0, 0.5, 1, 1.5]) bed = Math.max(bed, this.bedAt(w.x + fx * s * L, w.z + fz * s * L));
+    const tilt = (tail: number, want: number) => {
+      const room = (tail - WHALE_GIRTH * L - (bed + 1.2)) / L;
+      return Math.min(want, 90 + THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(room, 0.08, 1))));
+    };
+    w.surf = {
+      y0: w.pose.y, p0: w.pose.pitch - 90, glide: 2.6 + this.rng.next() * 1.6, fluke,
+      pMax: tilt(fluke ? 0.35 : -0.45, fluke ? 140 : 116), pEnd: tilt(-1.2, 105),
+    };
     w.flags.clear();
   }
 
@@ -603,11 +628,13 @@ export class Marine {
       const c = THREE.MathUtils.clamp(x, 0, 1);
       return c * c * (3 - 2 * c);
     };
-    // Cruise on slowly with only gentle turns while at the surface.
-    const want = Math.sin(this.time * 0.07 + w.wanderSeed) * 0.12;
+    // Cruise on slowly with only gentle turns while at the surface, but never on into the shallows
+    // (gliding up the island's slope, the seabed guard heaved the body out of the water).
+    const want = this.shallowsTurn(w) ?? Math.sin(this.time * 0.07 + w.wanderSeed) * 0.12;
     w.turnRate += (want - w.turnRate) * Math.min(1, dt * 0.8);
     P.yaw += w.turnRate * dt;
-    const sp = MARINE.whaleSpeed * (t < diveAt ? 0.7 : 0.7 + 0.5 * sm((t - diveAt) / SURF_DIVE));
+    // Eases down from cruising speed and back up to it by the end of the dive (no jolt either way).
+    const sp = MARINE.whaleSpeed * (t < diveAt ? 1 - 0.3 * sm(t / 1.5) : 0.7 + 0.3 * sm((t - diveAt) / SURF_DIVE));
     const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw);
     w.x += fx * sp * dt;
     w.z += fz * sp * dt;
@@ -617,23 +644,26 @@ export class Marine {
     let u = 0;
     if (t < SURF_RISE) {
       // Rise nose-up a little, levelling out as the back reaches the surface.
+      // (sin² so the tilt starts and ends at rest; the swimming tilt it had eases out.)
       const r = t / SURF_RISE;
       P.y = S.y0 + (SURF_Y - S.y0) * sm(r);
-      P.pitch = 90 - 9 * Math.sin(r * Math.PI);
+      P.pitch = 90 - 9 * Math.sin(r * Math.PI) ** 2 + S.p0 * (1 - sm(t / 1.2));
     } else if (t < diveAt) {
-      // Glide: a slow roll of the swell along the exposed back.
+      // Glide: a slow roll of the swell along the exposed back, fading in and out so the rise and
+      // the dive join it without a jump.
       const g = t - SURF_RISE;
-      P.y = SURF_Y + Math.sin(g * 1.3) * 0.05;
-      P.pitch = 90 + Math.sin(g * 0.9) * 1.5;
+      const swell = sm(g / 0.8) * (1 - sm((g - (S.glide - 0.8)) / 0.8));
+      P.y = SURF_Y + Math.sin(g * 1.3) * 0.05 * swell;
+      P.pitch = 90 + Math.sin(g * 0.9) * 1.5 * swell;
       stroke = 0.45;
     } else {
       // Arch and slip under: the head goes down, the back rolls over in a hump and the tail stock
       // (and sometimes the flukes) lifts as the body tips, then levels out below.
       u = Math.min(1, (t - diveAt) / SURF_DIVE);
-      const pMax = S.fluke ? 140 : 116;
-      P.pitch = u < 0.55 ? 90 + (pMax - 90) * sm(u / 0.55) : pMax + (105 - pMax) * sm((u - 0.55) / 0.45);
+      const pMax = S.pMax;
+      P.pitch = u < 0.55 ? 90 + (pMax - 90) * sm(u / 0.55) : pMax + (S.pEnd - pMax) * sm((u - 0.55) / 0.45);
       const peak = S.fluke ? 0.35 : -0.45, endTail = -1.2;
-      const tail = u < 0.5 ? SURF_Y + (peak - SURF_Y) * Math.sin((u / 0.5) * Math.PI * 0.5) : peak + (endTail - peak) * sm((u - 0.5) / 0.5);
+      const tail = u < 0.5 ? SURF_Y + (peak - SURF_Y) * sm(u / 0.5) : peak + (endTail - peak) * sm((u - 0.5) / 0.5);
       // Tail-stock height = centre - half a body along the axis (whose vertical part is cos(pitch)).
       P.y = tail + 0.5 * L * Math.cos(THREE.MathUtils.degToRad(P.pitch));
       arch = -0.7 * Math.sin(Math.min(1, u / 0.45) * Math.PI);
@@ -710,6 +740,7 @@ export class Marine {
     if (t >= end) {
       // Carry on cruising from here (the swim state eases back to level at cruising depth).
       w.state = 'swim';
+      w.vy = w.vPitch = 0;
       w.ring.visible = false;
       w.ring.rotation.y = 0;
       w.nextPrint = 2 + this.rng.next() * 2;
@@ -761,6 +792,7 @@ export class Marine {
       return;
     }
     this.time += dt;
+    this.lastDt = dt;
     for (const w of this.whales) {
       this.updateWhale(w, dt, camTarget);
       // Drawn (and its skeleton skinned, and its shadow cast) only while on screen.
@@ -806,12 +838,19 @@ export class Marine {
     const L = w.length;
     const lowest = y - Math.abs(ax.y) * 0.5 * L - WHALE_GIRTH * L;
     const floor = Math.max(this.bedAt(x, z), this.bedAt(x + ax.x * 0.5 * L, z + ax.z * 0.5 * L), this.bedAt(x - ax.x * 0.5 * L, z - ax.z * 0.5 * L)) + 0.3;
-    if (lowest < floor) y += floor - lowest;
-    // Out of sight below the surface while cruising.
+    const dt = this.lastDt;
+    // Starts easing up a little before the margin, so a fast nose-down dive is caught smoothly.
+    [w.lift, w.liftV] = spring(w.lift, w.liftV, Math.max(0, floor + 0.8 - lowest), dt, 8);
+    // The spring may lag into the 0.3 clearance margin, never through it.
+    w.lift = Math.max(w.lift, floor - 0.25 - lowest);
+    y += w.lift;
+    // Out of sight below the surface while cruising. Eased rather than snapped: straight after a
+    // dive the tail is still near the surface, and a hard clamp jerked the whole body down.
     if (w.state === 'swim') {
       const highest = y + Math.abs(ax.y) * 0.5 * L + 0.16 * L;
-      if (highest > -0.3) y -= highest + 0.3;
-    }
+      [w.sink, w.sinkV] = spring(w.sink, w.sinkV, Math.max(0, highest + 0.3), dt, 2.5);
+      y -= w.sink;
+    } else w.sink = w.sinkV = 0;
     w.root.position.set(x, y, z);
     w.root.quaternion.copy(q);
     return q;
@@ -912,9 +951,10 @@ export class Marine {
       w.z += Math.cos(P.yaw) * sp * dt;
       w.heading = P.yaw;
       // Gentle rise-and-fall and banking into turns.
-      P.pitch += (90 + Math.sin(this.time * 0.4 + w.wanderSeed) * 6 - P.pitch) * Math.min(1, dt);
+      // Springs, so leaving a dive or a rise (where it comes to rest) never jolts into motion.
+      [P.pitch, w.vPitch] = spring(P.pitch, w.vPitch, 90 + Math.sin(this.time * 0.4 + w.wanderSeed) * 6, dt, 1.6);
       P.roll += (-w.turnRate * 40 - P.roll) * Math.min(1, dt);
-      P.y += (-MARINE.swimDepth + Math.sin(this.time * 0.3 + w.wanderSeed) * 0.25 - P.y) * Math.min(1, dt * 0.8);
+      [P.y, w.vy] = spring(P.y, w.vy, -MARINE.swimDepth + Math.sin(this.time * 0.3 + w.wanderSeed) * 0.25, dt, 1.3);
       this.applyPose(w, w.x, P.y, w.z);
       this.animateBody(w, dt, 1);
       // Come up once it's out in open water (or give up if it can't find any in time).
@@ -1162,6 +1202,7 @@ export class Marine {
     if (t >= T.end) {
       // Cruising on from where it came out of the move.
       w.state = 'swim';
+      w.vy = w.vPitch = 0;
       P.roll -= Math.round(P.roll / 360) * 360;
       w.turnRate = 0;
       w.glow.visible = w.patch.visible = w.ring.visible = false;
@@ -1392,4 +1433,13 @@ export class Marine {
   positions(): { x: number; z: number }[] {
     return this.whales.map((w) => ({ x: w.x, z: w.z }));
   }
+}
+
+/**
+ * One step of a critically damped spring from `x` (moving at `v`) toward `target`: it starts from
+ * its current speed and settles without overshoot. Returns the new position and speed.
+ */
+function spring(x: number, v: number, target: number, dt: number, omega: number): [number, number] {
+  const d = x - target, e = Math.exp(-omega * dt), k = (v + omega * d) * dt;
+  return [target + (d + k) * e, (v - omega * k) * e];
 }

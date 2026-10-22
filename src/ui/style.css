@@ -185,10 +185,46 @@ html.native-app .splash-hint { display: none; }
 }
 .sp-tip.out { opacity: 0; }
 #play-btn { animation: play-arrive 380ms ease-out both; }
+/* Tips under Play, in the Play button's own style: dark blurred backing, gold outline and type. */
+.splash-tips {
+  box-sizing: border-box; margin: 0; width: min(100%, 440px);
+  min-height: calc(2 * 1.35em + 2 * clamp(7px, 1.8cqw, 10px));
+  display: flex; align-items: center; justify-content: center; text-align: center;
+  padding: clamp(7px, 1.8cqw, 10px) clamp(12px, 3.4cqw, 18px);
+  border: 1px solid var(--gold); border-radius: 12px;
+  background: rgba(8, 32, 34, 0.68); color: var(--gold);
+  -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  font-family: var(--font); font-weight: 600; line-height: 1.35;
+  font-size: clamp(10.5px, 2.9cqw, 13px); letter-spacing: 0.02em; text-wrap: balance;
+  transform: translateY(8px); /* sits with the Play button, which is nudged down the same */
+  animation: play-arrive 380ms ease-out both; transition: opacity 400ms ease;
+}
+.splash-tips b { font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; font-size: 0.92em; }
+.splash-tips.out { opacity: 0; }
+/* Play: cloud fills the screen, then parts to reveal the island (src/ui/CloudReveal.ts). */
+.cloud-reveal { position: fixed; inset: 0; z-index: 60; overflow: hidden; pointer-events: none; }
+.cloud-veil { position: absolute; inset: 0; background: linear-gradient(180deg, #f6f9fb 0%, #e9eff3 60%, #dfe7ec 100%); }
+.cloud-reveal i {
+  position: absolute; transform: translate(-50%, -50%); will-change: transform, opacity;
+  /* A cumulus: soft overlapping lobes over a flatter, greyer base. */
+  background:
+    radial-gradient(ellipse 30% 30% at 54% 42%, #ffffff 0%, #fafcfd 45%, #e6edf1 80%, rgba(230, 237, 241, 0) 100%),
+    radial-gradient(ellipse 25% 25% at 31% 55%, #ffffff 0%, #f6f9fb 45%, #e2e9ee 80%, rgba(226, 233, 238, 0) 100%),
+    radial-gradient(ellipse 23% 23% at 75% 57%, #fdfeff 0%, #f3f7f9 45%, #dfe7ec 80%, rgba(223, 231, 236, 0) 100%),
+    radial-gradient(ellipse 44% 22% at 52% 66%, #eef3f6 0%, #e3eaef 55%, #d6e0e6 82%, rgba(214, 224, 230, 0) 100%);
+}
+.cloud-reveal i:nth-child(3n) {
+  background:
+    radial-gradient(ellipse 27% 27% at 40% 45%, #ffffff 0%, #fafcfd 45%, #e6edf1 80%, rgba(230, 237, 241, 0) 100%),
+    radial-gradient(ellipse 22% 22% at 64% 40%, #ffffff 0%, #f7fafb 45%, #e3eaee 80%, rgba(227, 234, 238, 0) 100%),
+    radial-gradient(ellipse 26% 26% at 70% 60%, #fbfdfe 0%, #f1f5f8 45%, #dde6eb 80%, rgba(221, 230, 235, 0) 100%),
+    radial-gradient(ellipse 46% 20% at 48% 66%, #edf2f5 0%, #e1e9ee 55%, #d4dee5 82%, rgba(212, 222, 229, 0) 100%);
+}
 @keyframes play-arrive { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
-  .splash-progress, .sp-tip { transition: none; }
-  #play-btn { animation: none; }
+  .splash-progress, .sp-tip, .splash-tips { transition: none; }
+  #play-btn, .splash-tips { animation: none; }
 }
 
 /* ---------- Shared ---------- */
@@ -891,6 +927,7 @@ body.watching-wildlife #hud * { pointer-events: none !important; }
   .splash-ui .loading-sub { font-size: clamp(14px, 1.2vw, 18px); padding: 8px 12px; }
   .splash-ui .splash-hint { font-size: 11px; padding: 6px 10px; max-width: 380px; }
   .splash-progress { width: clamp(320px, 28vw, 440px); flex: none; padding: 14px 18px 12px; }
+  .splash-tips { width: clamp(320px, 28vw, 440px); flex: none; font-size: 13px; }
   .sp-head { font-size: 12px; }
   .sp-tip { font-size: 13px; }
 }
