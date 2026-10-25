@@ -110,11 +110,14 @@ export class UI {
   private buildItems = new Map<BuildingKey, HTMLButtonElement>();
   private tutSteps: TutorialStep[] = [
     { title: 'Found your village', text: 'Your first two villagers have come ashore. Choose open, flat land for the campfire: your village will grow around it. (Tap Place campfire if you closed the placement.)', done: (g) => g.buildings.hasCampfire },
-    { title: 'Look around', text: 'Drag with the mouse (or one finger) to pan the island. WASD and arrow keys work too. Rotate with Q/E, middle-drag, or by dragging the compass at the end of the toolbar.', done: (g) => Math.hypot(g.rig.cur.x - this.tutStart.x, g.rig.cur.z - this.tutStart.z) > 8 || Math.abs(g.rig.cur.yaw - g.rig.goal.yaw) > 0.3 },
-    { title: 'Zoom in', text: 'Scroll (or pinch) to zoom in close to your islanders, and out to see the whole island.', done: (g) => Math.abs(g.rig.cur.dist - this.tutStart.dist) > 15 },
+    { title: 'Look around', text: 'With Move (1), drag with the mouse or one finger to pan the island; WASD and the arrow keys work too. Rotate with Q/E, a middle-drag, or by dragging the compass at the end of the toolbar.', done: (g) => Math.hypot(g.rig.cur.x - this.tutStart.x, g.rig.cur.z - this.tutStart.z) > 8 || Math.abs(g.rig.cur.yaw - g.rig.goal.yaw) > 0.3 },
+    { title: 'Zoom in', text: 'Scroll or pinch to zoom in close to your islanders (you can hear them chatter), and out to see the whole island.', done: (g) => Math.abs(g.rig.cur.dist - this.tutStart.dist) > 15 },
     { title: 'Meet your villagers', text: 'Tap an islander near the campfire to see their name, job and needs. More settlers arrive by canoe when you have spare beds and food.', done: (g) => g.selectedIslander >= 0 },
-    { title: 'Build a Hut', text: 'Press Build (2), choose a Hut and place it on flat land. Your builders will do the rest.', done: (g) => g.buildings.list.some((b) => b.key === 'hut' || b.key === 'home') },
-    { title: 'Shape the land', text: 'Open Terrain (3) and pick Raise or Lower: hold and drag to sculpt terraces flat for bigger buildings. Sculpting costs Belief.', done: (g) => g.stats.sculpted > 0 },
+    { title: 'Build a Hut', text: 'Open Build (3), choose a Hut and place it on flat land. Your builders bring the wood and put it up.', done: (g) => g.buildings.list.some((b) => b.key === 'hut' || b.key === 'home') },
+    { title: 'Grow food', text: 'Build a Vegetable Farm, or a Fishing Jetty on the shore. Your first harvest or catch moves the village on to the next stage.', done: (g) => g.buildings.list.some((b) => b.key === 'farm' || b.key === 'jetty') },
+    { title: 'Clear the ground', text: 'Pick Select (2) and drag over trees and rocks, then choose Clear area. Islanders fell the trees and quarry the rocks, leaving open land to build on.', done: (g) => g.stats.cleared > 0 },
+    { title: 'Store your supplies', text: 'Once the first food is in, build a Wood & Stone Store and a Food Store. Full stores keep the village going and unlock skilled buildings.', done: (g) => g.buildings.list.some((b) => b.key === 'woodstore' || b.key === 'grainstore') },
+    { title: 'Shape the land', text: 'Open Terrain (4) and pick Raise, Lower or Flatten: hold and drag to make level ground for bigger buildings. Sculpting costs Belief.', done: (g) => g.stats.sculpted > 0 },
   ];
 
   constructor(private game: Game) {
@@ -816,7 +819,7 @@ export class UI {
   private renderTutorial(): void {
     const s = this.tutSteps[this.tutStep];
     if (!s) {
-      this.tutorial.innerHTML = `<div class="tut-step">Tutorial complete</div><div class="tut-title">The island is yours</div><p>Keep your people fed and housed, build a Temple for Belief, and work towards the Great Pyramid.</p><div class="tut-actions"><button class="btn small" data-a="ok">Let's go</button></div>`;
+      this.tutorial.innerHTML = `<div class="tut-step">Tutorial complete</div><div class="tut-title">The island is yours</div><p>Keep your people fed and housed and follow the village's progress. Next, build an Observatory to forecast storms and eruptions and research new buildings, raise a Temple for Belief, and work towards the Great Pyramid and the Tlatoani's Palace.</p><div class="tut-actions"><button class="btn small" data-a="ok">Let's go</button></div>`;
       this.tutorial.querySelector<HTMLButtonElement>('[data-a="ok"]')!.onclick = () => this.endTutorial();
       return;
     }

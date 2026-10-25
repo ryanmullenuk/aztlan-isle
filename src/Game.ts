@@ -119,6 +119,8 @@ const MOTION_RES = 0.7;
 export interface Settings {
   preset: PresetName;
   dof: boolean;
+  /** Set once depth of field is opt-in (older saved settings had it on by default). */
+  dofOptIn?: boolean;
   dofStrength: number;
   volume: number;
   music: number;
@@ -236,7 +238,7 @@ export class Game {
   /** Selected land animal (index into wildlife.animals.list), or -1. */
   selectedAnimal = -1;
   followId = -1;
-  stats = { sculpted: 0, marked: 0, boats: 0 };
+  stats = { sculpted: 0, marked: 0, boats: 0, cleared: 0 };
   milestones = new Set<string>();
   /** Observatory research (village-wide: kept through damage, demolition and rebuilding). */
   readonly research = new Research({
@@ -844,6 +846,7 @@ export class Game {
       const cam = this.rig.camera, right = cam.matrixWorld.elements;
       this.audio.updateChatter(realDt, this.colony.list, {
         x: cam.position.x, y: cam.position.y, z: cam.position.z, rightX: right[0], rightZ: right[2],
+        ...(this.wildlifeView?.active ? {} : { tx: this.rig.target.x, tz: this.rig.target.z }),
       }, !this.settings.chatter || dt <= 0 || !!this.wildlifeView?.active || this.powers.state === 'storm');
     });
   }
@@ -922,10 +925,13 @@ export class Game {
   }
 
   private loadSettings(preset: PresetName): Settings {
-    const def: Settings = { preset, dof: true, dofStrength: RENDER.dof.strength, volume: 0.7, music: 0.5, muted: false, chatter: true, wildlifeAlerts: true, fps: false, showMap: false, autoQuality: true, shadows: true, dayNight: true, weather: true, motion: true, pixel: false, instantBuild: false, renderScale: 1, motionRes: true };
+    // Depth of field (the tilt-shift look) is off unless the player turns it on in Settings.
+    const def: Settings = { preset, dofOptIn: true, dof: false, dofStrength: RENDER.dof.strength, volume: 0.7, music: 0.5, muted: false, chatter: true, wildlifeAlerts: true, fps: false, showMap: false, autoQuality: true, shadows: true, dayNight: true, weather: true, motion: true, pixel: false, instantBuild: false, renderScale: 1, motionRes: true };
     try {
       const s = JSON.parse(localStorage.getItem(SAVE.settingsKey) ?? 'null');
-      if (s) return { ...def, ...s };
+      // Settings saved before depth of field became opt-in had it on by default: start those off too.
+      if (s && !s.dofOptIn) s.dof = false;
+      if (s) return { ...def, ...s, dofOptIn: true };
     } catch {
       /* storage unavailable */
     }
@@ -1932,11 +1938,37 @@ export class Game {
   }
 
   /** Order the selected area cleared: islanders fell its trees, carry off its logs and quarry its rocks. */
+  /**
+   * Warriors with a jaguar or alligator within reach turn to face it and fight (see shownAnim);
+   * the foe is only remembered for the pose.
+   */
+  private markFoes(dt: number): void {
+    const foes: { x: number; z: number }[] = [];
+    for (const j of this.jaguars.list) if (j.state !== 'dead' && j.state !== 'rest') foes.push(j);
+    for (const g of this.gators.list) if (g.state !== 'dead' && g.state !== 'float' && g.state !== 'dive') foes.push(g);
+    for (const isl of this.colony.list) {
+      if (!isl.warrior) continue;
+      let best: { x: number; z: number } | null = null, bd = 7;
+      if (!isl.hidden && foes.length) for (const f of foes) {
+        const d = Math.hypot(f.x - isl.x, f.z - isl.z);
+        if (d < bd) { bd = d; best = f; }
+      }
+      isl.foe = best ? { x: best.x, z: best.z } : null;
+      if (best && dt > 0) {
+        let diff = Math.atan2(best.x - isl.x, best.z - isl.z) - isl.heading;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        isl.heading += diff * Math.min(1, dt * 8);
+      }
+    }
+  }
+
   clearSelectedArea(): void {
     const s = this.areaSel;
     if (!s) return;
     const n = this.veg.orderClearing([...s.trees, ...s.logs, ...s.rocks]);
     if (n) this.colony.startClearing();
+    this.stats.cleared += n;
     this.stats.marked = this.veg.markedCount;
     this.audio?.sfx('mark', (s.x0 + s.x1) / 2, (s.z0 + s.z1) / 2);
     const parts = [s.trees.length && `${s.trees.length} tree${s.trees.length > 1 ? 's' : ''}`, s.logs.length && `${s.logs.length} fallen log${s.logs.length > 1 ? 's' : ''}`, s.rocks.length && `${s.rocks.length} rock${s.rocks.length > 1 ? 's' : ''}`].filter(Boolean).join(', ');
@@ -2324,6 +2356,7 @@ export class Game {
     const vcfg = RENDER.presets[this.preset];
     this.veg.update(dt, this.rig.camera.position, this.rig.target, vcfg.lodDist, growth, t, vcfg.vegLod);
     this.colony.update(dt);
+    this.markFoes(dt);
     // Observatory research: priests on duty this frame study the active tier.
     const studied = this.research.advance(dt, this.colony.observing);
     if (studied) this.onResearched(studied);

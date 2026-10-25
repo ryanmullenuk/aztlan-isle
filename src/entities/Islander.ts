@@ -36,7 +36,12 @@ export type Anim =
   | 'eat'
   | 'wave'
   | 'sit'
-  | 'dance';
+  | 'dance'
+  /** Warriors: braced on guard (shield up, or bow ready), and fighting (spear throws or arrows loosed). */
+  | 'guard'
+  | 'attack'
+  /** Children crouched playing (feeding the chickens, scratching in the dirt). */
+  | 'play';
 
 export type Tool = 'none' | 'axe' | 'pick' | 'hoe' | 'spear' | 'hammer';
 
@@ -120,6 +125,8 @@ export interface Islander {
   npc?: 'healer';
   jewel: boolean;
   warrior: 'jaguar' | 'eagle' | null;
+  /** A warrior's foe in reach this frame (a jaguar or alligator), for the fighting pose. */
+  foe?: { x: number; z: number } | null;
   /** Day of the last evening spent at a bonfire. */
   lastBonfire: number;
   lastFamilyGather?: number;

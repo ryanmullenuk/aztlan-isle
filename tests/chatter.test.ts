@@ -7,14 +7,24 @@ const camera={x:0,y:.7,z:0,rightX:1,rightZ:0};
 
 test('chatter fades by actual camera distance, pans with camera orientation and excludes unavailable people',()=>{
   const i=makeIslander(1,'A','m',0,0,()=>.5);
-  assert.equal(chatterGain(i,camera),.24);
-  i.x=15;assert.ok(chatterGain(i,camera)>0&&chatterGain(i,camera)<.24);
+  assert.equal(chatterGain(i,camera),.5);
+  i.x=15;assert.ok(chatterGain(i,camera)>0&&chatterGain(i,camera)<.5);
   assert.equal(chatterPan(i,camera),.8);
   assert.equal(chatterPan(i,{...camera,rightX:-1}),-.8);
-  i.x=28;assert.equal(chatterGain(i,camera),0);
+  i.x=40;assert.equal(chatterGain(i,camera),0);
   i.x=0;i.hidden=true;assert.equal(chatterGain(i,camera),0);
   i.hidden=false;i.sleeping=true;assert.equal(canChatter(i),false);
   i.sleeping=false;i.task={kind:'flee',target:1,x:0,z:0,stage:0,timer:0};assert.equal(canChatter(i),false);
+});
+
+test('chatter is heard at normal playing zoom: islanders near the view centre, fading with distance and off to the sides',()=>{
+  const i=makeIslander(1,'A','m',0,0,()=>.5);
+  // Overhead camera 40 m back, looking at the islander's spot.
+  const view={x:0,y:30,z:-26,rightX:1,rightZ:0,tx:0,tz:0};
+  assert.ok(chatterGain(i,view)>0.12,'audible at a normal zoom');
+  const far={...view,y:70,z:-60};
+  assert.ok(chatterGain(i,far)<chatterGain(i,view),'quieter zoomed out');
+  i.x=30;assert.equal(chatterGain(i,view),0,'silent well off to the side of the view');
 });
 
 test('original syllables have varied voices, bounded pitch and short coherent phrase timing',()=>{

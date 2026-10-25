@@ -383,8 +383,8 @@ function warShield(): THREE.BufferGeometry {
   return facet(b.build());
 }
 
-/** An eagle warrior's quiver of arrows and a bow, slung across the back (chest frame, back toward -z). */
-function quiverAndBow(): THREE.BufferGeometry {
+/** An eagle warrior's quiver of arrows, slung across the back (chest frame, back toward -z). */
+function quiver(): THREE.BufferGeometry {
   const b = new GeoBuilder();
   b.add(P.cyl(0.045, 0.038, 0.4, 7), C(PAL.leather), M.t(0.06, 0.02, -0.17, 0, 0, 0.45));
   b.add(P.cyl(0.048, 0.048, 0.03, 7), C(PAL.red), M.t(0.06 - 0.06, 0.12, -0.17, 0, 0, 0.45));
@@ -393,12 +393,36 @@ function quiverAndBow(): THREE.BufferGeometry {
     b.add(P.cyl(0.005, 0.005, 0.16, 3), C(PAL.wood), M.t(-0.03 + dx, 0.27, -0.17, 0, 0, 0.45));
     b.add(P.box(0.004, 0.06, 0.03), C(k % 2 ? PAL.red : PAL.cream), M.t(-0.07 + dx, 0.34, -0.17, 0, 0, 0.45));
   }
-  // The bow: a curved stave and its string.
+  return facet(b.build());
+}
+
+/** A curved bow and its string, centred on the grip; the stave runs along y, the string behind it (-z). */
+function bowShape(b: GeoBuilder, m: THREE.Matrix4): void {
   for (let k = 0; k < 7; k++) {
     const a = -0.9 + (k / 6) * 1.8;
-    b.add(P.box(0.022, 0.1, 0.022), C(PAL.wood), M.t(Math.sin(a) * 0.27 * 0.35, Math.cos(a) * 0.27 - 0.2, -0.205 - Math.cos(a) * 0.04, 0, 0, -a * 0.9 - 0.45));
+    b.add(P.box(0.022, 0.1, 0.022), C(PAL.wood), m.clone().multiply(M.t(0, Math.sin(a) * 0.3, -(1 - Math.cos(a)) * 0.22 + 0.05, -a, 0, 0)));
   }
-  b.add(P.cyl(0.003, 0.003, 0.5, 3), C(PAL.cream), M.t(0, -0.02, -0.19, 0, 0, -0.45));
+  b.add(P.cyl(0.003, 0.003, 0.55, 3), C(PAL.cream), m.clone().multiply(M.t(0, 0, -0.08)));
+  b.add(P.cyl(0.016, 0.016, 0.06, 6), C(PAL.red), m);
+}
+/** The bow slung across the back beside the quiver (chest frame). */
+function bowBack(): THREE.BufferGeometry {
+  const b = new GeoBuilder();
+  bowShape(b, M.t(-0.02, -0.02, -0.2, 0, Math.PI / 2, -0.45));
+  return facet(b.build());
+}
+/** The bow in the hand (hand frame: the grip in the palm, the stave upright). */
+function bowHand(): THREE.BufferGeometry {
+  const b = new GeoBuilder();
+  bowShape(b, M.t(0, 0, 0, 0, 0, Math.PI / 2, 1.35));
+  return facet(b.build());
+}
+/** An elder's walking staff, gripped in the hand (hand frame, the staff down along -y). */
+function walkingStaff(): THREE.BufferGeometry {
+  const b = new GeoBuilder();
+  b.add(P.cyl(0.016, 0.02, 1.15, 5), C(PAL.wood), M.t(0, -0.42, 0.02));
+  b.add(P.sphere(0.03, 0), C(PAL.wood), M.t(0, 0.16, 0.02));
+  b.add(P.cyl(0.02, 0.02, 0.05, 5), C(PAL.red), M.t(0, 0.06, 0.02));
   return facet(b.build());
 }
 
@@ -423,7 +447,7 @@ function netBundle(): THREE.BufferGeometry {
 export type PartKey =
   | 'pelvis_m' | 'chest_m' | 'head_m' | 'uarm_m' | 'farm_m' | 'thigh_m' | 'shin_m'
   | 'pelvis_f' | 'chest_f' | 'head_f' | 'uarm_f' | 'farm_f' | 'thigh_f' | 'shin_f'
-  | 'hd_band' | 'hd_fan' | 'hd_plume' | 'jaguar' | 'eagle' | 'shield' | 'quiver' | 'fishband' | 'netpack'
+  | 'hd_band' | 'hd_fan' | 'hd_plume' | 'jaguar' | 'eagle' | 'shield' | 'quiver' | 'bowback' | 'bowhand' | 'staff' | 'fishband' | 'netpack'
   | 'axe' | 'pick' | 'hoe' | 'spear' | 'hammer'
   | 'log' | 'stone' | 'basket' | 'sack' | 'fish' | 'meat' | 'chicken' | 'water';
 
@@ -432,7 +456,7 @@ export function buildPeopleParts(): Record<PartKey, THREE.BufferGeometry> {
     pelvis_m: pelvisM(), chest_m: chestM(), head_m: headBase('m'), uarm_m: upperArm('m'), farm_m: foreArm('m'), thigh_m: thigh('m'), shin_m: shin('m'),
     pelvis_f: pelvisF(), chest_f: chestF(), head_f: headBase('f'), uarm_f: upperArm('f'), farm_f: foreArm('f'), thigh_f: thigh('f'), shin_f: shin('f'),
     hd_band: headdressBand(), hd_fan: headdressFan(), hd_plume: headdressPlume(), jaguar: jaguarHelm(), eagle: eagleHelm(),
-    shield: warShield(), quiver: quiverAndBow(), fishband: fisherBand(), netpack: netBundle(),
+    shield: warShield(), quiver: quiver(), bowback: bowBack(), bowhand: bowHand(), staff: walkingStaff(), fishband: fisherBand(), netpack: netBundle(),
     axe: tool('axe'), pick: tool('pick'), hoe: tool('hoe'), spear: tool('spear'), hammer: tool('hammer'),
     water: load('water'), log: load('log'), stone: load('stone'), basket: load('basket'), sack: load('sack'), fish: load('fish'), meat: load('meat'), chicken: carriedChicken(),
   };

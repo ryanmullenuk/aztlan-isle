@@ -107,6 +107,20 @@ function stride(p: Pose, ph: number, amp: number, knee: number, stance: number, 
   p.headX = -0.04 - Math.sin(ph * 2) * 0.03;
 }
 
+/**
+ * The pose an islander is shown in: warriors standing about are on guard, and with a foe in
+ * reach they fight; children at a loose end crouch to play now and then. (Their task's own anim
+ * is unchanged; this is only how they look.)
+ */
+export function shownAnim(isl: Islander): Islander['anim'] {
+  if (isl.warrior && !isl.hidden && !isl.child) {
+    if (isl.foe && (isl.anim === 'idle' || isl.anim === 'walk' || isl.anim === 'run')) return 'attack';
+    if (isl.anim === 'idle') return 'guard';
+  }
+  if (isl.child && isl.anim === 'idle' && Math.sin(isl.animT * 0.12 + isl.id * 1.7) > 0.25) return 'play';
+  return isl.anim;
+}
+
 /** Procedural animation for every islander activity. */
 export function poseFor(isl: Islander, female: boolean, skel?: Skeleton): Pose {
   const t = isl.animT;
@@ -120,7 +134,7 @@ export function poseFor(isl: Islander, female: boolean, skel?: Skeleton): Pose {
     p.bob = Math.sin(t * 1.2) * 0.002;
     return p;
   }
-  switch (isl.anim) {
+  switch (shownAnim(isl)) {
     case 'idle': {
       // Breathing, a slow weight shift onto one hip, relaxed arms, looking around.
       const br = Math.sin(t * 1.7);
@@ -148,6 +162,12 @@ export function poseFor(isl: Islander, female: boolean, skel?: Skeleton): Pose {
       // The healer walks at half the villagers' pace, so its stride cadence follows that pace.
       stride(p, t * 7.5 * (isl.npc === 'healer' ? isl.speed / ISLANDER.walkSpeed : 1), 0.36, 0.72, 0.08, 0.9);
       p.lean = 0.06;
+      if (isElder(isl) && !isl.carry && isl.tool === 'none') {
+        // Elders: a shorter, stooped step, leaning on a staff planted ahead with each stride.
+        stride(p, t * 6.2, 0.28, 0.6, 0.12, 0.5);
+        p.lean = 0.16; p.hipPitch = 0.1; p.headX = -0.12;
+        p.uaRx = -0.45 + Math.sin(t * 6.2) * 0.12; p.uaRz = 0.2; p.faR = -0.55; p.wrRx = 0.1;
+      }
       break;
     }
     case 'carry': {
@@ -277,24 +297,14 @@ export function poseFor(isl: Islander, female: boolean, skel?: Skeleton): Pose {
       break;
     }
     case 'fish': {
-      const s = (t * 0.6) % 1;
-      const k = tri(s);
-      // Spear raised and drawn back, then thrown down with the whole body.
-      p.uaRx = -2.65 + k * 1.8;
-      p.uaRz = 0.1;
-      p.faR = -0.25 - (1 - k) * 0.5;
-      p.wrRx = k * 0.3;
-      p.uaLx = -1.0 + k * 0.3;
-      p.faL = -0.6;
-      p.lean = 0.08 + k * 0.28;
-      p.twist = -(1 - k) * 0.25;
-      p.hipYaw = -(1 - k) * 0.1;
-      p.thL = -0.28;
-      p.shL = 0.25 + k * 0.2;
-      p.thR = 0.22;
-      p.shR = 0.15;
-      p.ftR = 0.2;
-      p.headX = 0.2;
+      // Down on one knee at the water's edge, watching, then the spear stabs down two-handed.
+      const s = (t * 0.55) % 1;
+      const k = s < 0.75 ? ease(s / 0.75) * 0.25 : 0.25 + Math.sin(((s - 0.75) / 0.25) * Math.PI) * 0.75;
+      p.thL = -1.35; p.shL = 1.55; p.thR = 0.3; p.shR = 1.95; p.ftR = 1.0;
+      p.drop = 0.22; p.hipPitch = 0.2; p.lean = 0.35 + k * 0.25;
+      p.uaLx = -1.65 + k * 0.85; p.uaLz = 0.05; p.faL = -0.7 + k * 0.45; p.wrLx = 0.6;
+      p.uaRx = -1.35 + k * 0.7; p.uaRz = 0.25; p.faR = -0.9 + k * 0.4; p.wrRx = 0.3;
+      p.twist = 0.15; p.headX = 0.45 - k * 0.1;
       break;
     }
     case 'build': {
@@ -401,6 +411,54 @@ export function poseFor(isl: Islander, female: boolean, skel?: Skeleton): Pose {
       p.uaLz = p.uaRz = 0.45;
       p.faL = p.faR = -0.9;
       p.headY = Math.sin(beat * 0.5) * 0.12;
+      break;
+    }
+    case 'guard': {
+      // Braced on guard: feet apart, knees soft, weight forward, looking about.
+      const br = Math.sin(t * 1.6);
+      p.spread = 0.09; p.thL = -0.28; p.thR = 0.18; p.shL = 0.32; p.shR = 0.26; p.ftR = 0.12;
+      p.lean = 0.07; p.hipPitch = 0.05; p.drop = 0.03; p.bob = br * 0.004;
+      p.headY = Math.sin(t * 0.5) * 0.45;
+      if (isl.warrior === 'eagle') {
+        // Bow held low across the body in the off hand, the draw hand resting on the string.
+        p.uaLx = -0.55; p.uaLz = 0.2; p.faL = -0.55; p.wrLx = 0;
+        p.uaRx = -0.6; p.uaRz = -0.1; p.faR = -1.3; p.twist = -0.15;
+      } else {
+        // Shield raised before the chest, spear upright at the side.
+        p.uaLx = -1.05 + br * 0.03; p.uaLz = 0.42; p.faL = -1.45; p.wrLx = 0.1;
+        p.uaRx = -0.25; p.uaRz = 0.12; p.faR = -1.25; p.wrRx = -0.2; p.twist = 0.12;
+      }
+      break;
+    }
+    case 'attack': {
+      p.spread = 0.1; p.ftR = 0.15;
+      if (isl.warrior === 'eagle') {
+        // Side-on stance: bow arm straight out, the string drawn back to the cheek, then loosed.
+        const s = (t * 0.8) % 1, draw = s < 0.65 ? ease(s / 0.65) : 1 - ease((s - 0.65) / 0.35);
+        p.twist = -0.55; p.hipYaw = -0.25; p.headY = 0.5; p.lean = 0.04;
+        p.thL = -0.3; p.thR = 0.3; p.shL = 0.2; p.shR = 0.18;
+        p.uaLx = -1.5; p.uaLz = 0.05; p.faL = -0.05; p.wrLx = 0;
+        p.uaRx = -1.45; p.uaRz = -0.15 - draw * 0.55; p.faR = -0.6 - draw * 1.6; p.wrRx = 0.1;
+        p.chestX = -draw * 0.04;
+      } else {
+        // A javelin throw: shield forward, spear drawn back overhead, then hurled with a lunge.
+        const s = (t * 0.7) % 1, k = tri(s);
+        p.uaRx = -2.75 + k * 1.55; p.uaRz = 0.15; p.faR = -0.35 - (1 - k) * 0.65; p.wrRx = k * 0.35;
+        p.uaLx = -1.2; p.uaLz = 0.5; p.faL = -1.35;
+        p.lean = 0.05 + k * 0.3; p.twist = (1 - k) * 0.4 - 0.1; p.hipYaw = (1 - k) * 0.15;
+        p.thL = 0.25 - k * 0.1; p.thR = -0.45 + k * 0.15; p.shL = 0.15; p.shR = 0.45 + k * 0.1;
+        p.drop = 0.04 + k * 0.03; p.headX = 0.05;
+      }
+      break;
+    }
+    case 'play': {
+      // Crouched low, scattering grain or poking at the ground, bobbing on the heels.
+      const ph = t * 3.5;
+      p.thL = p.thR = -1.35; p.shL = p.shR = 2.0; p.spread = 0.14; p.hipPitch = 0.25;
+      p.lean = 0.4 + Math.sin(ph * 0.5) * 0.06; p.drop = 0.12;
+      p.uaLx = -1.1 + Math.sin(ph) * 0.35; p.uaRx = -0.95; p.uaLz = p.uaRz = 0.15;
+      p.faL = -0.45 - pos(Math.sin(ph)) * 0.5; p.faR = -0.7; p.wrLx = p.wrRx = -0.3;
+      p.headX = 0.3; p.headY = Math.sin(t * 0.7) * 0.3; p.bob = pos(Math.sin(ph)) * 0.01;
       break;
     }
     case 'sleep':
@@ -812,6 +870,7 @@ export class IslanderRig {
       M.out.multiplyMatrices(M.base, W[BI.head]).multiply(this.rot(this.tmp, 0, fit.y, fit.z, 0, 0, 0, 'XYZ', fit.s));
       this.put(hd as PartKey, M.out);
     }
+    const shown = shownAnim(isl);
     // Kit by trade, as in the character sheets: jaguar warriors carry a round shield on the forearm,
     // eagle warriors a quiver and bow across the back, and fishers wear a red headband with a net
     // bundled on the back.
@@ -822,6 +881,14 @@ export class IslanderRig {
       } else if (isl.warrior === 'eagle') {
         M.out.multiplyMatrices(M.base, W[BI.chest]);
         this.put('quiver', M.out);
+        // The bow: in the off hand on guard or shooting, otherwise slung on the back.
+        if (shown === 'guard' || shown === 'attack') {
+          M.out.multiplyMatrices(M.base, W[BI.handR]).multiply(this.rot(this.tmp, 0, -set.model.len.hand * 0.3, 0.01, 0, 0, 0));
+          this.put('bowhand', M.out);
+        } else {
+          M.out.multiplyMatrices(M.base, W[BI.chest]);
+          this.put('bowback', M.out);
+        }
       } else if (isl.role === 'fisher') {
         const fit = set.model.hat;
         M.out.multiplyMatrices(M.base, W[BI.head]).multiply(this.rot(this.tmp, 0, fit.y, fit.z, 0, 0, 0, 'XYZ', fit.s));
@@ -833,7 +900,10 @@ export class IslanderRig {
       }
     }
     // Tool in the right (+x) hand.
-    const tool = isl.carry || isl.anim === 'sleep' || isl.anim === 'pray' || isl.anim === 'eat' || isl.anim === 'sit' ? 'none' : isl.tool;
+    let tool: string = isl.carry || isl.anim === 'sleep' || isl.anim === 'pray' || isl.anim === 'eat' || isl.anim === 'sit' ? 'none' : isl.tool;
+    // Eagle warriors fight with the bow; elders out walking lean on a staff.
+    if (isl.warrior === 'eagle' && (shown === 'guard' || shown === 'attack')) tool = 'none';
+    if (tool === 'none' && shown === 'walk' && !isl.carry && !isl.child && isElder(isl)) tool = 'staff';
     if (tool !== 'none') {
       M.out.multiplyMatrices(M.base, W[BI.handL]);
       // Gripped in the palm, a little past the wrist.

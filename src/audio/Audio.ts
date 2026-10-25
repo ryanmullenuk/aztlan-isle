@@ -505,8 +505,8 @@ export class AudioEngine {
       source.frequency.exponentialRampToValueAtTime(s.endPitch, t + s.duration);
       filters.forEach((f, k) => f.frequency.setTargetAtTime(s.vowel[k], t, 0.015));
       envelope.gain.setValueAtTime(0, t);
-      envelope.gain.linearRampToValueAtTime(0.16, t + 0.025);
-      envelope.gain.linearRampToValueAtTime(0.1, t + s.duration * 0.65);
+      envelope.gain.linearRampToValueAtTime(0.22, t + 0.025);
+      envelope.gain.linearRampToValueAtTime(0.14, t + s.duration * 0.65);
       envelope.gain.linearRampToValueAtTime(0, t + s.duration);
       if (s.breath) {
         breathGain.gain.setValueAtTime(0, t);
