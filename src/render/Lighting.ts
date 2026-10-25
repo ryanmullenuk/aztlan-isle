@@ -31,6 +31,9 @@ const STORM_FOG_NIGHT = new THREE.Color(0x0f141c);
 const FLASH_LIGHT = new THREE.Color(0xd4e0ff);
 const FLASH_SKY = new THREE.Color(0x7d8cb0);
 
+/** Scratch vectors for fitting the shadow camera. */
+const UP = new THREE.Vector3(0, 1, 0), _dir = new THREE.Vector3(), _right = new THREE.Vector3(), _up = new THREE.Vector3(), _snap = new THREE.Vector3();
+
 /**
  * Golden-hour sun, cool sky bounce, low ambient, and the day/night keyframes.
  * The sun's shadow camera is re-fitted every frame around what the camera sees.
@@ -165,19 +168,30 @@ export class Lighting {
       s.exposure *= 1 + fl * 0.18;
     }
 
-    // Fit the shadow camera tightly around the view, snapped to texels to avoid shimmering.
-    const r = clamp(viewRadius, 12, 150);
+    // Fit the shadow camera round the view. Its size moves in steps (not with every bit of zoom),
+    // and its centre is snapped to whole shadow-map texels in the sun's own view (not along the
+    // ground, which the slanting sun doesn't line up with), so shadow edges stay still instead of
+    // crawling and flickering as the camera pans and zooms.
+    const want = clamp(viewRadius, 12, 150);
+    const r = 12 * Math.pow(1.25, Math.ceil(Math.log(want / 12) / Math.log(1.25) - 1e-6));
     const sc = this.sun.shadow.camera;
-    sc.left = -r;
-    sc.right = r;
-    sc.top = r;
-    sc.bottom = -r;
-    sc.updateProjectionMatrix();
+    if (sc.right !== r) {
+      sc.left = -r;
+      sc.right = r;
+      sc.top = r;
+      sc.bottom = -r;
+      sc.updateProjectionMatrix();
+    }
     const texel = (2 * r) / this.sun.shadow.mapSize.x;
-    const tx = Math.round(target.x / texel) * texel;
-    const tz = Math.round(target.z / texel) * texel;
-    this.sun.target.position.set(tx, target.y, tz);
-    this.sun.position.set(tx + s.sunDir.x * 160, target.y + s.sunDir.y * 160, tz + s.sunDir.z * 160);
+    const dir = _dir.copy(s.sunDir).normalize();
+    const right = _right.crossVectors(UP, dir);
+    if (right.lengthSq() < 1e-6) right.set(1, 0, 0);
+    right.normalize();
+    const up = _up.crossVectors(dir, right).normalize();
+    const u = Math.round(target.dot(right) / texel) * texel, v = Math.round(target.dot(up) / texel) * texel, w = target.dot(dir);
+    const snapped = _snap.copy(right).multiplyScalar(u).addScaledVector(up, v).addScaledVector(dir, w);
+    this.sun.target.position.copy(snapped);
+    this.sun.position.copy(snapped).addScaledVector(dir, 160);
     this.sun.target.updateMatrixWorld();
   }
 }

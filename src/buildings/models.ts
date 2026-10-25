@@ -196,9 +196,13 @@ export function firepitModel(): BuildingModel {
 /** Well: a round stone well with a timber frame, rope and bucket under a little tiled roof. */
 export function wellModel(): BuildingModel {
   const b = new GeoBuilder();
-  b.add(P.cyl(1.0, 1.0, 0.03, 16), { color: c(0xb8a890) }, M.t(0, 0.015, 0));
-  b.add(P.cyl(0.46, 0.5, 0.5, 12), { color: (p) => ((Math.floor(p.y * 8) + Math.floor(Math.atan2(p.z, p.x) * 3)) % 2 ? K.stone : K.stoneDark).clone() }, M.t(0, 0.25, 0));
-  b.add(P.cyl(0.5, 0.5, 0.06, 12), { color: K.stoneDark }, M.t(0, 0.52, 0));
+  b.add(P.box(1.9, 0.04, 1.9), { color: CUT.stoneDark }, M.t(0, 0.02, 0));
+  flagstones(b, -0.9, -0.9, 6, 6, 0.3, 0.02, (i, j) => ((i * 3 + j * 5) % 4 === 0 ? c(0xc9b494) : (i + j) % 2 ? c(0xdcc8a4) : c(0xd0bb95)));
+  b.add(P.cyl(0.46, 0.5, 0.5, 12), { color: (p) => ((Math.floor(p.y * 8) + Math.floor(Math.atan2(p.z, p.x) * 3)) % 2 ? CUT.stone : CUT.stoneDark).clone() }, M.t(0, 0.25, 0));
+  b.add(P.cyl(0.5, 0.5, 0.06, 12), { color: K.red }, M.t(0, 0.36, 0));
+  b.add(P.cyl(0.52, 0.52, 0.06, 12), { color: CUT.stoneLight }, M.t(0, 0.52, 0));
+  b.add(P.cyl(0.08, 0.065, 0.1, 8), { color: K.timber }, M.t(0.42, 0.6, 0.18));
+  frettedPot(b, -0.72, 0.04, -0.6, 0.7);
   b.add(P.cyl(0.36, 0.36, 0.02, 12), { color: c(0x1f5a78) }, M.t(0, 0.4, 0));
   for (const x of [-0.52, 0.52]) b.add(P.cyl(0.035, 0.04, 1.05, 6), { color: K.timber }, M.t(x, 0.8, 0));
   b.add(P.cyl(0.04, 0.04, 1.14, 6), { color: K.timberDark }, M.t(0, 1.12, 0, 0, 0, Math.PI / 2));
@@ -212,7 +216,7 @@ export function wellModel(): BuildingModel {
   // A flower pot and a trough.
   b.add(P.uvSphere(0.1, 8, 6), { color: K.terracotta }, M.t(0.7, 0.08, 0.55));
   b.add(P.sphere(0.1, 0), { color: c(0x4f8038), leaf: 1 }, M.t(0.7, 0.2, 0.55));
-  b.add(P.box(0.5, 0.14, 0.2), { color: K.stone }, M.t(-0.55, 0.07, 0.62));
+  b.add(P.box(0.5, 0.14, 0.2), { color: CUT.stone }, M.t(-0.55, 0.07, 0.62));
   b.add(P.box(0.44, 0.02, 0.14), { color: c(0x2f7fa0) }, M.t(-0.55, 0.13, 0.62));
   return { finished: b.build(), torches: [], height: 1.7 };
 }
@@ -316,6 +320,8 @@ const AD = {
 /** A plastered adobe block, lighter toward the top, with a low parapet around a flat roof. */
 function adobeBlock(b: GeoBuilder, w: number, h: number, d: number, x: number, y: number, z: number, parapet = true): void {
   b.add(P.rbox(w, h, d, 0.035), { color: (p) => AD.wall.clone().lerp(AD.wallLight, Math.min(1, Math.max(0, (p.y - y) / h)) * 0.55) }, M.t(x, y + h / 2, z));
+  // A painted red band under the coping on taller blocks (the village's shared trim).
+  if (h >= 0.6) b.add(P.box(w + 0.012, 0.055, d + 0.012), { color: AD.red }, M.t(x, y + h - 0.13, z));
   if (!parapet) return;
   // Low, substantial coping gives the roof a finished silhouette.
   b.add(P.rbox(w + 0.025, 0.045, d + 0.025, 0.012, 1), { color: AD.wallLight }, M.t(x, y + h - 0.025, z));
@@ -484,6 +490,7 @@ export function homeModel(tier = 1): BuildingModel {
     adobeBlock(b, 1.9, 1.0, 1.6, 0, 0, -0.1);
     adobeBlock(b, 1.0, 0.8, 0.95, -0.25, 1.0, -0.35);
     tealDoor(b, -0.35, 0.02, 0.71, 0.3, 0.55);
+    fretBand(b, M.t(0, 0.87 - 0.2, 0.708), 1.86, 0.1, AD.red, AD.cream);
     adobeWindow(b, -0.45, 1.45, 0.14);
     adobeWindow(b, -0.05, 1.45, 0.14);
     adobeWindow(b, 0.96, 0.6, -0.2, true);
@@ -498,6 +505,8 @@ export function homeModel(tier = 1): BuildingModel {
     adobeBlock(b, 1.1, 1.3, 1.4, 0.65, 0, -0.25);
     adobeBlock(b, 0.9, 0.8, 0.9, -0.6, 1.05, -0.4);
     tealDoor(b, -0.45, 0.02, 0.76, 0.3, 0.55);
+    fretBand(b, M.t(-0.5, 0.92 - 0.2, 0.758), 1.36, 0.1, AD.red, AD.cream);
+    fretBand(b, M.t(0.65, 1.17 - 0.2, 0.458), 1.06, 0.1, AD.red, AD.cream);
     for (const x of [-0.8, -0.4]) adobeWindow(b, x, 1.5, 0.06);
     adobeWindow(b, 0.9, 0.95, 0.46);
     adobeWindow(b, 0.4, 0.95, 0.46);
@@ -516,6 +525,7 @@ export function homeModel(tier = 1): BuildingModel {
     // Outside stairs up to the first roof.
     stairs(b, 0.3, 0.4, 6, 0.18, 0.13, 0.36, 1);
     tealDoor(b, -0.7, 0.02, 0.66, 0.3, 0.55);
+    fretBand(b, M.t(-0.55, 0.97 - 0.2, 0.658), 1.46, 0.1, AD.red, AD.cream);
     for (const x of [-0.95, -0.4]) adobeWindow(b, x, 1.55, 0.01);
     adobeWindow(b, -0.65, 2.45, -0.17);
     adobeWindow(b, 0.8, 0.7, 0.16);
@@ -539,6 +549,8 @@ export function homeModel(tier = 1): BuildingModel {
     for (let k = 0; k < 6; k++) b.add(P.box(0.14, 0.025, 0.9), { color: k % 2 ? AD.cream : AD.red }, M.t(-1.0 + 0.07 + k * 0.134, 3.46, -0.6, 0, 0, 0.08));
     // Front door under a striped awning, stairs to the roof terrace.
     tealDoor(b, -0.4, 0.02, 1.11, 0.32, 0.6);
+    fretBand(b, M.t(0, 0.87 - 0.2, 1.108), 2.76, 0.1, AD.red, AD.cream);
+    sunBanner(b, M.t(0.55, 0.52, 1.118), 0.2, 0.36);
     awning(b, -0.4, 0.85, 1.11, 1.0, 0.45, true);
     stairs(b, 1.05, 1.2, 5, 0.2, 0.12, 0.34, -1);
     for (const x of [-1.05, 0.3]) adobeWindow(b, x, 0.6, 1.11);
@@ -557,6 +569,9 @@ export function homeModel(tier = 1): BuildingModel {
   return { finished: b.build(), torches, height };
 }
 
+/** Temple sandstone: warm, like the Great Hall and the palace. */
+const TPL = { stone: c(0xdcb27a), dark: c(0xbf9864) };
+
 /** Aztec stepped pyramid. Tier 1-3 (3 is the Great Pyramid with twin shrines). */
 export function templeModel(tier: number): BuildingModel {
   const b = new GeoBuilder();
@@ -568,10 +583,15 @@ export function templeModel(tier: number): BuildingModel {
     const t = s / Math.max(1, steps - 1);
     const size = base + (top - base) * t;
     const y = s * sh;
-    b.add(P.rbox(size, sh, size, 0.05), { color: (p) => (p.y - y > sh * 0.35 ? K.stone : K.stoneDark) }, M.t(0, y + sh / 2, 0));
+    b.add(P.rbox(size, sh, size, 0.05), { color: (p) => (p.y - y > sh * 0.35 ? TPL.stone : TPL.dark) }, M.t(0, y + sh / 2, 0));
     // Pale coping and a restrained mineral-painted frieze.
-    b.add(P.rbox(size + 0.035, 0.065, size + 0.035, 0.015, 1), { color: K.stone }, M.t(0, y + sh - 0.025, 0));
-    if (s === 0 || s === steps - 1) b.add(P.box(size + 0.012, 0.026, size + 0.012), { color: K.terracotta }, M.t(0, y + sh * 0.73, 0));
+    b.add(P.rbox(size + 0.035, 0.065, size + 0.035, 0.015, 1), { color: TPL.stone }, M.t(0, y + sh - 0.025, 0));
+    // A red band round every terrace, and a stepped fret either side of the stairs on the lowest.
+    b.add(P.box(size + 0.012, 0.05, size + 0.012), { color: K.red }, M.t(0, y + sh * 0.7, 0));
+    if (s === 0) {
+      const run = size / 2 - 0.56;
+      for (const sx of [-1, 1]) fretBand(b, M.t(sx * (0.56 + run / 2), y + sh * 0.38, size / 2 + 0.006), run - 0.06, 0.14, K.red, AD.cream);
+    }
   }
   const H = steps * sh;
   // Staircase up the front face: solid stepped columns so the profile reads cleanly.
@@ -584,17 +604,17 @@ export function templeModel(tier: number): BuildingModel {
     // Treads stand a hair proud of the terraces they cut into, so the treads and the terrace tops never
     // share a plane (that flickered as the camera moved).
     const yT = yTop + 0.008;
-    b.add(P.box(0.82, yT, z0 - z1 + 0.02), { color: (p) => (p.y > yT - 0.04 ? K.stone : K.stoneDark) }, M.t(0, yT / 2, (z0 + z1) / 2));
+    b.add(P.box(0.82, yT, z0 - z1 + 0.02), { color: (p) => (p.y > yT - 0.04 ? TPL.stone : TPL.dark) }, M.t(0, yT / 2, (z0 + z1) / 2));
   }
   // Sloped balustrades either side of the stairs.
   const slope = Math.atan2(H, run + 0.06);
   const len = Math.hypot(H, run + 0.06);
   for (const x of [-0.47, 0.47]) {
-    b.add(P.box(0.13, 0.16, len), { color: K.stoneDark }, M.t(x, H / 2 + 0.06, (zf(0) + zf(stairN)) / 2, slope, 0, 0));
+    b.add(P.box(0.13, 0.16, len), { color: TPL.dark }, M.t(x, H / 2 + 0.06, (zf(0) + zf(stairN)) / 2, slope, 0, 0));
   }
   const torches: THREE.Vector3[] = [];
   const shrine = (x: number, col: THREE.Color, w: number) => {
-    b.add(P.rbox(w, 0.7, w * 0.8, 0.04), { color: K.stone }, M.t(x, H + 0.35, -0.1));
+    b.add(P.rbox(w, 0.7, w * 0.8, 0.04), { color: TPL.stone }, M.t(x, H + 0.35, -0.1));
     b.add(P.box(w * 0.4, 0.45, 0.06), { color: K.door }, M.t(x, H + 0.26, -0.1 + w * 0.4));
     b.add(P.rbox(w + 0.14, 0.14, w * 0.8 + 0.14, 0.03), { color: col }, M.t(x, H + 0.76, -0.1));
     b.add(P.rbox(w * 0.8, 0.3, w * 0.64, 0.05), { color: col.clone().multiplyScalar(0.85) }, M.t(x, H + 0.98, -0.1));
@@ -614,7 +634,7 @@ export function templeModel(tier: number): BuildingModel {
   // Braziers at the foot of the stairs.
   const bz = base / 2 + 0.35;
   for (const x of [-0.75, 0.75]) {
-    b.add(P.cyl(0.12, 0.08, 0.4, 8), { color: K.stoneDark }, M.t(x, 0.2, bz));
+    b.add(P.cyl(0.12, 0.08, 0.4, 8), { color: TPL.dark }, M.t(x, 0.2, bz));
     b.add(P.cyl(0.16, 0.1, 0.1, 8), { color: K.gold }, M.t(x, 0.44, bz));
     torches.push(new THREE.Vector3(x, 0.55, bz));
   }
@@ -1344,15 +1364,18 @@ export function chinampaModel(w: number, d: number): BuildingModel {
 export function smokehouseModel(w: number, d: number): BuildingModel {
   const b = new GeoBuilder();
   const hx = -w / 2 + 0.95, hz = -0.15;
-  baseBand(b, 1.5, 1.5, hx, hz, 0.14);
-  adobeBlock(b, 1.5, 0.85, 1.5, hx, 0, hz);
-  // Soot-darkened chimney on the flat roof.
-  b.add(P.rbox(0.34, 0.34, 0.34, 0.03), { color: (p) => AD.wall.clone().lerp(c(0x5a4a40), Math.max(0, p.y - 1.05) * 2.5) }, M.t(hx + 0.35, 1.1, hz - 0.3));
-  b.add(P.box(0.2, 0.02, 0.2), { color: c(0x2a2220) }, M.t(hx + 0.35, 1.28, hz - 0.3));
+  stoneBlock(b, 1.5, 0.85, 1.5, hx, 0, hz);
+  fretBand(b, M.t(hx, 0.72, hz + 0.754), 1.46, 0.1, K.red, AD.cream);
+  fretBand(b, M.t(hx + 0.754, 0.72, hz, 0, Math.PI / 2, 0), 1.46, 0.1, K.red, AD.cream);
+  // Soot-darkened stone chimney on the flat roof.
+  b.add(P.box(0.34, 0.38, 0.34), { color: (p) => CUT.stone.clone().lerp(c(0x4a3a30), Math.max(0, p.y - 1.0) * 2.4) }, M.t(hx + 0.35, 1.1, hz - 0.3));
+  b.add(P.box(0.2, 0.02, 0.2), { color: c(0x2a2220) }, M.t(hx + 0.35, 1.3, hz - 0.3));
   tealDoor(b, hx, 0.02, hz + 0.76, 0.28, 0.48);
-  adobeWindow(b, hx - 0.5, 0.6, hz + 0.76);
-  adobeWindow(b, hx + 0.76, 0.6, hz - 0.2, true);
-  awning(b, hx, 0.66, hz + 0.72, 0.9, 0.34, false);
+  adobeWindow(b, hx - 0.5, 0.52, hz + 0.76);
+  adobeWindow(b, hx + 0.76, 0.52, hz - 0.2, true);
+  awning(b, hx, 0.66, hz + 0.72, 0.9, 0.34, true);
+  barrel(b, hx - 0.62, 0, hz + 0.95, 1.1);
+  heapBasket(b, hx + 0.45, 0, hz + 1.05, 0.1, 0.1, [0x7f97a8, 0x6a8496], new RNG(55));
   // Drying racks: A-frame ends with two cross poles hung with fish and strips of meat.
   const rx = w / 2 - 0.7;
   for (const rz of [-0.55, 0.5]) {
@@ -1887,16 +1910,18 @@ export function woodstoreModel(w: number, d: number): BuildingModel {
   const b = new GeoBuilder();
   const hw = w / 2 - 0.12, hd = d / 2 - 0.12;
   const H = 0.95;
-  b.add(P.rbox(w - 0.2, 0.06, d - 0.2, 0.03), { color: c(0xb8905e) }, M.t(0, 0.03, 0));
-  // Back and side walls (open at the front).
-  baseBand(b, w - 0.24, 0.2, 0, -hd + 0.1, 0.12);
-  adobeBlock(b, w - 0.24, H, 0.2, 0, 0, -hd + 0.1, false);
-  for (const sx of [-1, 1]) adobeBlock(b, 0.2, H, d - 0.35, sx * (hw - 0.1), 0, 0.05, false);
-  // Flat roof slab with a parapet, resting on vigas whose ends poke out at the front.
-  adobeBlock(b, w - 0.1, 0.1, d - 0.15, 0, H, 0.02);
-  for (let k = 0; k < 5; k++) b.add(P.cyl(0.035, 0.035, d - 0.05, 6), { color: K.timber }, M.t(-hw + 0.2 + k * ((w - 0.64) / 4), H - 0.02, 0.08, Math.PI / 2, 0, 0));
-  for (const sx of [-1, 1]) b.add(P.cyl(0.05, 0.06, H, 6), { color: K.timber }, M.t(sx * (hw - 0.1), H / 2, hd - 0.02));
+  b.add(P.box(w - 0.2, 0.06, d - 0.2), { color: CUT.stoneDark }, M.t(0, 0.03, 0));
+  // Back and side walls (open at the front), cut stone with a red fret frieze inside the back wall.
+  stoneBlock(b, w - 0.24, H, 0.2, 0, 0, -hd + 0.1, false);
+  fretBand(b, M.t(0, H - 0.16, -hd + 0.205), w - 0.3, 0.1, K.red, AD.cream);
+  for (const sx of [-1, 1]) stoneBlock(b, 0.2, H * 0.85, d - 0.35, sx * (hw - 0.1), 0, 0.05, false);
+  // A slatted timber roof on rope-bound posts, sloping to the front.
+  for (const sx of [-1, 1]) {
+    b.add(P.cyl(0.05, 0.06, H, 6), { color: K.timberDark }, M.t(sx * (hw - 0.1), H / 2, hd - 0.02));
+    b.add(P.cyl(0.056, 0.056, 0.04, 6), { color: K.rope }, M.t(sx * (hw - 0.1), H - 0.2, hd - 0.02));
+  }
   b.add(P.box(w - 0.3, 0.08, 0.08), { color: K.timberDark }, M.t(0, H - 0.05, hd - 0.02));
+  slatRoof(b, 0, H + 0.08, 0.02, w - 0.05, d - 0.05, 0.08, new RNG(77));
   // Chopping block with an axe, and a potted plant.
   b.add(P.cyl(0.14, 0.16, 0.22, 8), { color: K.timber }, M.t(hw + 0.05, 0.11, hd + 0.3));
   b.add(P.box(0.03, 0.26, 0.03), { color: K.timberDark }, M.t(hw + 0.05, 0.32, hd + 0.3, 0, 0, 0.5));
@@ -2401,11 +2426,14 @@ function fretBand(b: GeoBuilder, m: THREE.Matrix4, len: number, h: number, base:
   }
 }
 
-/** Flagstones as flat quads on a slab (top faces only: two triangles a stone), with joints showing between. */
+/**
+ * Flagstones as flat quads on a slab (top faces only: two triangles a stone), with joints showing
+ * between. The quads sit well clear of the mortar beneath (a hair's gap flickered at a distance).
+ */
 function flagstones(b: GeoBuilder, x0: number, z0: number, nx: number, nz: number, cell: number, y: number, color: (i: number, j: number) => THREE.Color): void {
   b.add(P.box(nx * cell, 0.012, nz * cell), { color: CUT.mortar }, M.t(x0 + (nx * cell) / 2, y + 0.006, z0 + (nz * cell) / 2));
   for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) {
-    b.add(P.plane(cell - 0.014, cell - 0.014), { color: color(i, j) }, M.t(x0 + (i + 0.5) * cell, y + 0.0125 + ((i * 7 + j * 3) % 3) * 0.0015, z0 + (j + 0.5) * cell, -Math.PI / 2, 0, 0));
+    b.add(P.plane(cell - 0.014, cell - 0.014), { color: color(i, j) }, M.t(x0 + (i + 0.5) * cell, y + 0.018 + ((i * 7 + j * 3) % 3) * 0.002, z0 + (j + 0.5) * cell, -Math.PI / 2, 0, 0));
   }
 }
 
@@ -3072,31 +3100,36 @@ function medicinalCrops(ripe: boolean): THREE.BufferGeometry {
 /** Shaded carving yard: substantial stone workpieces, chips and an unfinished glyph pillar. */
 export function stonemasonModel(tier = 1): BuildingModel {
   const b = new GeoBuilder(), rng = new RNG(912);
-  b.add(P.rbox(3.7, 0.10, 2.8, 0.025, 1), { color: c(0xbba587) }, M.t(0, 0.05, 0));
+  b.add(P.box(3.7, 0.10, 2.8), { color: c(0xbba587) }, M.t(0, 0.05, 0));
+  // A low cut-stone back wall with a red fret frieze and a sun banner.
+  b.add(P.box(3.4, 0.62, 0.16), { color: CUT.stone }, M.t(0, 0.41, -1.3));
+  b.add(P.box(3.42, 0.04, 0.2), { color: CUT.stoneLight }, M.t(0, 0.73, -1.3));
+  fretBand(b, M.t(0, 0.52, -1.218), 3.3, 0.1, K.red, AD.cream);
+  bannerPole(b, 1.3, -1.12, 1.4, 0);
   for (const x of [-1.6,1.6]) for (const z of [-1.1,0.65]) b.add(P.cyl(0.065,0.075,1.7,6), { color: K.timber }, M.t(x,0.95,z));
   b.add(P.box(3.45,0.09,0.10), { color: K.timberDark }, M.t(0,1.73,0.65));
   b.add(P.box(3.45,0.09,0.10), { color: K.timberDark }, M.t(0,1.83,-1.1));
   for(let k=0;k<8;k++) b.add(P.box(3.65/8,0.055,2.05), { color: k%2?c(0xb9a47d):c(0xd2bf96), leaf:0.2 }, M.t(-1.825+(k+.5)*3.65/8,1.79,-0.24,0.06));
   for(const x of [-0.7,0.7]) {
-    b.add(P.rbox(0.95,0.55,0.55,0.035,1), { color: K.stoneDark }, M.t(x,0.38,0.9));
-    b.add(P.rbox(0.62,0.28,0.42,0.025,1), { color: K.stone }, M.t(x,0.80,0.9));
+    b.add(P.rbox(0.95,0.55,0.55,0.035,1), { color: CUT.stoneDark }, M.t(x,0.38,0.9));
+    b.add(P.rbox(0.62,0.28,0.42,0.025,1), { color: CUT.stone }, M.t(x,0.80,0.9));
     b.add(P.box(0.075,0.035,0.28), { color: K.timberDark }, M.t(x+0.32,0.69,0.9,0,0.3));
     b.add(P.box(0.16,0.06,0.075), { color: c(0x6b6b60) }, M.t(x+0.29,0.72,0.79));
     b.add(P.cyl(0.009,0.015,0.20,4), { color: c(0x777468) }, M.t(x-0.35,0.70,0.9,Math.PI/2,0.3));
   }
   // Glyph partly cut into a sandstone pillar; one side remains rough.
-  b.add(P.rbox(0.5,1.0,0.48,0.035,1), { color: K.stone }, M.t(-0.9,0.65,-0.7));
-  for(const [x,y,w,h] of [[-0.98,0.72,0.20,0.035],[-0.9,0.82,0.035,0.22],[-0.81,0.91,0.20,0.035]]) b.add(P.box(w,h,0.018), { color: K.stoneDark }, M.t(x,y,-0.45));
-  for(let k=0;k<6;k++) b.add(P.rbox(0.42,0.26,0.4,0.025,1), { color: k%2?K.stone:K.stoneDark }, M.t(0.6+(k%3)*0.42,0.23+Math.floor(k/3)*0.26,-0.8));
-  for(let k=0;k<24;k++) b.add(P.sphere(rng.range(0.025,0.065),0), { color: k%2?K.stone:K.stoneDark }, M.t(rng.range(-1.5,1.5),0.12,rng.range(0.25,1.3),0,rng.range(0,6),0,1,0.45,0.8));
+  b.add(P.rbox(0.5,1.0,0.48,0.035,1), { color: CUT.stone }, M.t(-0.9,0.65,-0.7));
+  for(const [x,y,w,h] of [[-0.98,0.72,0.20,0.035],[-0.9,0.82,0.035,0.22],[-0.81,0.91,0.20,0.035]]) b.add(P.box(w,h,0.018), { color: CUT.stoneDark }, M.t(x,y,-0.45));
+  for(let k=0;k<6;k++) b.add(P.rbox(0.42,0.26,0.4,0.025,1), { color: k%2?CUT.stone:CUT.stoneDark }, M.t(0.6+(k%3)*0.42,0.23+Math.floor(k/3)*0.26,-0.8));
+  for(let k=0;k<24;k++) b.add(P.sphere(rng.range(0.025,0.065),0), { color: k%2?CUT.stone:CUT.stoneDark }, M.t(rng.range(-1.5,1.5),0.12,rng.range(0.25,1.3),0,rng.range(0,6),0,1,0.45,0.8));
   if (tier >= 2) {
     // Temple craft: stone footings and better dressed work surfaces.
     for (const x of [-1.6, 1.6]) for (const z of [-1.1, 0.65]) {
-      b.add(P.rbox(0.24, 0.32, 0.24, 0.025, 1), { color: K.stone }, M.t(x, 0.25, z));
-      b.add(P.box(0.27, 0.045, 0.27), { color: K.stoneDark }, M.t(x, 0.43, z));
+      b.add(P.rbox(0.24, 0.32, 0.24, 0.025, 1), { color: CUT.stone }, M.t(x, 0.25, z));
+      b.add(P.box(0.27, 0.045, 0.27), { color: CUT.stoneDark }, M.t(x, 0.43, z));
     }
     for (const x of [-0.7, 0.7]) {
-      b.add(P.rbox(1.02, 0.055, 0.62, 0.015, 1), { color: K.stone }, M.t(x, 0.67, 0.9));
+      b.add(P.rbox(1.02, 0.055, 0.62, 0.015, 1), { color: CUT.stone }, M.t(x, 0.67, 0.9));
       for (const sx of [-1, 1]) b.add(P.box(0.035, 0.16, 0.018), { color: K.terracotta }, M.t(x + sx * 0.33, 0.41, 1.183));
     }
   }
@@ -3113,21 +3146,21 @@ export function stonemasonModel(tier = 1): BuildingModel {
   }
   if (tier >= 4) {
     // Great Temple craft: fine stepped carvings and modest mineral/gold inlays.
-    for (const x of [-1.6, 1.6]) b.add(P.rbox(0.21, 0.085, 0.21, 0.015, 1), { color: K.stone }, M.t(x, 1.81, 0.65));
+    for (const x of [-1.6, 1.6]) b.add(P.rbox(0.21, 0.085, 0.21, 0.015, 1), { color: CUT.stone }, M.t(x, 1.81, 0.65));
     for (const x of [-1.15, 0, 1.15]) {
-      b.add(P.box(0.36, 0.13, 0.025), { color: K.stone }, M.t(x, 1.72, 0.835));
+      b.add(P.box(0.36, 0.13, 0.025), { color: CUT.stone }, M.t(x, 1.72, 0.835));
       b.add(P.box(0.22, 0.028, 0.030), { color: K.gold }, M.t(x, 1.69, 0.851));
       b.add(P.box(0.12, 0.028, 0.030), { color: K.jade }, M.t(x, 1.73, 0.851));
     }
-    b.add(P.rbox(0.48, 0.10, 0.46, 0.012, 1), { color: K.stone }, M.t(0.1, 0.17, -0.58));
-    b.add(P.rbox(0.33, 0.10, 0.31, 0.012, 1), { color: K.stone }, M.t(0.1, 0.27, -0.58));
+    b.add(P.rbox(0.48, 0.10, 0.46, 0.012, 1), { color: CUT.stone }, M.t(0.1, 0.17, -0.58));
+    b.add(P.rbox(0.33, 0.10, 0.31, 0.012, 1), { color: CUT.stone }, M.t(0.1, 0.27, -0.58));
     b.add(P.rbox(0.17, 0.13, 0.16, 0.012, 1), { color: K.terracotta }, M.t(0.1, 0.385, -0.58));
   }
   // Completed training stages are shown as carved sandstone tablets at the rear of the yard.
   for (let k = 0; k < Math.min(3, tier - 1); k++) {
     const x = -0.45 + k * 0.48;
-    b.add(P.rbox(0.40, 0.65, 0.10, 0.02, 1), { color: K.stone }, M.t(x, 1.22, -1.1));
-    for (let step = 0; step < k + 2; step++) b.add(P.box(0.30 - step * 0.055, 0.045, 0.018), { color: K.stoneDark }, M.t(x, 1.05 + step * 0.09, -1.04));
+    b.add(P.rbox(0.40, 0.65, 0.10, 0.02, 1), { color: CUT.stone }, M.t(x, 1.22, -1.1));
+    for (let step = 0; step < k + 2; step++) b.add(P.box(0.30 - step * 0.055, 0.045, 0.018), { color: CUT.stoneDark }, M.t(x, 1.05 + step * 0.09, -1.04));
     b.add(P.box(0.08, 0.18, 0.02), { color: K.terracotta }, M.t(x, 1.12, -1.03));
   }
   return { finished:b.build(), torches:[], height:1.9 };
