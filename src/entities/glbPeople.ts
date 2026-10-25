@@ -794,12 +794,14 @@ function lightTexel(map:THREE.Texture):THREE.Vector2 {
 
 /**
  * The islanders' proportions: stocky and fun to watch. Legs are shortened and thickened, the body
- * broadened (the arms riding out with the shoulders, and a touch shorter), and the head enlarged
+ * broadened (the arms riding out with the shoulders), and the head enlarged
  * about the neck. Children, whose models already have big heads, get a gentler version.
  */
 const STOCKY = {
-  adult: { leg: 0.8, legW: 1.12, width: 1.14, depth: 1.07, arm: 0.9, head: 1.3 },
-  child: { leg: 0.9, legW: 1.05, width: 1.06, depth: 1.03, arm: 0.95, head: 1.08 },
+  // Arms keep their length (arm: 1): each arm has its own copy of the vertices where it meets the
+  // body, and shortening it pulled those apart from the body's, opening see-through gaps.
+  adult: { leg: 0.8, legW: 1.12, width: 1.14, depth: 1.07, arm: 1, head: 1.3 },
+  child: { leg: 0.9, legW: 1.05, width: 1.06, depth: 1.03, arm: 1, head: 1.08 },
 };
 const LEG = new Set<number>([BI.thighL, BI.shinL, BI.footL, BI.thighR, BI.shinR, BI.footR]);
 const ARM_L = new Set<number>([BI.upper_armL, BI.forearmL, BI.handL]);
@@ -822,6 +824,15 @@ function stockify(geometry: THREE.BufferGeometry, joint: Record<BoneName, THREE.
   const arm = (p: THREE.Vector3, side: 'L' | 'R', out = new THREE.Vector3()) => trunk(p, out).sub(shoulder[side]).multiplyScalar(S.arm).add(shoulder[side]);
 
   const P = geometry.getAttribute('position') as THREE.BufferAttribute;
+  // Vertices that share a spot (copies along a seam, each weighted its own way) are moved together
+  // afterwards, so no seam is pulled open.
+  const shared = new Map<string, number[]>();
+  for (let i = 0; i < P.count; i++) {
+    const k = `${P.getX(i).toFixed(4)},${P.getY(i).toFixed(4)},${P.getZ(i).toFixed(4)}`;
+    const list = shared.get(k);
+    if (list) list.push(i);
+    else shared.set(k, [i]);
+  }
   const SI = geometry.getAttribute('aSkinI') as THREE.BufferAttribute;
   const SW = geometry.getAttribute('aSkinW') as THREE.BufferAttribute;
   const p = new THREE.Vector3(), a = new THREE.Vector3(), acc = new THREE.Vector3();
@@ -846,6 +857,13 @@ function stockify(geometry: THREE.BufferGeometry, joint: Record<BoneName, THREE.
     const sum = wl + wh + wal + war + wt;
     acc.divideScalar(sum || 1);
     P.setXYZ(i, acc.x, acc.y, acc.z);
+  }
+  for (const ids of shared.values()) {
+    if (ids.length < 2) continue;
+    acc.set(0, 0, 0);
+    for (const i of ids) acc.x += P.getX(i), acc.y += P.getY(i), acc.z += P.getZ(i);
+    acc.divideScalar(ids.length);
+    for (const i of ids) P.setXYZ(i, acc.x, acc.y, acc.z);
   }
   P.needsUpdate = true;
   geometry.computeBoundingSphere();

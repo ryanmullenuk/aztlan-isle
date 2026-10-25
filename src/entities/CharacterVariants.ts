@@ -42,13 +42,20 @@ export function characterVariant(base: GlbModel, gender:'m'|'f', whiteUv:THREE.V
   const geo=base.geometry.index ? base.geometry.toNonIndexed() : base.geometry.clone();
   const p=geo.getAttribute('position'), hair=geo.getAttribute('aHairB'), J=base.joint;
   const kept:number[]=[];
+  const toSkin=new Set<number>();
   for(let k=0;k<p.count;k+=3) {
     const ids=[k,k+1,k+2], y=ids.reduce((n,i)=>n+p.getY(i),0)/3;
     // Keep the original face and beard as well as the body; only the hairstyle changes.
     const oldHair=ids.filter(i=>hair.getX(i)>.5 && hair.getX(i)<1.5).length;
-    if(y>J.chest.y-.18 && oldHair>=1) continue;
+    // On the head any touch of the old hair goes; lower down (where long hair lay over the back and
+    // shoulders) only triangles wholly of hair, and the edges left behind are painted as skin.
+    if(y>J.neck.y-.02 ? oldHair>=1 : y>J.chest.y-.18 && oldHair===3) continue;
+    if(oldHair) for(const i of ids) if(hair.getX(i)>.5 && hair.getX(i)<1.5) toSkin.add(i);
     kept.push(...ids);
   }
+  const uvs=geo.getAttribute('uv');
+  for(const i of toSkin){uvs.setXY(i,base.skinUv.x,base.skinUv.y);hair.setX(i,0);}
+  uvs.needsUpdate=true;hair.needsUpdate=true;
   geo.setIndex(kept);
   // Hair takes its colour from the model's own hair texel (white vertex colour, slightly shaded per
   // piece), so elders' grey and white hair is drawn on the new hairstyles as on the original's.
@@ -90,6 +97,9 @@ export function characterVariant(base: GlbModel, gender:'m'|'f', whiteUv:THREE.V
     }
     add(g,at,r,color,BI.head,1);
   };
+  // Skin across the upper back, just inside the body: closes where the long hair was the only surface.
+  if(gender==='f') ellipsoid(0,J.chest.y+.07,J.chest.z-.035,.165,.13,.1,null,0,BI.chest);
+  if(gender==='f') for(const [side,bone] of [[1,BI.shoulderL],[-1,BI.shoulderR]] as const) ellipsoid(side*(Math.abs(J.upper_armL.x)-.06),J.upper_armL.y-.035,J.upper_armL.z,.055,.05,.055,null,0,bone);
   const cy=J.head.y+.105, cz=J.head.z;
   // Skin under the former hair closes the back of the head, kept well inside the new hair.
   ellipsoid(0,cy-.005,cz-.045,.1,.15,.07,null);
