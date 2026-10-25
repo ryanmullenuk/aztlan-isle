@@ -10,7 +10,7 @@ import { RNG } from '../world/rng';
 import { World } from '../world/World';
 import type { Colony } from '../ai/Colony';
 import type { Islander } from './Islander';
-import { BOAT_SCALE, BoatLook, Boats, boatGeometry, HULL_BEAM, HULL_HALF, newRide, Vessel } from './Boats';
+import { BOAT_SCALE, Boats, HULL_BEAM, HULL_HALF, newRide, tradeShipGeometry, Vessel } from './Boats';
 import { Hull } from './fleet';
 
 /** What can go in the hold: stores (not Belief) and precious goods. */
@@ -105,31 +105,8 @@ export const haulText = (h: Haul): string => {
   return parts.join(', ') || 'nothing';
 };
 
-/** The voyage ship: a deep blue hull, a great crimson sail with a gold sun stripe. */
-const VOYAGE_LOOK: BoatLook = { hull: 0x2a4a6a, keel: 0x1b3348, inner: 0x3a2a1c, deck: 0x7a5230, rim: 0xe0b43c, sail: 0xb3342a, stripe: 0xe9c050, band: 0x2a4a6a };
 /** Much bigger than the canoes and trade boats. */
 const SHIP_SCALE = 2.05;
-
-/** On deck: a thatched shelter at the stern, chests and jars, coiled rope and a long pennant. */
-function deckGeometry(): THREE.BufferGeometry {
-  const b = new GeoBuilder();
-  b.add(P.box(0.4, 0.22, 0.34), { color: 0x7a5230 }, M.t(0, 0.3, -0.58));
-  b.add(P.cone(0.34, 0.2, 4), { color: 0xd9a95b, leaf: 0.2 }, M.t(0, 0.5, -0.58, 0, Math.PI / 4, 0, 1, 1, 0.8));
-  for (const [x, z, c] of [[-0.1, 0.32, 0xa87a4a], [0.1, 0.4, 0x94663c], [0, 0.58, 0xa87a4a]] as [number, number, number][]) b.add(P.rbox(0.16, 0.13, 0.16, 0.02), { color: c }, M.t(x, 0.25, z, 0, x * 3, 0));
-  for (const x of [-0.12, 0.12]) b.add(P.uvSphere(0.07, 7, 5), { color: 0xb5653a }, M.t(x, 0.25, -0.18, 0, 0, 0, 1, 1.25, 1));
-  b.add(new THREE.TorusGeometry(0.07, 0.025, 4, 10).rotateX(Math.PI / 2), { color: 0xc9a86a }, M.t(0.13, 0.2, 0.1));
-  // A crimson foresail on a short bow mast, and a lantern at the stern.
-  b.add(P.cyl(0.018, 0.022, 0.75, 5), { color: 0x5e3b22 }, M.t(0, 0.52, 0.66, 0.18, 0, 0));
-  const jib = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0.88, 0.72), new THREE.Vector3(0, 0.3, 0.98), new THREE.Vector3(0, 0.3, 0.6)]);
-  jib.setIndex([0, 1, 2, 0, 2, 1]);
-  jib.computeVertexNormals();
-  b.add(jib, { color: 0xb3342a, sway: 0.4 });
-  b.add(P.cyl(0.006, 0.006, 0.3, 3), { color: 0x5e3b22 }, M.t(0.16, 0.6, -0.78));
-  b.add(P.box(0.06, 0.07, 0.06), { color: 0xf2c94c }, M.t(0.16, 0.76, -0.78));
-  b.add(P.box(0.02, 0.07, 0.42), { color: 0xe9c050, sway: 0.6 }, M.t(0, 1.3, 0.22));
-  b.add(P.box(0.02, 0.05, 0.3), { color: 0xb3342a, sway: 0.6 }, M.t(0, 1.22, 0.26));
-  return b.build();
-}
 
 /** A soft round glow (for the orbs). */
 function glowTexture(): THREE.Texture {
@@ -205,8 +182,9 @@ export class Voyages {
   /** Out past the map edge: where it vanishes and reappears. */
   private far = { x: 0, z: 0 };
   private rng = new RNG(Math.floor(Math.random() * 1e9));
-  private hull = boatGeometry(true, VOYAGE_LOOK);
-  private deck = deckGeometry();
+  /** The large trade ship (its deck cargo, awning and lanterns are part of it). */
+  private hull = tradeShipGeometry();
+  private deck = new THREE.BufferGeometry();
   private mat = patchStylised(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, metalness: 0, side: THREE.DoubleSide }));
   private orbTex = glowTexture();
   private orbs: THREE.Sprite[] = [];

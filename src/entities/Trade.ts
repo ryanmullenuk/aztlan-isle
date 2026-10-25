@@ -8,7 +8,7 @@ import { GeoBuilder, M, P } from '../render/GeoBuilder';
 import { patchStylised } from '../render/materials';
 import { Water } from '../water/Water';
 import { World } from '../world/World';
-import { BOAT_SCALE, BoatLook, Boats, boatGeometry, HULL_BEAM, HULL_HALF, newRide, Vessel } from './Boats';
+import { BOAT_SCALE, BoatLook, Boats, boatGeometry, HULL_BEAM, HULL_HALF, newRide, tradeShipGeometry, Vessel } from './Boats';
 import { Hull, traderHome, VisitorDeal, visitorDeals } from './fleet';
 
 /** A trade boat: docks at its Trade Dock, sails away over the horizon with goods, returns with others. */
@@ -49,17 +49,6 @@ const VISITOR_SLOT = 2;
 /** Visiting traders: deep indigo hulls, blue sails with gold stripes and a teal band. */
 const VISITOR_LOOK: BoatLook = { hull: 0x1f4f63, keel: 0x163746, inner: 0x3a2a1c, deck: 0x6e4a2c, rim: 0xe0b43c, sail: 0x1d3f8f, stripe: 0xe0b43c, band: 0x138a8a };
 
-/** Cargo boxes and sacks lashed on deck. */
-function cargoGeometry(): THREE.BufferGeometry {
-  const b = new GeoBuilder();
-  b.add(P.rbox(0.26, 0.2, 0.26, 0.03), { color: 0xa87a4a }, M.t(0, 0.28, -0.25));
-  b.add(P.rbox(0.2, 0.16, 0.2, 0.03), { color: 0x94663c }, M.t(0.02, 0.45, -0.24, 0, 0.4, 0));
-  b.add(P.uvSphere(0.12, 7, 5), { color: 0xd8c08a }, M.t(0, 0.26, -0.62, 0, 0, 0, 1.1, 0.8, 1));
-  // A long pennant up the mast.
-  b.add(P.box(0.02, 0.08, 0.3), { color: 0xc8342c, sway: 0.5 }, M.t(0, 1.26, 0.2));
-  return b.build();
-}
-
 /** The visitors' deck: clay jars and bright bales, and a forked gold-and-teal pennant. */
 function visitorCargoGeometry(canoe = false): THREE.BufferGeometry {
   const b = new GeoBuilder();
@@ -88,8 +77,9 @@ export class TradeFleet {
   readonly group = new THREE.Group();
   ships: Ship[] = [];
   visitors: Visitor[] = [];
-  private hull = boatGeometry(true);
-  private cargoGeo = cargoGeometry();
+  /** The dock's own trade boats: the trade ship (its cargo and pennant are part of it). */
+  private hull = tradeShipGeometry();
+  private cargoGeo = new THREE.BufferGeometry();
   private visitorHull = boatGeometry(true, VISITOR_LOOK);
   private visitorCargo = visitorCargoGeometry();
   private canoeHull = boatGeometry(false, VISITOR_LOOK);

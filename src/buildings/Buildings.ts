@@ -919,8 +919,8 @@ export class BuildingSystem {
       for (let k = 0; k < n; k++) {
         const m = new THREE.Mesh(this.basketGeos[k % 3], mat);
         const a = (k / n) * Math.PI * 2 + 0.3;
-        const r = b.key === 'campfire' ? 1.25 : 0.82;
-        m.position.set(Math.cos(a) * r + rng.range(-0.05, 0.05), 0, Math.sin(a) * r * 0.9);
+        if (b.key === 'grainstore') m.position.set(models.GRAIN_SLOTS[k][0] + rng.range(-0.03, 0.03), 0.06, models.GRAIN_SLOTS[k][1] + rng.range(-0.03, 0.03));
+        else m.position.set(Math.cos(a) * 1.25 + rng.range(-0.05, 0.05), 0, Math.sin(a) * 1.25 * 0.9);
         m.castShadow = true;
         m.visible = false;
         b.fills.push(m);

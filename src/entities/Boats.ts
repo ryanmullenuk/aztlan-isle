@@ -4,7 +4,7 @@ import { BOATS, JETTY, PEARLS, BOAT_WORKSHOP } from '../config';
 import { Building, BuildingSystem } from '../buildings/Buildings';
 import { Colony } from '../ai/Colony';
 import { Economy } from '../economy/Economy';
-import { GeoBuilder, M, P } from '../render/GeoBuilder';
+import { GeoBuilder, M, P, doubleSide, lumpy } from '../render/GeoBuilder';
 import { patchStylised } from '../render/materials';
 import { Vegetation } from '../vegetation/Vegetation';
 import { SEA_SURFACE, Water } from '../water/Water';
@@ -217,6 +217,238 @@ export function boatGeometry(sail: boolean, look: BoatLook = HOME_LOOK): THREE.B
     const sailCol = (p: THREE.Vector3) => new THREE.Color(look.band !== undefined && p.y < 0.42 ? look.band : (p.y * 6) % 1 < 0.2 ? look.stripe : look.sail);
     b.add(sg, { color: sailCol, sway: 0.15 }, M.t(0, 0.22, 0.38));
   }
+  return b.build();
+}
+
+// ---------------- Plank-built sailing boats ----------------
+
+/** A plank hull's shape: half length, half beam, depth and gunwale height (local units, before scaling). */
+interface HullShape { len: number; beam: number; depth: number; top: number; fullness: number }
+
+/** Half beam of a plank hull at t (-1 stern … 1 bow). */
+function hullHalfBeam(h: HullShape, t: number): number {
+  return h.beam * Math.pow(Math.max(0, 1 - Math.abs(t) ** h.fullness), 0.42);
+}
+
+/** Deck planks across the beam, each cut to where the hull narrows. */
+function deckPlanks(b: GeoBuilder, h: HullShape, n: number, y: number, cols: number[]): void {
+  const pw = (h.beam * 1.7) / (2 * n + 1);
+  for (let k = -n; k <= n; k++) {
+    const x = Math.abs(k * pw) + pw / 2;
+    // Where the half beam (less the planking) equals x.
+    const f = Math.min(1, x / (h.beam - 0.03));
+    const t = Math.pow(Math.max(0, 1 - Math.pow(f, 1 / 0.42)), 1 / h.fullness);
+    const len = 2 * h.len * t * 0.94;
+    if (len > 0.05) b.add(P.box(pw - 0.006, 0.014, len), { color: cols[(k + n) % cols.length] }, M.t(k * pw, y, 0));
+  }
+}
+
+/** Little painted shapes along both sides of the hull's band (t from -0.8 to 0.8). */
+function hullMotifs(b: GeoBuilder, h: HullShape, bandFrom: number, bandTo: number, step: number, draw: (m: THREE.Matrix4, i: number) => void): void {
+  let i = 0;
+  for (let t = -0.8; t <= 0.8001; t += step, i++) {
+    const w = hullHalfBeam(h, t), dw = (hullHalfBeam(h, t + 0.01) - hullHalfBeam(h, t - 0.01)) / (0.02 * h.len);
+    const D = h.depth * (0.45 + 0.55 * Math.sqrt(Math.max(0, 1 - t * t)));
+    const y = h.top + 0.06 * Math.abs(t) ** 3 - D * (bandFrom + bandTo) / 2;
+    // Turned to follow the hull's waterline (its local z along the side, x out of the planking).
+    for (const side of [-1, 1]) draw(M.t(side * (w + 0.004), y, t * h.len, 0, Math.atan(side * dw), 0), i);
+  }
+}
+
+/** One skin of a plank hull (outside, or inside a plank in): fuller than the dugout, with blunt ends. */
+function plankSkin(h: HullShape, inner: boolean): THREE.BufferGeometry {
+  const W = (t: number) => hullHalfBeam(h, t);
+  const D = (t: number) => h.depth * (0.45 + 0.55 * Math.sqrt(Math.max(0, 1 - t * t)));
+  const T = (t: number) => h.top + 0.06 * Math.abs(t) ** 3;
+  // Rows down each side at the paint lines (fraction of the depth from the gunwale), so painted
+  // bands stay crisp: gold rim, the coloured band, plank strakes and the dark keel.
+  const S = [0, 0.05, 0.07, 0.2, 0.34, 0.38, 0.42, 0.6, 0.78, 0.88, 0.92, 1];
+  const rows = [...S.map((v) => [-1, v]), ...S.slice(0, -1).reverse().map((v) => [1, v])];
+  const R = 20, Mr = rows.length - 1, thick = 0.03, pts: THREE.Vector3[][] = [];
+  for (let i = 0; i <= R; i++) {
+    const t = (i / R) * 2 - 1, ring: THREE.Vector3[] = [];
+    for (const [side, v] of rows) {
+      const th = Math.acos(Math.min(1, Math.pow(v, 1 / 0.55)));
+      const w = Math.max(0.02, W(t) - (inner ? thick : 0)), d = Math.max(0.02, D(t) - (inner ? thick : 0));
+      ring.push(new THREE.Vector3(side * w * Math.sin(th), T(t) - d * v, t * h.len * (inner ? 0.97 : 1)));
+    }
+    pts.push(ring);
+  }
+  const pos: number[] = [];
+  const tri = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3) => {
+    if (inner) pos.push(a.x, a.y, a.z, c.x, c.y, c.z, b.x, b.y, b.z);
+    else pos.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
+  };
+  for (let i = 0; i < R; i++) for (let j = 0; j < Mr; j++) {
+    const a = pts[i][j], b = pts[i + 1][j], c = pts[i + 1][j + 1], d = pts[i][j + 1];
+    tri(a, c, b);
+    tri(a, d, c);
+  }
+  // Transoms close the blunt ends.
+  for (const i of [0, R]) {
+    const ring = pts[i], centre = new THREE.Vector3(0, ring[0].y, ring[0].z);
+    for (let j = 0; j < Mr; j++) {
+      if (i === 0) tri(centre, ring[j], ring[j + 1]);
+      else tri(centre, ring[j + 1], ring[j]);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  return g;
+}
+
+/**
+ * A square sail hung from a yard (across the beam), its face toward +z, with an emblem on both
+ * faces: the red sun of the trade ships or the blue fish of the fishing boats, and a stepped fret
+ * along its foot.
+ */
+function squareSail(b: GeoBuilder, y0: number, z: number, w: number, h: number, emblem: 'sun' | 'fish', ink: number): void {
+  const sail = new THREE.PlaneGeometry(w, h, 6, 4);
+  const p = sail.getAttribute('position');
+  // A gentle belly where the wind fills it.
+  for (let i = 0; i < p.count; i++) {
+    const u = p.getX(i) / (w / 2), v = p.getY(i) / (h / 2);
+    p.setZ(i, 0.07 * (1 - u * u) * (1 - 0.6 * v * v));
+  }
+  sail.computeVertexNormals();
+  b.add(doubleSide(sail), { color: 0xf1e6cc, sway: (q) => 0.05 + Math.max(0, y0 + h - q.y) * 0.08 }, M.t(0, y0 + h / 2, z));
+  const inkCol = new THREE.Color(ink);
+  for (const side of [1, -1]) {
+    const face = (x: number, y: number) => M.t(x, y0 + h / 2 + y, z + side * 0.076, 0, side > 0 ? 0 : Math.PI, 0);
+    if (emblem === 'sun') {
+      b.add(P.cyl(h * 0.16, h * 0.16, 0.004, 14), { color: inkCol }, face(0, h * 0.08).multiply(M.t(0, 0, 0, Math.PI / 2, 0, 0)));
+      b.add(P.cyl(h * 0.08, h * 0.08, 0.006, 12), { color: 0xf1e6cc }, face(0, h * 0.08).multiply(M.t(0, 0, 0.002, Math.PI / 2, 0, 0)));
+      for (let k = 0; k < 10; k++) {
+        const a = (k / 10) * Math.PI * 2;
+        b.add(P.cone(h * 0.045, h * 0.1, 3), { color: inkCol }, face(Math.cos(a) * h * 0.22, h * 0.08 + Math.sin(a) * h * 0.22).multiply(M.t(0, 0, 0, 0, 0, a - Math.PI / 2, 1, 1, 0.1)));
+      }
+    } else {
+      b.add(P.uvSphere(h * 0.18, 8, 5), { color: inkCol }, face(-h * 0.04, h * 0.06).multiply(M.t(0, 0, 0, 0, 0, 0.12, 1.4, 0.55, 0.06)));
+      b.add(P.cone(h * 0.13, h * 0.18, 3), { color: inkCol }, face(h * 0.26, h * 0.1).multiply(M.t(0, 0, 0, 0, 0, Math.PI / 2 + 0.12, 1, 1, 0.06)));
+      b.add(P.cyl(h * 0.025, h * 0.025, 0.006, 6), { color: 0xf1e6cc }, face(-h * 0.2, h * 0.08).multiply(M.t(0, 0, 0.003, Math.PI / 2, 0, 0)));
+    }
+    // A fret band along the foot.
+    const band = face(0, -h / 2 + h * 0.1);
+    b.add(P.box(w * 0.92, h * 0.11, 0.004), { color: inkCol }, band);
+    for (let k = 0; k < 6; k++) b.add(P.box(w * 0.05, h * 0.05, 0.006), { color: 0xf1e6cc }, band.clone().multiply(M.t(-w * 0.38 + k * w * 0.152, 0, 0.001)));
+  }
+  // Yard and boom.
+  b.add(P.cyl(0.016, 0.016, w + 0.12, 5), { color: 0x6e4428 }, M.t(0, y0 + h + 0.02, z, 0, 0, Math.PI / 2));
+  b.add(P.cyl(0.012, 0.012, w + 0.04, 5), { color: 0x6e4428 }, M.t(0, y0 - 0.01, z, 0, 0, Math.PI / 2));
+}
+
+/** A hanging glass-and-reed lantern. */
+function lantern(b: GeoBuilder, x: number, y: number, z: number, col: number): void {
+  b.add(P.cyl(0.005, 0.005, 0.06, 3), { color: 0x3a2a1c }, M.t(x, y + 0.03, z));
+  b.add(P.cyl(0.032, 0.032, 0.07, 6), { color: col }, M.t(x, y - 0.03, z));
+  for (const dy of [-0.07, 0.01]) b.add(P.cyl(0.036, 0.036, 0.012, 6), { color: 0x6e4428 }, M.t(x, y + dy, z));
+}
+
+/**
+ * The trade ship (the voyage ship, and smaller, the Trade Dock's boats): a plank hull painted red
+ * with a cream stepped fret, a gold rim and gold end blocks; a square cream sail with a red sun and
+ * a fret along its foot; a red and cream striped awning over the after deck; crates, baskets of
+ * fruit and painted jars stowed amidships; lanterns hung over the sides; a red pennant at the mast.
+ */
+export function tradeShipGeometry(): THREE.BufferGeometry {
+  const b = new GeoBuilder();
+  const H: HullShape = { len: 1.16, beam: 0.4, depth: 0.24, top: 0.24, fullness: 3.2 };
+  const red = 0xb2412f, gold = 0xd7a53e, cream = 0xf0dfc0;
+  b.add(plankSkin(H, false), {
+    color: (p) => {
+      const s = (H.top + 0.06 * Math.abs(p.z / H.len) ** 3 - p.y) / H.depth;
+      if (s < 0.06) return new THREE.Color(gold);
+      if (s < 0.4) return new THREE.Color(red);
+      if (s > 0.9) return new THREE.Color(0x4a2e1c);
+      return new THREE.Color(s < 0.7 ? 0x8a5e3a : 0x7a5233);
+    },
+  });
+  b.add(plankSkin(H, true), { color: 0x5e3a22 });
+  // Deck planks and gold end blocks with red fret faces.
+  deckPlanks(b, H, 3, 0.13, [0x8a5e3a, 0x7a5233]);
+  // Cream stepped frets painted along the red band.
+  hullMotifs(b, H, 0.08, 0.36, 0.13, (m) => {
+    b.add(P.box(0.006, 0.04, 0.05), { color: cream }, m.clone().multiply(M.t(0, -0.008, 0)));
+    b.add(P.box(0.007, 0.014, 0.014), { color: cream }, m.clone().multiply(M.t(0, 0.022, 0.018)));
+  });
+  for (const end of [1, -1]) {
+    const z = end * H.len * 0.97;
+    b.add(P.box(0.24, 0.12, 0.1), { color: red }, M.t(0, H.top + 0.08, z));
+    b.add(P.box(0.27, 0.06, 0.12), { color: gold }, M.t(0, H.top + 0.17, z));
+    b.add(P.box(0.08, 0.06, 0.005), { color: cream }, M.t(0, H.top + 0.08, z + end * 0.052));
+  }
+  // Mast, stays and the sun sail.
+  b.add(P.cyl(0.02, 0.026, 1.3, 6), { color: 0x6e4428 }, M.t(0, 0.78, 0.12));
+  for (const [z1, len] of [[1.05, 1.35], [-1.05, 1.5]] as const) {
+    const dz = z1 - 0.12, dy = 0.24 - 1.38, a = Math.atan2(dz, -dy);
+    b.add(P.cyl(0.004, 0.004, Math.hypot(dz, dy), 3), { color: 0xc9a86a }, M.t(0, 1.38 + dy / 2, 0.12 + dz / 2, a, 0, 0));
+    void len;
+  }
+  squareSail(b, 0.48, 0.18, 0.86, 0.72, 'sun', red);
+  b.add(P.box(0.02, 0.06, 0.32), { color: red, sway: 0.6 }, M.t(0, 1.4, -0.02));
+  b.add(P.box(0.02, 0.05, 0.22), { color: cream, sway: 0.6 }, M.t(0, 1.34, -0.03));
+  // Striped awning over the after deck, on four posts.
+  for (const [x, z] of [[-0.24, -0.38], [0.24, -0.38], [-0.24, -0.82], [0.24, -0.82]] as const) b.add(P.cyl(0.012, 0.014, 0.38, 4), { color: 0x6e4428 }, M.t(x, 0.32, z));
+  for (let k = 0; k < 6; k++) b.add(P.box(0.56 / 6 + 0.002, 0.014, 0.54), { color: k % 2 ? cream : red }, M.t(-0.28 + (k + 0.5) * (0.56 / 6), 0.52, -0.6, 0.08, 0, 0));
+  // Cargo: crates, baskets of fruit, jars, a bale.
+  for (const [x, z, w, h, col] of [[-0.14, 0.62, 0.18, 0.14, 0xa87a4a], [0.12, 0.66, 0.16, 0.12, 0x94663c], [0.02, 0.8, 0.14, 0.1, 0xa87a4a], [-0.12, -0.55, 0.16, 0.12, 0x94663c]] as const) b.add(P.box(w, h, w), { color: col }, M.t(x, 0.14 + h / 2, z, 0, x * 3, 0));
+  for (const [x, z, f] of [[0.15, 0.45, 0xd8572a], [-0.17, 0.38, 0x6aa83a], [0.14, -0.5, 0xe8c23a]] as const) {
+    b.add(P.cyl(0.07, 0.055, 0.07, 8), { color: 0xc9a86a }, M.t(x, 0.175, z));
+    for (let k = 0; k < 3; k++) b.add(P.sphere(0.026, 0), { color: f }, M.t(x + (k - 1) * 0.025, 0.22, z + (k % 2) * 0.02));
+  }
+  for (const [x, z] of [[0.1, -0.72], [-0.1, -0.74], [0.17, 0.82]] as const) {
+    b.add(P.uvSphere(0.055, 7, 5), { color: 0xb5653a }, M.t(x, 0.2, z, 0, 0, 0, 1, 1.25, 1));
+    b.add(P.cyl(0.028, 0.034, 0.04, 6), { color: 0x9a5230 }, M.t(x, 0.27, z));
+  }
+  b.add(P.box(0.2, 0.08, 0.14), { color: red }, M.t(0.0, 0.18, -0.38, 0, 0.2, 0));
+  // Lanterns over the sides.
+  for (const [x, z, col] of [[0.43, 0.55, 0xc9c24a], [-0.43, 0.55, 0xc9c24a], [0.42, -0.65, 0xe3d6a8], [-0.42, -0.65, 0xe3d6a8]] as const) {
+    b.add(P.box(Math.abs(x) - 0.33, 0.012, 0.012), { color: 0x6e4428 }, M.t(Math.sign(x) * 0.38, H.top + 0.04, z));
+    lantern(b, x, H.top - 0.02, z, col);
+  }
+  return b.build();
+}
+
+/**
+ * The fishing boat (the larger, sailing kind): a smaller plank hull trimmed in teal with a cream
+ * zigzag, a square cream sail with a blue fish and a blue fret along its foot, a blue pennant, and
+ * its gear: a crate of the catch, wicker fish traps, a barrel and a net hung over the side. The
+ * middle of the boat is kept clear for the fisher.
+ */
+export function fishingBoatGeometry(): THREE.BufferGeometry {
+  const b = new GeoBuilder();
+  const H: HullShape = { len: 1.16, beam: 0.36, depth: 0.22, top: 0.22, fullness: 2.6 };
+  const teal = 0x237a74, blue = 0x2f5f9a, cream = 0xf0dfc0;
+  b.add(plankSkin(H, false), {
+    color: (p) => {
+      const s = (H.top + 0.06 * Math.abs(p.z / H.len) ** 3 - p.y) / H.depth;
+      if (s < 0.06) return new THREE.Color(0xd8b04a);
+      if (s < 0.4) return new THREE.Color(teal);
+      if (s > 0.9) return new THREE.Color(0x3e2a1c);
+      return new THREE.Color(s < 0.7 ? 0x8a5e3a : 0x7a5233);
+    },
+  });
+  b.add(plankSkin(H, true), { color: 0x5e3a22 });
+  deckPlanks(b, H, 2, 0.12, [0x8a5e3a, 0x7a5233]);
+  // A cream zigzag painted along the teal band.
+  hullMotifs(b, H, 0.08, 0.36, 0.1, (m, i) => b.add(P.box(0.006, 0.012, 0.075), { color: cream }, m.clone().multiply(M.t(0, 0, 0, (i % 2 ? 1 : -1) * 0.55, 0, 0))));
+  for (const end of [1, -1]) b.add(P.box(0.16, 0.08, 0.08), { color: teal }, M.t(0, H.top + 0.06, end * H.len * 0.97));
+  // Mast forward of the fisher, and the fish sail.
+  b.add(P.cyl(0.017, 0.022, 1.12, 6), { color: 0x6e4428 }, M.t(0, 0.68, 0.42));
+  squareSail(b, 0.46, 0.47, 0.62, 0.56, 'fish', blue);
+  b.add(P.box(0.02, 0.05, 0.26), { color: blue, sway: 0.6 }, M.t(0, 1.21, 0.3));
+  // The catch, traps, a barrel and the net over the side.
+  b.add(P.box(0.24, 0.08, 0.2), { color: 0xa87a4a }, M.t(0, 0.17, 0.78));
+  for (let k = 0; k < 4; k++) b.add(P.uvSphere(0.03, 6, 4), { color: k % 2 ? 0x7f97a8 : 0x6a8496 }, M.t(-0.08 + k * 0.055, 0.22, 0.78, 0, 0.3, 0, 2.2, 0.6, 1));
+  for (const [x, z] of [[-0.11, -0.62], [0.1, -0.7]] as const) {
+    b.add(P.cyl(0.07, 0.07, 0.15, 8, true), { color: (q) => new THREE.Color((q.y * 50) % 1 < 0.5 ? 0xb08a50 : 0x8a6a3a) }, M.t(x, 0.21, z, 0, 0, Math.PI / 2));
+    b.add(P.cone(0.07, 0.06, 8), { color: 0x9c7a44 }, M.t(x + 0.1, 0.21, z, 0, 0, -Math.PI / 2));
+  }
+  b.add(P.cyl(0.05, 0.045, 0.12, 8), { color: 0x8a5e3a }, M.t(0.13, 0.19, 0.5));
+  b.add(lumpy(P.sphere(0.12, 1), 0.3, 12, 0.5), { color: 0xd9c9a0 }, M.t(0.3, 0.2, -0.3, 0, 0, -0.5, 1, 0.6, 1.3));
+  b.add(P.box(0.012, 0.16, 0.3), { color: 0xd9c9a0, sway: 0.2 }, M.t(0.39, 0.14, -0.3, 0, 0, 0.2));
+  lantern(b, -0.38, H.top - 0.02, -0.45, 0xe3d6a8);
+  b.add(P.box(0.06, 0.012, 0.012), { color: 0x6e4428 }, M.t(-0.35, H.top + 0.04, -0.45));
   return b.build();
 }
 
@@ -478,7 +710,8 @@ export class Boats {
   private nextId = 1;
   /** Wakes, splashes and ripples (trade boats use them too). */
   readonly fx = new SeaFx();
-  private geos = [boatGeometry(false), boatGeometry(true)];
+  /** Paddled canoes, and the larger sailing fishing boats. */
+  private geos = [boatGeometry(false), fishingBoatGeometry()];
   private paddleGeo = paddleGeometry();
   private netGeo = new THREE.CircleGeometry(1, 20).rotateX(-Math.PI / 2);
   private floatsGeo = netFloatsGeometry();

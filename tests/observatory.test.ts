@@ -67,7 +67,7 @@ test('the Observatory: a stage-3 building of wood and plain stone with two pries
   assert.equal(tierForBuilding('observatory'), 0, 'needs no research itself');
   const m = observatoryModel();
   assert.ok(m.finished.index!.count / 3 < 6000, 'under 6k triangles');
-  assert.equal(m.torches.length, 1, 'one brazier flame');
+  assert.equal(m.torches.length, 2, 'the two fire bowls flanking the stair');
   m.finished.computeBoundingBox();
   const bb = m.finished.boundingBox!;
   assert.ok(bb.min.x >= -1.5 && bb.max.x <= 1.5 && bb.min.z >= -1.5 && bb.max.z <= 1.5, 'inside its 3×3 footprint');
