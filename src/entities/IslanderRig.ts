@@ -812,6 +812,26 @@ export class IslanderRig {
       M.out.multiplyMatrices(M.base, W[BI.head]).multiply(this.rot(this.tmp, 0, fit.y, fit.z, 0, 0, 0, 'XYZ', fit.s));
       this.put(hd as PartKey, M.out);
     }
+    // Kit by trade, as in the character sheets: jaguar warriors carry a round shield on the forearm,
+    // eagle warriors a quiver and bow across the back, and fishers wear a red headband with a net
+    // bundled on the back.
+    if (!isl.child && isl.anim !== 'sleep') {
+      if (isl.warrior === 'jaguar') {
+        M.out.multiplyMatrices(M.base, W[BI.forearmR]).multiply(this.rot(this.tmp, -0.07, -set.model.len.fore * 0.45, 0.02, 0, 0, 0));
+        this.put('shield', M.out);
+      } else if (isl.warrior === 'eagle') {
+        M.out.multiplyMatrices(M.base, W[BI.chest]);
+        this.put('quiver', M.out);
+      } else if (isl.role === 'fisher') {
+        const fit = set.model.hat;
+        M.out.multiplyMatrices(M.base, W[BI.head]).multiply(this.rot(this.tmp, 0, fit.y, fit.z, 0, 0, 0, 'XYZ', fit.s));
+        this.put('fishband', M.out);
+        if (!isl.carry) {
+          M.out.multiplyMatrices(M.base, W[BI.chest]);
+          this.put('netpack', M.out);
+        }
+      }
+    }
     // Tool in the right (+x) hand.
     const tool = isl.carry || isl.anim === 'sleep' || isl.anim === 'pray' || isl.anim === 'eat' || isl.anim === 'sit' ? 'none' : isl.tool;
     if (tool !== 'none') {

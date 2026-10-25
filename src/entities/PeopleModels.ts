@@ -371,10 +371,59 @@ function load(kind: string): THREE.BufferGeometry {
   return facet(b.build());
 }
 
+/** A jaguar warrior's round shield (worn on the forearm): red, a cream ring with red spokes, a gold boss. Faces +x. */
+function warShield(): THREE.BufferGeometry {
+  const b = new GeoBuilder();
+  const face = (r: number, t: number, x: number, col: number) => b.add(P.cyl(r, r, t, 14), C(col), M.t(x, 0, 0, 0, 0, Math.PI / 2));
+  face(0.17, 0.025, 0, PAL.red);
+  face(0.135, 0.027, 0.002, PAL.cream);
+  face(0.085, 0.029, 0.004, PAL.red);
+  face(0.03, 0.04, 0.008, PAL.gold);
+  for (let k = 0; k < 8; k++) b.add(P.box(0.03, 0.11, 0.018), C(PAL.red), M.t(0.004, Math.cos((k / 8) * Math.PI * 2) * 0.11, Math.sin((k / 8) * Math.PI * 2) * 0.11, (k / 8) * Math.PI * 2, 0, 0));
+  return facet(b.build());
+}
+
+/** An eagle warrior's quiver of arrows and a bow, slung across the back (chest frame, back toward -z). */
+function quiverAndBow(): THREE.BufferGeometry {
+  const b = new GeoBuilder();
+  b.add(P.cyl(0.045, 0.038, 0.4, 7), C(PAL.leather), M.t(0.06, 0.02, -0.17, 0, 0, 0.45));
+  b.add(P.cyl(0.048, 0.048, 0.03, 7), C(PAL.red), M.t(0.06 - 0.06, 0.12, -0.17, 0, 0, 0.45));
+  for (let k = 0; k < 4; k++) {
+    const dx = (k - 1.5) * 0.018;
+    b.add(P.cyl(0.005, 0.005, 0.16, 3), C(PAL.wood), M.t(-0.03 + dx, 0.27, -0.17, 0, 0, 0.45));
+    b.add(P.box(0.004, 0.06, 0.03), C(k % 2 ? PAL.red : PAL.cream), M.t(-0.07 + dx, 0.34, -0.17, 0, 0, 0.45));
+  }
+  // The bow: a curved stave and its string.
+  for (let k = 0; k < 7; k++) {
+    const a = -0.9 + (k / 6) * 1.8;
+    b.add(P.box(0.022, 0.1, 0.022), C(PAL.wood), M.t(Math.sin(a) * 0.27 * 0.35, Math.cos(a) * 0.27 - 0.2, -0.205 - Math.cos(a) * 0.04, 0, 0, -a * 0.9 - 0.45));
+  }
+  b.add(P.cyl(0.003, 0.003, 0.5, 3), C(PAL.cream), M.t(0, -0.02, -0.19, 0, 0, -0.45));
+  return facet(b.build());
+}
+
+/** A fisher's red headband with a cream stripe, tied at the back with two tails. */
+function fisherBand(): THREE.BufferGeometry {
+  const b = new GeoBuilder();
+  b.add(P.cyl(0.126, 0.122, 0.05, 12, true), C(PAL.red), M.t(0, 0.2, -0.01));
+  b.add(P.cyl(0.128, 0.128, 0.012, 12, true), C(PAL.cream), M.t(0, 0.2, -0.01));
+  for (const s of [-1, 1]) b.add(P.box(0.03, 0.12, 0.01), C(PAL.red), M.t(s * 0.03, 0.14, -0.14, 0.3, 0, s * 0.25));
+  return facet(b.build());
+}
+
+/** A fisher's net, bundled on the back with red floats (chest frame, back toward -z). */
+function netBundle(): THREE.BufferGeometry {
+  const b = new GeoBuilder();
+  b.add(P.sphere(0.13, 1), C(0xe6dcc0), M.t(0, -0.06, -0.17, 0, 0, 0, 1.1, 1.3, 0.55));
+  for (let k = 0; k < 6; k++) b.add(P.sphere(0.022, 0), C(PAL.red), M.t(Math.cos(k) * 0.11, -0.06 + Math.sin(k * 1.7) * 0.13, -0.22));
+  b.add(P.box(0.02, 0.32, 0.015), C(PAL.leather), M.t(0.05, 0.08, -0.12, 0, 0, 0.5));
+  return facet(b.build());
+}
+
 export type PartKey =
   | 'pelvis_m' | 'chest_m' | 'head_m' | 'uarm_m' | 'farm_m' | 'thigh_m' | 'shin_m'
   | 'pelvis_f' | 'chest_f' | 'head_f' | 'uarm_f' | 'farm_f' | 'thigh_f' | 'shin_f'
-  | 'hd_band' | 'hd_fan' | 'hd_plume' | 'jaguar' | 'eagle'
+  | 'hd_band' | 'hd_fan' | 'hd_plume' | 'jaguar' | 'eagle' | 'shield' | 'quiver' | 'fishband' | 'netpack'
   | 'axe' | 'pick' | 'hoe' | 'spear' | 'hammer'
   | 'log' | 'stone' | 'basket' | 'sack' | 'fish' | 'meat' | 'chicken' | 'water';
 
@@ -383,6 +432,7 @@ export function buildPeopleParts(): Record<PartKey, THREE.BufferGeometry> {
     pelvis_m: pelvisM(), chest_m: chestM(), head_m: headBase('m'), uarm_m: upperArm('m'), farm_m: foreArm('m'), thigh_m: thigh('m'), shin_m: shin('m'),
     pelvis_f: pelvisF(), chest_f: chestF(), head_f: headBase('f'), uarm_f: upperArm('f'), farm_f: foreArm('f'), thigh_f: thigh('f'), shin_f: shin('f'),
     hd_band: headdressBand(), hd_fan: headdressFan(), hd_plume: headdressPlume(), jaguar: jaguarHelm(), eagle: eagleHelm(),
+    shield: warShield(), quiver: quiverAndBow(), fishband: fisherBand(), netpack: netBundle(),
     axe: tool('axe'), pick: tool('pick'), hoe: tool('hoe'), spear: tool('spear'), hammer: tool('hammer'),
     water: load('water'), log: load('log'), stone: load('stone'), basket: load('basket'), sack: load('sack'), fish: load('fish'), meat: load('meat'), chicken: carriedChicken(),
   };

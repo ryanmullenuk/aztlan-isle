@@ -678,7 +678,7 @@ async function loadOne(loader: GLTFLoader, g: BaseModelKey): Promise<GlbModel> {
     const q = to ? new THREE.Quaternion().setFromUnitVectors(down, to.clone().sub(at).normalize()) : new THREE.Quaternion();
     return new THREE.Matrix4().compose(at, q, one);
   };
-  const bind: THREE.Matrix4[] = BONES.map((b) => {
+  const bindFrames = (): THREE.Matrix4[] => BONES.map((b) => {
     const s = b.slice(-1);
     if (b.startsWith('upper_arm')) return frame(joint[b], joint[`forearm${s}` as BoneName]);
     if (b.startsWith('forearm')) return frame(joint[b], joint[`hand${s}` as BoneName]);
@@ -757,15 +757,19 @@ async function loadOne(loader: GLTFLoader, g: BaseModelKey): Promise<GlbModel> {
   if (skirt) slimThighs(P, si, sw, joint, skirt.hemY ?? joint.shinL.y + 0.075, rig.girth?.limb ?? 1, texelReader(map, UV));
   // The founding woman's tuned wrap as it was; the measured ones a little further inside their panels.
   const body = skirt ? mergeGeometries([geometry, g === 'f' ? underskirt(P, UV, joint, skirt) : underskirt(P, UV, joint, skirt, follow, 0.9)])! : geometry;
-  body.computeBoundingSphere();
+  // The stocky proportions (geometry and joints together), then the bind frames from the final joints.
+  const child = g === 'boy' || g === 'girl';
   const tip = new THREE.Vector3(...rig.tipL);
+  stockify(body, joint, [tip], child);
+  body.computeBoundingSphere();
+  const headScale = child ? STOCKY.child.head : STOCKY.adult.head;
   return {
     geometry: body,
     map,
     skinUv,
-    hat: rig.hat,
+    hat: { y: rig.hat.y * headScale, z: rig.hat.z * headScale, s: rig.hat.s * headScale },
     joint,
-    bindInv: bind.map((mm) => mm.clone().invert()),
+    bindInv: bindFrames().map((mm) => mm.clone().invert()),
     len: {
       upper: joint.upper_armL.distanceTo(joint.forearmL),
       fore: joint.forearmL.distanceTo(joint.handL),
@@ -786,6 +790,76 @@ function lightTexel(map:THREE.Texture):THREE.Vector2 {
   let best=0,at=0;
   for(let i=0;i<data.length;i+=4){const light=Math.min(data[i],data[i+1],data[i+2]);if(light>best){best=light;at=i/4;}}
   return new THREE.Vector2((at%image.width+.5)/image.width,(Math.floor(at/image.width)+.5)/image.height);
+}
+
+/**
+ * The islanders' proportions: stocky and fun to watch. Legs are shortened and thickened, the body
+ * broadened (the arms riding out with the shoulders, and a touch shorter), and the head enlarged
+ * about the neck. Children, whose models already have big heads, get a gentler version.
+ */
+const STOCKY = {
+  adult: { leg: 0.8, legW: 1.12, width: 1.14, depth: 1.07, arm: 0.9, head: 1.3 },
+  child: { leg: 0.9, legW: 1.05, width: 1.06, depth: 1.03, arm: 0.95, head: 1.08 },
+};
+const LEG = new Set<number>([BI.thighL, BI.shinL, BI.footL, BI.thighR, BI.shinR, BI.footR]);
+const ARM_L = new Set<number>([BI.upper_armL, BI.forearmL, BI.handL]);
+const ARM_R = new Set<number>([BI.upper_armR, BI.forearmR, BI.handR]);
+
+/**
+ * Reshape a skinned body to the stocky proportions, in its bind pose: each vertex is moved by the
+ * parts it is weighted to (legs, arms, head or trunk), so the seams stay joined; the joints are
+ * moved the same way (the caller rebuilds the bind frames and limb lengths from them).
+ */
+function stockify(geometry: THREE.BufferGeometry, joint: Record<BoneName, THREE.Vector3>, ends: THREE.Vector3[], child: boolean): void {
+  const S = child ? STOCKY.child : STOCKY.adult;
+  const hipY = joint.hips.y, drop = hipY * (1 - S.leg), zc = joint.hips.z;
+  const neck = joint.neck.clone();
+  const trunk = (p: THREE.Vector3, out = new THREE.Vector3()) => out.set(p.x * S.width, p.y - drop, zc + (p.z - zc) * S.depth);
+  const leg = (p: THREE.Vector3, out = new THREE.Vector3()) => out.set(p.x * S.legW, p.y * S.leg, zc + (p.z - zc) * S.depth);
+  const neckAt = trunk(neck);
+  const head = (p: THREE.Vector3, out = new THREE.Vector3()) => out.copy(p).sub(neck).multiplyScalar(S.head).add(neckAt);
+  const shoulder = { L: trunk(joint.upper_armL), R: trunk(joint.upper_armR) };
+  const arm = (p: THREE.Vector3, side: 'L' | 'R', out = new THREE.Vector3()) => trunk(p, out).sub(shoulder[side]).multiplyScalar(S.arm).add(shoulder[side]);
+
+  const P = geometry.getAttribute('position') as THREE.BufferAttribute;
+  const SI = geometry.getAttribute('aSkinI') as THREE.BufferAttribute;
+  const SW = geometry.getAttribute('aSkinW') as THREE.BufferAttribute;
+  const p = new THREE.Vector3(), a = new THREE.Vector3(), acc = new THREE.Vector3();
+  for (let i = 0; i < P.count; i++) {
+    p.set(P.getX(i), P.getY(i), P.getZ(i));
+    let wl = 0, wh = 0, wal = 0, war = 0;
+    for (let k = 0; k < 4; k++) {
+      const b = Math.round(SI.getComponent(i, k)), w = SW.getComponent(i, k);
+      if (LEG.has(b)) wl += w;
+      else if (b === BI.head) wh += w;
+      else if (b === BI.neck) wh += w * 0.5;
+      else if (ARM_L.has(b)) wal += w;
+      else if (ARM_R.has(b)) war += w;
+    }
+    const wt = Math.max(0, 1 - wl - wh - wal - war);
+    acc.set(0, 0, 0);
+    if (wl) acc.addScaledVector(leg(p, a), wl);
+    if (wh) acc.addScaledVector(head(p, a), wh);
+    if (wal) acc.addScaledVector(arm(p, 'L', a), wal);
+    if (war) acc.addScaledVector(arm(p, 'R', a), war);
+    if (wt) acc.addScaledVector(trunk(p, a), wt);
+    const sum = wl + wh + wal + war + wt;
+    acc.divideScalar(sum || 1);
+    P.setXYZ(i, acc.x, acc.y, acc.z);
+  }
+  P.needsUpdate = true;
+  geometry.computeBoundingSphere();
+  // The joints, by the same rules.
+  for (const b of BONES) {
+    const j = joint[b], i = BI[b];
+    if (LEG.has(i)) leg(j, j);
+    else if (b === 'head') head(j, j);
+    else if (ARM_L.has(i)) arm(j, 'L', j);
+    else if (ARM_R.has(i)) arm(j, 'R', j);
+    else trunk(j, j);
+  }
+  // Ends that set limb lengths (finger tips) follow their limb.
+  for (const e of ends) arm(e, e.x >= 0 ? 'L' : 'R', e);
 }
 
 let pending: Promise<GlbPeople> | null = null;
