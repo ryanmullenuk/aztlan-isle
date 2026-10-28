@@ -145,3 +145,15 @@ test('herbs and spices from a voyage cure the sick and injured instead of food',
   assert.equal(eco.goods.spices, 0);
   assert.equal(eco.food, food, 'no food spent');
 });
+
+test('island files carry painted districts and reject unknown styles or unsafe names', async () => {
+  const saved = snapshot(makeIslander(1, 'Test', 'f', 3, 5, () => 0.5));
+  saved.districts = [{ name: 'Lakeside Quarter', style: 'lakeside', x0: -5, z0: -4, x1: 3, z1: 6 }];
+  const back = parseIslandFile(await islandFile(saved).text());
+  assert.deepEqual(back.districts, saved.districts);
+  for (const bad of [{ ...saved.districts[0], style: 'castle' }, { ...saved.districts[0], name: '<b>x</b>' }]) {
+    const f = JSON.parse(await islandFile(saved).text());
+    f.save.districts = [bad];
+    assert.throws(() => parseIslandFile(JSON.stringify(f)));
+  }
+});

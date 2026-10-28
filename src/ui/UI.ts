@@ -1,3 +1,5 @@
+import { TITLES } from '../economy/Progression';
+import { HOUSE_STYLES, isHouseStyle, type HouseStyle } from '../buildings/models';
 import { buildingOperational } from '../buildings/BuildingCondition';
 import { fireBuildingCard } from './FireBuildingCard';
 import { PANEL_ICONS } from './panelIcons';
@@ -156,7 +158,9 @@ export class UI {
   /** Show the island's name on the HUD (and in the settings field). */
   updateIslandName(): void {
     const n = this.game.islandName;
-    this.isleNameEl.textContent = n.toUpperCase() === 'GODMODE' ? '' : n;
+    const stage = this.game.progression?.stage;
+    const title = this.game.eco?.godMode || !stage ? '' : TITLES[stage - 1];
+    this.isleNameEl.textContent = n.toUpperCase() === 'GODMODE' ? '' : title ? `${n} · ${title}` : n;
     this.isleNameEl.classList.toggle('hidden', !this.isleNameEl.textContent);
     if (this.nameInput && document.activeElement !== this.nameInput) this.nameInput.value = n;
     // God-mode-only settings.
@@ -1306,12 +1310,17 @@ export class UI {
     let key = '';
     if (g.areaSel) {
       const a = g.areaSel, w = Math.abs(a.x1 - a.x0), d = Math.abs(a.z1 - a.z0);
-      key = `area:${a.x0},${a.z0},${a.x1},${a.z1}`;
+      const inside = g.districtsInSelection();
+      key = `area:${a.x0},${a.z0},${a.x1},${a.z1}:${inside.length}:${g.districts.length}`;
       const row = (label: string, n: number, ic: string) => (n ? `<div class="kv"><span>${ic} ${label}</span><b>${n}</b></div>` : '');
+      const clearable = a.trees.length + a.logs.length + a.rocks.length > 0;
+      const styles = (Object.keys(HOUSE_STYLES) as HouseStyle[]).map((k) => `<button class="btn small district-style" data-a="district-${k}" title="${HOUSE_STYLES[k].about}"><span class="swatch" style="background:#${HOUSE_STYLES[k].tint.toString(16).padStart(6, '0')}"></span>${HOUSE_STYLES[k].name}</button>`).join('');
       html = `<div class="card-head"><span>Selected area</span><span class="tag">${Math.max(1, Math.round(w))} × ${Math.max(1, Math.round(d))}</span></div>
         ${row('Trees', a.trees.length, icon('wood'))}${row('Fallen logs', a.logs.length, icon('wood'))}${row('Rocks', a.rocks.length, icon('stone'))}
-        <p class="muted small">Clearing puts these first: islanders fell the trees, carry off the logs and quarry the rocks, taking the wood and stone to your stores. The ground is then clear to build on.</p>
-        <div class="actions"><button class="btn small" data-a="clear-area">${ICONS.harvest} Clear area</button><button class="btn small ghost" data-a="cancel-area">Cancel</button></div>`;
+        ${clearable ? `<p class="muted small">Clearing puts these first: islanders fell the trees, carry off the logs and quarry the rocks, taking the wood and stone to your stores. The ground is then clear to build on.</p>` : ''}
+        <div class="actions">${clearable ? `<button class="btn small" data-a="clear-area">${ICONS.harvest} Clear area</button>` : ''}<button class="btn small ghost" data-a="cancel-area">Cancel</button></div>
+        <div class="district-pick"><div class="card-sub">Make a district</div><p class="muted small">Homes built here take its look; homes already here take it on at their next upgrade.</p><div class="district-styles">${styles}</div>
+        ${inside.length ? `<button class="btn small ghost" data-a="remove-district">Remove ${inside.length === 1 ? inside[0].name : `${inside.length} districts`}</button>` : ''}</div>`;
     } else if (g.selectedIslanders.size > 0) {
       const people = [...g.selectedIslanders].map(id => g.colony.byId(id)).filter(Boolean);
       key = `group:${people.map(i => i!.id).join(',')}`;
@@ -1558,6 +1567,8 @@ export class UI {
   private infoAction(a: string, islId: number | undefined, b: Building | undefined, animalId?: number): void {
     if (a === 'clear-area') { this.game.clearSelectedArea(); this.renderInfo(true); return; }
     if (a === 'cancel-area') { this.game.clearAreaSelection(); this.renderInfo(true); return; }
+    if (a.startsWith('district-') && isHouseStyle(a.slice(9))) { this.game.makeDistrict(a.slice(9) as HouseStyle); this.renderInfo(true); return; }
+    if (a === 'remove-district') { this.game.removeDistricts(); this.renderInfo(true); return; }
     const g = this.game;
     g.audio?.sfx('click');
     if (a === 'group-wood' || a === 'group-stone') {

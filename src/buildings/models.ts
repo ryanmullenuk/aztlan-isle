@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { COLORS } from '../config';
 import { GeoBuilder, M, P, doubleSide, lumpy, outward, ribbon, tube } from '../render/GeoBuilder';
 import { RNG } from '../world/rng';
@@ -32,6 +33,24 @@ export interface BuildingModel {
   height: number;
   /** A roof drawn with the see-through canopy material (so people under it show when zoomed in). */
   canopy?: THREE.BufferGeometry;
+  /** Window and doorway openings (boxes: centre and size, local), lit from within at night. */
+  windows?: Glow[];
+}
+
+/** A window or doorway that glows at night: its centre and size (local, door faces +z). */
+export interface Glow { x: number; y: number; z: number; w: number; h: number; d: number }
+/** Collects the openings of the model being built (see collectGlows). */
+let glowSink: Glow[] | null = null;
+/** Build a model, recording its window and doorway openings for the night glow. */
+export function collectGlows(make: () => BuildingModel): BuildingModel {
+  glowSink = [];
+  try {
+    const m = make();
+    m.windows = glowSink;
+    return m;
+  } finally {
+    glowSink = null;
+  }
 }
 
 /** Bands of darker thatch along height for texture. */
@@ -337,6 +356,8 @@ function baseBand(b: GeoBuilder, w: number, d: number, x: number, z: number, h =
   b.add(P.rbox(w + 0.02, h, d + 0.02, 0.025, 1), { color: AD.band }, M.t(x, h / 2, z));
 }
 function tealDoor(b: GeoBuilder, x: number, y: number, z: number, w = 0.26, h = 0.46): void {
+  // A sliver of light round the door at night (the door itself stays shut).
+  glowSink?.push({ x, y: y + h / 2, z: z + 0.004, w: w + 0.07, h: h + 0.035, d: 0.03 });
   // Dark recess, timber door and projecting stone jambs/lintel.
   b.add(P.box(w + 0.065, h + 0.03, 0.035), { color: K.door }, M.t(x, y + h / 2, z));
   b.add(P.box(w * 0.86, h * 0.96, 0.018), { color: AD.door }, M.t(x, y + h * 0.48, z + 0.022));
@@ -345,6 +366,7 @@ function tealDoor(b: GeoBuilder, x: number, y: number, z: number, w = 0.26, h = 
   b.add(P.box(w + 0.12, 0.035, 0.13), { color: K.stoneDark }, M.t(x, y + 0.012, z + 0.04));
 }
 function adobeWindow(b: GeoBuilder, x: number, y: number, z: number, side = false, w = 0.12, h = 0.18): void {
+  glowSink?.push({ x, y, z, w: side ? 0.05 : w * 0.92, h: h * 0.92, d: side ? w * 0.92 : 0.05 });
   b.add(P.box(side ? 0.04 : w, h, side ? w : 0.04), { color: AD.win }, M.t(x, y, z));
   b.add(P.box(side ? 0.075 : w + 0.065, 0.035, side ? w + 0.065 : 0.075), { color: AD.wallLight }, M.t(x, y - h / 2 - 0.012, z));
 }
@@ -410,7 +432,8 @@ export function hutModel(): BuildingModel {
   planks('x', -hd, -hw, hw, flat);
   planks('z', -hw, -hd, hd, gable);
   planks('z', hw, -hd, hd, gable);
-  // Above the doorway, and the dark room inside.
+  // Above the doorway, and the dark room inside (firelight shows through the doorway at night).
+  glowSink?.push({ x: 0, y: 0.3, z: hd - 0.02, w: door * 1.8, h: 0.44, d: 0.02 });
   b.add(P.box(door * 2, H - 0.5, 0.035), { color: plank() }, M.t(0, 0.5 + (H - 0.5) / 2, hd));
   b.add(P.box(W - 0.1, H - 0.08, 0.01), { color: c(0x3a2414) }, M.t(0, wallY + (H - 0.08) / 2, -hd + 0.03));
   b.add(P.box(W - 0.1, 0.01, D - 0.1), { color: c(0x5a3a20) }, M.t(0, 0.065, 0));
@@ -3959,4 +3982,99 @@ export function observatoryModel(): BuildingModel {
   blooms(b, -1.25, 0.05, 1.2, 4, 0.12, 0.12, 4243);
   for (let k = 0; k < 4; k++) b.add(lumpy(P.sphere(0.08, 0), 0.2, k), { color: c(0x8c8a84) }, M.t(rng.range(-1.3, 1.3), 0.06, k % 2 ? -1.32 : 1.0 + rng.range(-0.1, 0.1), 0, k, 0, 1.3, 0.7, 1));
   return { finished: b.build(), torches, height: cy + 0.3 };
+}
+
+// ---------------- District styles for houses ----------------
+
+/** The looks a district gives the houses built in it. */
+export type HouseStyle = 'village' | 'lakeside' | 'noble' | 'farmstead';
+export const HOUSE_STYLES: Record<HouseStyle, { name: string; quarter: string; tint: number; about: string }> = {
+  village: { name: 'Village', quarter: 'Village Quarter', tint: 0xd9a35a, about: 'adobe homes with red trim' },
+  lakeside: { name: 'Lakeside', quarter: 'Lakeside Quarter', tint: 0x3f8fb0, about: 'timber homes with reed eaves, nets and fish drying by the door' },
+  noble: { name: 'Noble', quarter: 'Noble Quarter', tint: 0xd7a53e, about: 'whitewashed homes banded in red and gold, with banners and roof gardens' },
+  farmstead: { name: 'Farmstead', quarter: 'Farmstead Quarter', tint: 0x7da34a, about: 'ochre homes under thatch, maize drying on the walls, hay and a wattle fence' },
+};
+export const isHouseStyle = (s: unknown): s is HouseStyle => typeof s === 'string' && Object.hasOwn(HOUSE_STYLES, s);
+
+/** Wall, coping, roof, foot-band and door colours of the adobe houses, per style (village = the originals). */
+const STYLE_PAL: Record<Exclude<HouseStyle, 'village'>, Partial<Record<'wall' | 'wallLight' | 'roof' | 'band' | 'door' | 'red', THREE.Color>>> = {
+  lakeside: { wall: c(0x9c7550), wallLight: c(0xb48e66), roof: c(0xa98a5c), band: c(0x5e3b22), door: c(0x2f6f8f) },
+  noble: { wall: c(0xeee4d2), wallLight: c(0xfbf6ec), roof: c(0xe2d4bc), band: c(0x9a2e24), door: c(0x8e2a22), red: c(0xb3352a) },
+  farmstead: { wall: c(0xcf9f62), wallLight: c(0xe0b67c), roof: c(0xc29a5c), band: c(0x8a5a30), door: c(0x6b8a3a) },
+};
+
+/** Build a house in a style: the adobe palette swapped while it is made, then the style's own details added. */
+function styledHouse(style: HouseStyle | undefined, make: () => BuildingModel, extras: (b: GeoBuilder) => void): BuildingModel {
+  if (!style || style === 'village') return make();
+  const pal = STYLE_PAL[style], saved: Partial<Record<string, THREE.Color>> = {};
+  for (const [k, v] of Object.entries(pal)) { saved[k] = (AD as Record<string, THREE.Color>)[k]; (AD as Record<string, THREE.Color>)[k] = v!; }
+  try {
+    const m = make();
+    const b = new GeoBuilder();
+    extras(b);
+    const extra = b.build();
+    const merged = mergeGeometries([m.finished, extra]);
+    if (merged) { m.finished.dispose(); extra.dispose(); m.finished = merged; }
+    return m;
+  } finally {
+    for (const [k, v] of Object.entries(saved)) (AD as Record<string, THREE.Color>)[k] = v!;
+  }
+}
+
+/** A style's details for a house front at z = fz, its main block from x0 to x1, its roof at roofY. */
+function houseDetails(b: GeoBuilder, style: HouseStyle, x0: number, x1: number, fz: number, roofY: number, seed: number, top?: [number, number, number, number]): void {
+  const rng = new RNG(seed), w = x1 - x0, cx = (x0 + x1) / 2;
+  // Props beside the house stay inside the 3×3 plot even beside the widest house.
+  const right = Math.min(x1 + 0.1, 1.28), left = Math.max(x0 - 0.05, -1.2);
+  if (style === 'noble') {
+    // Red and gold bands with a stepped fret across the front, a sun banner, planters on the roof.
+    fretBand(b, M.t(cx, roofY - 0.2, fz + 0.012), w - 0.06, 0.1, c(0xb3352a), K.gold);
+    b.add(P.box(w, 0.03, 0.02), { color: K.gold }, M.t(cx, roofY - 0.12, fz + 0.012));
+    sunBanner(b, M.t(x1 - 0.22, roofY - 0.48, fz + 0.03), 0.18, 0.32);
+    for (const x of [x0 + 0.2, x1 - 0.25]) pottedPlant(b, x, roofY + 0.02, fz - 0.2, 1.1);
+  } else if (style === 'lakeside') {
+    // Reed fringe along the eaves, a blue fret, a drying rack of fish and a net and paddle by the door.
+    for (let k = 0; k < Math.round(w / 0.1); k++) b.add(P.cone(0.05, 0.14, 4), { color: k % 2 ? K.thatch : K.thatchDark, leaf: 0.2, sway: 0.2 }, M.t(x0 + 0.05 + k * 0.1, roofY - 0.04, fz + 0.03, Math.PI - 0.4, 0, 0));
+    fretBand(b, M.t(cx, roofY - 0.22, fz + 0.012), w - 0.06, 0.08, c(0x2f6f8f), AD.cream);
+    const rx = right, rz = Math.min(fz + 0.18, 1.2);
+    for (const s of [-1, 1]) b.add(P.cyl(0.015, 0.018, 0.5, 4), { color: K.timberDark }, M.t(rx, 0.25, rz + s * 0.2));
+    b.add(P.cyl(0.01, 0.01, 0.44, 4), { color: K.timber }, M.t(rx, 0.46, rz, Math.PI / 2, 0, 0));
+    for (let k = 0; k < 3; k++) b.add(P.uvSphere(0.035, 6, 4), { color: k % 2 ? c(0x7f97a8) : c(0x9aa8b0), sway: 0.2 }, M.t(rx, 0.36, rz - 0.12 + k * 0.12, 0, 0, 0, 0.5, 1.6, 0.8));
+    b.add(lumpy(P.sphere(0.12, 1), 0.3, seed, 0.5), { color: c(0xd9c9a0) }, M.t(left, 0.08, Math.min(fz + 0.18, 1.2), 0, 0, 0, 1.2, 0.6, 1));
+    b.add(P.cyl(0.012, 0.012, 0.6, 4), { color: K.timber }, M.t(x0 + 0.08, 0.3, fz + 0.06, 0.2, 0, 0.1));
+    b.add(P.box(0.08, 0.16, 0.02), { color: K.timber }, M.t(x0 + 0.08, 0.06, fz + 0.12, 0.2, 0, 0.1));
+  } else if (style === 'farmstead') {
+    // A thatch cap on the roof, maize bundles hung on the wall, a hay heap and a run of wattle fence.
+    // (On the upper storey's roof where there is one, else the main roof.)
+    const [tx, ty, tz, tr] = top ?? [cx, roofY, fz - 0.4, Math.max(0.35, w * 0.4)];
+    b.add(P.cone(tr, 0.34, 8), { color: thatchColor, leaf: 0.2 }, M.t(tx, ty + 0.2, tz, 0, Math.PI / 8, 0, 1, 1, 0.9));
+    for (const x of [x0 + 0.18, x0 + 0.34]) for (let k = 0; k < 3; k++) b.add(P.cyl(0.022, 0.016, 0.13, 5), { color: k % 2 ? c(0xf2c53a) : c(0xe8a526), sway: 0.2 }, M.t(x + (k - 1) * 0.03, roofY - 0.3, fz + 0.03));
+    b.add(lumpy(P.sphere(0.16, 0), 0.25, seed + 3, 0.55), { color: c(0xd9b866), leaf: 0.2 }, M.t(Math.min(right, 1.22), 0.08, Math.min(fz + 0.12, 1.2)));
+    const fx = Math.max(x0 - 0.12, -1.3), fzz = Math.min(fz + 0.35, 1.3);
+    for (let k = 0; k < 4; k++) b.add(P.cyl(0.015, 0.018, 0.28, 4), { color: K.timberDark }, M.t(fx + k * 0.18, 0.14, fzz));
+    for (const y of [0.08, 0.16, 0.24]) b.add(P.box(0.56, 0.05, 0.025), { color: rng.next() < 0.5 ? c(0x8a6440) : c(0x6b4a2c) }, M.t(fx + 0.27, y, fzz));
+  }
+}
+
+/** The hut in a style (it is all timber already: the style shows in its trimmings). */
+export function styledHutModel(style?: HouseStyle): BuildingModel {
+  if (!style || style === 'village') return hutModel();
+  const m = hutModel();
+  const b = new GeoBuilder();
+  houseDetails(b, style, -0.5, 0.5, 0.52, 0.66, 31);
+  const extra = b.build();
+  const merged = mergeGeometries([m.finished, extra]);
+  if (merged) { m.finished.dispose(); extra.dispose(); m.finished = merged; }
+  return m;
+}
+
+/** The family house (levels 2–5) in a style. */
+export function styledHomeModel(tier: number, style?: HouseStyle): BuildingModel {
+  // Front face, main block span and its roof height, per level (see homeModel).
+  const F: Record<number, [number, number, number, number]> = { 1: [-0.95, 0.95, 0.7, 1.0], 2: [-1.2, 0.2, 0.75, 1.05], 3: [-1.3, 0.2, 0.65, 1.1], 4: [-1.4, 1.4, 1.1, 1.0] };
+  // The top storey's roof (centre, height, radius for a thatch cap).
+  const T: Record<number, [number, number, number, number]> = { 1: [-0.25, 1.9, -0.35, 0.72], 2: [-0.6, 1.95, -0.4, 0.66], 3: [-0.65, 2.9, -0.55, 0.55], 4: [-0.6, 3.0, -0.6, 0.66] };
+  const lvl = Math.min(4, Math.max(1, tier));
+  const [x0, x1, fz, ry] = F[lvl];
+  return styledHouse(style, () => homeModel(tier), (b) => houseDetails(b, style!, x0, x1, fz, ry, tier * 7, T[lvl]));
 }

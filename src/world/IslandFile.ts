@@ -1,3 +1,4 @@
+import { isHouseStyle } from '../buildings/models';
 import { isVillagePriority } from '../ai/VillagePriority';
 import { BUILDINGS, DECREES, RESEARCH, TEMPLE, WORLD } from '../config';
 import type { SaveData } from './Save';
@@ -57,6 +58,7 @@ export function parseIslandFile(raw: string): SaveData {
       .every(k => bytes(d.world[k], WORLD.size * WORLD.size)) || !bytes(d.plants)) return fail();
   if (!list(d.buildings, 10000) || !list(d.islanders, 10000) || !list(d.schools, 10000) || !d.schools.every(number)) return fail();
   if(d.progression!==undefined && (!obj(d.progression)||!number(d.progression.prayer)||d.progression.prayer<0||d.progression.prayer>300||typeof d.progression.sandbox!=='boolean'))return fail();
+  if (d.districts !== undefined && (!list(d.districts, 64) || !d.districts.every((x: any) => fields(x, ['x0', 'z0', 'x1', 'z1']) && isHouseStyle(x.style) && label(x.name, 40)))) return fail();
   const ids = new Set<number>();
   for (const b of d.buildings) {
     if (!fields(b, ['id', 'cx', 'cz', 'rot', 'progress', 'tier', 'growth', 'stock', 'boats', 'bless']) ||
@@ -72,6 +74,7 @@ export function parseIslandFile(raw: string): SaveData {
     if(b.boatSail!==undefined && typeof b.boatSail!=='boolean')return fail();
     if(b.boatSails!==undefined && (!list(b.boatSails,100)||b.boatSails.length!==b.boats||!b.boatSails.every((x:unknown)=>typeof x==='boolean')))return fail();
     if (b.decree !== undefined && !(typeof b.decree === 'string' && b.decree in DECREES)) return fail();
+    if (b.style !== undefined && !isHouseStyle(b.style)) return fail();
     if (b.monumentPaid!==undefined && (!Number.isInteger(b.monumentPaid)||b.monumentPaid<1||b.monumentPaid>4)) return fail();
     if (b.marketStock !== undefined && (!obj(b.marketStock) || !Object.entries(b.marketStock).every(([key,n]) => ['wood','stone','grain','fruit','meat','fish'].includes(key) && number(n) && (n as number) >= 0 && (n as number) <= 32))) return fail();
     ids.add(b.id);

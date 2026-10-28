@@ -7,7 +7,8 @@ import { animalName } from './entities/Animals';
 import { buildingSafe } from './buildings/BuildingCondition';
 import { snapPlacement, placementSlope } from './buildings/Placement';
 import { pickBuilding } from './buildings/Picking';
-import { Progression } from './economy/Progression';
+import { Progression, STAGES, TITLES, BUILD_STAGE } from './economy/Progression';
+import { HOUSE_STYLES, type HouseStyle } from './buildings/models';
 import { Research } from './economy/Research';
 import { Forecaster, type Hazard } from './economy/Forecast';
 import { idleForGroup, IdleGroupTap } from './ai/GroupSelection';
@@ -741,6 +742,7 @@ export class Game {
       if (this.selectedIslander === isl.id) this.select(null);
       if (this.followId === isl.id) this.followId = -1;
     };
+    this.buildings.styleAt = (x, z) => this.districtAt(x, z)?.style ?? 'village';
     this.buildings.onMoved = (b) => {
       this.wildlife.animals.movePen(b);
       this.tufts.refresh();
@@ -1224,6 +1226,7 @@ export class Game {
     this.audio?.sfx('click');
     if (this.tool === id && id !== 'select' && !this.placing) id = 'select';
     if (id !== 'area') this.clearAreaSelection();
+    this.showDistricts(id === 'area');
     this.tool = id;
     this.placing = null;
     this.moving = null;
@@ -1963,6 +1966,109 @@ export class Game {
     }
   }
 
+  // ---------------- Districts ----------------
+
+  /** Painted districts: houses built (or upgraded) inside take the district's style. Newest wins where they overlap. */
+  districts: { name: string; style: HouseStyle; x0: number; z0: number; x1: number; z1: number }[] = [];
+  private districtGroup = new THREE.Group();
+  private districtsShown = false;
+
+  districtAt(x: number, z: number): (typeof this.districts)[number] | undefined {
+    for (let i = this.districts.length - 1; i >= 0; i--) {
+      const d = this.districts[i];
+      if (x >= d.x0 && x <= d.x1 && z >= d.z0 && z <= d.z1) return d;
+    }
+    return undefined;
+  }
+
+  /** Districts overlapping the selected area. */
+  districtsInSelection(): (typeof this.districts)[number][] {
+    const s = this.areaSel;
+    if (!s) return [];
+    const x0 = Math.min(s.x0, s.x1), x1 = Math.max(s.x0, s.x1), z0 = Math.min(s.z0, s.z1), z1 = Math.max(s.z0, s.z1);
+    return this.districts.filter((d) => d.x0 < x1 && d.x1 > x0 && d.z0 < z1 && d.z1 > z0);
+  }
+
+  /** Make the selected area a district of a style. Houses in it take the look as they are built or upgraded. */
+  makeDistrict(style: HouseStyle): void {
+    const s = this.areaSel;
+    if (!s || !this.districts) return;
+    const base = HOUSE_STYLES[style].quarter;
+    const taken = new Set(this.districts.map((d) => d.name));
+    let name = base, n = 2;
+    while (taken.has(name)) name = `${base} ${['', '', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX'][n] ?? n}`, n++;
+    this.districts.push({ name, style, x0: Math.min(s.x0, s.x1), z0: Math.min(s.z0, s.z1), x1: Math.max(s.x0, s.x1), z1: Math.max(s.z0, s.z1) });
+    if (this.districts.length > 64) this.districts.shift();
+    this.audio?.sfx('place');
+    this.ui.toast(`${name} founded: new homes here are built in the ${HOUSE_STYLES[style].name.toLowerCase()} style, and homes already here take it on when they are next upgraded.`);
+    this.clearAreaSelection();
+    this.showDistricts(this.tool === 'area');
+  }
+
+  /** Remove the districts the selected area overlaps (their houses keep the look they have). */
+  removeDistricts(): void {
+    const gone = new Set(this.districtsInSelection());
+    if (!gone.size) return;
+    this.districts = this.districts.filter((d) => !gone.has(d));
+    this.ui.toast(gone.size === 1 ? `${[...gone][0].name} removed. Its homes keep their look.` : `${gone.size} districts removed. Their homes keep their look.`);
+    this.clearAreaSelection();
+    this.showDistricts(this.tool === 'area');
+  }
+
+  /** While the Select tool is out, tint each district on the ground and float its name over it. */
+  private showDistricts(on: boolean): void {
+    if (!this.districtGroup.parent) this.scene.add(this.districtGroup);
+    for (const o of [...this.districtGroup.children]) {
+      o.removeFromParent();
+      const m = o as THREE.Mesh | THREE.Sprite;
+      m.geometry?.dispose();
+      const mat = m.material as THREE.Material & { map?: THREE.Texture | null };
+      mat.map?.dispose();
+      mat.dispose();
+    }
+    this.districtsShown = on;
+    if (!on) return;
+    const ground = (x: number, z: number) => Math.max(this.world.groundY(x, z), SEA_SURFACE) + 0.04;
+    for (const d of this.districts) {
+      const nx = Math.min(40, Math.max(1, Math.ceil((d.x1 - d.x0) / 0.6))), nz = Math.min(40, Math.max(1, Math.ceil((d.z1 - d.z0) / 0.6)));
+      const pos: number[] = [], idx: number[] = [];
+      for (let j = 0; j <= nz; j++) for (let i = 0; i <= nx; i++) {
+        const x = d.x0 + ((d.x1 - d.x0) * i) / nx, z = d.z0 + ((d.z1 - d.z0) * j) / nz;
+        pos.push(x, ground(x, z), z);
+        if (i < nx && j < nz) { const a = j * (nx + 1) + i; idx.push(a, a + nx + 1, a + 1, a + 1, a + nx + 1, a + nx + 2); }
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      geo.setIndex(idx);
+      const tint = HOUSE_STYLES[d.style].tint;
+      const fill = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: tint, transparent: true, opacity: 0.18, depthWrite: false }));
+      fill.renderOrder = 3;
+      const ring: number[] = [];
+      const edge = (xa: number, za: number, xb: number, zb: number, n: number) => { for (let k = 0; k < n; k++) { const t = k / n, x = xa + (xb - xa) * t, z = za + (zb - za) * t; ring.push(x, ground(x, z) + 0.02, z); } };
+      edge(d.x0, d.z0, d.x1, d.z0, nx); edge(d.x1, d.z0, d.x1, d.z1, nz); edge(d.x1, d.z1, d.x0, d.z1, nx); edge(d.x0, d.z1, d.x0, d.z0, nz);
+      const line = new THREE.LineLoop(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(ring, 3)), new THREE.LineBasicMaterial({ color: tint, transparent: true, opacity: 0.85 }));
+      // The name on a banner over the middle.
+      const canvas = document.createElement('canvas');
+      canvas.width = 512; canvas.height = 96;
+      const c2 = canvas.getContext('2d');
+      if (c2) {
+        c2.fillStyle = 'rgba(16,35,41,0.82)';
+        c2.beginPath(); c2.roundRect(8, 12, 496, 72, 18); c2.fill();
+        c2.strokeStyle = '#' + tint.toString(16).padStart(6, '0'); c2.lineWidth = 4; c2.stroke();
+        c2.fillStyle = '#e8c66b'; c2.font = '700 38px Trebuchet MS, sans-serif'; c2.textAlign = 'center'; c2.textBaseline = 'middle';
+        c2.fillText(d.name.toUpperCase(), 256, 50);
+      }
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+      const mx = (d.x0 + d.x1) / 2, mz = (d.z0 + d.z1) / 2;
+      label.position.set(mx, ground(mx, mz) + 2.2, mz);
+      label.scale.set(5.3, 1, 1);
+      label.renderOrder = 30;
+      this.districtGroup.add(fill, line, label);
+    }
+  }
+
   clearSelectedArea(): void {
     const s = this.areaSel;
     if (!s) return;
@@ -1982,9 +2088,10 @@ export class Game {
       const a = this.areaFrom, b = this.areaTo ?? a;
       this.areaFrom = null;
       const found = this.veg.inRect(a.x, a.z, b.x, b.z);
-      if (!found.trees.length && !found.rocks.length && !found.logs.length) {
+      // Bare ground can still be made a district; only a tap (no area at all) selects nothing.
+      if (Math.abs(b.x - a.x) < 1.5 || Math.abs(b.z - a.z) < 1.5) {
         this.clearAreaSelection();
-        this.ui.setHint('No trees or rocks there · drag over an area to select it');
+        this.ui.setHint('Drag over an area to select it');
         return;
       }
       this.select(null);
@@ -2442,6 +2549,7 @@ export class Game {
     if (this.milestoneTimer <= 0) {
       this.milestoneTimer = 1;
       this.progression.refresh();
+      this.announceStage();
       this.checkMilestones();
       this.updateForecasts();
     }
@@ -2489,6 +2597,22 @@ export class Game {
     this.ui?.toast(`Research complete: ${t.name}. Unlocked: ${unlocks.join(', ')}.`, 'milestone');
     this.ui?.renderInfo(true);
     this.saveHandler?.();
+  }
+
+  /** The settlement stage last seen (undefined until the first check, so loading never announces). */
+  private seenStage?: number;
+
+  /** The settlement grows a title (Camp, Hamlet, Village … Capital of the Isle): banner it when it rises. */
+  private announceStage(): void {
+    const stage = this.progression.stage;
+    if (this.seenStage === undefined || this.eco.godMode) { this.seenStage = stage; this.ui.updateIslandName(); return; }
+    if (stage <= this.seenStage) return;
+    this.seenStage = stage;
+    this.ui.updateIslandName();
+    const title = TITLES[stage - 1];
+    const opens = Object.entries(BUILD_STAGE).filter(([, s]) => s === stage).map(([k]) => BUILDINGS[k as BuildingKey].name);
+    this.ui.notice({ title: `${this.islandName} is now a ${title}`, line: STAGES[stage - 1], benefit: opens.length ? `New: ${opens.slice(0, 4).join(', ')}${opens.length > 4 ? '…' : ''}` : null, icon: 'tick' });
+    this.audio?.sfx('milestone');
   }
 
   private checkMilestones(): void {

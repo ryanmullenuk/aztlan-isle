@@ -3,6 +3,7 @@ import { buildingOperational, buildingSafe } from './BuildingCondition';
 import { Demolition } from './Demolition';
 import { villageFire, fireEmbers } from './VillageFire';
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { processMedicine } from './Herbalist';
 import { needsStonemason, masonryCost, STONEMASON, BOAT_WORKSHOP, DECREES, PALACE_RULES, type DecreeKey } from '../config';
 import { BUILDINGS, BuildingDef, BuildingKey, ECONOMY, FARM, HOMES, JETTY, TEMPLE, FARM_TYPES, isFarm } from '../config';
@@ -95,6 +96,11 @@ export class Building {
   crops: THREE.Mesh | null = null;
   /** The finished model at full detail (the mesh shows a simpler copy when far away). */
   finishedHi: THREE.BufferGeometry | null = null;
+  /** Lamplight in its windows and doorways at night, and how deep into dusk it comes on (0..1). */
+  glow?: THREE.Mesh;
+  glowAt?: number;
+  /** The look its houses were built in (the district style when it was built or last upgraded). */
+  style?: string;
   /** Far from the camera: drawn with the simpler model and crops. */
   lodFar = false;
   // Stores
@@ -272,6 +278,30 @@ function replaceFinished(b: Building, geo: THREE.BufferGeometry): void {
   LO_GEOS.delete(old);
   b.finishedHi = geo;
   b.finished.geometry = b.lodFar ? modelLo(geo) : geo;
+}
+
+/** Warm lamplight in windows and doorways (unlit, so it glows against the night). */
+const GLOW_MAT = new THREE.MeshBasicMaterial({ color: 0xffa040, toneMapped: false, fog: false });
+
+/**
+ * Windows and doorways that glow at nightfall: one small mesh per building, riding on its
+ * finished model. Each building lights at its own point in the dusk, so the village's windows
+ * come on one by one.
+ */
+function setGlow(b: Building, windows: models.Glow[] | undefined): void {
+  if (b.glow) {
+    b.glow.removeFromParent();
+    b.glow.geometry.dispose();
+    b.glow = undefined;
+  }
+  if (!windows?.length || !b.finished) return;
+  const parts = windows.map((g) => new THREE.BoxGeometry(g.w, g.h, g.d).translate(g.x, g.y, g.z));
+  const geo = mergeGeometries(parts)!;
+  for (const p of parts) p.dispose();
+  b.glow = new THREE.Mesh(geo, GLOW_MAT);
+  b.glow.visible = false;
+  b.glowAt = 0.12 + (Math.abs(Math.sin(b.id * 91.7 + 13.1)) % 1) * 0.6;
+  b.finished.add(b.glow);
 }
 
 export class BuildingSystem {
@@ -558,6 +588,11 @@ export class BuildingSystem {
     return b.fire <= 0 && !b.ruined && !b.repairing && b.key !== 'jetty' && b.key !== 'tradedock';
   }
 
+  /** The house style of the district at a point (the game's districts; 'village' where none is painted). */
+  styleAt: (x: number, z: number) => string = () => 'village';
+  /** While restoring a saved house: the style it was built in. */
+  private restoreStyle?: string;
+
   /** Called after a building is moved or rotated (pens, paths, grass). */
   onMoved: (b: Building) => void = () => {};
 
@@ -607,7 +642,7 @@ export class BuildingSystem {
     }
     this.eco.add('wood', this.veg.clearArea(cx, cz, b.w, b.d));
     this.setPen(b);
-    if (b.finished) { const model=this.modelFor(b); replaceFinished(b, withBuildingGround(model.finished,b,this.world)); model.canopy?.dispose(); }
+    if (b.finished) { const model=this.modelFor(b); replaceFinished(b, withBuildingGround(model.finished,b,this.world)); model.canopy?.dispose(); setGlow(b, model.windows); }
     b.group.position.set(b.x, b.y, b.z);
     b.group.rotation.y = (rot * Math.PI) / 2;
     const e = new THREE.Euler(0, (rot * Math.PI) / 2, 0);
@@ -625,6 +660,8 @@ export class BuildingSystem {
       if (reason || !this.eco.canAfford(def.cost)) throw new Error(reason || 'Not enough resources');
     }
     const b = new Building(this.nextId++, key, cx, cz, rot, this.world.layer[this.world.idx(cx, cz)], this.world);
+    // Houses take the look of the district they are built in (a saved house keeps the one it had).
+    if (key === 'hut' || key === 'home') b.style = this.restoreStyle ?? this.styleAt(b.x, b.z);
     if (!instant) this.eco.spend(def.cost);
     if (key === 'greattemple') b.monumentPaid = instant ? 4 : 1;
     let paved = false;
@@ -718,11 +755,13 @@ export class BuildingSystem {
   }
 
   /** Recreate a building from a save without paying or re-running completion effects. */
-  restore(key: BuildingKey, cx: number, cz: number, rot: number, d: { complete: boolean; progress: number; tier: number; upgrading: boolean; growth: number; stock: number; bless: number; integrity?: number; fire?: number; ruined?: boolean; repairing?: boolean; repairProgress?: number; fireAlerted?: boolean }): Building {
+  restore(key: BuildingKey, cx: number, cz: number, rot: number, d: { complete: boolean; progress: number; tier: number; upgrading: boolean; growth: number; stock: number; bless: number; integrity?: number; fire?: number; ruined?: boolean; repairing?: boolean; repairProgress?: number; fireAlerted?: boolean; style?: string }): Building {
     const hook = this.onComplete;
     this.onComplete = () => {};
     this.restoring = true;
+    this.restoreStyle = d.style ?? 'village';
     const b = this.place(key, cx, cz, rot, true);
+    this.restoreStyle = undefined;
     this.restoring = false;
     this.onComplete = hook;
     if (d.tier > 1) {
@@ -730,6 +769,7 @@ export class BuildingSystem {
       const model = this.modelFor(b);
       replaceFinished(b, withBuildingGround(model.finished,b,this.world));
       this.setTorches(b, model.torches);
+      setGlow(b, model.windows);
     }
     b.growth = d.growth;
     b.stock = d.stock;
@@ -829,11 +869,15 @@ export class BuildingSystem {
   }
 
   private modelFor(b: Building): models.BuildingModel {
+    return models.collectGlows(() => this.modelOf(b));
+  }
+
+  private modelOf(b: Building): models.BuildingModel {
     const [sw, sd] = b.def.size;
     switch (b.key) {
       case 'campfire': return models.campfireModel();
-      case 'hut': return models.hutModel();
-      case 'home': return models.homeModel(b.tier);
+      case 'hut': return models.styledHutModel(b.style as models.HouseStyle | undefined);
+      case 'home': return models.styledHomeModel(b.tier, b.style as models.HouseStyle | undefined);
       case 'temple': return models.templeModel(b.tier);
       case 'greattemple': return models.greatTempleModel();
       case 'farm': return models.farmModel(sw, sd, 'veg');
@@ -891,6 +935,7 @@ export class BuildingSystem {
       b.finished.add(roof);
     }
     this.setTorches(b, model.torches);
+    setGlow(b, model.windows);
 
     if (isFarm(b.key)) {
       b.crops = new THREE.Mesh(this.cropGeo(sw, sd, false, FARM_TYPES[b.key]!.crop), mat);
@@ -1123,9 +1168,12 @@ export class BuildingSystem {
     if (b.upgrading) {
       b.upgrading = false;
       b.tier++;
+      // An upgraded house takes on the look of the district it now stands in.
+      if (b.key === 'hut' || b.key === 'home') b.style = this.styleAt(b.x, b.z);
       const model = this.modelFor(b);
       replaceFinished(b, withBuildingGround(model.finished,b,this.world));
       this.setTorches(b, model.torches);
+      setGlow(b, model.windows);
       b.scaffold.geometry.dispose();
       b.scaffold.geometry = models.scaffoldGeometry(b.def.size[0], b.def.size[1], model.height + 1);
     }
@@ -1249,6 +1297,9 @@ export class BuildingSystem {
 
   update(dt: number, time: number, night: number, seasonIndex: number, raining: boolean, camTarget: THREE.Vector3): void {
     this.demolitions = this.demolitions.filter(effect => !effect.update(dt));
+    // Night lights: each building comes on at its own moment as dusk deepens, and goes dark at dawn.
+    GLOW_MAT.color.setRGB(0.8, 0.25 + Math.sin(time * 3.1) * 0.015, 0.04);
+    for (const b of this.list) if (b.glow) b.glow.visible = b.complete && !b.ruined && b.fire <= 0 && night > (b.glowAt ?? 0.4);
     for (const b of this.list) {
       if (b.scaffoldSink <= 0) continue;
       b.scaffoldSink = Math.max(0, b.scaffoldSink - dt);

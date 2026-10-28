@@ -1149,3 +1149,10 @@ body.notice-showing .toasts { margin-top: min(130px, 21vw); }
 .rs-active { border-color: rgba(214, 178, 96, 0.75); background: rgba(214, 178, 96, 0.08); }
 .rs-available { border-color: rgba(214, 178, 96, 0.55); }
 .rs-locked { opacity: 0.6; }
+
+/* Select tool: making a district from the selected area. */
+.district-pick { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--panel-border); }
+.district-pick .card-sub { font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; font-size: 11px; color: var(--gold); }
+.district-styles { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 6px 0; }
+.district-styles .btn { justify-content: flex-start; gap: 6px; }
+.district-styles .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; flex: none; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.3); }

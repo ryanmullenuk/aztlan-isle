@@ -1,3 +1,4 @@
+import { isHouseStyle } from '../buildings/models';
 import type { EncounterSave } from '../entities/WildlifeEncounters';
 import type { StormFireSave } from '../buildings/StormFire';
 import { villagePriority, type VillagePriority } from '../ai/VillagePriority';
@@ -52,7 +53,11 @@ export interface SaveData {
     boatSails?: boolean[];
     marketStock?: Partial<Record<ResourceKey, number>>;
     integrity?: number; fire?: number; ruined?: boolean; repairing?: boolean; repairProgress?: number; fireAlerted?: boolean;
+    /** Houses: the district style they were built in. */
+    style?: string;
   }[];
+  /** Districts painted on the island (house styles by area). */
+  districts?: { name: string; style: string; x0: number; z0: number; x1: number; z1: number }[];
   islanders: Partial<Islander>[];
   schools: number[];
   /** The player's name for the island. */
@@ -153,6 +158,7 @@ export function serialize(g: Game): SaveData {
     buildings: g.buildings.list.map((b) => ({
       ...(b.monumentPaid!==undefined ? {monumentPaid:b.monumentPaid} : {}),
       ...(b.decree ? { decree: b.decree } : {}),
+      ...(b.style && b.style !== 'village' ? { style: b.style } : {}),
       ...((b.integrity < 1 || b.ruined || b.fire > 0 || b.repairing) ? {
         integrity: b.integrity, fire: b.fire, ruined: b.ruined, repairing: b.repairing,
         repairProgress: b.repairProgress, fireAlerted: b.fireAlerted,
@@ -182,6 +188,7 @@ export function serialize(g: Game): SaveData {
     goods: { ...g.eco.goods },
     voyage: g.voyage?.serialize() ?? null,
     name: g.islandName,
+    ...(g.districts?.length ? { districts: g.districts.map((d) => ({ ...d })) } : {}),
   };
 }
 
@@ -236,6 +243,8 @@ export function applyRest(g: Game, d: SaveData): void {
     p.fruit = u[i * 4 + 3] / 20;
     g.veg.touch(p);
   });
+  // Districts before the buildings, so houses still being built carry on in their district's style.
+  g.districts = (d.districts ?? []).flatMap((x) => (isHouseStyle(x.style) ? [{ ...x, style: x.style }] : []));
   g.veg.restoreLogs(d.logs ?? []);
   g.veg.syncClearing?.();
   g.veg.refreshHeights(0, 0, g.world.N - 1, g.world.N - 1);
