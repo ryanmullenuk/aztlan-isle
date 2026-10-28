@@ -694,6 +694,12 @@ export class UI {
     card.querySelector<HTMLButtonElement>('[data-a="copy"]')!.onclick = async () => {
       try {
         const file = islandFile(serialize(this.game));
+        // In the iPhone, iPad and Mac apps the app itself shares or saves the file.
+        const native = (window as unknown as { webkit?: { messageHandlers?: { islandFile?: { postMessage(m: unknown): void } } } }).webkit?.messageHandlers?.islandFile;
+        if (native) {
+          native.postMessage({ name: file.name, text: await file.text() });
+          return;
+        }
         if (navigator.canShare?.({ files: [file] })) {
           try {
             await navigator.share({ files: [file], title: this.game.islandName });

@@ -16,6 +16,8 @@ final class GameViewController: NSViewController, WKNavigationDelegate, WKUIDele
         config.userContentController.addUserScript(WKUserScript(
             source: "document.documentElement.classList.add('native-app','mac-app');",
             injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        // Copy Island hands its file to the app, which asks where to save it.
+        config.userContentController.add(IslandFileHandler(self), name: "islandFile")
 
         webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 1440, height: 900), configuration: config)
         webView.navigationDelegate = self
@@ -56,6 +58,41 @@ final class GameViewController: NSViewController, WKNavigationDelegate, WKUIDele
         webView.reload()
     }
 
+    /// Load Island's file picker.
+    func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping ([URL]?) -> Void) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = parameters.allowsMultipleSelection
+        panel.message = "Choose an Aztlan Isle island file"
+        guard let window = view.window else {
+            completionHandler(panel.runModal() == .OK ? panel.urls : nil)
+            return
+        }
+        panel.beginSheetModal(for: window) { response in
+            completionHandler(response == .OK ? panel.urls : nil)
+        }
+    }
+
+    /// Save a copied island where the player chooses.
+    fileprivate func saveIsland(name: String, text: String) {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = name.isEmpty ? "island.aztlan.json" : name
+        panel.message = "Save a copy of your island"
+        let write: (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .OK, let url = panel.url else { return }
+            do {
+                try text.write(to: url, atomically: true, encoding: .utf8)
+            } catch {
+                let alert = NSAlert()
+                alert.messageText = "The island could not be saved there."
+                alert.informativeText = error.localizedDescription
+                alert.runModal()
+            }
+        }
+        if let window = view.window { panel.beginSheetModal(for: window, completionHandler: write) } else { write(panel.runModal()) }
+    }
+
     /// `confirm()` (used when there is no room for a save backup).
     func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
         let alert = NSAlert()
@@ -70,5 +107,16 @@ final class GameViewController: NSViewController, WKNavigationDelegate, WKUIDele
         alert.messageText = message
         alert.runModal()
         completionHandler()
+    }
+}
+
+/// Receives Copy Island's file from the page (held weakly, so the web view never keeps the screen alive).
+private final class IslandFileHandler: NSObject, WKScriptMessageHandler {
+    weak var owner: GameViewController?
+    init(_ owner: GameViewController) { self.owner = owner }
+
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard let body = message.body as? [String: Any], let text = body["text"] as? String else { return }
+        owner?.saveIsland(name: body["name"] as? String ?? "island.aztlan.json", text: text)
     }
 }
