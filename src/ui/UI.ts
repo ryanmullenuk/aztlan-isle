@@ -9,7 +9,7 @@ import { VillagePrioritiesPanel } from './VillagePrioritiesPanel';
 import { settingsMarkup, wireSettingsTabs } from './SettingsPanel';
 import { serialize } from '../world/Save';
 import { islandFile, parseIslandFile, downloadIsland, MAX_ISLAND_FILE_BYTES } from '../world/IslandFile';
-import { DEFENCE, DOGS, GOODS, GOOD_KEYS, GoodKey, VOYAGE, FAUNA, PATHS, BUILDINGS, BuildingKey, CAMERA, JETTY, MILESTONES, PresetName, SAVE, SPECIES, WARRIOR, FARM_TYPES, SMOKE, STONEMASON, BOAT_WORKSHOP, TRADE, TradeOffer, ResourceKey, DECREES, PALACE_RULES, type DecreeKey, RESEARCH, RESEARCH_UPGRADE_LABEL, OBSERVATORY, TIME } from '../config';
+import { DEFENCE, DOGS, GOODS, GOOD_KEYS, GoodKey, VOYAGE, FAUNA, PATHS, BUILDINGS, BuildingKey, CAMERA, JETTY, MILESTONES, PresetName, SAVE, SPECIES, WARRIOR, FARM_TYPES, SMOKE, STONEMASON, BOAT_WORKSHOP, TRADE, TradeOffer, ResourceKey, DECREES, PALACE_RULES, type DecreeKey, RESEARCH, RESEARCH_UPGRADE_LABEL, OBSERVATORY, TIME, DECOR_KEYS } from '../config';
 import { MONKEY_BASE } from '../entities/Monkeys';
 import { DOG_BASE } from '../entities/Dogs';
 import { JAG_BASE } from '../entities/Jaguars';
@@ -17,6 +17,8 @@ import type { Game } from '../Game';
 import { Building } from '../buildings/Buildings';
 import { HALL, HEAL } from '../buildings/models';
 import { CONDITION_LABEL, ROLE_LABEL, type Islander } from '../entities/Islander';
+import { islanderLine } from './islanderLines';
+import { PhotoMode } from './PhotoMode';
 import { GOD_NAME, randomIslandName } from '../world/names';
 import { Ground } from '../world/World';
 import { ICONS, icon } from './icons';
@@ -40,7 +42,8 @@ const BUILD_ICON: Record<BuildingKey, string> = {
   woodstore: 'b_woodstore', grainstore: 'b_grainstore', warroom: 'b_warroom', jetty: 'b_jetty',
   maizefarm: 'b_maize', chinampa: 'b_chinampa', smokehouse: 'b_smoke',
   tradedock: 'b_trade', torch: 'b_torch', bonfire: 'b_bonfire', firepit: 'b_firepit', well: 'b_well', kennel: 'b_kennel', greathall: 'b_greathall', palace: 'b_palace', observatory: 'b_observatory',
-  pigpen: 'b_pigpen', chickenpen: 'b_chickenpen', healer: 'b_healer', watchtower: 'b_tower',
+  pigpen: 'b_pigpen', chickenpen: 'b_chickenpen', healer: 'b_healer', watchtower: 'b_tower', fishhut: 'b_fishhut',
+  bannersun: 'b_bannersun', bannereagle: 'b_bannereagle', bannerteal: 'b_bannerteal', pennants: 'b_pennants', featherbanner: 'b_featherbanner', flagstring: 'b_flagstring',
 };
 
 interface TutorialStep {
@@ -259,6 +262,10 @@ export class UI {
     const over = el('button', 'ib', ICONS.island);
     over.title = 'See the whole map from above (O) · again to go back';
     over.onclick = () => this.game.rig.toggleOverview();
+    const camera = el('button', 'ib', ICONS.camera);
+    camera.title = 'Photo Mode: frame and capture a picture of your island';
+    camera.setAttribute('aria-label', 'Photo Mode');
+    camera.onclick = () => this.photo.enter();
     const eye = el('button', 'ib', ICONS.eye);
     eye.title = 'Hide the interface: just the island (V)';
     eye.onclick = () => this.toggleZen(true);
@@ -285,7 +292,7 @@ export class UI {
       this.alertButton.setAttribute('aria-expanded', String(open));
     };
     this.root.appendChild(this.alertPanel);
-    views.append(eye, explore, wildlife, this.alertButton);
+    views.append(camera, eye, explore, wildlife, this.alertButton);
     tr.append(over, gear, views);
     this.root.appendChild(tr);
     // Shown on its own while the interface is hidden: brings everything back.
@@ -293,7 +300,11 @@ export class UI {
     this.zenBtn.title = 'Show the interface again (V)';
     this.zenBtn.onclick = () => this.toggleZen(false);
     this.root.appendChild(this.zenBtn);
+    this.photo = new PhotoMode(this.game, this.root, (text, kind) => this.toast(text, kind));
   }
+
+  /** Photo Mode's toolbar and state. */
+  photo!: PhotoMode;
 
   private zenBtn!: HTMLButtonElement;
   /** Natural mode: every button, panel, hint and notification hidden but the one eye. */
@@ -302,7 +313,7 @@ export class UI {
   private notices!: NoticeBanner;
   /** Announce something in the banner (not while the interface is hidden). */
   notice(n: Notice): void {
-    if (!this.zen) this.notices.push(n);
+    if (!this.zen && !this.photo?.open) this.notices.push(n);
   }
 
   toggleZen(on = !this.zen): void {
@@ -403,6 +414,10 @@ export class UI {
     this.foundBtn = el('button', 'btn found-btn hidden', `${ICONS.belief} Place campfire`) as HTMLButtonElement;
     this.foundBtn.onclick = () => this.game.promptCampfire();
     bottom.appendChild(this.foundBtn);
+    // While following someone: who, and an obvious way to stop.
+    this.followPill = el('button', 'btn follow-pill hidden') as HTMLButtonElement;
+    this.followPill.onclick = () => this.game.follow(-1);
+    bottom.appendChild(this.followPill);
     const bb = el('div', 'beliefbar');
     bb.title = 'Belief: earned from happy islanders and temples, spent on god powers';
     bb.innerHTML = `<span class="bicon">${ICONS.belief}</span>`;
@@ -499,7 +514,7 @@ export class UI {
     this.buildMenu.appendChild(head);
     const goals=el('p','muted small');goals.dataset.progression='';this.buildMenu.appendChild(goals);
     const grid = el('div', 'bm-grid');
-    for (const key of BUILD_MENU) {
+    const buildItem = (key: BuildingKey) => {
       const def = BUILDINGS[key];
       const cost = [def.cost.wood ? `${icon('wood')}${def.cost.wood}` : '', def.cost.stone ? `${icon('stone')}${def.cost.stone}` : '', def.cost.belief ? `${icon('belief')}${def.cost.belief}` : '', def.cost.carvedStone ? `${icon('carvedstone')}${def.cost.carvedStone}` : ''].join('');
       const b = el('button', 'bm-item', `<span class="bm-ic">${ICONS[BUILD_ICON[key]]}</span><span class="bm-nm">${def.name}</span><span class="bm-cost">${cost}</span>`);
@@ -517,7 +532,8 @@ export class UI {
       this.addTip(b, `<b>${def.name}</b><br>${def.description}<br><span class="c">${cost || 'Free'} · ${def.size[0]}×${def.size[1]}</span><br><span class="muted">${buildTimeText(def.buildTime, def.builders)}</span>`);
       grid.appendChild(b);
       this.buildItems.set(key, b);
-    }
+    };
+    BUILD_MENU.forEach(buildItem);
     // Paths: drag-to-paint tools rather than a building.
     const pathItem = (id: ToolId, name: string, iconKey: string, cost: string, tip: string) => {
       const b = el('button', 'bm-item', `<span class="bm-ic">${ICONS[iconKey]}</span><span class="bm-nm">${name}</span><span class="bm-cost">${cost}</span>`);
@@ -531,6 +547,9 @@ export class UI {
     pathItem('bridge', 'Rope bridge', 'b_bridge', `${icon('wood')}${PATHS.bridgeWood}`, `<b>Rope bridge</b><br>Hold and drag from the shore across shallow water, like the strait to the wild island, to build a plank bridge islanders can cross.<br><span class="c">${icon('wood')} ${PATHS.bridgeWood} per section</span>`);
     pathItem('unpath', 'Remove path', 'b_unpath', '', '<b>Remove path, bridge or canal</b><br>Hold and drag over a path, bridge or canal to take it away (canals are filled back in).');
     pathItem('regrass', 'Restore grass', 'b_regrass', 'Free', '<b>Restore grass</b><br>Hold and drag over bare, trodden earth or old dirt tracks to grow the grass back. Stone paths stay (use Remove path for those).');
+    // Banners and flags to dress the village.
+    grid.appendChild(el('div', 'bm-section', 'Decorations'));
+    DECOR_KEYS.forEach(buildItem);
     this.buildMenu.appendChild(grid);
     this.root.appendChild(this.buildMenu);
     // Drop the bottom fade once scrolled to the end (or when everything fits).
@@ -1101,6 +1120,8 @@ export class UI {
   // ---------------- Per-frame ----------------
 
   private foundBtn!: HTMLButtonElement;
+  private followPill!: HTMLButtonElement;
+  private followShown = '';
 
   update(dt: number): void {
     const g0 = this.game;
@@ -1118,6 +1139,14 @@ export class UI {
     this.placementControls.classList.toggle('hidden', !placingOnTouch);
     this.placementControls.parentElement?.classList.toggle('placing', placingOnTouch);
     this.foundBtn.classList.toggle('hidden', !(g0.awaitingFire && g0.colony.list.length > 0 && g0.placing !== 'campfire'));
+    const followed = g0.followId >= 0 ? g0.colony.byId(g0.followId) : undefined;
+    const fk = followed ? `${followed.id}|${followed.name}` : '';
+    if (fk !== this.followShown) {
+      this.followShown = fk;
+      this.followPill.classList.toggle('hidden', !followed);
+      if (followed) this.followPill.innerHTML = `${ICONS.follow}<span>Following <b>${followed.name}</b></span><span class="fp-x" aria-hidden="true">${ICONS.close}</span>`;
+      this.followPill.setAttribute('aria-label', followed ? `Stop following ${followed.name}` : '');
+    }
     this.timer -= dt;
     if (this.timer <= 0) {
       this.timer = 0.25;
@@ -1339,9 +1368,11 @@ export class UI {
       const home = isl.home >= 0 ? g.buildings.byId(isl.home) : undefined;
       const role = isl.child ? 'Child' : isl.warrior ? (isl.warrior === 'jaguar' ? 'Jaguar warrior' : 'Eagle warrior') : ROLE_LABEL[isl.role];
       const carry = isl.carry ? `${icon(isl.carry.res === 'wood' ? 'wood' : isl.carry.res)} ${isl.carry.n} ${isl.carry.res}` : 'Nothing';
-      key = `i${isl.id}|${Math.ceil(isl.injured / 10)}|${isl.condition}|${Math.ceil(isl.conditionT / 60)}|${role}|${g.colony.activity(isl)}|${carry}|${home?.id}|${Math.round(isl.hunger * 20)}|${Math.round(isl.rest * 20)}|${Math.round(isl.happy * 20)}|${g.followId === isl.id}`;
+      const say = islanderLine(isl, g.colony.activity(isl), performance.now() / 1000);
+      key = `i${isl.id}|${say}|${Math.ceil(isl.injured / 10)}|${isl.condition}|${Math.ceil(isl.conditionT / 60)}|${role}|${g.colony.activity(isl)}|${carry}|${home?.id}|${Math.round(isl.hunger * 20)}|${Math.round(isl.rest * 20)}|${Math.round(isl.happy * 20)}|${g.followId === isl.id}`;
       html = `
         <div class="card-head"><span>${isl.name}</span><span class="tag ${isl.gender}">${isl.gender === 'm' ? 'Male' : 'Female'}${isl.child ? ' · child' : ''}</span></div>
+        <p class="isl-say">“${say}”</p>
         <div class="kv"><span>Job</span><b>${role}${isl.manualRole ? ' <em>(assigned)</em>' : ''}</b></div>
         <div class="kv"><span>Doing</span><b>${g.colony.activity(isl)}</b></div>
         <div class="kv"><span>Carrying</span><b>${carry}</b></div>
@@ -1596,7 +1627,7 @@ export class UI {
       const isl = g.colony.byId(islId);
       if (!isl) return;
       if (a === 'explore') g.toggleExplore();
-      if (a === 'follow') g.followId = g.followId === isl.id ? -1 : isl.id;
+      if (a === 'follow') g.follow(g.followId === isl.id ? -1 : isl.id);
       if (a === 'auto') {
         isl.manualRole = false;
         isl.workplace = -1;

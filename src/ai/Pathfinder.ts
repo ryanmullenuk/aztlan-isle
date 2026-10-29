@@ -70,6 +70,8 @@ const DIRS = [
   [1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1],
   [1, 1, 1.414], [1, -1, 1.414], [-1, 1, 1.414], [-1, -1, 1.414],
 ];
+/** Which way a building's door faces per rotation (as ROT_DIR in Buildings). */
+const DOOR_DIR = [[0, 1], [1, 0], [0, -1], [-1, 0]];
 const ROCK_CLEARANCE = [[-.22,-.22],[.22,-.22],[-.22,.22],[.22,.22]];
 
 /**
@@ -104,6 +106,30 @@ export class Pathfinder {
     return true;
   }
 
+  /**
+   * Stepping between cells a and b (neighbours, or consecutive cells on a line): crossing in or out
+   * of a building's footprint is only allowed at its doorway, the middle of its front edge.
+   */
+  crossOk(a: number, b: number): boolean {
+    const w = this.world;
+    const oa = w.occ[a], ob = w.occ[b];
+    if (oa === ob) return true;
+    return this.through(oa, a, b) && this.through(ob, b, a);
+  }
+
+  private through(o: number, inside: number, outside: number): boolean {
+    if (o === 0) return true;
+    const f = this.world.doorways.get(o - 1);
+    if (!f) return true;
+    const N = this.world.N;
+    const ix = inside % N, iz = (inside / N) | 0, dx = outside % N - ix, dz = ((outside / N) | 0) - iz;
+    const [fx, fz] = DOOR_DIR[f.rot];
+    if (dx * fx + dz * fz <= 0) return false;
+    // On the front row, within a cell of the middle.
+    if (fz) return iz === (fz > 0 ? f.cz + f.d - 1 : f.cz) && Math.abs(ix + 0.5 - (f.cx + f.w / 2)) <= 1;
+    return ix === (fx > 0 ? f.cx + f.w - 1 : f.cx) && Math.abs(iz + 0.5 - (f.cz + f.d / 2)) <= 1;
+  }
+
   /** Validate a world-space segment using the same water, slope and corner rules as A*. */
   segmentClear(sx: number, sz: number, tx: number, tz: number, opts: PathOptions = {}): boolean {
     const w = this.world, allow = opts.allowBuilding ?? -1;
@@ -115,6 +141,7 @@ export class Pathfinder {
       const i = w.cellIndexAt(x, z);
       if (!this.walkable(i, allow, opts.allowWater)) return false;
       if (i !== prev) {
+        if (!this.crossOk(prev, i)) return false;
         if (Math.abs(this.walkLayer(i, opts.allowWater) - this.walkLayer(prev, opts.allowWater)) > 1) return false;
         const ax = prev % w.N, az = (prev / w.N) | 0, bx = i % w.N, bz = (i / w.N) | 0;
         if (ax !== bx && az !== bz &&
@@ -220,6 +247,7 @@ export class Pathfinder {
         if (dx !== 0 && dz !== 0) {
           if (!this.walkable(cz * N + nx, allow, opts.allowWater) || !this.walkable(nz * N + cx, allow, opts.allowWater)) continue;
         }
+        if (!this.crossOk(cur, ni)) continue;
         let sc = this.stepCost(cur, ni, base, opts.allowWater);
         if (sc < 0) continue;
         if (opts.avoid?.has(ni)) sc += 6;

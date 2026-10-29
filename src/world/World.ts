@@ -112,6 +112,11 @@ export class World {
   /** Buildings whose cells islanders may walk through (farm fields, jetty decks). */
   passableBuildings = new Set<number>();
   /**
+   * Footprints of buildings that are entered through their front: anyone going in or out of one
+   * crosses its edge at the doorway, never through a back or side wall.
+   */
+  doorways = new Map<number, { cx: number; cz: number; w: number; d: number; rot: number }>();
+  /**
    * Cells nobody can walk into: boulders (rock plants, redone by Vegetation.syncRockBlock) and the
    * waterfall's rocks, curtain and plunge pool (fixed). Pathfinding routes round them; animals steer
    * round them.

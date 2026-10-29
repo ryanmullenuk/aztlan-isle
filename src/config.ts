@@ -254,7 +254,12 @@ export const ECONOMY = {
   varietyHappiness: 0.05,
 };
 
-export type BuildingKey = 'boatworkshop' | 'campfire' | 'hut' | 'home' | 'temple' | 'greattemple' | 'farm' | 'maizefarm' | 'chinampa' | 'butcher' | 'smokehouse' | 'woodstore' | 'grainstore' | 'warroom' | 'jetty' | 'torch' | 'bonfire' | 'firepit' | 'well' | 'tradedock' | 'kennel' | 'greathall' | 'pigpen' | 'chickenpen' | 'healer' | 'herbalist' | 'herbalgarden' | 'stonemason' | 'market' | 'watchtower' | 'palace' | 'observatory';
+export type BuildingKey = 'boatworkshop' | 'campfire' | 'hut' | 'home' | 'temple' | 'greattemple' | 'farm' | 'maizefarm' | 'chinampa' | 'butcher' | 'smokehouse' | 'woodstore' | 'grainstore' | 'warroom' | 'jetty' | 'torch' | 'bonfire' | 'firepit' | 'well' | 'tradedock' | 'kennel' | 'greathall' | 'pigpen' | 'chickenpen' | 'healer' | 'herbalist' | 'herbalgarden' | 'stonemason' | 'market' | 'watchtower' | 'palace' | 'observatory' | 'fishhut' | DecorKey;
+
+/** Placeable decorations: Aztec banners and flags (no workers, islanders walk past them). */
+export type DecorKey = 'bannersun' | 'bannereagle' | 'bannerteal' | 'pennants' | 'featherbanner' | 'flagstring';
+export const DECOR_KEYS: DecorKey[] = ['bannersun', 'bannereagle', 'bannerteal', 'pennants', 'featherbanner', 'flagstring'];
+export const isDecor = (key: string): key is DecorKey => (DECOR_KEYS as string[]).includes(key);
 
 export interface BuildingDef {
   key: BuildingKey;
@@ -309,6 +314,13 @@ export const BUILDINGS: Record<BuildingKey, BuildingDef> = {
   grainstore: { key: 'grainstore', name: 'Food Store', description: 'Stores grain, fruit, meat and fish. Baskets fill visibly.', size: [2, 2], cost: { wood: 18, stone: 4, belief: 0 }, buildTime: 110, builders: 2, workers: 0, foodCap: 140, placeable: true },
   warroom: { key: 'warroom', name: 'Warrior Lodge', description: 'Trains Jaguar and Eagle warriors who patrol the island.', size: [3, 3], cost: { wood: 30, stone: 30, belief: 15 }, buildTime: 300, builders: 3, workers: 0, placeable: true },
   jetty: { key: 'jetty', name: 'Fishing Jetty', description: 'Wooden pier into the shallows. Builds canoes and fishing boats.', size: [2, 2], cost: { wood: 24, stone: 0, belief: 0 }, buildTime: 150, builders: 2, workers: 3, placeable: true },
+  fishhut: { key: 'fishhut', name: 'Fisherman’s Hut', description: 'A small thatched home on stilts over the shallows, with nets, baskets and a canoe tied alongside. Houses 2 islanders, and fishers move in first. Build it in shallow coastal water with its front facing the shore.', size: [2, 2], cost: { wood: 18, stone: 0, belief: 0 }, buildTime: 80, builders: 2, workers: 0, housing: 2, placeable: true },
+  bannersun: { key: 'bannersun', name: 'Sun Banner', description: 'A tall red banner with a cream sun and stepped border, on a stone-footed pole. Decoration: islanders walk past it.', size: [1, 1], cost: { wood: 4, stone: 1, belief: 0 }, buildTime: 12, builders: 1, workers: 0, placeable: true },
+  bannereagle: { key: 'bannereagle', name: 'Eagle Banner', description: 'A cream banner with red fret borders and a turquoise eagle, hung between two poles. Decoration.', size: [1, 1], cost: { wood: 5, stone: 1, belief: 0 }, buildTime: 12, builders: 1, workers: 0, placeable: true },
+  bannerteal: { key: 'bannerteal', name: 'Turquoise Banner', description: 'A turquoise banner with a cream sun-wheel and tassels. Decoration.', size: [1, 1], cost: { wood: 4, stone: 1, belief: 0 }, buildTime: 12, builders: 1, workers: 0, placeable: true },
+  pennants: { key: 'pennants', name: 'Pennant Pole', description: 'A lashed timber pole flying three triangular pennants in red, turquoise and gold. Decoration.', size: [1, 1], cost: { wood: 4, stone: 0, belief: 0 }, buildTime: 10, builders: 1, workers: 0, placeable: true },
+  featherbanner: { key: 'featherbanner', name: 'Feather Banner', description: 'A ceremonial red banner crowned with bright feathers. Decoration for temples and plazas.', size: [1, 1], cost: { wood: 5, stone: 1, belief: 2 }, buildTime: 14, builders: 1, workers: 0, placeable: true },
+  flagstring: { key: 'flagstring', name: 'String of Flags', description: 'Small flags in red, turquoise, cream and gold strung between two posts. Decoration for markets and streets.', size: [3, 1], cost: { wood: 6, stone: 2, belief: 0 }, buildTime: 14, builders: 1, workers: 0, placeable: true },
   watchtower: { key: 'watchtower', name: 'Watchtower', description: 'A tall closed timber lookout on a stone footing, with a torch burning on its roof at night. It needs nobody to man it: arrows fly from its windows at jaguars and alligators that come close.', size: [2, 2], cost: { wood: 30, stone: 16, belief: 0 }, buildTime: 240, builders: 3, workers: 0, placeable: true },
 };
 
@@ -990,7 +1002,7 @@ export const SAVE = {
 export const HERBALIST = { processSeconds: 180, medicineCap: 40, sickSeconds: 60, mauledSeconds: 90 };
 
 /** The founding fire, huts and the workshop remain available during the first village stage. */
-export const needsStonemason = (key: BuildingKey): boolean => !['boatworkshop', 'campfire', 'hut', 'stonemason', 'farm', 'woodstore', 'grainstore', 'jetty', 'pigpen', 'chickenpen', 'torch', 'firepit', 'observatory'].includes(key);
+export const needsStonemason = (key: BuildingKey): boolean => !isDecor(key) && !['fishhut', 'boatworkshop', 'campfire', 'hut', 'stonemason', 'farm', 'woodstore', 'grainstore', 'jetty', 'pigpen', 'chickenpen', 'torch', 'firepit', 'observatory'].includes(key);
 export const masonryCost = (cost: { wood: number; stone: number; belief: number; carvedStone?: number }) =>
   ({ ...cost, ...(cost.stone > 0 ? { carvedStone: cost.carvedStone ?? Math.ceil(cost.stone / 4) } : {}) });
 for (const def of Object.values(BUILDINGS)) if (needsStonemason(def.key)) def.cost = masonryCost(def.cost);

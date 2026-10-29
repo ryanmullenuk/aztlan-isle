@@ -931,7 +931,7 @@ function archLeaf(
   const dx = Math.cos(a), dz = Math.sin(a);
   const g = ribbon(
     (t) => new THREE.Vector3(x + dx * L * t, y + L * (lift * t - droop * t * t), z + dz * L * t),
-    (t) => Math.max(0.002, W * Math.sin(Math.PI * Math.min(1, 0.25 + 0.75 * t))),
+    (t) => (W * Math.sin(Math.PI * Math.min(1, 0.25 + 0.75 * t))),
     segs,
     new THREE.Vector3(-dz, 0, dx),
     0.3
@@ -2393,17 +2393,91 @@ function blooms(b: GeoBuilder, x: number, y: number, z: number, n: number, sx: n
   }
 }
 
-/** A long red banner with a golden sun, hung flat against a face (facing +z before rotation). */
-function sunBanner(b: GeoBuilder, m: THREE.Matrix4, w: number, h: number): void {
-  const at = (x: number, y: number, z: number) => m.clone().multiply(M.t(x, y, z));
-  b.add(P.box(w, h, 0.02), { color: K.red }, m);
-  b.add(P.box(w * 1.08, 0.035, 0.03), { color: K.gold }, at(0, h / 2, 0.005));
-  b.add(P.box(w * 0.9, 0.02, 0.022), { color: K.gold }, at(0, -h / 2 + 0.03, 0.006));
-  b.add(P.cyl(w * 0.24, w * 0.24, 0.012, 10), { color: K.gold }, at(0, h * 0.12, 0.014).multiply(M.t(0, 0, 0, Math.PI / 2, 0, 0)));
-  for (let k = 0; k < 8; k++) {
-    const a = (k / 8) * Math.PI * 2;
-    b.add(P.box(0.018, w * 0.13, 0.01), { color: K.gold }, at(Math.cos(a) * w * 0.33, h * 0.12 + Math.sin(a) * w * 0.33, 0.016).multiply(M.t(0, 0, 0, 0, 0, a - Math.PI / 2)));
+/**
+ * Leaf flag for cloth: keeps the plaster and stone skin off it (see patchBuilding) and lets the sun
+ * glow through it from behind.
+ */
+const CLOTH = 0.95;
+/** Banner cloth colours: Aztec red with cream motifs, a turquoise variant, and tassel accents. */
+export const BANNER = { red: c(0xb23a2c), redDeep: c(0x7e2219), cream: c(0xefdfb8), teal: c(0x2f8f86), gold: c(0xd2a646), timber: c(0x5a3d26) };
+
+/**
+ * A two-faced cloth panel, `w` wide and `h` tall, hanging from its top edge (local y = 0 at the
+ * top, down to -h). Its side edges curl back a little like cloth hung from a rod; `z(x)` gives that
+ * curl so details can sit on the surface.
+ */
+export function clothPanel(w: number, h: number, curl: number, cols = 3, rows = 1): { geo: THREE.BufferGeometry; z: (x: number) => number } {
+  const z = (x: number) => -curl * ((2 * x) / w) ** 2;
+  const front = new THREE.PlaneGeometry(w, h, cols, rows).translate(0, -h / 2, 0);
+  const P = front.getAttribute('position');
+  for (let i = 0; i < P.count; i++) P.setZ(i, z(P.getX(i)));
+  front.computeVertexNormals();
+  const back = front.clone();
+  // The back face: same surface, the other winding.
+  const I = back.index!;
+  for (let i = 0; i < I.count; i += 3) { const t = I.getX(i + 1); I.setX(i + 1, I.getX(i + 2)); I.setX(i + 2, t); }
+  back.computeVertexNormals();
+  const geo = mergeGeometries([front, back])!;
+  front.dispose(); back.dispose();
+  return { geo, z };
+}
+
+/**
+ * A hanging cloth banner with Aztec motifs on both faces (facing +z before `m`, which places the
+ * banner's middle). Red with a cream sun and a stepped cream border; the hem is cut into three tabs of slightly
+ * different lengths, each with a tassel. `free` banners (on poles) swing more in the wind than
+ * those hung against a wall.
+ */
+function sunBanner(b: GeoBuilder, m: THREE.Matrix4, w: number, h: number, free = false, cloth = BANNER.red, ink = BANNER.cream): void {
+  const top = m.clone().multiply(M.t(0, h / 2, 0));
+  const inv = top.clone().invert();
+  const lp = new THREE.Vector3();
+  // Still at the rod, swinging more toward the hem.
+  const sway = (p: THREE.Vector3) => (Math.min(1, Math.max(0, -lp.copy(p).applyMatrix4(inv).y / h)) * (free ? 0.45 : 0.1));
+  const body = h * 0.82, curl = w * 0.07;
+  // Big panels in few cells, so far-away detail trimming (small triangles) never eats the cloth.
+  const { geo, z } = clothPanel(w, body, curl, 3, Math.max(1, Math.round(body / 0.35)));
+  const deep = cloth.clone().lerp(BANNER.redDeep, 0.45);
+  // Folds: the curled edges a shade darker, the hem darker than the top.
+  const shade = (p: THREE.Vector3) => {
+    lp.copy(p).applyMatrix4(inv);
+    return cloth.clone().lerp(deep, Math.min(1, Math.abs((2 * lp.x) / w) ** 2 * 0.6 + (-lp.y / h) * 0.35));
+  };
+  b.add(geo, { color: shade, sway, leaf: CLOTH }, top);
+  geo.dispose();
+  // Three hem tabs, hand-cut to slightly different lengths, each with a tassel.
+  const tw = w / 3 - 0.008;
+  [0.15, 0.19, 0.14].forEach((len, k) => {
+    const x = (k - 1) * (w / 3);
+    const tab = clothPanel(tw, h * len, curl * 0.15, 1, 1);
+    b.add(tab.geo, { color: shade, sway, leaf: CLOTH }, top.clone().multiply(M.t(x, -body + 0.002, z(x))));
+    tab.geo.dispose();
+    const ty = -body - h * len;
+    b.add(P.cyl(0.004, 0.012, 0.05, 5), { color: k === 1 ? BANNER.teal : BANNER.gold, sway, leaf: CLOTH }, top.clone().multiply(M.t(x, ty - 0.022, z(x))));
+  });
+  // Motifs, on both faces: a stepped band above the hem, and a sun (ring, eye and eight rays).
+  for (const face of [1, -1]) {
+    const at = (x: number, y: number) => top.clone().multiply(M.t(x, y, z(x) + face * 0.007)).multiply(M.t(0, 0, 0, 0, face > 0 ? 0 : Math.PI, 0));
+    const by = -body + h * 0.07;
+    b.add(P.box(w * 0.86, h * 0.022, 0.004), { color: ink, sway, leaf: CLOTH }, at(0, by));
+    const n = 5, step = (w * 0.86) / n;
+    for (let k = 0; k < n; k++) {
+      const x = -w * 0.43 + step * (k + 0.5);
+      b.add(P.box(step * 0.55, h * 0.035, 0.004), { color: ink, sway, leaf: CLOTH }, at(x, by + h * 0.028));
+      b.add(P.box(step * 0.25, h * 0.03, 0.004), { color: ink, sway, leaf: CLOTH }, at(x, by + h * 0.06));
+    }
+    const sy = -body * 0.42, r = w * 0.19;
+    b.add(P.torus(r, w * 0.035, 4, 14), { color: ink, sway, leaf: CLOTH }, at(0, sy).multiply(M.t(0, 0, 0, 0, 0, 0, 1, 1, 0.3)));
+    b.add(P.cyl(w * 0.07, w * 0.07, 0.004, 8), { color: ink, sway, leaf: CLOTH }, at(0, sy).multiply(M.t(0, 0, 0, Math.PI / 2, 0, 0)));
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2;
+      const x = Math.cos(a) * r * 1.55;
+      b.add(P.box(w * 0.05, w * 0.12, 0.004), { color: ink, sway, leaf: CLOTH }, at(x, sy + Math.sin(a) * r * 1.55).multiply(M.t(0, 0, 0, 0, 0, a - Math.PI / 2)));
+    }
   }
+  // The rod it hangs from, with gilded ends.
+  b.add(P.cyl(0.014, 0.014, w * 1.16, 6), { color: BANNER.timber }, top.clone().multiply(M.t(0, 0.008, z(w / 2) * 0.5, 0, 0, Math.PI / 2)));
+  for (const s of [-1, 1]) b.add(P.sphere(0.022, 0), { color: BANNER.gold }, top.clone().multiply(M.t(s * w * 0.6, 0.008, z(w / 2) * 0.5)));
 }
 
 // ---------------- Shared details for the refitted buildings ----------------
@@ -2525,7 +2599,7 @@ function frettedPot(b: GeoBuilder, x: number, y: number, z: number, s: number, b
 function bannerPole(b: GeoBuilder, x: number, z: number, h: number, ry = 0): void {
   b.add(P.cyl(0.025, 0.03, h, 5), { color: K.timberDark }, M.t(x, h / 2, z));
   b.add(P.box(0.3, 0.025, 0.025), { color: K.timberDark }, M.t(x, h - 0.04, z, 0, ry, 0));
-  sunBanner(b, M.t(x, h - 0.27, z, 0, ry, 0).multiply(M.t(0, 0, 0.03)), 0.24, 0.42);
+  sunBanner(b, M.t(x, h - 0.27, z, 0, ry, 0).multiply(M.t(0, 0, 0.03)), 0.24, 0.42, true);
 }
 
 /** A ladder leaning from (x, 0, z) toward ry, `h` high. */
@@ -2719,7 +2793,7 @@ export function greatHallModel(): BuildingModel {
     const x = s * 3.1, z = 3.1;
     b.add(P.cyl(0.035, 0.045, 1.6, 6), { color: K.timberDark }, M.t(x, 0.8, z));
     b.add(P.box(0.4, 0.035, 0.035), { color: K.timberDark }, M.t(x, 1.52, z + 0.0));
-    sunBanner(b, M.t(x, 1.2, z + 0.03), 0.3, 0.6);
+    sunBanner(b, M.t(x, 1.2, z + 0.03), 0.3, 0.6, true);
   }
   // Bell frame under the front beam (the bell itself swings separately).
   for(const x of [-.55,.55])b.add(P.box(.12,2.15,.14),{color:K.timberDark},M.t(x,H+1.075,HALL.bell.z));
@@ -3593,7 +3667,7 @@ export function palaceModel(): BuildingModel {
     b.add(P.box(0.3, 0.2, 0.3), { color: S.sandDark }, M.t(x, 0.1, z));
     b.add(P.cyl(0.04, 0.05, 2.3, 6), { color: K.timberDark }, M.t(x, 1.25, z));
     b.add(P.box(0.46, 0.04, 0.04), { color: K.timberDark }, M.t(x, 2.2, z));
-    sunBanner(b, M.t(x, 1.72, z + 0.04), 0.38, 0.86);
+    sunBanner(b, M.t(x, 1.72, z + 0.04), 0.38, 0.86, true);
     plumes(b, x, 2.4, z, 0.7);
   }
   phases.push(b.indexCount);
@@ -4077,4 +4151,294 @@ export function styledHomeModel(tier: number, style?: HouseStyle): BuildingModel
   const lvl = Math.min(4, Math.max(1, tier));
   const [x0, x1, fz, ry] = F[lvl];
   return styledHouse(style, () => homeModel(tier), (b) => houseDetails(b, style!, x0, x1, fz, ry, tier * 7, T[lvl]));
+}
+
+// ---------------- Fisherman's Hut ----------------
+
+/**
+ * Fisherman's Hut: a small home on timber stilts over the shallows (door faces +z, toward the
+ * shore). Plastered walls with corner posts and a turquoise fret band under a ragged thatch, a deck
+ * all round with steps down to the beach, a net-drying awning on one side hung with floats, baskets,
+ * pots and a fish trap, fish drying by the door, and a canoe tied alongside. `landY` is the height
+ * of the building's base (the sea bed layer); the deck stands just above the water.
+ */
+export function fishHutModel(landY: number): BuildingModel {
+  const b = new GeoBuilder(), rng = new RNG(911);
+  const deck = 0.4 - landY, shore = 0.3 - landY, bed = -1.45 - landY;
+  const plank = () => (rng.next() < 0.5 ? c(0x9a6c42) : c(0x865a36));
+  const lash = (x: number, y: number, z: number, r = 0.06) => b.add(P.torus(r, 0.014, 4, 8), { color: K.rope }, M.t(x, y, z, Math.PI / 2, 0, 0));
+  // Stilts, lashed at the deck and above the water line.
+  for (const x of [-0.9, 0, 0.9]) for (const z of [-0.9, 0, 0.75]) {
+    const h = deck - bed + 0.05;
+    b.add(P.cyl(0.055, 0.065, h, 6), { color: (p) => (p.y < -landY + 0.02 ? c(0x3e3324) : K.timber).clone() }, M.t(x, bed + h / 2, z));
+    lash(x, deck - 0.06, z, 0.065);
+    lash(x, -landY + 0.12, z, 0.07);
+  }
+  // Bearers and the plank deck (planks run across, a few a shade apart).
+  for (const z of [-0.9, 0, 0.75]) b.add(P.box(1.95, 0.06, 0.08), { color: K.timberDark }, M.t(0, deck - 0.06, z));
+  for (let z = -0.98; z < 0.95; z += 0.17) b.add(P.box(1.98, 0.035, 0.155), { color: plank() }, M.t(rng.range(-0.01, 0.01), deck, z + 0.08));
+  // Steps down from the landing to the beach.
+  const drop = deck - shore;
+  for (let k = 1; k <= 3; k++) {
+    const y = deck - (drop * k) / 3.5;
+    b.add(P.box(0.5, 0.035, 0.16), { color: plank() }, M.t(0, y, 0.98 + k * 0.13));
+  }
+  for (const s of [-1, 1]) b.add(P.box(0.04, 0.04, 0.5), { color: K.timberDark }, M.t(s * 0.27, deck - drop * 0.45, 1.2, Math.atan2(drop, 0.5), 0, 0));
+  // Rails along the seaward edge.
+  for (const x of [-0.9, 0, 0.9]) b.add(P.cyl(0.025, 0.025, 0.36, 5), { color: K.timber }, M.t(x, deck + 0.18, -0.95));
+  b.add(P.box(1.85, 0.03, 0.03), { color: K.timberDark }, M.t(0, deck + 0.34, -0.95));
+  // The hut: plastered walls, timber corner posts, a turquoise fret band.
+  const W = 1.1, D = 0.95, H = 0.62, zc = -0.32, y0 = deck + 0.02;
+  b.add(P.box(W, H, D), { color: (p) => K.plaster.clone().lerp(c(0xd8c6a2), Math.max(0, 1 - (p.y - y0) / H) * 0.5) }, M.t(0, y0 + H / 2, zc));
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.add(P.box(0.07, H + 0.04, 0.07), { color: K.timber }, M.t(sx * (W / 2), y0 + H / 2, zc + sz * (D / 2)));
+  fretBand(b, M.t(0, y0 + H - 0.09, zc + D / 2 + 0.007), W - 0.1, 0.07, BANNER.teal, BANNER.cream);
+  for (const s of [-1, 1]) fretBand(b, M.t(s * (W / 2 + 0.007), y0 + H - 0.09, zc, 0, s * Math.PI / 2, 0), D - 0.1, 0.07, BANNER.teal, BANNER.cream);
+  b.add(P.box(W + 0.02, 0.05, D + 0.02), { color: K.red }, M.t(0, y0 + 0.025, zc));
+  // Doorway with a timber door left ajar, firelight inside at night.
+  const dz = zc + D / 2;
+  glowSink?.push({ x: -0.02, y: y0 + 0.22, z: dz - 0.006, w: 0.26, h: 0.42, d: 0.02 });
+  b.add(P.box(0.3, 0.46, 0.02), { color: K.door }, M.t(0, y0 + 0.23, dz + 0.002));
+  b.add(P.box(0.13, 0.42, 0.025), { color: c(0x7a5233) }, M.t(0.12, y0 + 0.22, dz + 0.06, 0, -0.9, 0));
+  for (const s of [-1, 1]) b.add(P.box(0.05, 0.5, 0.05), { color: K.timberDark }, M.t(s * 0.17, y0 + 0.25, dz + 0.015));
+  b.add(P.box(0.42, 0.05, 0.06), { color: K.timberDark }, M.t(0, y0 + 0.49, dz + 0.015));
+  // A small shuttered window on each side.
+  for (const s of [-1, 1]) {
+    glowSink?.push({ x: s * (W / 2 + 0.004), y: y0 + 0.36, z: zc, w: 0.03, h: 0.14, d: 0.16 });
+    b.add(P.box(0.02, 0.16, 0.18), { color: K.door }, M.t(s * (W / 2 + 0.002), y0 + 0.36, zc));
+    b.add(P.box(0.03, 0.04, 0.26), { color: K.timberDark }, M.t(s * (W / 2 + 0.012), y0 + 0.27, zc));
+  }
+  // Thatch: a steep gable along x, ragged at the eaves, with a lashed ridge.
+  const rise = 0.42, half = D / 2 + 0.2, slope = Math.hypot(rise, half), ang = Math.atan2(rise, half), ry = y0 + H;
+  for (const s of [-1, 1]) {
+    b.add(P.box(W + 0.36, 0.09, slope), { color: thatchColor, leaf: 0.2 }, M.t(0, ry + rise / 2, zc + s * half / 2, s * ang, 0, 0));
+    // A ragged eave: bundles of straw of uneven length hanging past the roof's edge.
+    for (let k = 0; k < 8; k++) {
+      const x = -W / 2 - 0.12 + (k + 0.5) * ((W + 0.24) / 8), len = 0.12 + rng.next() * 0.1;
+      b.add(P.box((W + 0.24) / 8 + 0.01, 0.05, len), { color: K.thatchDark, leaf: 0.2 }, M.t(x, ry + 0.01 - (len / 2) * Math.sin(ang), zc + s * (half - 0.02 + (len / 2) * Math.cos(ang)), s * ang, 0, 0));
+    }
+  }
+  // Gable ends: plaster triangles under the thatch.
+  for (const s of [-1, 1]) {
+    const tri = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([0, 0, -D / 2, 0, 0, D / 2, 0, rise, 0], 3));
+    tri.setIndex(s > 0 ? [0, 2, 1] : [0, 1, 2]);
+    b.add(tri, { color: K.plaster }, M.t(s * (W / 2 - 0.005), ry, zc));
+  }
+  b.add(P.cyl(0.035, 0.035, W + 0.5, 6), { color: K.timberDark }, M.t(0, ry + rise + 0.04, zc, 0, 0, Math.PI / 2));
+  for (const s of [-1, 1]) {
+    for (const t of [-1, 1]) b.add(P.box(0.03, 0.22, 0.03), { color: K.timberDark }, M.t(s * (W / 2 + 0.2), ry + rise + 0.08, zc + t * 0.05, t * 0.5, 0, 0));
+    lash(s * (W / 2 + 0.05), ry + rise + 0.04, zc, 0.045);
+  }
+  // Net-drying awning on the +x side: two posts, a woven mat, a net with floats hung below.
+  const ax = 0.78;
+  for (const z of [-0.85, 0.55]) b.add(P.cyl(0.03, 0.035, 0.9, 5), { color: K.timber }, M.t(ax + 0.12, deck + 0.45, z));
+  b.add(P.box(0.5, 0.03, 1.55), { color: (p) => ((p.z * 9) % 1 < 0.5 ? c(0xd9c08a) : c(0xc4a670)).clone(), leaf: 0.2 }, M.t(ax - 0.05, deck + 0.86, -0.15, 0, 0, -0.25));
+  const net = clothPanel(1.25, 0.38, 0.03, 4, 1);
+  b.add(net.geo, { color: c(0xc8b48a), sway: 0.25 }, M.t(ax + 0.13, deck + 0.82, -0.15, 0, Math.PI / 2, 0));
+  net.geo.dispose();
+  for (let k = 0; k < 5; k++) b.add(P.sphere(0.035, 0), { color: k % 2 ? c(0xb06a3a) : c(0x8e5a2e), sway: 0.25 }, M.t(ax + 0.14, deck + 0.42, -0.72 + k * 0.29));
+  // Things on the deck: baskets of fish, painted pots, a fish trap, coiled rope.
+  const basket = (x: number, z: number, s = 1, fish = true) => {
+    b.add(P.cyl(0.11 * s, 0.085 * s, 0.13 * s, 8), { color: (p) => ((p.y * 60) % 1 < 0.5 ? c(0xb08a52) : c(0x9a7444)).clone() }, M.t(x, deck + 0.08 * s, z));
+    if (fish) for (let k = 0; k < 3; k++) b.add(P.sphere(0.035 * s, 0), { color: c(0x7d97a0) }, M.t(x + (k - 1) * 0.04 * s, deck + 0.15 * s, z + (k % 2) * 0.03, 0, k, 0, 1, 0.6, 2));
+  };
+  basket(-0.32, 0.32);
+  basket(0.62, 0.42, 0.85);
+  basket(-0.8, -0.2, 0.9, false);
+  const pot = (x: number, z: number, body: THREE.Color) => {
+    b.add(P.sphere(0.1, 1), { color: body }, M.t(x, deck + 0.1, z, 0, 0, 0, 1, 1.1, 1));
+    b.add(P.cyl(0.05, 0.06, 0.06, 8), { color: body }, M.t(x, deck + 0.21, z));
+    b.add(P.cyl(0.101, 0.101, 0.03, 10), { color: BANNER.cream }, M.t(x, deck + 0.12, z));
+  };
+  pot(0.34, 0.34, c(0xb8562e));
+  pot(-0.75, 0.42, BANNER.teal);
+  const trap = new THREE.CylinderGeometry(0.1, 0.07, 0.36, 8, 1, true);
+  b.add(trap, { color: (p) => ((Math.atan2(p.x, p.z) * 4) % 1 < 0.5 ? c(0xb8935a) : c(0x8e6e40)).clone() }, M.t(0.55, deck + 0.1, -0.7, 0, 0.4, Math.PI / 2));
+  b.add(P.torus(0.08, 0.025, 4, 10), { color: K.rope }, M.t(-0.55, deck + 0.03, -0.75, Math.PI / 2, 0, 0));
+  // Fish drying on a line by the door.
+  b.add(P.cyl(0.012, 0.012, 0.7, 4), { color: K.timberDark }, M.t(-0.45, y0 + 0.55, dz + 0.12, 0, 0, Math.PI / 2));
+  for (let k = 0; k < 3; k++) b.add(P.cone(0.035, 0.17, 4), { color: c(0x6f8f9a), sway: 0.2 }, M.t(-0.7 + k * 0.13, y0 + 0.44, dz + 0.12, Math.PI, 0, 0, 1, 1, 0.5));
+  // A bench by the door.
+  b.add(P.box(0.4, 0.04, 0.14), { color: c(0x8a5e3a) }, M.t(-0.55, deck + 0.17, 0.48));
+  for (const s of [-1, 1]) b.add(P.box(0.04, 0.15, 0.12), { color: K.timberDark }, M.t(-0.55 + s * 0.16, deck + 0.08, 0.48));
+  // A canoe tied alongside, painted in teal and red, with a paddle and a net in it.
+  // Open side up: the half of the cylinder that turns to face down once laid along z.
+  const hull = doubleSide(new THREE.CylinderGeometry(0.15, 0.15, 1.3, 10, 1, false, -Math.PI / 2, Math.PI));
+  const cx = -1.32, cy = -landY + 0.08;
+  b.add(hull, { color: (p, n) => (n.y > 0.3 ? c(0x6a4428) : p.y > cy - 0.06 ? BANNER.teal : c(0x7a5233)).clone() }, M.t(cx, cy, 0.05, Math.PI / 2, 0, 0, 1, 1, 0.75));
+  for (const s of [-1, 1]) {
+    b.add(P.box(0.03, 0.03, 1.25), { color: K.red }, M.t(cx + s * 0.14, cy + 0.005, 0.05));
+    b.add(P.cone(0.11, 0.2, 6), { color: c(0x7a5233) }, M.t(cx, cy - 0.02, 0.05 + s * 0.74, s * Math.PI / 2, 0, 0, 1, 1, 0.7));
+  }
+  b.add(P.box(0.03, 0.02, 0.85), { color: c(0xa87a4a) }, M.t(cx + 0.04, cy + 0.03, 0.15, 0, 0.15, 0));
+  b.add(P.box(0.08, 0.015, 0.2), { color: c(0xa87a4a) }, M.t(cx + 0.1, cy + 0.03, 0.6, 0, 0.15, 0));
+  basket(cx, -0.25 - (deck - cy) * 0, 0.7, true);
+  b.add(P.cyl(0.008, 0.008, 0.4, 3), { color: K.rope }, M.t(-1.1, (deck + cy) / 2, -0.3, 0, 0, 1.1));
+  return { finished: b.build(), torches: [], height: deck + H + rise + 0.2 };
+}
+
+// ---------------- Banners and flags (decorations) ----------------
+
+/** A stepped stone footing for a pole, 0.1 high. */
+function poleFooting(b: GeoBuilder, x = 0, z = 0): void {
+  b.add(P.box(0.32, 0.06, 0.32), { color: K.stoneDark }, M.t(x, 0.03, z));
+  b.add(P.box(0.22, 0.06, 0.22), { color: K.stone }, M.t(x, 0.09, z));
+  b.add(P.box(0.23, 0.02, 0.23), { color: BANNER.teal }, M.t(x, 0.07, z));
+}
+
+/** A tall pole with a crossbar and finial. Returns the crossbar height. */
+function bannerMast(b: GeoBuilder, h: number, bar: number): number {
+  poleFooting(b);
+  b.add(P.cyl(0.03, 0.04, h, 6), { color: K.timberDark }, M.t(0, 0.12 + h / 2, 0));
+  const y = 0.12 + h - 0.12;
+  b.add(P.box(bar, 0.035, 0.035), { color: K.timberDark }, M.t(0, y, 0));
+  for (const s of [-1, 1]) b.add(P.torus(0.03, 0.01, 3, 6), { color: K.rope }, M.t(s * bar * 0.4, y, 0, Math.PI / 2, 0, 0));
+  b.add(P.cyl(0.045, 0.045, 0.03, 6), { color: BANNER.gold }, M.t(0, 0.12 + h + 0.01, 0));
+  return y;
+}
+
+/** A crest of feathers fanned out above a point (facing +z). */
+function featherCrest(b: GeoBuilder, x: number, y: number, z: number, s = 1): void {
+  const cols = [K.red, BANNER.teal, BANNER.gold, c(0xd96a2a), BANNER.teal, K.red, BANNER.gold];
+  cols.forEach((col, k) => {
+    const a = (k - 3) * 0.28;
+    b.add(P.cone(0.04 * s, 0.32 * s, 4), { color: col, sway: 0.15 }, M.t(x + Math.sin(a) * 0.05 * s, y + Math.cos(a) * 0.14 * s, z, 0, 0, -a, 1, 1, 0.35));
+  });
+  b.add(P.sphere(0.045 * s, 0), { color: BANNER.gold }, M.t(x, y, z + 0.01));
+}
+
+/** The decorations' models (door faces +z). */
+export function decorModel(key: string): BuildingModel {
+  const b = new GeoBuilder();
+  switch (key) {
+    case 'bannersun': {
+      const y = bannerMast(b, 1.9, 0.5);
+      sunBanner(b, M.t(0, y - 0.48, 0.05), 0.42, 0.9, true);
+      return { finished: b.build(), torches: [], height: 2.1 };
+    }
+    case 'bannerteal': {
+      const y = bannerMast(b, 1.8, 0.46);
+      tealBanner(b, M.t(0, y - 0.44, 0.05), 0.38, 0.84);
+      return { finished: b.build(), torches: [], height: 2 };
+    }
+    case 'featherbanner': {
+      const y = bannerMast(b, 1.9, 0.5);
+      sunBanner(b, M.t(0, y - 0.48, 0.05), 0.42, 0.9, true);
+      featherCrest(b, 0, 0.12 + 1.9 + 0.02, 0, 1.2);
+      return { finished: b.build(), torches: [], height: 2.5 };
+    }
+    case 'bannereagle': {
+      // Hung between two poles on a crossbar.
+      for (const s of [-1, 1]) {
+        poleFooting(b, s * 0.3, 0);
+        b.add(P.cyl(0.03, 0.035, 1.8, 6), { color: K.timberDark }, M.t(s * 0.3, 1.0, 0));
+        b.add(P.cone(0.04, 0.08, 6), { color: BANNER.gold }, M.t(s * 0.3, 1.94, 0));
+      }
+      b.add(P.box(0.7, 0.035, 0.035), { color: K.timberDark }, M.t(0, 1.72, 0));
+      eagleBanner(b, M.t(0, 1.25, 0.03), 0.46, 0.9);
+      return { finished: b.build(), torches: [], height: 2 };
+    }
+    case 'pennants': {
+      poleFooting(b);
+      const h = 2.1;
+      b.add(P.cyl(0.03, 0.04, h, 6), { color: K.timberDark }, M.t(0, 0.12 + h / 2, 0));
+      for (const y of [0.7, 1.25, 1.8]) b.add(P.torus(0.038, 0.012, 3, 6), { color: K.rope }, M.t(0, y, 0, Math.PI / 2, 0, 0));
+      [[K.red, 2.0], [BANNER.teal, 1.62], [BANNER.gold, 1.24]].forEach(([col, y], k) => pennant(b, 0.04, y as number, 0.52 - k * 0.04, 0.26, col as THREE.Color));
+      b.add(P.sphere(0.05, 0), { color: BANNER.gold }, M.t(0, 0.12 + h + 0.03, 0));
+      return { finished: b.build(), torches: [], height: 2.3 };
+    }
+    case 'flagstring': {
+      // Size 3x1: posts at either end, a sagging rope of small flags between.
+      const span = 2.6, top = 1.35, sag = 0.22;
+      for (const s of [-1, 1]) {
+        poleFooting(b, s * span / 2, 0);
+        b.add(P.cyl(0.03, 0.035, top, 6), { color: K.timberDark }, M.t(s * span / 2, 0.12 + top / 2 - 0.06, 0));
+        b.add(P.sphere(0.04, 0), { color: BANNER.gold }, M.t(s * span / 2, top + 0.08, 0));
+      }
+      const ropeY = (x: number) => top - sag * (1 - (2 * x / span) ** 2);
+      const n = 12;
+      for (let k = 0; k < n; k++) {
+        const x0 = -span / 2 + (span * k) / n, x1 = x0 + span / n;
+        const xm = (x0 + x1) / 2, y0 = ropeY(x0), y1 = ropeY(x1);
+        b.add(P.cyl(0.007, 0.007, Math.hypot(x1 - x0, y1 - y0), 3), { color: K.rope }, M.t(xm, (y0 + y1) / 2, 0, 0, 0, Math.PI / 2 + Math.atan2(y1 - y0, x1 - x0)));
+      }
+      const cols = [K.red, BANNER.teal, BANNER.cream, BANNER.gold, K.red, BANNER.teal, BANNER.gold, BANNER.cream, K.red];
+      cols.forEach((col, k) => {
+        const x = -span / 2 + (span * (k + 1)) / (cols.length + 1);
+        const f = clothPanel(0.18, 0.24, 0.01, 2, 1);
+        // A swallowtail: the middle of the foot drawn up into a notch.
+        const fp = f.geo.getAttribute('position');
+        for (let i = 0; i < fp.count; i++) if (Math.abs(fp.getX(i)) < 1e-3 && fp.getY(i) < -0.2) fp.setY(i, -0.17);
+        f.geo.computeVertexNormals();
+        const sway = (p: THREE.Vector3) => (Math.min(1, Math.max(0, (ropeY(x) - p.y) / 0.24)) * 0.4);
+        b.add(f.geo, { color: col, sway, leaf: CLOTH }, M.t(x, ropeY(x) - 0.005, 0));
+        f.geo.dispose();
+        // A notch cut from the foot, and a stepped mark in a contrasting colour.
+        const ink = col === BANNER.cream ? K.red : BANNER.cream;
+        for (const face of [1, -1]) {
+          b.add(P.box(0.07, 0.025, 0.004), { color: ink, sway, leaf: CLOTH }, M.t(x, ropeY(x) - 0.09, face * 0.004));
+          b.add(P.box(0.03, 0.05, 0.004), { color: ink, sway, leaf: CLOTH }, M.t(x, ropeY(x) - 0.065, face * 0.004));
+        }
+      });
+      return { finished: b.build(), torches: [], height: 1.6 };
+    }
+  }
+  throw new Error(`No decoration ${key}`);
+}
+
+/** A triangular pennant on a pole (pointing +x), two-faced, with a cream mark. */
+function pennant(b: GeoBuilder, x: number, y: number, len: number, h: number, col: THREE.Color): void {
+  // Front and back as separate faces (shared corners would average their normals to nothing).
+  const front = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([0, h / 2, 0, 0, -h / 2, 0, len * 0.5, h * 0.12, 0.03, len, 0, 0], 3));
+  front.setIndex([0, 1, 2, 2, 1, 3]);
+  front.computeVertexNormals();
+  const back = front.clone();
+  back.setIndex([0, 2, 1, 2, 3, 1]);
+  back.computeVertexNormals();
+  const geo = mergeGeometries([front, back])!;
+  front.dispose(); back.dispose();
+  const sway = (p: THREE.Vector3) => (Math.min(1, Math.max(0, (p.x - x) / len)) * 0.5);
+  b.add(geo, { color: col, sway, leaf: CLOTH }, M.t(x, y, 0));
+  geo.dispose();
+  for (const face of [1, -1]) {
+    b.add(P.box(0.06, 0.06, 0.004), { color: BANNER.cream, sway, leaf: CLOTH }, M.t(x + len * 0.28, y + 0.005, 0.012 * face + 0.01, 0, 0, Math.PI / 4));
+    b.add(P.box(0.025, 0.025, 0.004), { color: col, sway, leaf: CLOTH }, M.t(x + len * 0.28, y + 0.005, 0.015 * face + 0.01, 0, 0, Math.PI / 4));
+  }
+}
+
+/** A turquoise banner with a cream sun-wheel and stepped border (facing +z; `m` is its middle). */
+function tealBanner(b: GeoBuilder, m: THREE.Matrix4, w: number, h: number): void {
+  sunBanner(b, m, w, h, true, BANNER.teal.clone(), BANNER.cream);
+}
+
+/**
+ * A cream banner with red stepped-fret borders top and bottom and a turquoise eagle: wings spread
+ * in stepped feathers, a hooked head (facing +z; `m` is its middle).
+ */
+function eagleBanner(b: GeoBuilder, m: THREE.Matrix4, w: number, h: number): void {
+  const top = m.clone().multiply(M.t(0, h / 2, 0));
+  const inv = top.clone().invert(), lp = new THREE.Vector3();
+  const sway = (p: THREE.Vector3) => (Math.min(1, Math.max(0, -lp.copy(p).applyMatrix4(inv).y / h)) * 0.35);
+  const { geo, z } = clothPanel(w, h, w * 0.05, 3, 2);
+  b.add(geo, { color: (p) => BANNER.cream.clone().lerp(c(0xcdb98e), Math.min(1, -lp.copy(p).applyMatrix4(inv).y / h) * 0.4), sway, leaf: CLOTH }, top);
+  geo.dispose();
+  for (const face of [1, -1]) {
+    const at = (x: number, y: number) => top.clone().multiply(M.t(x, y, z(x) + face * 0.007)).multiply(M.t(0, 0, 0, 0, face > 0 ? 0 : Math.PI, 0));
+    for (const y of [-h * 0.08, -h * 0.9]) {
+      b.add(P.box(w * 0.9, h * 0.035, 0.004), { color: K.red, sway, leaf: CLOTH }, at(0, y));
+      for (let k = 0; k < 5; k++) b.add(P.box(w * 0.08, h * 0.05, 0.004), { color: K.red, sway, leaf: CLOTH }, at(-w * 0.36 + k * w * 0.18, y + (y > -h / 2 ? -1 : 1) * h * 0.035));
+    }
+    // The eagle: body, stepped wings, tail, and head turned to one side.
+    const ey = -h * 0.48;
+    b.add(P.box(w * 0.14, h * 0.24, 0.004), { color: BANNER.teal, sway, leaf: CLOTH }, at(0, ey));
+    for (const s of [-1, 1]) for (let k = 0; k < 3; k++) {
+      b.add(P.box(w * 0.12, h * (0.16 - k * 0.04), 0.004), { color: BANNER.teal, sway, leaf: CLOTH }, at(s * w * (0.13 + k * 0.1), ey + h * (0.04 + k * 0.03)));
+    }
+    b.add(P.box(w * 0.2, h * 0.06, 0.004), { color: BANNER.teal, sway, leaf: CLOTH }, at(0, ey - h * 0.15));
+    b.add(P.box(w * 0.12, h * 0.1, 0.004), { color: BANNER.teal, sway, leaf: CLOTH }, at(w * 0.03, ey + h * 0.17));
+    b.add(P.box(w * 0.06, h * 0.035, 0.004), { color: BANNER.gold, sway, leaf: CLOTH }, at(w * 0.11, ey + h * 0.16));
+    b.add(P.box(w * 0.025, h * 0.02, 0.004), { color: K.door, sway, leaf: CLOTH }, at(w * 0.04, ey + h * 0.19).multiply(M.t(0, 0, face * 0.001)));
+  }
+  // Tassels along the hem, and the rod.
+  for (let k = 0; k < 4; k++) b.add(P.cyl(0.004, 0.013, 0.07, 5), { color: k % 2 ? K.red : BANNER.gold, sway, leaf: CLOTH }, top.clone().multiply(M.t(-w * 0.375 + k * w * 0.25, -h - 0.03, z(-w * 0.375 + k * w * 0.25))));
+  b.add(P.cyl(0.014, 0.014, w * 1.1, 6), { color: BANNER.timber }, top.clone().multiply(M.t(0, 0.008, 0, 0, 0, Math.PI / 2)));
 }

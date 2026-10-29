@@ -839,6 +839,33 @@ export class Animals {
     return Math.abs(w.heightAt(x, z) - a.y) < SPECIES[a.sp].maxSlope;
   }
 
+  /**
+   * A wild animal caught inside a footprint (a building put up where it was grazing) trots
+   * straight out to the nearest open ground, rather than standing stuck in the walls.
+   */
+  private walkOut(a: Animal, dt: number): boolean {
+    const w = this.world;
+    const here = w.cellIndexAt(a.x, a.z);
+    if (here < 0 || !w.occ[here] || w.passable(w.occ[here] - 1)) return false;
+    const [cx, cz] = w.cellOf(a.x, a.z);
+    let best: [number, number] | null = null, bd = Infinity;
+    for (let r = 1; r <= 8 && !best; r++) for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+      if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+      const x = w.centerX(cx + dx), z = w.centerZ(cz + dz);
+      if (!w.inBounds(cx + dx, cz + dz) || !this.walkable(a, x, z)) continue;
+      const d = (x - a.x) ** 2 + (z - a.z) ** 2;
+      if (d < bd) { bd = d; best = [x, z]; }
+    }
+    if (!best) return false;
+    a.tx = best[0]; a.tz = best[1];
+    const dx = a.tx - a.x, dz = a.tz - a.z, d = Math.hypot(dx, dz), s = Math.min(d, SPECIES[a.sp].fleeSpeed * dt);
+    a.x += dx / (d || 1) * s; a.z += dz / (d || 1) * s;
+    a.heading = Math.atan2(dx, dz);
+    a.y = w.groundY(a.x, a.z);
+    a.state = 'idle';
+    return true;
+  }
+
   /** Can this animal stand at (x, z)? Penned ones within their pen's open yard, others where they may walk. */
   private canStand(a: Animal, x: number, z: number): boolean {
     if (a.pen >= 0) return this.pens.get(a.pen)?.free(x, z, bodyR(a)) ?? true;
@@ -939,6 +966,7 @@ export class Animals {
       a.y = escortSurfaceY(this.world, a.x, a.z, 0.18 * a.scale);
       return;
     }
+    if (a.pen < 0 && this.walkOut(a, dt)) return;
     if (a.pen >= 0) {
       const pc = this.pens.get(a.pen);
       if (!pc) {

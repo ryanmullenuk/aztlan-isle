@@ -6,7 +6,7 @@ import { needsSelfCare } from './GroupSelection';
 import * as THREE from 'three';
 import type { Where } from '../ui/where';
 import { ECONOMY, FARM, FOOD_KEYS, ISLANDER, JETTY, NAMES, OBSERVATORY, ResourceKey, TEMPLE, WARRIOR, FARM_TYPES, isFarm, SMOKE, COMFORTS, PATHS, GREAT_HALL, HEALTH, HERBALIST, STONEMASON, TIME } from '../config';
-import { Building, BuildingSystem } from '../buildings/Buildings';
+import { Building, BuildingSystem, doorStep } from '../buildings/Buildings';
 import { HALL, HEAL, OBS } from '../buildings/models';
 import { Economy } from '../economy/Economy';
 import { Condition, Islander, Role, Task, makeIslander } from '../entities/Islander';
@@ -367,6 +367,12 @@ export class Colony {
     if (here < 0 || this.pf.walkable(here, opts.allowBuilding, opts.allowWater)) return false;
     const [cx, cz] = w.cellOf(isl.x, isl.z);
     let best = -1, bd = Infinity;
+    // Inside a building with a front door: out through the doorway, not the back or side walls.
+    const f = w.doorways.get(w.occ[here] - 1);
+    if (f) {
+      const [sx, sz] = doorStep(f.cx, f.cz, f.w, f.d, f.rot);
+      if (w.inBounds(sx, sz) && this.pf.walkable(w.idx(sx, sz), opts.allowBuilding, opts.allowWater)) best = w.idx(sx, sz);
+    }
     for (let r = 1; r <= 6 && best < 0; r++) {
       for (let dz = -r; dz <= r; dz++) {
         for (let dx = -r; dx <= r; dx++) {
@@ -826,12 +832,28 @@ export class Colony {
         move(pick, b);
       }
     }
-    // 2) Everyone else: huts first, then any spare room (nearest).
+    // 1b) Fisherman's huts are for fishers: one living elsewhere (or nowhere) moves in when there's room.
+    for (const b of this.bld.of('fishhut')) {
+      if (!buildingSafe(b)) continue;
+      while (b.residents.length < b.housing) {
+        let pick: Islander | null = null, bd = Infinity;
+        for (const i of this.list) {
+          if (i.child || i.role !== 'fisher' || this.bld.byId(i.home)?.key === 'fishhut') continue;
+          const d = (b.x - i.x) ** 2 + (b.z - i.z) ** 2;
+          if (d < bd) { bd = d; pick = i; }
+        }
+        if (!pick) break;
+        const old = this.bld.byId(pick.home);
+        if (old) old.residents = old.residents.filter((id) => id !== pick!.id);
+        move(pick, b);
+      }
+    }
+    // 2) Everyone else: huts first, then any spare room (nearest); fishers' huts last for anyone else.
     for (const isl of homeless()) {
       let best: Building | null = null, bd = Infinity;
       for (const b of this.bld.list) {
         if (b.housing <= b.residents.length) continue;
-        const d = (b.x - isl.x) ** 2 + (b.z - isl.z) ** 2 + (b.key === 'home' && !isl.child ? 2500 : 0);
+        const d = (b.x - isl.x) ** 2 + (b.z - isl.z) ** 2 + (b.key === 'home' && !isl.child ? 2500 : 0) + (b.key === 'fishhut' && isl.role !== 'fisher' ? 5000 : 0);
         if (d < bd) {
           bd = d;
           best = b;

@@ -312,6 +312,14 @@ button { font-family: inherit; color: inherit; cursor: pointer; -webkit-tap-high
 }
 .found-btn svg { width: 18px; height: 18px; }
 @keyframes foundPulse { 50% { transform: scale(1.06); } }
+.follow-pill {
+  display: inline-flex; align-items: center; gap: 7px; font-weight: 600; padding: 7px 10px 7px 13px; border-radius: 999px;
+  background: rgba(16, 35, 41, 0.86); color: #f3ead6; box-shadow: var(--shadow); border: 1px solid rgba(232, 198, 107, 0.45);
+}
+.follow-pill b { color: #e8c66b; }
+.follow-pill svg { width: 16px; height: 16px; }
+.follow-pill .fp-x { display: inline-flex; padding: 3px; margin-left: 2px; border-radius: 999px; background: rgba(255, 255, 255, 0.12); }
+.isl-say { margin: 2px 0 8px; padding: 7px 10px; border-radius: 10px; background: rgba(255, 255, 255, 0.07); font-style: italic; font-size: 13px; line-height: 1.35; }
 .beliefbar {
   display: flex; align-items: center; gap: 8px; width: min(420px, 86vw); padding: 5px 10px; border-radius: 999px;
   background: var(--panel); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border: 1px solid var(--panel-border);
@@ -363,6 +371,7 @@ button { font-family: inherit; color: inherit; cursor: pointer; -webkit-tap-high
 .bm-grid.end { -webkit-mask-image: none; mask-image: none; }
 .bm-grid::-webkit-scrollbar { width: 4px; }
 .bm-grid::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.25); border-radius: 4px; }
+.bm-section { grid-column: 1 / -1; font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 8px 2px 1px; }
 .bm-item {
   border: 0; border-radius: 10px; background: rgba(255, 255, 255, 0.06); padding: 6px 2px 5px;
   display: flex; flex-direction: column; align-items: center; gap: 2px; transition: background 0.15s; min-width: 0;
@@ -520,6 +529,32 @@ button { font-family: inherit; color: inherit; cursor: pointer; -webkit-tap-high
   pointer-events: auto; opacity: 0.55; background: rgba(20, 16, 24, 0.45); backdrop-filter: blur(6px); border-radius: 12px;
 }
 #hud.zen > .zen-eye:hover { opacity: 1; }
+
+/* Photo Mode: only its toolbar (and any toast) over the island. */
+#hud.photo > *:not(.photo-bar):not(.toasts) { display: none !important; }
+.photo-bar {
+  position: absolute; left: 50%; bottom: calc(14px + var(--safe-b, 0px)); transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 22px; pointer-events: auto;
+  background: rgba(16, 35, 41, 0.82); border: 1px solid rgba(232, 198, 107, 0.35); box-shadow: var(--shadow);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); max-width: calc(100vw - 32px);
+}
+.photo-bar.hidden { display: none; }
+.pb-seg { display: flex; align-items: center; gap: 2px; padding: 2px; border-radius: 14px; background: rgba(255, 255, 255, 0.07); }
+.pb-btn { border: 0; background: none; color: #e9e2d0; font-weight: 700; font-size: 12px; padding: 7px 10px; border-radius: 11px; min-height: 32px; }
+.pb-btn[aria-pressed="true"] { background: #e8c66b; color: #1d1608; }
+.pb-btn:disabled { opacity: 0.4; }
+.pb-range { width: 76px; accent-color: #e8c66b; margin: 0 6px 0 2px; }
+.pb-range:disabled { opacity: 0.35; }
+.pb-shoot { width: 52px; height: 52px; flex: none; border-radius: 50%; border: 3px solid #f3ead6; background: transparent; display: grid; place-items: center; padding: 0; }
+.pb-shoot span { width: 38px; height: 38px; border-radius: 50%; background: #f3ead6; transition: transform 0.12s; }
+.pb-shoot:active span { transform: scale(0.86); }
+.pb-close { width: 36px; height: 36px; flex: none; border: 0; border-radius: 50%; background: rgba(255, 255, 255, 0.12); color: #f3ead6; display: grid; place-items: center; }
+.pb-close svg { width: 16px; height: 16px; }
+.photo-flash { position: fixed; inset: 0; background: #fff; pointer-events: none; z-index: 50; }
+@media (max-width: 560px) {
+  .photo-bar { flex-wrap: wrap; justify-content: center; gap: 8px; border-radius: 20px; }
+  .pb-tilt { order: 3; }
+}
 
 /* ---------- Toolbar, restyled: dark rounded tiles with coloured outline icons ---------- */
 .toolbar { gap: 8px; padding: 8px; border-radius: 22px; background: rgba(18, 16, 20, 0.72); border: 1px solid rgba(255, 255, 255, 0.08); }

@@ -347,6 +347,8 @@ export class AudioEngine {
       case 'select': tone('sine', 660, 660, 0.08, 0.1); setTimeout(() => this.ready && tone('sine', 990, 990, 0.1, 0.08), 60); break;
       case 'deny': tone('square', 160, 120, 0.18, 0.05); break;
       case 'place': tone('sine', 160, 70, 0.25, 0.35); burst('lowpass', 800, 1, 0.2, 0.2); break;
+      // A foundation landing: a deep, short thump with a little earthy crunch.
+      case 'thud': tone('sine', 120, 42, 0.3, 0.5); tone('triangle', 70, 38, 0.22, 0.25); burst('lowpass', 420, 0.8, 0.16, 0.22, 140); break;
       case 'chop': burst('bandpass', 1400, 2, 0.09, 0.35); tone('triangle', 220, 140, 0.1, 0.25); break;
       case 'mine': tone('sine', 1900, 1700, 0.12, 0.12); tone('sine', 2750, 2600, 0.09, 0.07); burst('highpass', 3000, 1, 0.05, 0.1); break;
       case 'build': tone('triangle', 420, 300, 0.07, 0.22); burst('bandpass', 900, 3, 0.05, 0.12); break;

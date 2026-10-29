@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { processMedicine } from './Herbalist';
 import { needsStonemason, masonryCost, STONEMASON, BOAT_WORKSHOP, DECREES, PALACE_RULES, type DecreeKey } from '../config';
-import { BUILDINGS, BuildingDef, BuildingKey, ECONOMY, FARM, HOMES, JETTY, TEMPLE, FARM_TYPES, isFarm } from '../config';
+import { BUILDINGS, BuildingDef, BuildingKey, ECONOMY, FARM, HOMES, JETTY, TEMPLE, FARM_TYPES, isFarm, isDecor } from '../config';
 import { Economy, Cost } from '../economy/Economy';
 import { buildingMaterial, canopyMaterial, fireMaterial, flameMaterial, FX } from '../render/materials';
 import { Terrain } from '../terrain/Terrain';
@@ -18,6 +18,8 @@ import * as models from './models';
 /** Flame size per building; fires are visible only from dusk until dawn. */
 /** Triangles smaller than this (m²) are left out of a building's far-away model. */
 const LOD_MIN_AREA = 0.002;
+/** The deepest sea bed a Fisherman's Hut's stilts can reach. */
+const FISH_HUT_DEPTH = -1.3;
 /** Monuments built phase by phase (their model records where each phase's geometry ends). */
 const phased = (b: Building): boolean => !!b.finishedHi?.userData.constructionPhases;
 
@@ -29,12 +31,20 @@ import { FireLights, FireSpot } from './FireLights';
 /** Door direction per rotation (door faces +z at rot 0). */
 export const ROT_DIR: [number, number][] = [[0, 1], [1, 0], [0, -1], [-1, 0]];
 
+/** The cell just outside the middle of a footprint's front edge: where you step in through the door. */
+export function doorStep(cx: number, cz: number, w: number, d: number, rot: number): [number, number] {
+  const [fx, fz] = ROT_DIR[rot];
+  return [fx ? (fx > 0 ? cx + w : cx - 1) : cx + (w >> 1), fz ? (fz > 0 ? cz + d : cz - 1) : cz + (d >> 1)];
+}
+
 export interface Torch {
   pos: THREE.Vector3;
   flame: THREE.Mesh;
   phase: number;
 }
 
+/** Seconds a newly placed foundation takes to drop the last little way and settle. */
+export const DROP_SECONDS = 0.32;
 /** Seconds the scaffold takes to sink into the ground once a building is finished. */
 export const SCAFFOLD_SINK = 2.5;
 /** Ease in and out (0..1). */
@@ -99,6 +109,8 @@ export class Building {
   /** Lamplight in its windows and doorways at night, and how deep into dusk it comes on (0..1). */
   glow?: THREE.Mesh;
   glowAt?: number;
+  /** Seconds left of the drop as a new foundation is set down (see BuildingSystem.updateDrops). */
+  drop = 0;
   /** The look its houses were built in (the district style when it was built or last upgraded). */
   style?: string;
   /** Far from the camera: drawn with the simpler model and crops. */
@@ -280,8 +292,81 @@ function replaceFinished(b: Building, geo: THREE.BufferGeometry): void {
   b.finished.geometry = b.lodFar ? modelLo(geo) : geo;
 }
 
-/** Warm lamplight in windows and doorways (unlit, so it glows against the night). */
-const GLOW_MAT = new THREE.MeshBasicMaterial({ color: 0xffa040, toneMapped: false, fog: false });
+/**
+ * Firelight in windows and doorways. One shared additive material: each opening is brightest low
+ * in the middle, where the hearth inside would be, fading to deep orange at its edges; a soft halo
+ * warms the wall round it, and a doorway spills a pool of light onto the ground in front. Each
+ * building fades in at its own moment of dusk (aAt) and flickers on its own phase, all on the GPU.
+ */
+const GLOW_UNIFORMS = { uNight: { value: 0 }, uTime: { value: 0 } };
+const GLOW_MAT = new THREE.ShaderMaterial({
+  uniforms: GLOW_UNIFORMS,
+  vertexShader: /* glsl */ `
+    attribute vec3 aGlow; // x: dusk threshold, y: flicker phase, z: kind (0 opening, 1 halo, 2 ground pool)
+    varying vec2 vUv;
+    varying float vOn, vKind, vFlick;
+    uniform float uNight, uTime;
+    void main() {
+      vUv = uv;
+      vKind = aGlow.z;
+      vOn = smoothstep(aGlow.x, aGlow.x + 0.1, uNight);
+      float p = aGlow.y;
+      vFlick = 0.88 + 0.07 * sin(uTime * 6.3 + p) + 0.05 * sin(uTime * 15.7 + p * 2.3) * sin(uTime * 2.1 + p);
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }`,
+  fragmentShader: /* glsl */ `
+    varying vec2 vUv;
+    varying float vOn, vKind, vFlick;
+    void main() {
+      vec2 c = vUv - 0.5;
+      vec3 ember = vec3(0.55, 0.13, 0.02), flame = vec3(1.0, 0.56, 0.18);
+      vec3 col;
+      if (vKind < 0.5) {
+        // The opening: hottest low and central, darker at the frame.
+        float h = clamp(1.0 - length(c * vec2(1.3, 1.0)) * 1.5 + (0.5 - vUv.y) * 0.35, 0.0, 1.0);
+        col = mix(ember, flame, h) * (0.55 + 0.6 * h);
+      } else {
+        // Halo on the wall, or the pool on the ground: a soft round falloff.
+        float f = 1.0 - smoothstep(0.0, 0.5, length(c));
+        col = mix(ember, flame, f * 0.6) * f * f * (vKind < 1.5 ? 0.45 : 0.5);
+      }
+      gl_FragColor = vec4(col * vFlick * vOn, 1.0);
+    }`,
+  blending: THREE.AdditiveBlending,
+  transparent: true,
+  depthWrite: false,
+  toneMapped: false,
+  fog: false,
+});
+
+/** One opening's quad set: the lit opening, a halo round it, and for doorways a pool on the ground. */
+function glowParts(g: models.Glow, at: number, phase: number): THREE.BufferGeometry[] {
+  const parts: THREE.BufferGeometry[] = [];
+  const tag = (geo: THREE.BufferGeometry, kind: number) => {
+    const n = geo.getAttribute('position').count, a = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) a.set([at, phase, kind], i * 3);
+    geo.setAttribute('aGlow', new THREE.BufferAttribute(a, 3));
+    parts.push(geo);
+  };
+  tag(new THREE.BoxGeometry(g.w, g.h, g.d).translate(g.x, g.y, g.z), 0);
+  // Which way the opening faces: its thin axis, away from the middle of the building.
+  const side = g.w < g.d;
+  const out = Math.sign(side ? g.x : g.z) || 1;
+  const span = side ? g.d : g.w;
+  const halo = new THREE.PlaneGeometry(span * 2.6 + 0.12, g.h * 2.2 + 0.1);
+  if (side) halo.rotateY(out * Math.PI / 2);
+  else if (out < 0) halo.rotateY(Math.PI);
+  const off = (side ? g.w : g.d) / 2 + 0.012;
+  tag(halo.translate(side ? g.x + out * off : g.x, g.y, side ? g.z : g.z + out * off), 1);
+  const foot = g.y - g.h / 2;
+  if (foot < 0.25 && g.h > 0.25) {
+    // A doorway: firelight falls out across the ground in front.
+    const pool = new THREE.PlaneGeometry(span * 3 + 0.3, 1.1).rotateX(-Math.PI / 2);
+    if (side) pool.rotateY(Math.PI / 2);
+    tag(pool.translate(side ? g.x + out * 0.5 : g.x, foot + 0.025, side ? g.z : g.z + out * 0.5), 2);
+  }
+  return parts;
+}
 
 /**
  * Windows and doorways that glow at nightfall: one small mesh per building, riding on its
@@ -295,12 +380,13 @@ function setGlow(b: Building, windows: models.Glow[] | undefined): void {
     b.glow = undefined;
   }
   if (!windows?.length || !b.finished) return;
-  const parts = windows.map((g) => new THREE.BoxGeometry(g.w, g.h, g.d).translate(g.x, g.y, g.z));
+  b.glowAt = 0.12 + (Math.abs(Math.sin(b.id * 91.7 + 13.1)) % 1) * 0.6;
+  const parts = windows.flatMap((g, k) => glowParts(g, b.glowAt!, b.id * 1.7 + k * 0.6));
   const geo = mergeGeometries(parts)!;
   for (const p of parts) p.dispose();
   b.glow = new THREE.Mesh(geo, GLOW_MAT);
   b.glow.visible = false;
-  b.glowAt = 0.12 + (Math.abs(Math.sin(b.id * 91.7 + 13.1)) % 1) * 0.6;
+  b.glow.renderOrder = 2;
   b.finished.add(b.glow);
 }
 
@@ -344,6 +430,10 @@ export class BuildingSystem {
   lodDist = 60;
   /** Chimney and rack smoke from smokehouses. */
   private smoke = new Particles(360, 0xc9c2ba, 0.6);
+  /** A puff of dust where a new foundation lands. */
+  private dust = new Particles(160, 0xcdb894, 0.55);
+  /** A new foundation has just landed (for the thud and a haptic tap). */
+  onLanded: (b: Building) => void = () => {};
   private smokeAcc = 0;
   private logGeos = [models.logPileGeometry(1), models.logPileGeometry(2), models.logPileGeometry(3)];
   private stoneGeos = [models.stonePileGeometry(4), models.stonePileGeometry(5)];
@@ -365,7 +455,7 @@ export class BuildingSystem {
   onRemove: (b: Building) => void = () => {};
 
   constructor(private world: World, private veg: Vegetation, private eco: Economy, private terrain: Terrain, private scene: THREE.Scene) {
-    this.group.add(this.smoke.points);
+    this.group.add(this.smoke.points, this.dust.points);
     this.scene.add(this.spaceMesh);
     this.group.add(this.fireLights.group);
   }
@@ -497,7 +587,7 @@ export class BuildingSystem {
    * on the shoreline). Everything else keeps a one-square path clear all round.
    */
   private static open(key: BuildingKey): boolean {
-    return key === 'torch' || key === 'market' || isFarm(key) || key === 'jetty' || key === 'tradedock';
+    return key === 'torch' || key === 'market' || isFarm(key) || key === 'jetty' || key === 'tradedock' || isDecor(key);
   }
 
   /**
@@ -533,7 +623,9 @@ export class BuildingSystem {
     if (key !== 'campfire' && !this.hasCampfire) return { ok: false, reason: 'Found your village first: place the campfire' };
     const [sw, sd] = def.size;
     const w = rot % 2 ? sd : sw, d = rot % 2 ? sw : sd;
-    const f = this.world.isFlatFree(cx, cz, w, d);
+    const shallows = key === 'fishhut' ? this.shallowsCheck(cx, cz, w, d, movingB) : '';
+    if (shallows) return { ok: false, reason: shallows };
+    const f = key === 'fishhut' ? { ok: true, layer: 0 } : this.world.isFlatFree(cx, cz, w, d);
     let fixed = false;
     for (let z = cz; z < cz + d; z++) for (let x = cx; x < cx + w; x++) {
       if (this.world.inBounds(x, z) && this.world.blockFixed[this.world.idx(x, z)]) fixed = true;
@@ -569,6 +661,8 @@ export class BuildingSystem {
         return { ok: false, reason: gap ? `Too close to ${e.label}: keep the pale walkway clear` : `The expansion area overlaps ${e.label}: leave room for it to grow` };
       }
     }
+    const entrance = this.entranceBlocked(key, cx, cz, w, d, rot, layer, movingB);
+    if (entrance) return { ok: false, reason: entrance };
     if (!moving && !this.eco.canAfford(def.cost)) {
       const shortages: string[] = [];
       const need = (label: string, required: number, available: number) => {
@@ -581,6 +675,43 @@ export class BuildingSystem {
       return { ok: false, reason: `Need ${shortages.join(', ')} more to build` };
     }
     return { ok: true, reason: '' };
+  }
+
+  /** A Fisherman's Hut stands on stilts in shallow sea water (not a river), clear of anything else. */
+  private shallowsCheck(cx: number, cz: number, w: number, d: number, movingB?: Building): string {
+    const W = this.world;
+    for (let z = cz; z < cz + d; z++) for (let x = cx; x < cx + w; x++) {
+      if (!W.inBounds(x, z)) return 'The footprint extends beyond the island: move it inward';
+      const i = W.idx(x, z);
+      const o = W.occ[i];
+      if (o && o - 1 !== movingB?.id) return `Footprint overlaps ${this.byId(o - 1)?.label ?? 'an existing building'}: move it clear`;
+      if (W.blockFixed[i] || W.blockRock[i]) return 'Rocks are in the way: find clear shallows';
+      if (W.layer[i] >= 1 || W.bridge[i] || !Number.isNaN(W.riverY[i])) return 'Build the Fisherman’s Hut in shallow sea water, just off the beach';
+      if (W.heightAt(W.centerX(x), W.centerZ(z)) < FISH_HUT_DEPTH) return 'The water is too deep here: move it closer to the shore';
+    }
+    return '';
+  }
+
+  /**
+   * Islanders only go in and out through the front, so the ground before a door must be walkable,
+   * and a new footprint may not cover the doorstep of a building already there.
+   */
+  private entranceBlocked(key: BuildingKey, cx: number, cz: number, w: number, d: number, rot: number, layer: number, movingB?: Building): string {
+    const wd = this.world;
+    if (!BuildingSystem.open(key)) {
+      const [sx, sz] = doorStep(cx, cz, w, d, rot);
+      if (!wd.inBounds(sx, sz)) return 'The doorway faces off the island: turn it round';
+      const i = wd.idx(sx, sz);
+      const o = wd.occ[i];
+      if ((o && o - 1 !== movingB?.id && !wd.passable(o - 1)) || wd.blocked(i) || (!wd.bridge[i] && wd.layer[i] < 1) ||
+          Math.abs(wd.layer[i] - layer) > 1) return 'The doorway would be blocked: turn it so its front faces open ground';
+    }
+    for (const e of this.list) {
+      if (e === movingB || !wd.doorways.has(e.id)) continue;
+      const [sx, sz] = doorStep(e.cx, e.cz, e.w, e.d, e.rot);
+      if (sx >= cx && sx < cx + w && sz >= cz && sz < cz + d) return `That would block the doorway of ${e.label}`;
+    }
+    return '';
   }
 
   /** Buildings that can be turned or moved once placed (docks are tied to their shore). */
@@ -641,6 +772,7 @@ export class BuildingSystem {
       if (farm) w.soil[i] = 1;
     }
     this.eco.add('wood', this.veg.clearArea(cx, cz, b.w, b.d));
+    this.markDoorway(b);
     this.setPen(b);
     if (b.finished) { const model=this.modelFor(b); replaceFinished(b, withBuildingGround(model.finished,b,this.world)); model.canopy?.dispose(); setGlow(b, model.windows); }
     b.group.position.set(b.x, b.y, b.z);
@@ -651,6 +783,36 @@ export class BuildingSystem {
     w.navigationVersion++;
     this.onMoved(b);
     return { ok: true, reason: '' };
+  }
+
+  /**
+   * Buildings entered through a front door get a doorway (see Pathfinder.crossOk). Docks are walked
+   * onto from their landward ramp, open ground (fields, the market, decorations) from anywhere, and
+   * a Fisherman's Hut stands in the water. If the ground before a door can't be walked on (an old
+   * save with something built across it, or the land sculpted away), the building keeps free entry
+   * rather than becoming unreachable.
+   */
+  private markDoorway(b: Building): void {
+    const w = this.world;
+    if (BuildingSystem.open(b.key) || b.key === 'fishhut') {
+      w.doorways.delete(b.id);
+      return;
+    }
+    const [sx, sz] = doorStep(b.cx, b.cz, b.w, b.d, b.rot);
+    const i = w.inBounds(sx, sz) ? w.idx(sx, sz) : -1;
+    const o = i < 0 ? 0 : w.occ[i];
+    const open = i >= 0 && !w.blocked(i) && (w.bridge[i] || w.layer[i] >= 1) && (!o || w.passable(o - 1)) && Math.abs(w.layer[i] - b.layer) <= 1;
+    if (open) w.doorways.set(b.id, { cx: b.cx, cz: b.cz, w: b.w, d: b.d, rot: b.rot });
+    else w.doorways.delete(b.id);
+  }
+
+  /** Terrain or obstacles changed since doorways were last checked. */
+  private doorwaysSeen = '';
+  private refreshDoorways(): void {
+    const key = `${this.world.version}:${this.world.navigationVersion}`;
+    if (key === this.doorwaysSeen) return;
+    this.doorwaysSeen = key;
+    for (const b of this.list) this.markDoorway(b);
   }
 
   place(key: BuildingKey, cx: number, cz: number, rot: number, instant = false): Building {
@@ -677,12 +839,13 @@ export class BuildingSystem {
     if (paved) this.terrain.updateWear();
     const wood = this.veg.clearArea(cx, cz, b.w, b.d);
     this.eco.add('wood', wood);
-    if (key === 'torch' || key === 'market') this.world.passableBuildings.add(b.id);
+    if (key === 'torch' || key === 'market' || isDecor(key)) this.world.passableBuildings.add(b.id);
     if (isFarm(key)) {
       this.world.passableBuildings.add(b.id);
       for (let z = cz; z < cz + b.d; z++) for (let x = cx; x < cx + b.w; x++) this.world.soil[this.world.idx(x, z)] = 1;
       this.terrain.updateWear();
     }
+    this.markDoorway(b);
     if (key === 'jetty' || key === 'tradedock') {
       // Boats dock at the T-end of the deck; islanders reach the jetty from the ramp on land.
       [b.dockX, b.dockZ] = b.local(0.5, 1.2 + JETTY.length + 1.0);
@@ -695,6 +858,7 @@ export class BuildingSystem {
     this.group.add(b.group);
     this.world.navigationVersion++;
     if (instant || this.instantBuild()) this.finish(b);
+    if (!instant) b.drop = DROP_SECONDS;
     return b;
   }
 
@@ -832,7 +996,8 @@ export class BuildingSystem {
       this.demolitions.push(demolition);
       this.group.add(demolition.group);
     } else clear();
-    if (b.key === 'torch' || b.key === 'market') this.world.passableBuildings.delete(b.id);
+    if (b.key === 'torch' || b.key === 'market' || isDecor(b.key)) this.world.passableBuildings.delete(b.id);
+    this.world.doorways.delete(b.id);
     if (isFarm(b.key)) {
       this.world.passableBuildings.delete(b.id);
       for (let z = b.cz; z < b.cz + b.d; z++) for (let x = b.cx; x < b.cx + b.w; x++) this.world.soil[this.world.idx(x, z)] = 0;
@@ -907,6 +1072,8 @@ export class BuildingSystem {
       case 'jetty': return models.jettyModel(b.y, JETTY.length);
       case 'tradedock': return models.tradeDockModel(b.y, JETTY.length);
       case 'watchtower': return models.watchtowerModel();
+      case 'fishhut': return models.fishHutModel(b.y);
+      default: return models.decorModel(b.key);
     }
   }
 
@@ -1295,10 +1462,45 @@ export class BuildingSystem {
 
   // ------------- Per-frame -------------
 
+  /**
+   * New foundations drop the last few hand-spans into place: falling (gathering speed) for most of
+   * the time, then a small settle as they land, with a puff of dust on dry ground. Real time, so it
+   * plays even while the game is paused.
+   */
+  updateDrops(realDt: number): void {
+    this.dust.update(realDt, 0.5);
+    for (const b of this.list) {
+      if (b.drop <= 0) continue;
+      const before = 1 - b.drop / DROP_SECONDS;
+      b.drop = Math.max(0, b.drop - realDt);
+      const t = 1 - b.drop / DROP_SECONDS, fall = 0.7;
+      const off = t < fall ? 0.35 * (1 - (t / fall) ** 2) : -0.035 * Math.sin(((t - fall) / (1 - fall)) * Math.PI);
+      b.group.position.y = b.y + off;
+      if (before < fall && t >= fall) {
+        if (b.key !== 'fishhut') this.puff(b);
+        this.onLanded(b);
+      }
+    }
+  }
+
+  private puff(b: Building): void {
+    const n = Math.min(26, 8 + (b.w + b.d) * 2);
+    for (let k = 0; k < n; k++) {
+      // Round the edge of the footprint, blowing outward.
+      const a = (k / n) * Math.PI * 2, ex = Math.cos(a), ez = Math.sin(a);
+      const r = Math.max(b.w, b.d) * 0.5 / Math.max(Math.abs(ex), Math.abs(ez)) * Math.min(1, Math.min(b.w, b.d) / Math.max(b.w, b.d) + 0.4);
+      const x = b.x + ex * r, z = b.z + ez * r;
+      const sp = 0.5 + Math.random() * 0.5;
+      this.dust.spawn(x, this.world.groundY(x, z) + 0.05, z, ex * sp, 0.25 + Math.random() * 0.2, ez * sp, 0.5 + Math.random() * 0.35, 0.22 + Math.random() * 0.12, 0.9);
+    }
+  }
+
   update(dt: number, time: number, night: number, seasonIndex: number, raining: boolean, camTarget: THREE.Vector3): void {
+    this.refreshDoorways();
     this.demolitions = this.demolitions.filter(effect => !effect.update(dt));
     // Night lights: each building comes on at its own moment as dusk deepens, and goes dark at dawn.
-    GLOW_MAT.color.setRGB(0.8, 0.25 + Math.sin(time * 3.1) * 0.015, 0.04);
+    GLOW_UNIFORMS.uNight.value = night;
+    GLOW_UNIFORMS.uTime.value = time;
     for (const b of this.list) if (b.glow) b.glow.visible = b.complete && !b.ruined && b.fire <= 0 && night > (b.glowAt ?? 0.4);
     for (const b of this.list) {
       if (b.scaffoldSink <= 0) continue;

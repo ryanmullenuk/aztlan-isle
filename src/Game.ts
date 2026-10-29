@@ -16,6 +16,7 @@ import { Volcano, VOLCANO_COST, VOLCANO_HAPPINESS } from './entities/Volcano';
 import { Explore } from './render/Explore';
 import { WildlifeView, wildlifeBehaviour, type WildlifeSubject } from './render/WildlifeView';
 import * as THREE from 'three';
+import { haptic, setHaptics } from './ui/Haptics';
 import type { Where } from './ui/where';
 import { WORLD, PATHS, BUILDINGS, BuildingKey, CAMERA, ISLANDER, MILESTONES, POWERS, PresetName, RENDER, SAVE, isFarm, SETTLERS, RESEARCH, RESEARCH_UPGRADE_LABEL } from './config';
 import { World } from './world/World';
@@ -151,12 +152,17 @@ export interface Settings {
   renderScale: number;
   /** Draw at a lower resolution while the camera moves, sharpening the moment it stops. */
   motionRes: boolean;
+  /** Gentle taps on devices with haptics (placing, finishing and upgrading buildings, milestones). */
+  haptics: boolean;
 }
 
 /** Minimal interface the UI and colony use for sound (implemented by the audio engine). */
 export interface AudioLike {
   sfx(name: string, x?: number, z?: number): void;
 }
+
+/** How far the camera closes in when it starts following an islander. */
+const FOLLOW_DISTANCE = 13;
 
 /** Owns the renderer, scene and every system; runs the main loop and routes input to tools. */
 export class Game {
@@ -239,6 +245,10 @@ export class Game {
   /** Selected land animal (index into wildlife.animals.list), or -1. */
   selectedAnimal = -1;
   followId = -1;
+  /** Photo Mode is open (the interface is hidden and the island can only be looked at). */
+  photoMode = false;
+  /** Photo Mode's chosen light (a time of day), or null for the island's own. */
+  photoLight: number | null = null;
   stats = { sculpted: 0, marked: 0, boats: 0, cleared: 0 };
   milestones = new Set<string>();
   /** Observatory research (village-wide: kept through damage, demolition and rebuilding). */
@@ -383,6 +393,7 @@ export class Game {
     this.buildings.recordPrayer = seconds => this.progression.pray(seconds);
     this.buildings.onComplete = (b) => this.onBuildingComplete(b);
     this.buildings.onRevealed = (b) => this.onBuildingRevealed(b);
+    this.buildings.onLanded = (b) => this.onFoundationLanded(b);
     this.buildings.instantBuild = () => this.islandName.toUpperCase() === GOD_NAME && this.settings.instantBuild;
 
     this.lighting = new Lighting(this.scene, cfg.shadowSize);
@@ -500,17 +511,18 @@ export class Game {
     this.post.setSize(cw, ch);
 
     this.input = new Input(canvas, this.rig, {
-      onTap: (x, y) => this.onTap(x, y),
-      onPress: (x, y) => this.oceanPress(x, y),
-      wantsPlacementDrag: () => !!this.placing,
+      // In Photo Mode the island can only be looked at: taps and tools do nothing.
+      onTap: (x, y) => { if (!this.photoMode) this.onTap(x, y); },
+      onPress: (x, y) => { if (!this.photoMode) this.oceanPress(x, y); },
+      wantsPlacementDrag: () => !!this.placing && !this.photoMode,
       onPlacementDrag: (x,y) => {this.touchPlacement=true;this.onHover(x,y);},
       onCancel: () => this.cancel(),
-      wantsToolDrag: () => this.tool === 'area' || this.tool === 'raise' || this.tool === 'lower' || this.tool === 'flatten' || this.tool === 'harvest' || PAINT_TOOLS.includes(this.tool),
+      wantsToolDrag: () => !this.photoMode && (this.tool === 'area' || this.tool === 'raise' || this.tool === 'lower' || this.tool === 'flatten' || this.tool === 'harvest' || PAINT_TOOLS.includes(this.tool)),
       onToolDragStart: (x, y) => this.toolDrag(x, y, true),
       onToolDrag: (x, y) => this.toolDrag(x, y, false),
       onToolDragEnd: () => this.toolDragEnd(),
-      onHover: (x, y) => this.onHover(x, y),
-      onKey: (e) => this.onKey(e),
+      onHover: (x, y) => { if (!this.photoMode) this.onHover(x, y); },
+      onKey: (e) => { if (this.photoMode) { if (e.key === 'Escape') this.ui.photo.close(); } else this.onKey(e); },
       onInteract: () => this.interactHandler?.(),
       pick: (x, y) => this.pickGround(x, y),
     });
@@ -928,7 +940,7 @@ export class Game {
 
   private loadSettings(preset: PresetName): Settings {
     // Depth of field (the tilt-shift look) is off unless the player turns it on in Settings.
-    const def: Settings = { preset, dofOptIn: true, dof: false, dofStrength: RENDER.dof.strength, volume: 0.7, music: 0.5, muted: false, chatter: true, wildlifeAlerts: true, fps: false, showMap: false, autoQuality: true, shadows: true, dayNight: true, weather: true, motion: true, pixel: false, instantBuild: false, renderScale: 1, motionRes: true };
+    const def: Settings = { preset, dofOptIn: true, dof: false, dofStrength: RENDER.dof.strength, volume: 0.7, music: 0.5, muted: false, chatter: true, wildlifeAlerts: true, fps: false, showMap: false, autoQuality: true, shadows: true, dayNight: true, weather: true, motion: true, pixel: false, instantBuild: false, renderScale: 1, motionRes: true, haptics: true };
     try {
       const s = JSON.parse(localStorage.getItem(SAVE.settingsKey) ?? 'null');
       // Settings saved before depth of field became opt-in had it on by default: start those off too.
@@ -951,6 +963,7 @@ export class Game {
 
   applySettings(): void {
     const s = this.settings;
+    setHaptics(s.haptics);
     if (this.preset !== s.preset) this.setPreset(s.preset);
     this.wildlife?.coral.setPreset(this.preset);
     this.tubeCoral?.setPreset(this.preset);
@@ -1468,7 +1481,11 @@ export class Game {
         return;
       }
       const b = this.buildings.place(this.placing, cx, cz, rot);
-      this.audio?.sfx('place', b.x, b.z);
+      // The foundation drops into place and lands with a thud (see onLanded); straight down with reduced motion.
+      if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        b.drop = 0;
+        this.onFoundationLanded(b);
+      }
       // Stay in placement so rows of huts, farms or torches can go down one after another.
       if (this.eco.canAfford(b.def.cost)) {
         if (this.hoverPoint) this.updateGhost(this.hoverPoint);
@@ -2138,15 +2155,52 @@ export class Game {
     else if (k === 'm') this.toggleMute();
     else if (k === 'o') this.rig.toggleOverview();
     else if (k === 'v') this.ui.toggleZen();
-    else if (k === 'f' && this.selectedIslander >= 0) this.followId = this.followId === this.selectedIslander ? -1 : this.selectedIslander;
+    else if (k === 'f' && this.selectedIslander >= 0) this.follow(this.followId === this.selectedIslander ? -1 : this.selectedIslander);
   }
 
   private onBuildingComplete(b: Building): void {
     this.completeHandler?.(b);
   }
 
+  /**
+   * Follow an islander with the camera (or stop, with -1): it glides over and closes in to a
+   * comfortable distance. Zoom and turning still work while following. Their life goes on exactly
+   * as before; only the camera moves.
+   */
+  follow(id: number): void {
+    this.followId = id;
+    const f = this.colony.byId(id);
+    if (!f) return;
+    // Aim straight at them (the rig glides the camera over); after that the aim eases along behind them.
+    this.rig.goal.dist = Math.min(this.rig.goal.dist, FOLLOW_DISTANCE);
+    this.rig.goal.x = f.x;
+    this.rig.goal.z = f.z;
+  }
+
+  /**
+   * The next frame as a picture: just the island, as drawn (the interface is HTML over the canvas,
+   * so it is never in it). Read straight after the frame renders, before the canvas is cleared.
+   */
+  capturePhoto(type = 'image/jpeg', quality = 0.92): Promise<Blob | null> {
+    return new Promise((resolve) => {
+      const post = this.post, render = post.render;
+      post.render = (...args: Parameters<PostFX['render']>) => {
+        render.apply(post, args);
+        post.render = render;
+        this.renderer.domElement.toBlob(resolve, type, quality);
+      };
+    });
+  }
+
+  /** A new foundation has dropped into place. */
+  private onFoundationLanded(b: Building): void {
+    this.audio?.sfx('thud', b.x, b.z);
+    haptic('light');
+  }
+
   /** A finished building stands clear of its scaffold: announce it in the gold banner. */
   private onBuildingRevealed(b: Building): void {
+    haptic(b.lastWork?.upgrade ? 'medium' : 'light');
     if (QUIET_BUILDINGS.has(b.key)) return;
     this.audio?.sfx('complete', b.x, b.z);
     const text = buildingNotice(b);
@@ -2409,12 +2463,15 @@ export class Game {
 
   private update(realDt: number, dt: number): void {
     this.input.update(realDt);
+    this.buildings.updateDrops(realDt);
     if (this.rotateHold) this.rig.rotate(this.rotateHold * CAMERA.rotateSpeed * realDt);
     if (this.followId >= 0) {
       const f = this.colony.byId(this.followId);
       if (f && !f.hidden) {
-        this.rig.goal.x = f.x;
-        this.rig.goal.z = f.z;
+        // Eased, so their small steps and turns don't jiggle the view (the rig smooths it again).
+        const k = 1 - Math.exp(-5 * realDt);
+        this.rig.goal.x += (f.x - this.rig.goal.x) * k;
+        this.rig.goal.z += (f.z - this.rig.goal.z) * k;
       } else if (!f) this.followId = -1;
     }
     this.wildlifeView?.update(realDt);
@@ -2427,7 +2484,8 @@ export class Game {
     this.volcano.update(dt > 0 ? realDt : 0);
     const t = this.time.elapsed;
     // With the day/night cycle off, the light stays at warm mid-afternoon (the clock still runs for the islanders).
-    this.lighting.update(this.settings.dayNight ? this.time.t : RENDER.fixedTimeOfDay, this.rig.target, this.rig.viewRadius);
+    // Photo Mode's dawn, day or night light is for the picture only: the island's clock is untouched.
+    this.lighting.update(this.photoLight ?? (this.settings.dayNight ? this.time.t : RENDER.fixedTimeOfDay), this.rig.target, this.rig.viewRadius);
     const ls = this.lighting.state;
     const fog = this.scene.fog as THREE.Fog;
     fog.color.copy(ls.fog);
@@ -2613,6 +2671,7 @@ export class Game {
     const opens = Object.entries(BUILD_STAGE).filter(([, s]) => s === stage).map(([k]) => BUILDINGS[k as BuildingKey].name);
     this.ui.notice({ title: `${this.islandName} is now a ${title}`, line: STAGES[stage - 1], benefit: opens.length ? `New: ${opens.slice(0, 4).join(', ')}${opens.length > 4 ? '…' : ''}` : null, icon: 'tick' });
     this.audio?.sfx('milestone');
+    haptic('success');
   }
 
   private checkMilestones(): void {
@@ -2633,6 +2692,7 @@ export class Game {
         this.milestones.add(m.id);
         this.ui.milestone(m.id);
         this.audio?.sfx('milestone');
+        haptic('medium');
       }
     }
   }
