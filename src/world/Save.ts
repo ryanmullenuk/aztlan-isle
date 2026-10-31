@@ -23,6 +23,10 @@ export interface SaveData {
   time: { elapsed: number; day: number; t: number; speed: number };
   camera: { x: number; z: number; dist: number; yaw: number };
   res: Record<ResourceKey, number>;
+  /** Islanders' open requests. */
+  requests?: unknown[];
+  /** Smoothed income per minute (what the village gathers while the player is away). */
+  income?: Partial<Record<ResourceKey, number>>;
   milestones: string[];
   stats: { sculpted: number; marked: number; boats: number };
   /** Weather: its state, and the storm already decided on (if any), so a forecast storm still comes after loading. */
@@ -143,6 +147,8 @@ export function serialize(g: Game): SaveData {
     time: { elapsed: g.time.elapsed, day: g.time.day, t: g.time.t, speed: g.time.speed },
     camera: { x: g.rig.goal.x, z: g.rig.goal.z, dist: g.rig.goal.dist, yaw: g.rig.goal.yaw },
     res: { ...g.eco.res },
+    income: { ...g.eco.steady },
+    ...(g.requests ? { requests: g.requests.save() } : {}),
     milestones: [...g.milestones],
     stats: { ...g.stats },
     weather: { state: g.powers?.state ?? 'clear', ...(g.powers ? g.powers.schedule : {}) },
@@ -277,7 +283,9 @@ export function applyRest(g: Game, d: SaveData): void {
       i.manualRole = false;
     }
   }
+  g.requests?.restore(d.requests, idMap);
   Object.assign(g.eco.res, d.res);
+  if (d.income && typeof d.income === 'object') for (const [k, v] of Object.entries(d.income)) if (Number.isFinite(v) && (v as number) >= 0) g.eco.steady[k as ResourceKey] = v as number;
   g.buildings.recomputeCaps();
   g.time.elapsed = d.time.elapsed;
   g.time.day = d.time.day;

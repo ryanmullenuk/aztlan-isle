@@ -3,6 +3,10 @@ import { ECONOMY, FOOD_KEYS, GoodKey, ResourceKey, TEMPLE } from '../config';
 export type Cost = { wood: number; stone: number; belief: number; carvedStone?: number; food?: number };
 
 /** Global stockpile. Physical delivery is simulated by carriers; this tracks the totals and capacities. */
+/** Longest absence that still counts, and the share of normal gathering done while away. */
+export const AWAY_CAP_SECONDS = 4 * 3600;
+export const AWAY_PACE = 0.35;
+
 export class Economy {
   res: Record<ResourceKey, number> = { ...ECONOMY.start };
   /** Precious goods (no store limit): pearls for trading, herbs and spices for healing. */
@@ -12,6 +16,8 @@ export class Economy {
   beliefCap = ECONOMY.beliefBaseCap;
   /** Rolling income rates for the UI (per minute). */
   rates: Partial<Record<ResourceKey, number>> = {};
+  /** The same, smoothed over several minutes of play (saved): what the village gathers while you're away. */
+  steady: Partial<Record<ResourceKey, number>> = {};
   private acc: Partial<Record<ResourceKey, number>> = {};
   private rateTimer = 0;
   /** Test mode: everything is free and stores never run out. */
@@ -98,9 +104,27 @@ export class Economy {
     this.rateTimer += dt;
     if (this.rateTimer >= 30) {
       for (const k of Object.keys(this.acc) as ResourceKey[]) this.rates[k] = ((this.acc[k] ?? 0) / this.rateTimer) * 60;
+      for (const k of Object.keys(this.res) as ResourceKey[]) this.steady[k] = (this.steady[k] ?? 0) * 0.85 + ((this.acc[k] ?? 0) / this.rateTimer) * 60 * 0.15;
       this.acc = {};
       this.rateTimer = 0;
     }
+  }
+
+  /**
+   * Away for `seconds` (capped at four hours): the islanders kept gathering at about a third of
+   * their usual pace (they rest at night, and nobody is directing them), up to what the stores hold.
+   * Returns what was actually added.
+   */
+  awayGains(seconds: number): Partial<Record<ResourceKey, number>> {
+    const t = Math.min(Math.max(0, seconds), AWAY_CAP_SECONDS), out: Partial<Record<ResourceKey, number>> = {};
+    if (this.godMode) return out;
+    for (const k of Object.keys(this.steady) as ResourceKey[]) {
+      const rate = this.steady[k] ?? 0;
+      if (!(rate > 0)) continue;
+      const got = Math.floor(this.add(k, (rate / 60) * t * AWAY_PACE));
+      if (got > 0) out[k] = got;
+    }
+    return out;
   }
 
   templeUpgradeCost(tier: number): Cost {

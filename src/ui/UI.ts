@@ -1,4 +1,4 @@
-import { TITLES } from '../economy/Progression';
+import { STAGES, TITLES } from '../economy/Progression';
 import { HOUSE_STYLES, isHouseStyle, type HouseStyle } from '../buildings/models';
 import { buildingOperational } from '../buildings/BuildingCondition';
 import { fireBuildingCard } from './FireBuildingCard';
@@ -35,6 +35,9 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = ''):
 };
 
 const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${Math.floor(n)}`);
+
+/** Whether the goal checklist is open (remembered per device). */
+const GOALS_OPEN_KEY = 'aztlan-goals-open';
 
 const BUILD_ICON: Record<BuildingKey, string> = {
   boatworkshop: 'b_boatworkshop', market: 'b_market', stonemason: 'b_stonemason', herbalist: 'b_herbalist', herbalgarden: 'b_herbalgarden',
@@ -228,7 +231,60 @@ export class UI {
         grid.classList.add('hidden');
       });
     this.tl.append(inventory, grid, this.villagePriorities.button, this.villagePriorities.panel);
+    // The next village title and what it still needs: a checklist, each building a tap away.
+    this.goalToggle = el('button', 'inventory-toggle goal-toggle hidden', '') as HTMLButtonElement;
+    this.goalToggle.type = 'button';
+    this.goalList = el('div', 'panel goal-list hidden') as HTMLDivElement;
+    this.goalList.id = 'goal-list';
+    this.goalToggle.setAttribute('aria-controls', this.goalList.id);
+    let open = !matchMedia('(max-width: 720px)').matches;
+    try { const saved = localStorage.getItem(GOALS_OPEN_KEY); if (saved) open = saved === '1'; } catch { /* storage unavailable */ }
+    this.goalsOpen = open;
+    this.goalToggle.onclick = () => {
+      this.goalsOpen = !this.goalsOpen;
+      try { localStorage.setItem(GOALS_OPEN_KEY, this.goalsOpen ? '1' : '0'); } catch { /* storage unavailable */ }
+      this.goalShown = '';
+      this.renderGoals();
+    };
+    this.goalList.onclick = (e) => {
+      const item = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-build]');
+      if (!item) return;
+      const key = item.dataset.build as BuildingKey;
+      const reason = this.game.buildings.constructionRequirement(key);
+      if (reason) this.toast(reason, 'warn');
+      else this.game.startPlacing(key);
+    };
+    this.tl.append(this.goalToggle, this.goalList);
     this.root.appendChild(this.tl);
+  }
+
+  private goalToggle!: HTMLButtonElement;
+  private goalList!: HTMLDivElement;
+  private goalsOpen = true;
+  private goalShown = '';
+
+  /** The goal checklist: hidden in sandbox, during the tutorial and once the last title is earned. */
+  private renderGoals(): void {
+    const g = this.game, p = g.progression, next = p.stage + 1;
+    const hide = g.eco.godMode || next > TITLES.length || !this.tutorial.classList.contains('hidden') || this.zen;
+    const items = hide ? [] : p.checklist(next).filter((i) => !(i.done && i.text.startsWith('Reach ')));
+    const asks = hide ? [] : g.requests?.list ?? [];
+    const key = hide ? 'hidden' : `${next}|${this.goalsOpen}|${items.map((i) => `${i.done ? 1 : 0}${i.text}`).join('|')}|${asks.map((r) => r.id).join(',')}`;
+    if (key === this.goalShown) return;
+    this.goalShown = key;
+    this.goalToggle.classList.toggle('hidden', hide);
+    this.goalList.classList.toggle('hidden', hide || !this.goalsOpen);
+    if (hide) return;
+    const done = items.filter((i) => i.done).length;
+    this.goalToggle.setAttribute('aria-expanded', String(this.goalsOpen));
+    this.goalToggle.innerHTML = `<span class="az-ico" aria-hidden="true">${PANEL_ICONS.temple}</span><span class="az-lbl">Next: ${TITLES[next - 1]}</span><span class="goal-count">${done}/${items.length}</span><span class="inventory-chevron" aria-hidden="true">⌄</span>`;
+    this.goalList.innerHTML = `<div class="goal-head">${STAGES[next - 1]}</div>` + items.map((i) => {
+      const mark = i.done ? '<span class="goal-mark done">✓</span>' : '<span class="goal-mark"></span>';
+      return i.build && !i.done
+        ? `<button type="button" class="goal-item" data-build="${i.build}">${mark}<span>${i.text}</span><span class="goal-go" aria-hidden="true">›</span></button>`
+        : `<div class="goal-item${i.done ? ' done' : ''}">${mark}<span>${i.text}</span></div>`;
+    }).join('') + (asks.length ? `<div class="goal-head goal-asks">Requests</div>` + asks.map((r) =>
+      `<button type="button" class="goal-item ask" data-build="${r.key}"><span class="goal-mark ask">!</span><span>${r.text}</span><span class="goal-go" aria-hidden="true">›</span></button>`).join('') : '');
   }
 
   private buildTopRight(): void {
@@ -1150,6 +1206,7 @@ export class UI {
     this.timer -= dt;
     if (this.timer <= 0) {
       this.timer = 0.25;
+      this.renderGoals();
       if (g0.placing && g0.touchPlacementActive) {
         g0.refreshPlacement();
         const status = g0.placementFeedback;
@@ -1369,10 +1426,12 @@ export class UI {
       const role = isl.child ? 'Child' : isl.warrior ? (isl.warrior === 'jaguar' ? 'Jaguar warrior' : 'Eagle warrior') : ROLE_LABEL[isl.role];
       const carry = isl.carry ? `${icon(isl.carry.res === 'wood' ? 'wood' : isl.carry.res)} ${isl.carry.n} ${isl.carry.res}` : 'Nothing';
       const say = islanderLine(isl, g.colony.activity(isl), performance.now() / 1000);
-      key = `i${isl.id}|${say}|${Math.ceil(isl.injured / 10)}|${isl.condition}|${Math.ceil(isl.conditionT / 60)}|${role}|${g.colony.activity(isl)}|${carry}|${home?.id}|${Math.round(isl.hunger * 20)}|${Math.round(isl.rest * 20)}|${Math.round(isl.happy * 20)}|${g.followId === isl.id}`;
+      const req = g.requests?.of(isl.id);
+      key = `i${isl.id}|${say}|${req?.id ?? ''}|${Math.ceil(isl.injured / 10)}|${isl.condition}|${Math.ceil(isl.conditionT / 60)}|${role}|${g.colony.activity(isl)}|${carry}|${home?.id}|${Math.round(isl.hunger * 20)}|${Math.round(isl.rest * 20)}|${Math.round(isl.happy * 20)}|${g.followId === isl.id}`;
       html = `
         <div class="card-head"><span>${isl.name}</span><span class="tag ${isl.gender}">${isl.gender === 'm' ? 'Male' : 'Female'}${isl.child ? ' · child' : ''}</span></div>
         <p class="isl-say">“${say}”</p>
+        ${req ? `<div class="isl-req"><span>💬 ${req.text}</span><button class="btn small" data-a="req-build">Build ${BUILDINGS[req.key].name}</button></div>` : ''}
         <div class="kv"><span>Job</span><b>${role}${isl.manualRole ? ' <em>(assigned)</em>' : ''}</b></div>
         <div class="kv"><span>Doing</span><b>${g.colony.activity(isl)}</b></div>
         <div class="kv"><span>Carrying</span><b>${carry}</b></div>
@@ -1628,6 +1687,12 @@ export class UI {
       if (!isl) return;
       if (a === 'explore') g.toggleExplore();
       if (a === 'follow') g.follow(g.followId === isl.id ? -1 : isl.id);
+      if (a === 'req-build') {
+        const req = g.requests?.of(isl.id);
+        const reason = req ? g.buildings.constructionRequirement(req.key) : '';
+        if (reason) this.toast(reason, 'warn');
+        else if (req) g.startPlacing(req.key);
+      }
       if (a === 'auto') {
         isl.manualRole = false;
         isl.workplace = -1;
@@ -1837,6 +1902,37 @@ export class UI {
     ctx.strokeRect(-half * g.rig.camera.aspect * 0.7, -half * 0.7, half * g.rig.camera.aspect * 1.4, half * 1.4);
     ctx.restore();
   }
+
+  /** Back after a while: how long, what the islanders gathered, and what the village needs next. */
+  welcomeBack(seconds: number, gains: Partial<Record<ResourceKey, number>>): void {
+    if (this.photo?.open || this.zen) return;
+    this.welcome?.remove();
+    const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60);
+    const away = seconds >= 86400 ? `${Math.floor(seconds / 86400)} day${seconds >= 172800 ? 's' : ''}` : h ? `${h} h ${m} min` : `${m} minutes`;
+    const food = (gains.grain ?? 0) + (gains.fruit ?? 0) + (gains.meat ?? 0) + (gains.fish ?? 0);
+    const list = [['wood', gains.wood], ['stone', gains.stone], ['grain', food], ['belief', gains.belief]]
+      .filter(([, n]) => (n as number) > 0)
+      .map(([k, n]) => `<span class="wb-gain">${icon(k as string)}<b>+${n}</b> ${k === 'grain' ? 'food' : k}</span>`).join('');
+    const p = this.game.progression, next = p.stage + 1;
+    const goal = next <= TITLES.length && !this.game.eco.godMode
+      ? (() => { const items = p.checklist(next).filter((i) => !(i.done && i.text.startsWith('Reach '))); const todo = items.find((i) => !i.done);
+        return `<p class="wb-next"><b>Next: ${TITLES[next - 1]}</b> · ${items.filter((i) => i.done).length} of ${items.length} done${todo ? `<br><span class="muted">${todo.text}</span>` : ''}</p>`; })()
+      : '';
+    const modal = el('div', 'modal welcome-modal');
+    modal.innerHTML = `<div class="panel card welcome-card" role="dialog" aria-labelledby="wb-title">
+      <div class="wb-kicker">You were away ${away}</div>
+      <div class="wb-title" id="wb-title">Welcome back to ${this.game.islandName}</div>
+      ${list ? `<p>Your islanders kept busy while you were gone:</p><div class="wb-gains">${list}</div>` : '<p>Your islanders have been waiting for you. All is well on the island.</p>'}
+      ${goal}
+      <div class="actions"><button class="btn" data-a="ok">Back to the island</button></div>
+    </div>`;
+    const close = () => { modal.remove(); if (this.welcome === modal) this.welcome = null; };
+    modal.onclick = (e) => { if (e.target === modal || (e.target as HTMLElement).closest('[data-a="ok"]')) close(); };
+    this.welcome = modal;
+    this.root.appendChild(modal);
+    this.game.audio?.sfx('milestone');
+  }
+  private welcome: HTMLElement | null = null;
 
   milestone(id: string): void {
     const m = MILESTONES.find((x) => x.id === id);

@@ -18,6 +18,7 @@ import { WildlifeView, wildlifeBehaviour, type WildlifeSubject } from './render/
 import * as THREE from 'three';
 import { haptic, setHaptics } from './ui/Haptics';
 import { PathWorkerClient } from './ai/PathWorkerClient';
+import { RequestBoard, REQUESTS } from './economy/Requests';
 import type { Where } from './ui/where';
 import { WORLD, PATHS, BUILDINGS, BuildingKey, CAMERA, ISLANDER, MILESTONES, POWERS, PresetName, RENDER, SAVE, isFarm, SETTLERS, RESEARCH, RESEARCH_UPGRADE_LABEL } from './config';
 import { World } from './world/World';
@@ -164,6 +165,28 @@ export interface AudioLike {
   sfx(name: string, x?: number, z?: number): void;
 }
 
+let bubbleMat: THREE.SpriteMaterial | null = null;
+/** A gold speech bubble with an exclamation mark, drawn once. */
+function requestBubbleMaterial(): THREE.SpriteMaterial {
+  if (bubbleMat) return bubbleMat;
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const x = c.getContext('2d');
+  if (x) {
+    x.fillStyle = '#f3d27a'; x.strokeStyle = '#5a3a12'; x.lineWidth = 4;
+    x.beginPath(); x.ellipse(32, 27, 25, 21, 0, 0, Math.PI * 2); x.fill(); x.stroke();
+    x.beginPath(); x.moveTo(24, 44); x.lineTo(20, 60); x.lineTo(36, 46); x.closePath(); x.fill(); x.stroke();
+    x.fillStyle = '#f3d27a'; x.fillRect(22, 40, 14, 6);
+    x.fillStyle = '#5a3a12'; x.font = 'bold 32px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('!', 32, 28);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  bubbleMat = new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true });
+  return bubbleMat;
+}
+
+/** Away at least this long (seconds) before the welcome back card. */
+const WELCOME_AFTER = 300;
 /** Camera distance beyond which animals stop casting shadows. */
 const SMALL_SHADOWS_TO = 70;
 /** How far the camera closes in when it starts following an islander. */
@@ -250,6 +273,10 @@ export class Game {
   /** Selected land animal (index into wildlife.animals.list), or -1. */
   selectedAnimal = -1;
   followId = -1;
+  /** Islanders' requests (see RequestBoard). */
+  requests!: RequestBoard;
+  /** Speech bubbles over islanders who have asked for something. */
+  private requestMarkers = new THREE.Group();
   /** Photo Mode is open (the interface is hidden and the island can only be looked at). */
   photoMode = false;
   /** Photo Mode's chosen light (a time of day), or null for the island's own. */
@@ -384,6 +411,30 @@ export class Game {
       const c = this.rig.camera.position, t = this.rig.target;
       return { x: c.x, y: c.y, z: c.z, tx: t.x, tz: t.z, r: this.rig.viewRadius };
     };
+    // Islanders' requests: a wish now and then; granting it brings Belief and a happier islander.
+    this.requests = new RequestBoard({
+      people: () => this.colony.list,
+      buildings: () => this.buildings.list,
+      byId: (id) => this.buildings.byId(id),
+      canBuild: (key) => this.buildings.constructionRequirement(key),
+      freeBeds: () => this.buildings.freeBeds,
+      sandbox: () => this.eco.godMode,
+    }, () => this.rng.next(), () => this.time.elapsed);
+    this.requests.onAsked = (r, who) => {
+      this.ui?.toast(`💬 ${r.text}`, 'info', () => { const p = this.colony.byId(r.who); return p ? { x: p.x, z: p.z } : null; },
+        { key: `request-${r.id}`, label: 'Show', onView: () => { if (this.colony.byId(who.id)) this.select({ islander: who.id }); } });
+    };
+    this.requests.onGranted = (r, who) => {
+      this.eco.add('belief', r.belief);
+      if (who) who.happy = Math.min(1, who.happy + REQUESTS.happy);
+      this.ui?.dismissAlert(`request-${r.id}`);
+      this.ui?.notice({ title: 'Wish granted', line: r.thanks, benefit: `+${r.belief} Belief · ${who?.name ?? 'They'} ${who ? 'is' : 'are'} happier`, icon: 'tick' });
+      this.audio?.sfx('milestone');
+      haptic('medium');
+    };
+    this.requests.onLapsed = (r) => this.ui?.dismissAlert(`request-${r.id}`);
+    this.requestMarkers.renderOrder = 30;
+    this.scene.add(this.requestMarkers);
     // Long route searches run in a background worker where the browser allows it.
     if (typeof Worker === 'function') this.colony.pathWorker = new PathWorkerClient(this.world);
     this.rig3d = new IslanderRig();
@@ -816,7 +867,16 @@ export class Game {
       }
     });
     const flush = () => !this.noSave && writeSave(this);
-    document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && flush());
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') {
+        this.hiddenAt = Date.now();
+        flush();
+      } else if (this.hiddenAt && this.playing) {
+        // Back in the app after a while (a phone often resumes rather than reloads).
+        this.returned((Date.now() - this.hiddenAt) / 1000);
+        this.hiddenAt = 0;
+      }
+    });
     window.addEventListener('pagehide', flush);
 
     const ray = new THREE.Ray();
@@ -863,6 +923,7 @@ export class Game {
       L.wind = wind;
       L.night = this.lighting.state.night;
       L.rain = this.powers.rainAmt;
+      L.storm = this.powers.state === 'storm' ? 1 : this.volcano.state.phase === 'erupting' ? 0.85 : this.volcano.state.phase === 'smoking' ? 0.3 : 0;
       this.audio.update(realDt);
       const cam = this.rig.camera, right = cam.matrixWorld.elements;
       this.audio.updateChatter(realDt, this.colony.list, {
@@ -875,6 +936,7 @@ export class Game {
   /** Restore a saved island (terrain changes were applied before the meshes were built). */
   private loadFrom(save: SaveData): void {
     applyRest(this, save);
+    if (Number.isFinite(save.savedAt)) this.awaySince = save.savedAt;
     this.terrain.updateWear();
   }
 
@@ -1072,6 +1134,12 @@ export class Game {
   play(): void {
     if (this.playing) return;
     this.playing = true; this.clock.reset();
+    // Back to a saved island: once the clouds have parted, say what happened while you were away.
+    if (this.awaySince) {
+      const away = (Date.now() - this.awaySince) / 1000;
+      this.awaySince = 0;
+      setTimeout(() => this.returned(away), 3400);
+    }
     if (this.introFollow) {
       this.introElapsed = 0;
       this.introDistance = this.rig.maxDist * 1.04;
@@ -2221,6 +2289,41 @@ export class Game {
     });
   }
 
+  /** When the saved island being played was last saved (0 once welcomed back), and when the app was hidden. */
+  private awaySince = 0;
+  private hiddenAt = 0;
+
+  /**
+   * The player has been away `seconds`: if it was a while, the islanders kept gathering (see
+   * Economy.awayGains) and a welcome card says what they brought in and what the village needs next.
+   */
+  private returned(seconds: number): void {
+    if (!(seconds >= WELCOME_AFTER) || this.stopped || this.eco.godMode) return;
+    const gains = this.eco.awayGains(seconds);
+    this.ui.welcomeBack(seconds, gains);
+  }
+
+  private markerTime = 0;
+  /** A small gold speech bubble bobbing over each islander with a request (hidden indoors and in Photo Mode). */
+  private updateRequestMarkers(realDt: number): void {
+    const list = this.requests?.list ?? [];
+    const M = this.requestMarkers;
+    while (M.children.length < list.length) {
+      const m = new THREE.Sprite(requestBubbleMaterial());
+      m.renderOrder = 30;
+      M.add(m);
+    }
+    this.markerTime += realDt;
+    M.children.forEach((m, i) => {
+      const r = list[i], who = r ? this.colony.byId(r.who) : undefined;
+      m.visible = !!who && !who.hidden && !this.photoMode;
+      if (!who || !m.visible) return;
+      const s = 0.45 * Math.max(1, Math.min(2.6, this.rig.cur.dist / 30));
+      m.position.set(who.x, who.y + 0.95 + Math.sin(this.markerTime * 2.4 + i) * 0.06 + s * 0.3, who.z);
+      m.scale.set(s, s, 1);
+    });
+  }
+
   /** A new foundation has dropped into place. */
   private onFoundationLanded(b: Building): void {
     this.audio?.sfx('thud', b.x, b.z);
@@ -2511,6 +2614,8 @@ export class Game {
 
   private update(realDt: number, dt: number): void {
     this.input.update(realDt);
+    this.requests?.update(dt);
+    this.updateRequestMarkers(realDt);
     this.buildings.updateDrops(realDt);
     if (this.rotateHold) this.rig.rotate(this.rotateHold * CAMERA.rotateSpeed * realDt);
     if (this.followId >= 0) {
@@ -2725,6 +2830,7 @@ export class Game {
     const opens = Object.entries(BUILD_STAGE).filter(([, s]) => s === stage).map(([k]) => BUILDINGS[k as BuildingKey].name);
     this.ui.notice({ title: `${this.islandName} is now a ${title}`, line: STAGES[stage - 1], benefit: opens.length ? `New: ${opens.slice(0, 4).join(', ')}${opens.length > 4 ? '…' : ''}` : null, icon: 'tick' });
     this.audio?.sfx('milestone');
+    this.audio?.flourish();
     haptic('success');
   }
 

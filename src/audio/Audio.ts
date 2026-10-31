@@ -32,7 +32,10 @@ export class AudioEngine {
   music: number = 0.5;
   muted = false;
   /** Listener context set each frame by the game. */
-  listener = { x: 0, y: 0, z: 0, zoom: 60, coast: 0, forest: 0, wind: 1, night: 0, rain: 0 };
+  listener = { x: 0, y: 0, z: 0, zoom: 60, coast: 0, forest: 0, wind: 1, night: 0, rain: 0, storm: 0 };
+  /** The music's mood, eased towards the listener's: night (sparser, lower) and storm (urgent drums, a low drone). */
+  private mood = { night: 0, storm: 0 };
+  private drone: GainNode | null = null;
   waterfall: { x: number; y: number; z: number } | null = null;
 
   get ready(): boolean {
@@ -67,6 +70,21 @@ export class AudioEngine {
     this.noise = this.makeNoise(false);
     this.brown = this.makeNoise(true);
     this.startAmbience();
+    // A low D drone, silent until a storm (or eruption) builds the tension.
+    const drone = ctx.createGain();
+    drone.gain.value = 0;
+    const droneFilter = ctx.createBiquadFilter();
+    droneFilter.type = 'lowpass';
+    droneFilter.frequency.value = 420;
+    for (const [f, type] of [[73.42, 'sawtooth'], [110.0, 'sine'], [73.9, 'triangle']] as [number, OscillatorType][]) {
+      const o = ctx.createOscillator();
+      o.type = type;
+      o.frequency.value = f;
+      o.connect(droneFilter);
+      o.start();
+    }
+    droneFilter.connect(drone).connect(this.musicBus);
+    this.drone = drone;
     this.nextBeat = ctx.currentTime + 0.5;
     this.applyVolumes();
   }
@@ -272,10 +290,13 @@ export class AudioEngine {
     while (this.nextBeat < ctx.currentTime + 0.4) {
       const t = this.nextBeat;
       const b = this.beat % 32;
-      const night = this.listener.night;
-      if (b % 8 === 0) this.drum(t, true, 0.8);
-      if (b % 8 === 3 || b % 8 === 6) this.drum(t, false, 0.45);
-      if (b % 2 === 1) this.shaker(t, 0.6 + Math.random() * 0.3);
+      const night = this.mood.night, storm = this.mood.storm;
+      // Night: a soft heartbeat of drums and no shaker. Storm: an urgent, building pattern.
+      if (b % 8 === 0) this.drum(t, true, 0.8 * (1 - 0.35 * night) + 0.3 * storm);
+      if ((b % 8 === 3 || b % 8 === 6) && Math.random() >= night * 0.6) this.drum(t, false, 0.45 * (1 - 0.4 * night) + 0.2 * storm);
+      if (storm > 0.3 && (b % 8 === 2 || b % 8 === 5 || b % 8 === 7)) this.drum(t, b % 8 === 7, 0.2 + 0.35 * storm);
+      if (b % 2 === 1 && Math.random() >= night) this.shaker(t, (0.6 + Math.random() * 0.3) * (1 - 0.7 * night));
+      if (storm > 0.5 && b % 2 === 0) this.shaker(t, 0.35 * storm);
       if (b === 0) {
         // New phrase: a gentle walk through the scale.
         this.phrase = [];
@@ -287,11 +308,25 @@ export class AudioEngine {
       }
       if (b % 4 === 0 && this.phrase.length) {
         const note = this.phrase[(b / 4) | 0];
-        if (note >= 0 && Math.random() < 0.85) this.flute(this.scale[note] * (night > 0.5 ? 0.5 : 1), t, spb * (Math.random() < 0.4 ? 6 : 3), 0.9);
+        // Fewer, longer notes at night; low and sparse in a storm.
+        const play = 0.85 * (1 - 0.35 * night) * (1 - 0.5 * storm);
+        const pitch = storm > 0.5 ? this.scale[Math.min(note, 4)] * 0.5 : this.scale[note] * (night > 0.5 ? 0.5 : 1);
+        if (note >= 0 && Math.random() < play) this.flute(pitch, t, spb * (Math.random() < 0.4 + 0.3 * night ? 6 : 3), 0.9 - 0.25 * night);
       }
       this.nextBeat += spb;
       this.beat++;
     }
+  }
+
+  /** A short fanfare when the village earns a new title: rising flute over a big drum. */
+  flourish(): void {
+    if (!this.ready) return;
+    const t = this.ctx!.currentTime + 0.05;
+    this.drum(t, true, 1);
+    [0, 2, 3, 4, 6].forEach((n, i) => this.flute(this.scale[n], t + i * 0.13, 0.5, 1));
+    this.flute(this.scale[7], t + 0.7, 1.6, 1);
+    this.drum(t + 0.7, true, 0.9);
+    this.drum(t + 0.7, false, 0.7);
   }
 
   // ---------------- Effects ----------------
@@ -556,6 +591,11 @@ export class AudioEngine {
       } else this.fallPanner.setPosition(f.x, f.y, f.z);
       this.fall.gain.setTargetAtTime(1.6, t, 0.5);
     }
+    // Moods change over a few seconds, not at a stroke.
+    const k = 1 - Math.exp(-dt / 4);
+    this.mood.night += (L.night - this.mood.night) * k;
+    this.mood.storm += (L.storm - this.mood.storm) * k;
+    this.drone?.gain.setTargetAtTime(0.11 * this.mood.storm * (0.7 + 0.3 * Math.sin(ctx.currentTime * 0.4)), t, 0.6);
     this.scheduleMusic();
     // Jungle birdsong during the day.
     this.birdTimer -= dt;
