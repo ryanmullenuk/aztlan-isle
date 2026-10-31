@@ -27,7 +27,7 @@ const FLAME_SCALE: Partial<Record<BuildingKey, number>> = { campfire: 0.85, bonf
 import { Particles } from '../render/Particles';
 import { GeoBuilder } from '../render/GeoBuilder';
 import { FireLights, FireSpot } from './FireLights';
-import { BATCHED_LAYER, BuildingShadows } from './BuildingShadows';
+import { BATCHED_LAYER, BuildingShadows, batchingWorks } from './BuildingShadows';
 
 /** Door direction per rotation (door faces +z at rot 0). */
 export const ROT_DIR: [number, number][] = [[0, 1], [1, 0], [0, -1], [-1, 0]];
@@ -435,6 +435,8 @@ export class BuildingSystem {
   private dust = new Particles(160, 0xcdb894, 0.55);
   /** Finished buildings cast their shadows from one batched mesh (see BuildingShadows). */
   private shadows = new BuildingShadows(modelLo, (b, used) => { b.finished.castShadow = !used; });
+  /** Whether this browser draws batches correctly (not on Apple's WebKit: see batchingWorks). */
+  private batching = batchingWorks();
   /** Far, settled buildings are drawn together in one batch from their simple models. */
   private far = new BuildingShadows(modelLo, (b, used) => {
     b.finished.layers.set(used ? BATCHED_LAYER : 0);
@@ -1508,8 +1510,10 @@ export class BuildingSystem {
   update(dt: number, time: number, night: number, seasonIndex: number, raining: boolean, camTarget: THREE.Vector3): void {
     this.refreshDoorways();
     const settled = (b: Building) => b.complete && !b.upgrading && !b.ruined && !b.repairing && b.fire <= 0 && b.scaffoldSink <= 0 && b.drop <= 0 && b.finished.visible && b.group.visible;
-    this.shadows.sync(this.list, settled);
-    this.far.sync(this.list, (b) => b.lodFar && settled(b));
+    if (this.batching) {
+      this.shadows.sync(this.list, settled);
+      this.far.sync(this.list, (b) => b.lodFar && settled(b));
+    }
     this.demolitions = this.demolitions.filter(effect => !effect.update(dt));
     // Night lights: each building comes on at its own moment as dusk deepens, and goes dark at dawn.
     GLOW_UNIFORMS.uNight.value = night;

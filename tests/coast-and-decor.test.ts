@@ -123,3 +123,11 @@ test('islander lines suit what they are doing and never repeat back to back', ()
   // Within one beat the line holds (the card can redraw without it changing).
   assert.equal(islanderLine(isl, 'Thinking', 100), islanderLine(isl, 'Thinking', 100.5));
 });
+
+test('buildings are not batched on Apple WebKit (iPhone, iPad, the Mac app), only elsewhere', async () => {
+  const { batchingWorks } = await import('../src/buildings/BuildingShadows');
+  assert.equal(batchingWorks('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148'), false);
+  assert.equal(batchingWorks('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)'), false);
+  assert.equal(batchingWorks('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/130.0 Mobile/15E148 Safari/604.1'), false);
+  assert.equal(batchingWorks('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36'), true);
+});

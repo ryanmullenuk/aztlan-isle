@@ -9,6 +9,16 @@ export interface ShadowSource {
   finishedHi?: THREE.BufferGeometry | null;
 }
 
+/**
+ * Batched drawing misplaces everything on Apple's WebKit (iPhone, iPad and the Mac app: every
+ * building in a batch was drawn in the same spot, so zoomed out they all vanished). There the
+ * buildings are drawn one by one as before; other browsers batch them.
+ */
+export function batchingWorks(ua = typeof navigator === 'undefined' ? '' : navigator.userAgent): boolean {
+  const appleWebKit = /iPhone|iPad|iPod/.test(ua) || (/AppleWebKit/.test(ua) && !/Chrome|Chromium|Edg|OPR/.test(ua));
+  return !appleWebKit;
+}
+
 /** Layer a building's own finished mesh moves to while the far batch draws it (picking still sees it). */
 export const BATCHED_LAYER = 6;
 
