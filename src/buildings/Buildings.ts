@@ -8,7 +8,7 @@ import { processMedicine } from './Herbalist';
 import { needsStonemason, masonryCost, STONEMASON, BOAT_WORKSHOP, DECREES, PALACE_RULES, type DecreeKey } from '../config';
 import { BUILDINGS, BuildingDef, BuildingKey, ECONOMY, FARM, HOMES, JETTY, TEMPLE, FARM_TYPES, isFarm, isDecor } from '../config';
 import { Economy, Cost } from '../economy/Economy';
-import { buildingMaterial, canopyMaterial, fireMaterial, flameMaterial, FX } from '../render/materials';
+import { buildingMaterial, canopyMaterial, fireMaterial, flameMaterial, FX, patchStylised } from '../render/materials';
 import { Terrain } from '../terrain/Terrain';
 import { Vegetation } from '../vegetation/Vegetation';
 import { World } from '../world/World';
@@ -27,6 +27,7 @@ const FLAME_SCALE: Partial<Record<BuildingKey, number>> = { campfire: 0.85, bonf
 import { Particles } from '../render/Particles';
 import { GeoBuilder } from '../render/GeoBuilder';
 import { FireLights, FireSpot } from './FireLights';
+import { BATCHED_LAYER, BuildingShadows } from './BuildingShadows';
 
 /** Door direction per rotation (door faces +z at rot 0). */
 export const ROT_DIR: [number, number][] = [[0, 1], [1, 0], [0, -1], [-1, 0]];
@@ -432,6 +433,15 @@ export class BuildingSystem {
   private smoke = new Particles(360, 0xc9c2ba, 0.6);
   /** A puff of dust where a new foundation lands. */
   private dust = new Particles(160, 0xcdb894, 0.55);
+  /** Finished buildings cast their shadows from one batched mesh (see BuildingShadows). */
+  private shadows = new BuildingShadows(modelLo, (b, used) => { b.finished.castShadow = !used; });
+  /** Far, settled buildings are drawn together in one batch from their simple models. */
+  private far = new BuildingShadows(modelLo, (b, used) => {
+    b.finished.layers.set(used ? BATCHED_LAYER : 0);
+    // Store contents (baskets, log stacks) are too small to see from that far.
+    for (const f of (b as Building).fills) f.layers.set(used ? BATCHED_LAYER : 0);
+  },
+    patchStylised(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0 })));
   /** A new foundation has just landed (for the thud and a haptic tap). */
   onLanded: (b: Building) => void = () => {};
   private smokeAcc = 0;
@@ -455,7 +465,7 @@ export class BuildingSystem {
   onRemove: (b: Building) => void = () => {};
 
   constructor(private world: World, private veg: Vegetation, private eco: Economy, private terrain: Terrain, private scene: THREE.Scene) {
-    this.group.add(this.smoke.points, this.dust.points);
+    this.group.add(this.smoke.points, this.dust.points, this.shadows.mesh, this.far.mesh);
     this.scene.add(this.spaceMesh);
     this.group.add(this.fireLights.group);
   }
@@ -1497,6 +1507,9 @@ export class BuildingSystem {
 
   update(dt: number, time: number, night: number, seasonIndex: number, raining: boolean, camTarget: THREE.Vector3): void {
     this.refreshDoorways();
+    const settled = (b: Building) => b.complete && !b.upgrading && !b.ruined && !b.repairing && b.fire <= 0 && b.scaffoldSink <= 0 && b.drop <= 0 && b.finished.visible && b.group.visible;
+    this.shadows.sync(this.list, settled);
+    this.far.sync(this.list, (b) => b.lodFar && settled(b));
     this.demolitions = this.demolitions.filter(effect => !effect.update(dt));
     // Night lights: each building comes on at its own moment as dusk deepens, and goes dark at dawn.
     GLOW_UNIFORMS.uNight.value = night;

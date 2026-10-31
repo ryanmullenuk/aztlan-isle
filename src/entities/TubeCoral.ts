@@ -181,5 +181,8 @@ export class TubeCoral {
     }
   }
   refresh(x0:number,z0:number,x1:number,z1:number):void{this.instances.refresh(x0,z0,x1,z1);}
-  setPreset(preset:PresetName):void{habitatPreset(this.group,preset);}
+  setPreset(preset:PresetName):void{habitatPreset(this.group,preset);this.range={low:24,medium:36,high:48,ultra:60}[preset];}
+  private range=36;
+  /** Hide patches beyond the fade-out distance from the camera. */
+  cull(cam:THREE.Vector3):void{this.instances.cull(cam,this.range);}
 }

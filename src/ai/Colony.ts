@@ -16,6 +16,7 @@ import { World } from '../world/World';
 import { escortSurfaceY } from '../entities/livestockTravel';
 import { SpatialHash } from '../world/SpatialHash';
 import { Pathfinder, PathOptions } from './Pathfinder';
+import type { PathWorkerClient } from './PathWorkerClient';
 import { avoidCrowd } from './CrowdAvoidance';
 
 /** Hooks into systems built later (wildlife, boats, audio) so the colony can use them if present. */
@@ -82,6 +83,10 @@ export class Colony {
   list: Islander[] = [];
   private nextId = 1;
   private queue: PathReq[] = [];
+  /** Long route searches handed to the background worker (when the game has one). */
+  pathWorker?: PathWorkerClient;
+  /** Each islander's search out with the worker (a newer request replaces it). */
+  private inflight = new Map<Islander, PathReq>();
   private routes = new WeakMap<Islander, RouteState>();
   readonly pathStats = { queued: 0, reused: 0, pendingReused: 0, completed: 0 };
   private jobTimer = 0;
@@ -208,6 +213,7 @@ export class Colony {
     isl.pathIdx = 0;
     isl.progD = undefined;
     this.queue = this.queue.filter((q) => q.isl !== isl);
+    this.inflight.delete(isl);
     this.routes.set(isl, req);
     this.queue.push(req);
     this.pathStats.queued++;
@@ -2864,27 +2870,47 @@ export class Colony {
       this.queue.splice(i,1);
       // A changed/cancelled job must never inherit its previous destination's route.
       if (!q.isl.pathPending || q.isl.task !== q.task) continue;
-      q.isl.path = this.pf.find(q.isl.x, q.isl.z, q.x, q.z, q.opts);
-      q.isl.pathIdx = 0;
-      q.isl.pathPending = false;
-      const previous = this.routes.get(q.isl);
-      const remaining = q.isl.path?.map(() => 0);
-      if (remaining && q.isl.path) for (let k = remaining.length - 2; k >= 0; k--) {
-        const a = q.isl.path[k], b = q.isl.path[k+1];
-        remaining[k] = remaining[k+1] + Math.hypot(b.x-a.x,b.z-a.z);
+      const worker = this.pathWorker;
+      if (worker?.ok && worker.busy < 24 && !this.pf.isDirect(q.isl.x, q.isl.z, q.x, q.z, q.opts)) {
+        // A real search: done in the background, answered in a frame or two.
+        this.inflight.set(q.isl, q);
+        worker.find(q.isl.x, q.isl.z, q.x, q.z, q.opts, (path) => {
+          if (this.inflight.get(q.isl) !== q) return;
+          this.inflight.delete(q.isl);
+          if (!worker.ok) { this.queue.push(q); return; }
+          if (!q.isl.pathPending || q.isl.task !== q.task) return;
+          this.applyRoute(q, path);
+        });
+        done++;
+        continue;
       }
-      this.routes.set(q.isl, { ...q, remaining, progress: previous?.progress, path: q.isl.path, version: this.world.version,
-        navigationVersion: this.world.navigationVersion, requestedAt: this.clock,
-        checkAt: this.clock + .5 + (q.isl.id % 8) * .03 });
+      this.applyRoute(q, this.pf.find(q.isl.x, q.isl.z, q.x, q.z, q.opts));
       done++;
-      this.pathStats.completed++;
       // Complete at least one request so long searches cannot starve the queue.
       if (performance.now() - start >= ISLANDER.pathBudgetMs) break;
     }
   }
 
+  /** A route found (here or in the background): the islander sets off along it. */
+  private applyRoute(q: PathReq, path: { x: number; z: number }[] | null): void {
+    q.isl.path = path;
+    q.isl.pathIdx = 0;
+    q.isl.pathPending = false;
+    const previous = this.routes.get(q.isl);
+    const remaining = path?.map(() => 0);
+    if (remaining && path) for (let k = remaining.length - 2; k >= 0; k--) {
+      const a = path[k], b = path[k+1];
+      remaining[k] = remaining[k+1] + Math.hypot(b.x-a.x,b.z-a.z);
+    }
+    this.routes.set(q.isl, { ...q, remaining, progress: previous?.progress, path, version: this.world.version,
+      navigationVersion: this.world.navigationVersion, requestedAt: this.clock,
+      checkAt: this.clock + .5 + (q.isl.id % 8) * .03 });
+    this.pathStats.completed++;
+  }
+
   update(dt: number): void {
     this.observing = 0;
+    this.pathWorker?.sync(this.clock);
     if (dt <= 0) return;
     this.clock += dt;
     this.processPaths();

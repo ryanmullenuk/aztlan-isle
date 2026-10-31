@@ -14,6 +14,9 @@ export function patchOceanShadows(mat: THREE.MeshStandardMaterial): void {
   const previous = mat.onBeforeCompile, cacheKey = mat.customProgramCacheKey();
   mat.onBeforeCompile = (shader, renderer) => {
     previous.call(mat, shader, renderer);
+    // A copy of an already-patched material (a fading copy of a plant material) inherits the
+    // patch: adding it again would declare everything twice and the shader would not compile.
+    if (shader.vertexShader.includes('vOceanShadowY')) return;
     shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nvarying float vOceanShadowY;')
       .replace('#include <project_vertex>', `#include <project_vertex>
         vec4 oceanShadowWorld = vec4(transformed, 1.0);

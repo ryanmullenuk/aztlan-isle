@@ -52,6 +52,16 @@ export function habitatPreset(group: THREE.Group, preset: PresetName): void {
 
 /** Retain deterministic candidate transforms; locally hide, resize or restore them after sculpting. */
 export class HabitatInstances {
+  /**
+   * Skip whole patches that are past the distance where the shader has already faded them out
+   * (they would cost a full, see-through draw for nothing). `cam` is the camera's position.
+   */
+  cull(cam:THREE.Vector3,range:number):void{
+    for(const r of this.records){
+      const sphere=r.mesh.boundingSphere;
+      r.mesh.visible=!!r.mesh.userData.habitatAny&&(!sphere||cam.distanceTo(sphere.center)-sphere.radius<range);
+    }
+  }
   readonly records:{mesh:THREE.InstancedMesh;homes:THREE.Matrix4[];top:number;radius:number}[]=[];
   constructor(private world: World){}
   add(mesh:THREE.InstancedMesh,homes:THREE.Matrix4[],top:number,radius=.3):void{mesh.userData.habitatColors=Array.from(mesh.instanceColor?.array??new Float32Array(homes.length*3).fill(1));
@@ -69,7 +79,7 @@ export class HabitatInstances {
         p.y=this.world.heightAt(p.x,p.z)-.02;s.multiplyScalar(fit);
         matrix.compose(p,q,s);r.mesh.setMatrixAt(count,matrix);r.mesh.setColorAt(count,color.fromArray(r.mesh.userData.habitatColors,k*3));count++;
       }
-      r.mesh.count=count;r.mesh.visible=count>0;r.mesh.instanceMatrix.needsUpdate=true;
+      r.mesh.count=count;r.mesh.userData.habitatAny=count>0;r.mesh.visible=count>0;r.mesh.instanceMatrix.needsUpdate=true;
       if(r.mesh.instanceColor)r.mesh.instanceColor.needsUpdate=true;
       if(count)r.mesh.computeBoundingSphere();
     }

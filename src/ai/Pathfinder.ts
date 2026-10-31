@@ -157,6 +157,11 @@ export class Pathfinder {
     return true;
   }
 
+  /** A trip short and open enough to walk straight (no search needed). */
+  isDirect(sx: number, sz: number, tx: number, tz: number, opts: PathOptions = {}): boolean {
+    return this.direct(sx, sz, tx, tz, opts);
+  }
+
   /** Only short, flat, open trips: keep A* for forests, paths, rivers and water escorts. */
   private direct(sx: number, sz: number, tx: number, tz: number, opts: PathOptions): boolean {
     if (opts.allowWater || opts.avoid?.size || Math.hypot(tx - sx, tz - sz) > 12) return false;

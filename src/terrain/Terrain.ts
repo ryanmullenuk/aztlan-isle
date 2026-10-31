@@ -36,10 +36,15 @@ const C = {
  * Colours are baked into vertex colours; dynamic path wear and farm soil come from a
  * small data texture sampled in the fragment shader.
  */
+/** Camera distance beyond which the ground is drawn with one quad per cell. */
+export const TERRAIN_COARSE_AT = 85;
+
 export class Terrain {
   /** Group of chunk meshes that share one vertex buffer (each chunk is frustum-culled on its own). */
   readonly mesh = new THREE.Group();
-  private chunks: { mesh: THREE.Mesh; i0: number; i1: number; j0: number; j1: number }[] = [];
+  private chunks: { mesh: THREE.Mesh; i0: number; i1: number; j0: number; j1: number; hi?: THREE.BufferAttribute; lo?: THREE.BufferAttribute }[] = [];
+  /** Drawing the ground with one quad per cell (zoomed far out) instead of the full mesh. */
+  private coarse = false;
   /** The ground's shadow comes from this coarse copy (one vertex per cell corner), not the full mesh. */
   private shadowGeo!: THREE.BufferGeometry;
   private shadowChunks: { mesh: THREE.Mesh; i0: number; i1: number; j0: number; j1: number }[] = [];
@@ -128,18 +133,40 @@ export class Terrain {
         }
         const g = new THREE.BufferGeometry();
         for (const name of ['position', 'normal', 'color', 'aMask', 'aForest']) g.setAttribute(name, this.geo.getAttribute(name));
-        g.setIndex(new THREE.BufferAttribute(new Uint32Array(ix), 1));
+        const hi = new THREE.BufferAttribute(new Uint32Array(ix), 1);
+        // The same chunk with one quad per cell, on the same vertices (only cell corners used).
+        const lo: number[] = [], st = subdiv;
+        // Every cell whose corner lies in this chunk (chunk edges needn't fall on cell edges).
+        const up = (v: number) => Math.ceil(v / st) * st;
+        for (let j = up(j0); j < j1 && j + st <= this.M; j += st) for (let i = up(i0); i < i1 && i + st <= this.M; i += st) {
+          const a = j * V + i, b = a + st, c2 = a + st * V, d = c2 + st;
+          if (((i + j) / st) & 1) lo.push(a, c2, b, b, c2, d);
+          else lo.push(a, c2, d, a, d, b);
+        }
+        g.setIndex(hi);
         const m = new THREE.Mesh(g, this.material);
         m.receiveShadow = true;
         m.castShadow = false;
         m.name = 'terrain';
-        this.chunks.push({ mesh: m, i0, i1, j0, j1 });
+        this.chunks.push({ mesh: m, i0, i1, j0, j1, hi, lo: new THREE.BufferAttribute(new Uint32Array(lo), 1) });
         this.mesh.add(m);
       }
     }
     this.buildShadow(C);
     this.rebuild(0, 0, N - 1, N - 1);
     this.updateWear();
+  }
+
+  /**
+   * Zoomed far out the ground is only a few pixels per cell: draw one quad per cell (a ninth of
+   * the triangles). The whole island switches together, so neighbouring chunks never disagree
+   * and open seams. A little hysteresis stops it flickering at the threshold.
+   */
+  setDetail(cameraDistance: number): void {
+    const coarse = this.coarse ? cameraDistance > TERRAIN_COARSE_AT * 0.9 : cameraDistance > TERRAIN_COARSE_AT;
+    if (coarse === this.coarse) return;
+    this.coarse = coarse;
+    for (const c of this.chunks) if (c.hi && c.lo) c.mesh.geometry.setIndex(coarse ? c.lo : c.hi);
   }
 
   /** Below the surface by this much, so the coarse copy never shadows the ground it stands for. */

@@ -17,6 +17,7 @@ import { Explore } from './render/Explore';
 import { WildlifeView, wildlifeBehaviour, type WildlifeSubject } from './render/WildlifeView';
 import * as THREE from 'three';
 import { haptic, setHaptics } from './ui/Haptics';
+import { PathWorkerClient } from './ai/PathWorkerClient';
 import type { Where } from './ui/where';
 import { WORLD, PATHS, BUILDINGS, BuildingKey, CAMERA, ISLANDER, MILESTONES, POWERS, PresetName, RENDER, SAVE, isFarm, SETTLERS, RESEARCH, RESEARCH_UPGRADE_LABEL } from './config';
 import { World } from './world/World';
@@ -154,6 +155,8 @@ export interface Settings {
   motionRes: boolean;
   /** Gentle taps on devices with haptics (placing, finishing and upgrading buildings, milestones). */
   haptics: boolean;
+  /** Draw at 30 frames a second while the view is still (cooler, longer battery life). */
+  batterySaver: boolean;
 }
 
 /** Minimal interface the UI and colony use for sound (implemented by the audio engine). */
@@ -161,6 +164,8 @@ export interface AudioLike {
   sfx(name: string, x?: number, z?: number): void;
 }
 
+/** Camera distance beyond which animals stop casting shadows. */
+const SMALL_SHADOWS_TO = 70;
 /** How far the camera closes in when it starts following an islander. */
 const FOLLOW_DISTANCE = 13;
 
@@ -379,6 +384,8 @@ export class Game {
       const c = this.rig.camera.position, t = this.rig.target;
       return { x: c.x, y: c.y, z: c.z, tx: t.x, tz: t.z, r: this.rig.viewRadius };
     };
+    // Long route searches run in a background worker where the browser allows it.
+    if (typeof Worker === 'function') this.colony.pathWorker = new PathWorkerClient(this.world);
     this.rig3d = new IslanderRig();
     // Each foot stands on the ground under it, on slopes and steps.
     this.rig3d.groundAt = (x, z) => this.world.groundY(x, z);
@@ -940,7 +947,7 @@ export class Game {
 
   private loadSettings(preset: PresetName): Settings {
     // Depth of field (the tilt-shift look) is off unless the player turns it on in Settings.
-    const def: Settings = { preset, dofOptIn: true, dof: false, dofStrength: RENDER.dof.strength, volume: 0.7, music: 0.5, muted: false, chatter: true, wildlifeAlerts: true, fps: false, showMap: false, autoQuality: true, shadows: true, dayNight: true, weather: true, motion: true, pixel: false, instantBuild: false, renderScale: 1, motionRes: true, haptics: true };
+    const def: Settings = { preset, dofOptIn: true, dof: false, dofStrength: RENDER.dof.strength, volume: 0.7, music: 0.5, muted: false, chatter: true, wildlifeAlerts: true, fps: false, showMap: false, autoQuality: true, shadows: true, dayNight: true, weather: true, motion: true, pixel: false, instantBuild: false, renderScale: 1, motionRes: true, haptics: true, batterySaver: typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches };
     try {
       const s = JSON.parse(localStorage.getItem(SAVE.settingsKey) ?? 'null');
       // Settings saved before depth of field became opt-in had it on by default: start those off too.
@@ -1038,15 +1045,21 @@ export class Game {
       this.stop();
       onError(new Error('The graphics context was lost. Try again to reload your island.'));
     });
-    this.renderer.setAnimationLoop(() => {
+    this.renderer.setAnimationLoop((now: number) => {
       // One preview frame is enough behind the opaque splash. Do not keep
       // simulating/drawing the entire island at 60 Hz while waiting for PLAY.
       if (this.stopped || (ready && !this.playing)) return;
+      // Battery saver: while the view is still, draw every other frame (30 a second). The island
+      // keeps moving, just in slightly bigger steps; the moment the camera moves it is back to full rate.
+      if (this.settings?.batterySaver && this.playing && this.stillFor > 1.5 && !this.input.navigating && !this.explorer?.active
+          && !this.wildlifeView?.active && now - this.lastDrawn < 1000 / 30 - 4) return;
+      this.lastDrawn = now;
       try {
         if (this.frame() && !ready) {
           ready = true;
-          this.warmUp();
-          onReady();
+          // Shaders compile in parallel where the device allows (the splash stays smooth), then
+          // one warm frame is drawn; only then is the island ready.
+          this.warmUp().then(() => { if (!this.stopped) onReady(); }, onError);
         }
       } catch (error) {
         this.stop();
@@ -2192,6 +2205,22 @@ export class Game {
     });
   }
 
+  /**
+   * Zoomed far out, animals are a few pixels across and their shadows smaller still: they stop
+   * casting them (each animal is thousands of triangles drawn a second time for the shadow map).
+   */
+  private smallShadowsOff = false;
+  private smallShadows(dist: number): void {
+    const off = this.smallShadowsOff ? dist > SMALL_SHADOWS_TO * 0.9 : dist > SMALL_SHADOWS_TO;
+    if (off === this.smallShadowsOff) return;
+    this.smallShadowsOff = off;
+    for (const root of [this.wildlife.animals.group, this.dogs.meshes.group, this.jaguars.meshes.group]) root.traverse((o) => {
+      if (!(o as THREE.Mesh).isMesh) return;
+      if (off) { o.userData.castShadowWas = o.castShadow; o.castShadow = false; }
+      else if (o.userData.castShadowWas !== undefined) o.castShadow = o.userData.castShadowWas;
+    });
+  }
+
   /** A new foundation has dropped into place. */
   private onFoundationLanded(b: Building): void {
     this.audio?.sfx('thud', b.x, b.z);
@@ -2383,6 +2412,7 @@ export class Game {
   }
 
   private slowSeconds = 0;
+  private fastSeconds = 0;
   private qualityChecks = 0;
   /**
    * After a few seconds of low frame rate, step quality down: the preset (high → medium → low),
@@ -2392,18 +2422,35 @@ export class Game {
    */
   private autoQuality(): void {
     if (!this.settings.autoQuality || document.hidden || this.qualityChecks++ < 4) return;
+    // The battery saver's 30 frames a second is a choice, not a struggle: judge only full-rate play.
+    if (this.settings.batterySaver && this.stillFor > 1.5) { this.slowSeconds = 0; return; }
     const target = this.preset === 'ultra' ? 50 : this.preset === 'high' ? 45 : 28;
+    const s = this.settings, scale = s.renderScale || 1;
     this.slowSeconds = this.fps.value < target ? this.slowSeconds + 1 : 0;
+    // Comfortably fast for a good while after a cut in resolution: win a step of it back.
+    this.fastSeconds = this.fps.value > target * 1.35 + 6 ? this.fastSeconds + 1 : 0;
+    if (this.fastSeconds >= 30 && scale < 1) {
+      this.fastSeconds = 0;
+      s.renderScale = Math.min(1, Math.round((scale + 0.1) * 100) / 100);
+      this.applySettings();
+      return;
+    }
     if (this.slowSeconds < 4) return;
     this.slowSeconds = 0;
+    this.fastSeconds = 0;
     this.qualityChecks = 0;
-    const s = this.settings;
+    // Gently: a little less resolution first (hardly visible on a phone), then a lighter preset
+    // (at slightly reduced resolution), and only then shadows and depth of field.
     let change: string;
-    if (this.preset !== 'low') {
+    if (scale > 0.82) {
+      s.renderScale = Math.round(scale * 0.9 * 100) / 100;
+      change = `Resolution lowered to ${Math.round(s.renderScale * 100)}%`;
+    } else if (this.preset !== 'low') {
       s.preset = this.preset === 'ultra' ? 'high' : this.preset === 'high' ? 'medium' : 'low';
+      s.renderScale = 0.9;
       change = `Graphics set to ${s.preset}`;
-    } else if ((s.renderScale || 1) > 0.55) {
-      s.renderScale = Math.max(0.5, Math.round((s.renderScale || 1) * 0.8 * 100) / 100);
+    } else if (scale > 0.55) {
+      s.renderScale = Math.max(0.5, Math.round(scale * 0.85 * 100) / 100);
       change = `Resolution lowered to ${Math.round(s.renderScale * 100)}%`;
     } else if (s.shadows) {
       s.shadows = false;
@@ -2413,7 +2460,8 @@ export class Game {
       change = 'Depth of field turned off';
     } else return;
     this.applySettings();
-    this.ui.toast(`${change} for a smoother frame rate (change it in Settings).`);
+    // Small resolution steps happen quietly; a change of preset or effect is worth a word.
+    if (!change.startsWith('Resolution') || s.renderScale < 0.7) this.ui.toast(`${change} for a smoother frame rate (change it in Settings).`);
   }
 
   /** Graphics in use, for the Show FPS readout: preset, and the share of its resolution if lowered. */
@@ -2479,6 +2527,12 @@ export class Game {
     else this.rig.update(realDt);
     // What the camera sees this frame: off-screen entities skip posing and drawing.
     View.update(this.rig.camera);
+    // Islanders smaller than about 14 screen pixels are drawn as simple far-away figures.
+    this.rig3d.lodDist = 0.62 * this.canvas.clientHeight / (2 * Math.tan(this.rig.camera.fov * Math.PI / 360)) / 14;
+    this.terrain.setDetail(this.rig.cur.dist);
+    this.smallShadows(this.rig.cur.dist);
+    this.wildlife.coral.cull(this.rig.camera.position);
+    this.tubeCoral.cull(this.rig.camera.position);
     this.breeze.update(realDt, this.rig.target, this.rig.viewRadius);
     // Volcano warnings use unpaused real play time, even at increased game speed.
     this.volcano.update(dt > 0 ? realDt : 0);
@@ -2700,6 +2754,8 @@ export class Game {
   /** Drawing at the lower moving resolution, and how long the camera has been still. */
   private lowRes = false;
   private stillFor = 0;
+  /** When the last frame was drawn (for the battery saver's frame cap). */
+  private lastDrawn = 0;
   private lastCam = new THREE.Matrix4();
 
   /**
@@ -2765,7 +2821,7 @@ export class Game {
    * with everything switched on (through the full post chain, so the GPU pipelines are made for
    * the real render targets too), then put it all back as it was.
    */
-  private warmUp(): void {
+  private async warmUp(): Promise<void> {
     const hidden: THREE.Object3D[] = [];
     const culled: THREE.Object3D[] = [];
     const empty: THREE.InstancedMesh[] = [];
@@ -2787,6 +2843,8 @@ export class Game {
         if (m.isInstancedMesh && m.count === 0 && m.instanceMatrix.count > 0) { empty.push(m); m.count = 1; }
       });
       for (const l of dark) l.visible = false;
+      // Never wait on it for long: a driver that doesn't report back must not hold up loading.
+      await Promise.race([this.renderer.compileAsync(this.scene, this.rig.camera), new Promise((r) => setTimeout(r, 3000))]);
       this.renderer.compile(this.scene, this.rig.camera);
       this.post.warmFlare = true;
       this.render(0);

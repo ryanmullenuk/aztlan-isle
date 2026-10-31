@@ -22,7 +22,7 @@ export function settingsMarkup(): string {
       <h2>Display</h2>
       <label class="settings-row">Detail<select data-k="preset" aria-label="Graphics detail"><option value="ultra">Ultra</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></label>
       ${switchRow('shadows', 'Shadows')}${switchRow('dayNight', 'Day & night')}${switchRow('weather', 'Weather')}${switchRow('motion', 'Plant movement', 'Includes leaves and sea spray')}
-      <h2>Performance</h2>${switchRow('motionRes', 'Smoother camera movement', 'Adjusts resolution while moving')}
+      <h2>Performance</h2>${switchRow('motionRes', 'Smoother camera movement', 'Adjusts resolution while moving')}${switchRow('batterySaver', 'Battery saver', '30 frames a second while the view is still')}
       <details class="settings-disclosure"><summary>Advanced options<span aria-hidden="true">›</span></summary><div class="settings-details">
         ${switchRow('autoQuality', 'Automatic graphics', 'Lowers detail if the frame rate drops')}${switchRow('pixel', 'Pixel style')}${switchRow('dof', 'Tilt-shift (depth of field)', 'Blurs the foreground and distance for a miniature look')}${slider('dofStrength', 'Blur strength', 2)}${switchRow('fps', 'Show FPS')}${switchRow('showMap', 'Show map button')}
       </div></details>

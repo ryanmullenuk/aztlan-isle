@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { SHADOW_LAYER } from '../render/ShadowLayer';
 import { characterModelKey, isElder, type CharacterModelKey } from './CharacterVariants';
 import { View } from '../render/View';
 import { ISLANDER } from '../config';
@@ -549,6 +550,17 @@ export class IslanderRig {
   private accent = new THREE.Color();
   readonly ring: THREE.Mesh;
   private groupRings: THREE.InstancedMesh;
+  /**
+   * Beyond this distance from the camera an islander is only a few pixels tall: drawn as a simple
+   * figure (body in their cloth colour, head in their skin tone) instead of the jointed model.
+   * Set each frame from the screen size (see Game); Infinity draws everyone in full.
+   */
+  lodDist = Infinity;
+  private pawnBody: THREE.InstancedMesh;
+  private pawnHead: THREE.InstancedMesh;
+  /** Shadow-only stand-ins for the islanders drawn in full (a few dozen triangles each, not thousands). */
+  private shadowBody: THREE.InstancedMesh;
+  private shadowHead: THREE.InstancedMesh;
 
   constructor() {
     // Props (tools, headdresses, carried loads); the bodies are the two character models.
@@ -576,6 +588,23 @@ export class IslanderRig {
     this.groupRings.frustumCulled = false;
     this.groupRings.renderOrder = 5;
     this.group.add(this.groupRings);
+    // The far figure, in model metres like the character models (1.8 m tall, stocky).
+    const pawnMat = new THREE.MeshStandardMaterial({ roughness: 0.9 });
+    const pawn = (geo: THREE.BufferGeometry) => {
+      const m = new THREE.InstancedMesh(geo, pawnMat, ISLANDER.max);
+      m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      m.setColorAt(0, new THREE.Color(1, 1, 1));
+      m.count = 0;
+      m.frustumCulled = false;
+      m.castShadow = true;
+      this.group.add(m);
+      return m;
+    };
+    this.pawnBody = pawn(new THREE.CylinderGeometry(0.3, 0.32, 1.2, 6).translate(0, 0.6, 0));
+    this.pawnHead = pawn(new THREE.IcosahedronGeometry(0.3, 0).translate(0, 1.45, 0));
+    this.shadowBody = pawn(this.pawnBody.geometry);
+    this.shadowHead = pawn(this.pawnHead.geometry);
+    for (const m of [this.shadowBody, this.shadowHead]) m.layers.set(SHADOW_LAYER);
   }
 
   private addMesh(key: string, geo: THREE.BufferGeometry, cap: number): void {
@@ -610,7 +639,8 @@ export class IslanderRig {
     geo.setAttribute('iLook', look);
     const mesh = new THREE.InstancedMesh(geo, mat, cap);
     mesh.customDepthMaterial = depth;
-    mesh.castShadow = true;
+    // Its shadow comes from the simple stand-in figure (see shadowBody), not this detailed body.
+    mesh.castShadow = false;
     mesh.receiveShadow = true;
     mesh.frustumCulled = false;
     mesh.count = 0;
@@ -770,10 +800,24 @@ export class IslanderRig {
     const M = this.m;
     const skinned = !!this.skins.m && !!this.skins.f;
     if (skinned) for (const set of Object.values(this.skins)) set.n = 0;
+    let pawns = 0, shadows = 0;
+    const far2 = this.lodDist * this.lodDist;
     for (const isl of list) {
       if (isl.hidden) continue;
       // Off screen: skip posing the jointed body (the villager keeps working as normal).
       if (!View.sees(isl.x, isl.y + 0.35, isl.z, 0.6)) continue;
+      if (skinned && isl.id !== selected && !group?.has(isl.id) && View.dist2(isl.x, isl.y, isl.z) > far2) {
+        // Far away: the simple figure, bobbing a little as they walk.
+        const sc = S0 * (isl.child ? ISLANDER.childScale : 1);
+        const bob = isl.speed > 0.05 ? Math.abs(Math.sin(isl.x * 3.1 + isl.z * 2.7)) * 0.02 : 0;
+        this.rot(M.base, isl.x, isl.y + bob, isl.z, 0, isl.heading, 0, 'XYZ', sc);
+        this.pawnBody.setMatrixAt(pawns, M.base);
+        this.pawnHead.setMatrixAt(pawns, M.base);
+        this.pawnBody.setColorAt(pawns, this.accent.setHex(isl.cloth));
+        this.pawnHead.setColorAt(pawns, this.skin.setHex(isl.skin));
+        pawns++;
+        continue;
+      }
       const g = isl.gender;
       const sk = SKELETON[g];
       const p = this.blend(isl, poseFor(isl, g === 'f', sk), _dt);
@@ -781,6 +825,10 @@ export class IslanderRig {
       this.accent.setHex(isl.cloth2);
       const sc = S0 * (isl.child ? ISLANDER.childScale : 1) * (g === 'f' ? 0.98 : 1);
       this.rot(M.base, isl.x, isl.y, isl.z, 0, isl.heading, 0, 'XYZ', sc);
+      if (skinned) {
+        this.shadowBody.setMatrixAt(shadows, M.base);
+        this.shadowHead.setMatrixAt(shadows++, M.base);
+      }
       // The children's own models have their big heads built in; only the founding pair's would need enlarging.
       const hs = isl.child && !hasChildModel(this.skins) ? 1.22 : 1;
       // Nothing to draw until the character models have loaded.
@@ -790,6 +838,16 @@ export class IslanderRig {
     if (this.blends.size > list.length + 16) {
       const alive = new Set(list.map((l) => l.id));
       for (const id of this.blends.keys()) if (!alive.has(id)) this.blends.delete(id);
+    }
+    for (const m of [this.pawnBody, this.pawnHead]) {
+      m.count = pawns;
+      if (!pawns) continue;
+      this.upload(m.instanceMatrix, pawns);
+      if (m.instanceColor) this.upload(m.instanceColor, pawns);
+    }
+    for (const m of [this.shadowBody, this.shadowHead]) {
+      m.count = shadows;
+      if (shadows) this.upload(m.instanceMatrix, shadows);
     }
     for (const [key, mesh] of this.meshes) {
       const n = this.count.get(key) ?? 0;

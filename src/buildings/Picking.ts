@@ -1,10 +1,13 @@
 import * as THREE from 'three';
 import type { Building } from './Buildings';
+import { BATCHED_LAYER } from './BuildingShadows';
 
 /** Pick visible architecture or any empty part of its ground footprint. */
 export function pickBuilding(ray:THREE.Raycaster, buildings:Building[], ground:THREE.Vector3|null):Building|undefined {
   let chosen:Building|undefined, nearest=ground?ray.ray.origin.distanceTo(ground)+0.35:Infinity;
   const plane=new THREE.Plane(),point=new THREE.Vector3();
+  // Far buildings drawn in a batch keep their own mesh on another layer: still pickable.
+  ray.layers.enable(BATCHED_LAYER);
   for(const b of buildings){
     b.group.updateWorldMatrix(true,true);
     const parts=[b.finished,b.foundation,b.scaffold].filter(x=>x?.visible);
@@ -17,5 +20,6 @@ export function pickBuilding(ray:THREE.Raycaster, buildings:Building[], ground:T
       if(distance<nearest){nearest=distance;chosen=b;}
     }
   }
+  ray.layers.disable(BATCHED_LAYER);
   return chosen;
 }

@@ -34,12 +34,14 @@ function harness() {
     released: () => released, resets: () => resets };
 }
 
-test('startup renders before ready and does not advance the arrival until PLAY', () => {
+test('startup renders before ready and does not advance the arrival until PLAY', async () => {
   const h = harness();
   let rendered = 0, ready = 0;
   h.g.render = () => { rendered++; };
   h.g.start(() => { assert.ok(rendered); ready++; }, () => assert.fail('unexpected startup failure'));
   h.tick(); h.tick();
+  // Ready once the shaders have compiled (asynchronously).
+  await new Promise((r) => setTimeout(r, 0));
   assert.equal(ready, 1);
   assert.equal(rendered, 1, 'the covered island should not keep rendering behind the splash');
   assert.equal(h.g.time.elapsed, 0);
