@@ -130,6 +130,6 @@ test('new Sandbox explicitly saves its mode before reloading',()=>{
   const old=globalThis.localStorage,events:string[]=[];
   const g=Object.create(Game.prototype) as any;g.reloadIsland=()=>events.push('reload');
   globalThis.localStorage={setItem:(key:string,value:string)=>events.push(value),removeItem:()=>events.push('clear')} as any;
-  try {g.newIsland(true);assert.deepEqual(events,['sandbox','clear','reload']);}
+  try {g.newIsland(true);assert.deepEqual(events,['sandbox','classic','clear','reload']);}
   finally {globalThis.localStorage=old;}
 });

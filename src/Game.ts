@@ -22,7 +22,7 @@ import { RequestBoard, REQUESTS } from './economy/Requests';
 import type { Where } from './ui/where';
 import { WORLD, PATHS, BUILDINGS, BuildingKey, CAMERA, ISLANDER, MILESTONES, POWERS, PresetName, RENDER, SAVE, isFarm, SETTLERS, RESEARCH, RESEARCH_UPGRADE_LABEL } from './config';
 import { World } from './world/World';
-import { generateIsland } from './world/generator';
+import { generateIsland, type IslandType } from './world/generator';
 import { GameTime } from './world/Time';
 import { RNG } from './world/rng';
 import { Outcrops } from './terrain/Outcrops';
@@ -60,7 +60,7 @@ import { Boats } from './entities/Boats';
 import { Marine } from './entities/Marine';
 import { Powers } from './economy/Powers';
 import { AudioEngine } from './audio/Audio';
-import { SaveData, applyRest, applyWorld, readSave, writeSave } from './world/Save';
+import { SaveData, applyRest, applyWorld, islandTypeToLoad, readSave, writeSave } from './world/Save';
 import { finishSwamps, generateSwamps } from './world/swamp';
 import { growIslets } from './world/islets';
 import { softenMapEdge } from './world/mapEdge';
@@ -345,7 +345,7 @@ export class Game {
     // One shadow pass a frame (not one per post-processing pass), and the shadow stand-in layer.
     setupShadows(this.renderer);
 
-    generateIsland(this.world, opts.seed);
+    generateIsland(this.world, opts.seed, islandTypeToLoad());
     // Plants are generated from the untouched island so saved plant states line up.
     this.veg = new Vegetation(this.world, this.preset);
     // Swamps come from the seed and the untouched island too; their pools are dug afterwards,
@@ -2367,9 +2367,10 @@ export class Game {
     this.reloadIsland();
   }
 
-  newIsland(sandbox = false): void {
+  newIsland(sandbox = false, type: IslandType = 'classic'): void {
     try {
       localStorage.setItem(SAVE.key + '-mode', sandbox ? 'sandbox' : 'normal');
+      localStorage.setItem(SAVE.key + '-type', type);
       localStorage.removeItem(SAVE.key);
     } catch {
       this.ui.toast('Your saved island could not be cleared. Please free browser storage and try again.', 'warn');

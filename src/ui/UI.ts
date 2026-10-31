@@ -18,6 +18,7 @@ import { Building } from '../buildings/Buildings';
 import { HALL, HEAL } from '../buildings/models';
 import { CONDITION_LABEL, ROLE_LABEL, type Islander } from '../entities/Islander';
 import { islanderLine } from './islanderLines';
+import { ISLAND_TYPES, type IslandType } from '../world/generator';
 import { PhotoMode } from './PhotoMode';
 import { GOD_NAME, randomIslandName } from '../world/names';
 import { Ground } from '../world/World';
@@ -35,6 +36,15 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = ''):
 };
 
 const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${Math.floor(n)}`);
+
+/** Little maps for the island picker. */
+const ISLAND_ICONS: Record<IslandType, string> = {
+  classic: '<svg viewBox="0 0 48 48"><rect width="48" height="48" rx="8" fill="#2f8f9a"/><path d="M8 26c2-8 9-13 15-11 4 1 7-3 9 2 1 4-2 9-6 12-6 5-16 6-18-3z" fill="#7fb35a"/><path d="M30 18c4-3 10-1 10 5s-4 10-8 9-5-10-2-14z" fill="#3f7a3a"/><circle cx="16" cy="22" r="3" fill="#e5d39a"/></svg>',
+  volcanic: '<svg viewBox="0 0 48 48"><rect width="48" height="48" rx="8" fill="#2f8f9a"/><path d="M8 26c2-8 9-13 15-11 4 1 7-3 9 2 1 4-2 9-6 12-6 5-16 6-18-3z" fill="#6c6f5e"/><path d="M30 18c4-3 10-1 10 5s-4 10-8 9-5-10-2-14z" fill="#4d4a44"/><path d="M33 24l2-5 2 5z" fill="#e8622a"/><path d="M34 18c-1-3 2-5 1-8" stroke="#9a9a9a" stroke-width="2" fill="none"/></svg>',
+  jungle: '<svg viewBox="0 0 48 48"><rect width="48" height="48" rx="8" fill="#2f8f9a"/><path d="M8 26c2-8 9-13 15-11 4 1 7-3 9 2 1 4-2 9-6 12-6 5-16 6-18-3z" fill="#2f6b30"/><path d="M30 18c4-3 10-1 10 5s-4 10-8 9-5-10-2-14z" fill="#245a28"/><ellipse cx="20" cy="27" rx="4" ry="2.5" fill="#4a5e3a"/><ellipse cx="34" cy="26" rx="3" ry="2" fill="#4a5e3a"/></svg>',
+  twin: '<svg viewBox="0 0 48 48"><rect width="48" height="48" rx="8" fill="#2f8f9a"/><path d="M6 25c1-8 8-12 13-10 4 2 4 9 1 13-4 5-14 5-14-3z" fill="#7fb35a"/><path d="M28 15c6-3 14 1 14 9s-6 13-11 11-9-16-3-20z" fill="#5f9a48"/><path d="M21 24h6" stroke="#e5d39a" stroke-width="2"/></svg>',
+  archipelago: '<svg viewBox="0 0 48 48"><rect width="48" height="48" rx="8" fill="#2f8f9a"/><circle cx="22" cy="24" r="7" fill="#7fb35a"/><circle cx="9" cy="12" r="3.5" fill="#6fa64e"/><circle cx="38" cy="10" r="4" fill="#6fa64e"/><circle cx="40" cy="30" r="3.5" fill="#6fa64e"/><circle cx="10" cy="37" r="4" fill="#6fa64e"/><circle cx="28" cy="40" r="3" fill="#6fa64e"/><circle cx="34" cy="20" r="2.5" fill="#6fa64e"/></svg>',
+};
 
 /** Whether the goal checklist is open (remembered per device). */
 const GOALS_OPEN_KEY = 'aztlan-goals-open';
@@ -755,12 +765,10 @@ export class UI {
         }
       };
     });
-    card.querySelector<HTMLButtonElement>('[data-a="new"]')!.onclick = () => {
-      if (confirm('Start again from the beginning? Your progress on this island will be lost.')) this.game.newIsland();
-    };
+    card.querySelector<HTMLButtonElement>('[data-a="new"]')!.onclick = () => this.chooseIsland(false);
     card.querySelector<HTMLButtonElement>('[data-a="sandbox"]')!.onclick = () => {
       if (!this.godOptionsUnlocked()) return;
-      if (confirm('Start a new Sandbox with all buildings unlocked and unlimited resources? Your current island will be replaced.')) this.game.newIsland(true);
+      this.chooseIsland(true);
     };
     card.querySelector<HTMLButtonElement>('[data-a="save"]')!.onclick = () => {
       this.game.save();
@@ -1901,6 +1909,33 @@ export class UI {
     ctx.lineWidth = 1.2;
     ctx.strokeRect(-half * g.rig.camera.aspect * 0.7, -half * 0.7, half * g.rig.camera.aspect * 1.4, half * 1.4);
     ctx.restore();
+  }
+
+  /** Starting a new island: pick the kind of island, then confirm (the current one is replaced). */
+  private chooseIsland(sandbox: boolean): void {
+    const current = this.game.world?.islandType;
+    const modal = el('div', 'modal island-modal');
+    const cards = (Object.keys(ISLAND_TYPES) as IslandType[]).map((t) => {
+      const it = ISLAND_TYPES[t];
+      return `<button type="button" class="island-pick" data-type="${t}">
+        <span class="ip-map" aria-hidden="true">${ISLAND_ICONS[t]}</span>
+        <span class="ip-text"><span class="ip-name"><b>${it.name}</b>${t === current ? '<span class="ip-now">Current</span>' : ''}</span><span>${it.about}</span><em>${it.resources}</em></span>
+      </button>`;
+    }).join('');
+    modal.innerHTML = `<div class="panel card island-card" role="dialog" aria-labelledby="ip-title">
+      <div class="card-head"><span id="ip-title">${sandbox ? 'New Sandbox island' : 'Choose your island'}</span><button class="ib small" data-a="close" aria-label="Close">${ICONS.close}</button></div>
+      <p class="muted small">Your current island will be replaced. Copy it first (Settings → Copy island) to keep it.</p>
+      <div class="island-picks">${cards}</div>
+    </div>`;
+    modal.onclick = (e) => {
+      const target = e.target as HTMLElement;
+      if (target === modal || target.closest('[data-a="close"]')) { modal.remove(); return; }
+      const pick = target.closest<HTMLButtonElement>('[data-type]');
+      if (!pick) return;
+      const t = pick.dataset.type as IslandType;
+      if (confirm(`Start a new ${ISLAND_TYPES[t].name}${sandbox ? ' Sandbox' : ''}? Your progress on this island will be lost.`)) this.game.newIsland(sandbox, t);
+    };
+    this.root.appendChild(modal);
   }
 
   /** Back after a while: how long, what the islanders gathered, and what the village needs next. */

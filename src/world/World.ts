@@ -111,6 +111,8 @@ export class World {
   navigationVersion = 0;
   /** Buildings whose cells islanders may walk through (farm fields, jetty decks). */
   passableBuildings = new Set<number>();
+  /** Which kind of island this is (see ISLAND_TYPES); set when it is generated. */
+  islandType: import('./generator').IslandType = 'classic';
   /**
    * Footprints of buildings that are entered through their front: anyone going in or out of one
    * crosses its edge at the doorway, never through a back or side wall.

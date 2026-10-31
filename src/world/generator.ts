@@ -3,6 +3,26 @@ import { Simplex2, clamp, lerp, smoothstep } from './noise';
 import { RNG } from './rng';
 import { World } from './World';
 
+/** The kinds of island a new game can start on (all share the village plain and its two islands). */
+export type IslandType = 'classic' | 'volcanic' | 'jungle' | 'twin' | 'archipelago';
+export const ISLAND_TYPES: Record<IslandType, { name: string; about: string; resources: string }> = {
+  classic: { name: 'Aztlan Isle', about: 'The original island: a green main island with mountains, a waterfall and a wild jungle island across the strait.', resources: 'Balanced wood, stone, food and fish' },
+  volcanic: { name: 'Volcanic Isle', about: 'Black rock and fire. A great rocky massif, craggy headlands and thin woods, with the volcano rumbling over the strait.', resources: 'Plenty of stone · Less wood' },
+  jungle: { name: 'Swamp Jungle', about: 'Thick rainforest to the shore, with more swamps, alligators and fruit in the shade. Little open ground beyond the village plain.', resources: 'Plenty of wood and fruit · Less stone' },
+  twin: { name: 'Twin Isles', about: 'Two islands of equal size across the strait: bridge it early and a whole second island is yours to settle.', resources: 'Twice the wild land · More to explore' },
+  archipelago: { name: 'Archipelago', about: 'A small home island among many large islets on a wide reef. Farm the sea, sail and fish.', resources: 'Plenty of fish and pearls · Little land' },
+};
+export const isIslandType = (t: unknown): t is IslandType => typeof t === 'string' && t in ISLAND_TYPES;
+
+/** How each type bends the shared layout. */
+const SHAPE: Record<IslandType, { main: number; wild: number; islet: number; extraIslets: number; knoll: number; massif: number; forest: number; headland: number }> = {
+  classic: { main: 1, wild: 1, islet: 1, extraIslets: 0, knoll: 1, massif: 1, forest: 1, headland: 0.55 },
+  volcanic: { main: 1, wild: 1, islet: 1, extraIslets: 0, knoll: 1.7, massif: 1.35, forest: 0.55, headland: 0.32 },
+  jungle: { main: 1, wild: 1, islet: 1, extraIslets: 0, knoll: 0.8, massif: 0.85, forest: 1.45, headland: 0.68 },
+  twin: { main: 0.9, wild: 1.35, islet: 0.9, extraIslets: 0, knoll: 1, massif: 1, forest: 1, headland: 0.55 },
+  archipelago: { main: 0.55, wild: 0.6, islet: 1.65, extraIslets: 6, knoll: 0.9, massif: 0.75, forest: 0.9, headland: 0.55 },
+};
+
 /** Smooth maximum (blends overlapping lobes into one natural coastline). */
 function smax(a: number, b: number, k: number): number {
   const h = clamp(0.5 + (0.5 * (a - b)) / k, 0, 1);
@@ -23,8 +43,10 @@ function smax(a: number, b: number, k: number): number {
  *  - scattered rocky knolls, wide sandy beaches in the bays, large open grasslands between jungle,
  *  - rocky wooded islets out on the shelf, a lagoon and an open meadow for the tribe.
  */
-export function generateIsland(world: World, seed: number): void {
+export function generateIsland(world: World, seed: number, type: IslandType = 'classic'): void {
   world.seed = seed;
+  world.islandType = type;
+  const shape = SHAPE[type];
   const N = world.N;
   const rng = new RNG(seed);
   const sA = new Simplex2(rng);
@@ -47,6 +69,17 @@ export function generateIsland(world: World, seed: number): void {
     { x: 0.44, z: -0.4, rx: 0.15, rz: 0.1, a: -0.8 },
     { x: 0.74, z: -0.12, rx: 0.12, rz: 0.16, a: 0.1 },
   ];
+  // The island type: smaller or larger peninsulas and wild island (the village's body stays as it is).
+  mainLobes.forEach((L, k) => { if (k) { L.rx *= shape.main; L.rz *= shape.main; L.x = -0.3 + (L.x + 0.3) * (0.6 + 0.4 * shape.main); L.z = 0.06 + (L.z - 0.06) * (0.6 + 0.4 * shape.main); } });
+  wildLobes.forEach((L) => {
+    L.rx *= shape.wild; L.rz *= shape.wild; L.x = 0.55 + (L.x - 0.55) * shape.wild; L.z *= Math.min(1.15, shape.wild);
+    // A bigger wild island must stay well inside the map (the sea fades out toward its edge).
+    // (Only when enlarged: the original layout must stay exactly as it was, for its saves.)
+    if (shape.wild <= 1) return;
+    const reach = Math.max(L.rx, L.rz) + 0.09;
+    L.x = Math.min(L.x, 0.86 - reach);
+    L.z = Math.max(-0.86 + reach, Math.min(0.86 - reach, L.z));
+  });
   /** The shallow strait between the islands (a band around x = straitX, bridgeable). */
   const straitX = 0.215, straitW = 0.035;
   const plain = { x: -0.22, z: 0.1, r: WORLD.meadowRadius / (N / 2) };
@@ -62,7 +95,9 @@ export function generateIsland(world: World, seed: number): void {
     { x: 0.58, z: -0.3, r: 0.07, h: 0.4 },
     { x: -0.62, z: 0.36, r: 0.06, h: 0.28 },
     { x: 0.02, z: -0.36, r: 0.06, h: 0.26 },
-  ];
+    // Volcanic islands have craggy outcrops on the main island too.
+    ...(type === 'volcanic' ? [{ x: -0.05, z: 0.32, r: 0.07, h: 0.4 }, { x: -0.48, z: 0.24, r: 0.06, h: 0.36 }, { x: 0.05, z: -0.15, r: 0.05, h: 0.3 }] : []),
+  ].map((k) => ({ ...k, h: k.h * shape.knoll }));
   // Islets out on the reef shelf.
   world.islets = [];
   const islets = [
@@ -81,7 +116,10 @@ export function generateIsland(world: World, seed: number): void {
     { x: 0.8, z: -0.5, r: 0.08, spit: [0.7, -0.2] },
     { x: 0.2, z: -0.78, r: 0.085 },
     { x: -0.46, z: -0.74, r: 0.08 },
-  ].map((it, k) => {
+    // The archipelago: a ring of further islets out on the reef.
+    ...[{ x: -0.58, z: -0.88 }, { x: 0.55, z: -0.86 }, { x: 0.94, z: 0.05 }, { x: 0.55, z: 0.88 }, { x: -0.52, z: 0.9 }, { x: -0.95, z: -0.28 }]
+      .slice(0, shape.extraIslets).map((p) => ({ ...p, r: 0.06 })),
+  ].map((it) => ({ ...it, r: it.r * shape.islet })).map((it, k) => {
     // Two smaller lobes on the side facing the island (never out toward the map edge).
     const toC = Math.atan2(-it.z, -it.x);
     const hash = (n: number) => {
@@ -152,7 +190,7 @@ export function generateIsland(world: World, seed: number): void {
       const mm = (1 - smoothstep(0.25, 1.0, md)) * smoothstep(0.04, 0.26, mMain);
       massif[i] = mm;
       const rid = sB.ridge(nx * 2.5 + 4, nz * 2.5 + 8, 4);
-      h += mm * (0.45 + rid * 1.3 + Math.pow(rid, 2) * 1.1 * mm);
+      h += mm * (0.45 + rid * 1.3 + Math.pow(rid, 2) * 1.1 * mm) * shape.massif;
       // Hills and knolls.
       for (const k of knolls) {
         const dk = Math.hypot(nx - k.x, nz - k.z) / k.r;
@@ -246,8 +284,8 @@ export function generateIsland(world: World, seed: number): void {
       const nx = cx / N, nz = cz / N;
       const dw = world.distWater[i];
       const head = sC.noise(nx * 7 + 30, nz * 7 - 30);
-      if (dw <= 2 && head > 0.55) {
-        world.layer[i] = Math.max(world.layer[i], 2 + Math.round((head - 0.55) * 8 + (2 - dw) * 0.4));
+      if (dw <= 2 && head > shape.headland) {
+        world.layer[i] = Math.max(world.layer[i], 2 + Math.round((head - shape.headland) * 8 + (2 - dw) * 0.4));
         world.rocky[i] = 1;
       } else if (dw <= 2 || (dw <= 4 && world.layer[i] <= 2 && head < 0.2)) {
         world.sandy[i] = 1;
@@ -256,6 +294,8 @@ export function generateIsland(world: World, seed: number): void {
       if (massif[i] > 0.3 && (sB.noise(nx * 12, nz * 12) > 0.3 || world.layer[i] >= 12)) world.rocky[i] = Math.max(world.rocky[i], 0.55 + massif[i] * 0.45);
       if (knollM[i] > 0.45) world.rocky[i] = Math.max(world.rocky[i], 0.8);
       if (world.layer[i] >= 13) world.rocky[i] = Math.max(world.rocky[i], 0.7 + sA.noise(nx * 20, nz * 20) * 0.3);
+      // Volcanic islands: patches of bare black rock break through the grass.
+      if (type === 'volcanic' && sB.noise(nx * 14 + 7, nz * 14 - 3) > 0.2 && world.layer[i] >= 2 && plainM[i] < 0.6) world.rocky[i] = Math.max(world.rocky[i], 0.7);
     }
   }
 
@@ -278,7 +318,10 @@ export function generateIsland(world: World, seed: number): void {
       // The wild island is thick jungle; the main island keeps open grassland between its woods.
       if (world.isle[i] === 2) f = Math.max(f, 0.62 + sA.noise(nx * 9, nz * 9) * 0.25) * smoothstep(1.5, 3.5, world.distWater[i]) * (1 - world.rocky[i] * 0.6);
       else f *= 0.8;
-      world.forest[i] = f;
+      // The island type: thin woods on volcanic rock, rainforest everywhere in the jungle.
+      if (shape.forest > 1) f = Math.max(f, Math.min(0.9, f * shape.forest + 0.25 * smoothstep(1.5, 4.5, world.distWater[i]) * (1 - world.rocky[i]))) * smoothstep(world.meadow.r, world.meadow.r + 8, dm);
+      else f *= shape.forest;
+      world.forest[i] = Math.min(1, f);
     }
   }
 

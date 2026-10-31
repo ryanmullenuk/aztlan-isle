@@ -33,7 +33,7 @@ export function generateSwamps(w: World, seed: number): void {
   }
   cands.sort((a, b) => b.s - a.s);
   for (const c of cands) {
-    if (w.swamps.length >= SWAMP.count) break;
+    if (w.swamps.length >= SWAMP.count * (w.islandType === 'jungle' ? 2 : 1)) break;
     if (w.swamps.some((s) => Math.hypot(s.x - c.x, s.z - c.z) < 45)) continue;
     w.swamps.push({ x: c.x, z: c.z, r: rng.range(SWAMP.radius[0], SWAMP.radius[1]) });
   }

@@ -1,3 +1,4 @@
+import { isIslandType, type IslandType } from './generator';
 import { isHouseStyle } from '../buildings/models';
 import type { EncounterSave } from '../entities/WildlifeEncounters';
 import type { StormFireSave } from '../buildings/StormFire';
@@ -23,6 +24,8 @@ export interface SaveData {
   time: { elapsed: number; day: number; t: number; speed: number };
   camera: { x: number; z: number; dist: number; yaw: number };
   res: Record<ResourceKey, number>;
+  /** Which kind of island (absent in saves from before island types: the original). */
+  islandType?: IslandType;
   /** Islanders' open requests. */
   requests?: unknown[];
   /** Smoothed income per minute (what the village gathers while the player is away). */
@@ -117,6 +120,24 @@ export function readSave(seed: number): SaveData | null {
   }
 }
 
+/**
+ * The kind of island to generate: the saved island's, or (starting afresh) the one chosen for the
+ * new game, or the original.
+ */
+export function islandTypeToLoad(): IslandType {
+  try {
+    const raw = localStorage.getItem(SAVE.key);
+    if (raw) {
+      const t = (JSON.parse(raw) as SaveData).islandType;
+      return isIslandType(t) ? t : 'classic';
+    }
+    const chosen = localStorage.getItem(SAVE.key + '-type');
+    return isIslandType(chosen) ? chosen : 'classic';
+  } catch {
+    return 'classic';
+  }
+}
+
 /** Seed of whatever island is saved (used when the URL has no seed). */
 export function savedSeed(): number | null {
   try {
@@ -143,6 +164,7 @@ export function serialize(g: Game): SaveData {
     villagePriority: villagePriority(g.colony.villagePriority),
     ...(g.progression ? {progression:{prayer:g.progression.prayer,sandbox:g.eco.godMode}} : {}),
     seed: w.seed,
+    ...(w.islandType ? { islandType: w.islandType } : {}),
     savedAt: Date.now(),
     time: { elapsed: g.time.elapsed, day: g.time.day, t: g.time.t, speed: g.time.speed },
     camera: { x: g.rig.goal.x, z: g.rig.goal.z, dist: g.rig.goal.dist, yaw: g.rig.goal.yaw },

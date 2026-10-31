@@ -11,7 +11,7 @@ function setup() {
   const game:any = { settings:(Game.prototype as any).loadSettings('medium'), islandName:'Aztlan',
     eco:{godMode:false}, setIslandName(name:string){this.islandName=name;return {};},
     applySettings(){localStorage.setItem(SAVE.settingsKey,JSON.stringify(this.settings));},
-    save(){this.saved=true;}, newIsland(sandbox=false){this.newMode=sandbox?'sandbox':'normal';} };
+    save(){this.saved=true;}, newIsland(sandbox=false,type='classic'){this.newMode=sandbox?'sandbox':'normal';this.newType=type;} };
   const ui:any=Object.create(UI.prototype);
   Object.assign(ui,{game,root:document.querySelector('#hud'),isleNameEl:document.createElement('span'),
     mapWrap:document.createElement('div'),minimap:document.createElement('div'),
@@ -63,9 +63,12 @@ test('save/help/new-game handlers survive layout change and new games retain con
   const {ui,game,q}=setup();
   q('[data-a="save"]').click();assert.equal(game.saved,true);
   for(const name of ['copy','load','rename'])assert.equal(typeof q(`[data-a="${name}"]`).onclick,'function');
-  (globalThis as any).confirm=()=>false;q('[data-a="new"]').click();assert.equal(game.newMode,undefined);
+  // A new island: choose its kind, then confirm.
+  const pick=(t:string)=>(document.querySelector(`.island-modal [data-type="${t}"]`) as HTMLElement).click();
+  (globalThis as any).confirm=()=>false;q('[data-a="new"]').click();pick('classic');assert.equal(game.newMode,undefined);
+  document.querySelector('.island-modal')?.remove();
   game.islandName='GODMODE';ui.updateIslandName();
-  (globalThis as any).confirm=()=>true;q('[data-a="sandbox"]').click();assert.equal(game.newMode,'sandbox');
+  (globalThis as any).confirm=()=>true;q('[data-a="sandbox"]').click();pick('archipelago');assert.equal(game.newMode,'sandbox');assert.equal(game.newType,'archipelago');
   q('[data-a="tutorial"]').click();assert.equal(ui.tutorialStarted,true);
 });
 

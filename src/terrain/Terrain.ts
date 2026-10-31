@@ -29,6 +29,9 @@ const C = {
   rockLight: col(COLORS.rockLight),
   rockLav: col(COLORS.rockShadow),
   moss: col(COLORS.moss),
+  ashGrass: col(0x7d8455),
+  blackSand: col(0x4a4644),
+  basalt: col(0x3d3a38),
 };
 
 /**
@@ -362,6 +365,9 @@ export class Terrain {
     // Grass: lime to yellow-green in the sun, olive in dips and on terrace faces.
     tmpB.copy(C.grass).lerp(C.grassBright, clamp(0.5 + nz1 * 0.6 + nz2 * 0.2, 0, 1));
     out.copy(tmpB).lerp(C.olive, clamp((1 - flat) * 0.3 + Math.max(0, -nz1) * 0.25, 0, 1));
+    // Island types: grass dulled with ash on a volcanic island, deep and lush in the jungle.
+    if (w.islandType === 'volcanic') out.lerp(C.ashGrass, 0.6 + Math.max(0, nz1) * 0.25);
+    else if (w.islandType === 'jungle') out.lerp(C.jungleFloor, 0.22);
     out.lerp(C.jungleFloor, clamp(forest * 0.6 * (0.6 + flat * 0.4), 0, 1));
     out.lerp(C.earth, (1 - flat) * 0.28);
     // Sand: wet at the waterline, cream to pale gold above.
@@ -369,12 +375,15 @@ export class Terrain {
     const sandAmt = clamp(Math.max(sandy, lowSand * (1 - rocky)), 0, 1);
     if (sandAmt > 0) {
       tmpB.copy(C.sand).lerp(C.sandGold, clamp(0.5 + nz2 * 0.7, 0, 1));
-      tmpB.lerp(C.wetSand, 1 - smoothstep(-0.04, 0.16, y));
+      // Black volcanic sand.
+      if (w.islandType === 'volcanic') tmpB.lerp(C.blackSand, 0.82);
+      tmpB.lerp(C.wetSand, (1 - smoothstep(-0.04, 0.16, y)) * (w.islandType === 'volcanic' ? 0.3 : 1));
       out.lerp(tmpB, sandAmt);
     }
     // Rock: warm grey-mauve, lavender on faces, moss on flat tops.
     if (rocky > 0.05) {
       tmpB.copy(C.rock).lerp(C.rockLight, clamp(0.5 + nz2 * 0.8, 0, 1));
+      if (w.islandType === 'volcanic') tmpB.lerp(C.basalt, 0.6);
       tmpB.lerp(C.rockLav, (1 - flat) * 0.2);
       tmpB.lerp(C.moss, flat * 0.3 * clamp(0.5 + nz1, 0, 1));
       out.lerp(tmpB, smoothstep(0.1, 0.7, rocky) * (0.65 + (1 - flat) * 0.35));
