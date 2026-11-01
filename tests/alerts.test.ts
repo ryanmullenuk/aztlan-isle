@@ -37,18 +37,21 @@ test('MAP is hidden by default and the saved preference survives loading setting
   } finally { globalThis.localStorage = previous; }
 });
 
-test('Watch and Dismiss buttons are clickable, never focus the map, and expired Watch is harmless', async () => {
+test('an encounter is a pop-up: Watch shows it (never focusing the map), Later keeps it in the alerts, an expired Watch is harmless', async () => {
   const { JSDOM }=await import('jsdom');const dom=new JSDOM('<body></body>');
-  const previous={document:globalThis.document,raf:globalThis.requestAnimationFrame,timeout:globalThis.setTimeout};
+  const previous={document:globalThis.document,raf:globalThis.requestAnimationFrame,timeout:globalThis.setTimeout,perf:globalThis.performance};
   try {
     (globalThis as any).document=dom.window.document;(globalThis as any).requestAnimationFrame=(fn:any)=>{fn();return 0;};(globalThis as any).setTimeout=()=>0;
+    const { GameDialog }=await import('../src/ui/GameDialog');
     const ui=Object.create(UI.prototype) as any;let watched=0,alive=true;
-    Object.assign(ui,{alerts:[],zen:false,toasts:document.createElement('div'),alertPanel:document.createElement('div'),alertButton:document.createElement('button'),game:{focusAt(){assert.fail('Watch must not focus the map');}}});
+    const root=document.createElement('div');const dialog=new GameDialog(root);
+    Object.assign(ui,{alerts:[],zen:false,dialog,toasts:document.createElement('div'),alertPanel:document.createElement('div'),alertButton:document.createElement('button'),game:{focusAt(){assert.fail('Watch must not focus the map');}}});
     const announce=()=>ui.toast('A dolphin pod is visiting','info',()=>alive?{x:1,z:2}:null,{key:'wildlife-encounter',label:'Watch',noFocus:true,onView:()=>watched++});
-    announce();const toast=ui.toasts.firstElementChild!;assert.ok(toast.classList.contains('encounter'));assert.equal(ui.alertPanel.querySelector('button.obtn')!.textContent,'Watch');
-    toast.querySelector('button')!.click();assert.equal(watched,1);assert.equal(ui.alerts.length,0);
-    announce();alive=false;ui.toasts.querySelector('button')!.click();assert.equal(watched,1);assert.equal(ui.alerts.length,0);
-    alive=true;announce();ui.toasts.querySelectorAll('button')[1].click();assert.equal(ui.alerts.length,0);assert.equal(watched,1);
-    announce();ui.alertPanel.querySelector('button.obtn')!.click();assert.equal(watched,2);
+    const button=(label:string)=>[...root.querySelectorAll('button')].find(b=>b.textContent===label)!;
+    announce();assert.ok(dialog.showing);assert.equal(ui.alertPanel.querySelector('button.obtn')!.textContent,'Watch');
+    button('Watch').click();assert.equal(watched,1);assert.equal(ui.alerts.length,0);assert.ok(!dialog.showing);
+    announce();alive=false;button('Watch').click();assert.equal(watched,1);assert.equal(ui.alerts.length,0);
+    alive=true;announce();button('Later').click();assert.equal(ui.alerts.length,1,'Later keeps it in the alerts');assert.equal(watched,1);
+    ui.alertPanel.querySelector('button.obtn')!.click();assert.equal(watched,2);
   }finally{globalThis.document=previous.document;globalThis.requestAnimationFrame=previous.raf;globalThis.setTimeout=previous.timeout;dom.window.close();}
 });

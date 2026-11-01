@@ -15,6 +15,8 @@
   --shadow: 0 6px 24px rgba(0, 0, 0, 0.28);
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-t: env(safe-area-inset-top, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
   --font: 'Trebuchet MS', 'Segoe UI', system-ui, -apple-system, sans-serif;
 }
 
@@ -760,10 +762,10 @@ p.warn { color: #ffb08a; }
   .time-panel { padding: 8px 10px; }
 }
 
-/* Phones: a compact clock tucked into the top-left corner beside the Dynamic Island (inside the
- * top safe area where there is one), with the inventory button the same width just under it. */
+/* Phones: a compact clock in the top-left corner, just below the Dynamic Island or notch (never
+ * beside it), with the inventory button the same width just under it. */
 @media (max-width: 720px) {
-  #hud .tl { width: 124px; gap: 4px; left: 8px; top: max(14px, calc(var(--safe-t) - 44px)); }
+  #hud .tl { width: 124px; gap: 4px; left: calc(8px + var(--safe-l)); top: max(10px, calc(var(--safe-t) + 2px)); }
   #hud .time-panel { padding: 4px 8px 5px; border-radius: 10px; }
   #hud .islename { font-size: 8px; letter-spacing: 0.08em; margin: 2px 0 1px; max-width: 98px; }
   #hud .clock { gap: 5px; }
@@ -841,7 +843,7 @@ p.warn { color: #ffb08a; }
 /* Keep PLAY slightly lower without moving the artwork or the home-screen hint. */
 #play-btn { transform: translateY(8px); }
 @media (max-width: 720px) {
-  #hud .tl { left: max(20px, calc(var(--safe-l, 0px) + 12px)); }
+  #hud .tl { left: calc(8px + var(--safe-l)); }
 }
 
 /* Notifications occupy the lane below inventory and left of the side controls. */
@@ -1228,3 +1230,105 @@ body.notice-showing .toasts { margin-top: min(130px, 21vw); }
 .district-styles { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 6px 0; }
 .district-styles .btn { justify-content: flex-start; gap: 6px; }
 .district-styles .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; flex: none; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.3); }
+
+/* ---------- Pop-ups in the middle of the screen (GameDialog): a framed plate with an emblem on its
+   top edge, cleared with its buttons. The island dims a little behind it. ---------- */
+.gd-backdrop {
+  position: absolute; inset: 0; z-index: 45; display: grid; place-items: center; pointer-events: auto;
+  padding: calc(16px + var(--safe-t)) calc(16px + var(--safe-r)) calc(16px + var(--safe-b)) calc(16px + var(--safe-l));
+  background: radial-gradient(ellipse at center, rgba(10, 8, 6, 0.25), rgba(10, 8, 6, 0.55));
+  opacity: 0; transition: opacity 0.2s;
+}
+.gd-backdrop.hidden { display: none; }
+.gd-backdrop.gd-in { opacity: 1; }
+.gd-backdrop.gd-out { opacity: 0; }
+#hud#hud .gd-card {
+  --az-w: 16px;
+  position: relative; width: min(400px, 100%); overflow: visible;
+  padding: 40px 24px 20px; text-align: center; color: var(--text);
+  border: 1px solid transparent !important;
+  border-image: var(--az-frame) 20 fill / var(--az-w) stretch !important;
+  filter: drop-shadow(0 18px 30px rgba(0, 0, 0, 0.55));
+  transform: scale(0.86) translateY(14px); opacity: 0;
+}
+.gd-in .gd-card { animation: gd-pop 0.42s cubic-bezier(0.2, 1.3, 0.4, 1) forwards; }
+.gd-out .gd-card { transition: transform 0.2s ease-in, opacity 0.2s; transform: scale(0.94); opacity: 0; }
+@keyframes gd-pop { to { transform: none; opacity: 1; } }
+/* The emblem sits on the frame's top edge, half in and half out. */
+.gd-emblem {
+  position: absolute; left: 50%; top: 0; width: 64px; height: 64px; transform: translate(-50%, -46%);
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.5));
+}
+.gd-emblem svg { width: 100%; height: 100%; }
+.gd-in .gd-emblem { animation: gd-emblem 0.6s 0.15s cubic-bezier(0.2, 1.6, 0.4, 1) both; }
+@keyframes gd-emblem { from { transform: translate(-50%, -46%) scale(0.3) rotate(-20deg); } to { transform: translate(-50%, -46%) scale(1); } }
+.gd-kicker { font-size: 11px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: var(--gold); margin-bottom: 4px; }
+.gd-title { font-size: 21px; font-weight: 800; line-height: 1.2; margin-bottom: 8px; text-wrap: balance; }
+.gd-body { font-size: 14px; line-height: 1.45; color: var(--text); opacity: 0.92; text-wrap: pretty; max-height: min(46vh, calc(var(--app-h, 100dvh) - var(--safe-t) - var(--safe-b) - 260px)); overflow-y: auto; }
+.gd-body p { margin: 0 0 8px; }
+.gd-benefit { margin: 12px auto 0; display: inline-block; padding: 6px 12px; border-radius: 8px; background: rgba(232, 184, 74, 0.14); border: 1px solid rgba(232, 184, 74, 0.4); color: #ffe7a6; font-size: 13px; font-weight: 700; }
+.gd-pic { display: block; width: 132px; height: 132px; object-fit: contain; margin: 2px auto 6px; filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.45)); }
+.gd-actions { display: flex; gap: 10px; justify-content: center; margin-top: 18px; flex-wrap: wrap; }
+#hud#hud .gd-btn { min-width: 120px; min-height: 44px; padding: 10px 18px; font-size: 15px; font-weight: 800; color: var(--text); letter-spacing: 0.02em; }
+#hud#hud .gd-btn.primary { border-image-source: var(--az-frame-on) !important; color: #ffe7a6; }
+#hud#hud .gd-btn:active { transform: translateY(1px); }
+.gd-news { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; text-align: left; }
+.gd-news li { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; line-height: 1.35; }
+.gd-news li svg { width: 22px; height: 22px; flex: none; margin-top: 1px; }
+.gd-news b { font-size: 14px; }
+@media (max-width: 480px) {
+  .gd-title { font-size: 19px; }
+  #hud#hud .gd-btn { min-width: 0; flex: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gd-in .gd-card, .gd-in .gd-emblem { animation: none; transform: none; opacity: 1; }
+  .gd-in .gd-emblem { transform: translate(-50%, -46%); }
+}
+
+/* Quick messages about what the player just did: a single line in the middle of the screen, a
+   little above centre, clear of every panel; it fades on its own. */
+#hud .toasts { top: 30%; bottom: auto; left: 50%; right: auto; transform: translateX(-50%); z-index: 44; width: min(420px, calc(100vw - 32px)); align-items: center; max-height: none; overflow: visible; margin-top: 0; }
+#hud .toast { pointer-events: none; text-align: center; font-weight: 700; font-size: 14px; line-height: 1.35; max-width: 100%; padding: 10px 18px !important; transform: translateY(8px) scale(0.96); }
+#hud .toast.in { transform: none; }
+
+/* ---------- Safe areas everywhere: nothing under the Dynamic Island, the notch or the rounded
+   corners, in either orientation (in landscape the island sits on a side). ---------- */
+#hud .tl { left: calc(12px + var(--safe-l)); }
+#hud .tr { right: calc(12px + var(--safe-r)); top: calc(12px + var(--safe-t)); }
+#hud .minimap { left: calc(12px + var(--safe-l)); }
+#hud .info { right: calc(12px + var(--safe-r)); }
+#hud.zen > .zen-eye { right: calc(12px + var(--safe-r)); }
+@media (max-width: 720px) {
+  #hud .tl { left: calc(8px + var(--safe-l)); top: max(10px, calc(var(--safe-t) + 2px)); }
+  #hud .tr { right: calc(8px + var(--safe-r)); top: max(10px, calc(var(--safe-t) + 2px)); }
+  #hud .info { left: calc(8px + var(--safe-l)); right: calc(8px + var(--safe-r)); }
+}
+/* Phones on their side: a short screen. Compact top corners, panels that scroll rather than run
+   into the toolbar, and every open list kept clear of the bottom bar. */
+@media (orientation: landscape) and (max-height: 520px) {
+  #hud .tl { width: 168px; gap: 4px; top: max(8px, var(--safe-t)); }
+  #hud .time-panel { padding: 4px 8px 5px; }
+  #hud .islename { font-size: 9px; margin: 0 0 1px; }
+  #hud .sunicon { width: 18px; height: 18px; }
+  #hud .time { font-size: 14px; }
+  #hud .date { font-size: 10px; }
+  #hud .inventory-toggle { min-height: 28px; padding: 3px 8px 3px 5px; font-size: 10px; }
+  #hud .tl > .panel:not(.time-panel), #hud .goal-list, #hud .inventory-panel {
+    width: min(260px, 40vw); max-height: calc(var(--app-h, 100dvh) - var(--safe-b) - 210px); overflow-y: auto;
+  }
+  #hud .tr { top: max(8px, var(--safe-t)); padding: 4px; gap: 2px; }
+  #hud .tr .ib { width: 34px; height: 34px; }
+  #hud .info { top: calc(54px + var(--safe-t)); bottom: calc(96px + var(--safe-b)); max-height: none; width: min(320px, 42vw); }
+  #hud .tutorial { left: auto; right: calc(12px + var(--safe-r)); top: auto; bottom: calc(96px + var(--safe-b)); width: min(300px, 40vw); }
+  #hud .gd-card { padding: 34px 20px 14px; }
+  .gd-title { font-size: 18px; }
+  .gd-pic { width: 84px; height: 84px; }
+  .gd-actions { margin-top: 12px; }
+}
+/* The left column never runs under the toolbar: it stops above it and the open list scrolls. */
+#hud .tl { display: flex; flex-direction: column; max-height: calc(var(--app-h, 100dvh) - var(--safe-t) - var(--safe-b) - 150px); }
+#hud .tl > .inventory-panel, #hud .tl > .goal-list, #hud .tl > .village-priorities { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
+#hud .tl > :not(.inventory-panel):not(.goal-list):not(.village-priorities) { flex: none; }
+@media (orientation: landscape) and (max-height: 520px) {
+  #hud .tl { max-height: calc(var(--app-h, 100dvh) - max(8px, var(--safe-t)) - var(--safe-b) - 112px); }
+}

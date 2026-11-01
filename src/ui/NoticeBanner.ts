@@ -16,6 +16,10 @@ export interface Notice {
   /** Picture on the right (a data URL or image path), or none. */
   image?: string | null;
   icon?: 'tick';
+  /** A big moment (a new title, a wish granted): shown on its own, never merged with other news. */
+  important?: boolean;
+  /** Small line above the title (defaults to "Complete", or "Milestone" when important). */
+  kicker?: string;
 }
 
 /** Seconds a notice stays fully shown, and its entrance and exit. */

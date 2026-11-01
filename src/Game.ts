@@ -421,18 +421,28 @@ export class Game {
       sandbox: () => this.eco.godMode,
     }, () => this.rng.next(), () => this.time.elapsed);
     this.requests.onAsked = (r, who) => {
-      this.ui?.toast(`💬 ${r.text}`, 'info', () => { const p = this.colony.byId(r.who); return p ? { x: p.x, z: p.z } : null; },
-        { key: `request-${r.id}`, label: 'Show', onView: () => { if (this.colony.byId(who.id)) this.select({ islander: who.id }); } });
+      this.ui?.dialog.push({
+        icon: 'ask', kicker: `${who.name} has a request`, title: `A ${BUILDINGS[r.key].name}, please`, body: r.text,
+        benefit: `Build it soon: +${r.belief} Belief and a happier islander`,
+        actions: [
+          { label: 'Show me', run: () => { if (this.colony.byId(who.id)) { this.focusAt({ x: who.x, z: who.z }); this.select({ islander: who.id }); } } },
+          { label: 'Build it', primary: true, run: () => {
+            const reason = this.buildings.constructionRequirement(r.key);
+            if (reason) this.ui.toast(reason, 'warn');
+            else this.startPlacing(r.key);
+          } },
+        ],
+      });
     };
     this.requests.onGranted = (r, who) => {
       this.eco.add('belief', r.belief);
       if (who) who.happy = Math.min(1, who.happy + REQUESTS.happy);
-      this.ui?.dismissAlert(`request-${r.id}`);
-      this.ui?.notice({ title: 'Wish granted', line: r.thanks, benefit: `+${r.belief} Belief · ${who?.name ?? 'They'} ${who ? 'is' : 'are'} happier`, icon: 'tick' });
+      this.ui?.dialog.forget((d) => d.body === r.text);
+      this.ui?.notice({ title: 'Wish granted', line: r.thanks, benefit: `+${r.belief} Belief · ${who?.name ?? 'They'} ${who ? 'is' : 'are'} happier`, icon: 'tick', important: true, kicker: who ? `${who.name} is delighted` : 'A wish' });
       this.audio?.sfx('milestone');
       haptic('medium');
     };
-    this.requests.onLapsed = (r) => this.ui?.dismissAlert(`request-${r.id}`);
+    this.requests.onLapsed = (r) => this.ui?.dialog.forget((d) => d.body === r.text);
     this.requestMarkers.renderOrder = 30;
     this.scene.add(this.requestMarkers);
     // Long route searches run in a background worker where the browser allows it.
@@ -1096,6 +1106,10 @@ export class Game {
   }
 
   private playing = false;
+  /** The player has pressed Play (the splash is gone). */
+  get isPlaying(): boolean {
+    return this.playing;
+  }
   private stopped = false;
 
   start(onReady: () => void, onError: (error: unknown) => void): void {
@@ -2829,7 +2843,7 @@ export class Game {
     this.ui.updateIslandName();
     const title = TITLES[stage - 1];
     const opens = Object.entries(BUILD_STAGE).filter(([, s]) => s === stage).map(([k]) => BUILDINGS[k as BuildingKey].name);
-    this.ui.notice({ title: `${this.islandName} is now a ${title}`, line: STAGES[stage - 1], benefit: opens.length ? `New: ${opens.slice(0, 4).join(', ')}${opens.length > 4 ? '…' : ''}` : null, icon: 'tick' });
+    this.ui.notice({ title: `${this.islandName} is now a ${title}`, line: STAGES[stage - 1], benefit: opens.length ? `New: ${opens.slice(0, 4).join(', ')}${opens.length > 4 ? '…' : ''}` : null, icon: 'tick', important: true, kicker: 'A new title' });
     this.audio?.sfx('milestone');
     this.audio?.flourish();
     haptic('success');

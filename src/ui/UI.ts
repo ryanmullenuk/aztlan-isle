@@ -20,6 +20,7 @@ import { CONDITION_LABEL, ROLE_LABEL, type Islander } from '../entities/Islander
 import { islanderLine } from './islanderLines';
 import { ISLAND_TYPES, type IslandType } from '../world/generator';
 import { PhotoMode } from './PhotoMode';
+import { GameDialog } from './GameDialog';
 import { GOD_NAME, randomIslandName } from '../world/names';
 import { Ground } from '../world/World';
 import { ICONS, icon } from './icons';
@@ -36,6 +37,15 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = ''):
 };
 
 const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${Math.floor(n)}`);
+
+/** A message as a pop-up: its first sentence as the title (when short), the rest beneath. */
+function splitMessage(text: string): { title: string; body?: string } {
+  const plain = text.replace(/<[^>]+>/g, '');
+  const m = /^(.{8,70}?[.!?])\s+(.+)$/.exec(plain);
+  if (m) return { title: m[1].replace(/[.]$/, ''), body: m[2] };
+  if (plain.length <= 70) return { title: plain.replace(/[.]$/, '') };
+  return { title: plain.slice(0, plain.indexOf(' ', 50) > 0 ? plain.indexOf(' ', 50) : 60) + '…', body: plain };
+}
 
 /** Little maps for the island picker. */
 const ISLAND_ICONS: Record<IslandType, string> = {
@@ -147,14 +157,13 @@ export class UI {
     this.root.appendChild(this.info);
     this.toasts = el('div', 'toasts');
     this.root.appendChild(this.toasts);
-    this.notices = new NoticeBanner(this.root);
-    const placeAlerts = () => {
-      const root = this.root.getBoundingClientRect(), clock = this.tl.getBoundingClientRect();
-      this.toasts.style.top = `${Math.max(8, clock.bottom - root.top + 8)}px`;
+    this.dialog = new GameDialog(this.root);
+    // Not while the player is busy: mid-drag, placing, sculpting, in Photo Mode or a cinematic.
+    this.dialog.canShow = () => {
+      const g = this.game;
+      return !this.zen && !this.photo?.open && !g.placing && !g.input?.touching && !g.input?.navigating && !g.wildlifeView?.active
+        && g.isPlaying && (this.settings?.classList.contains('hidden') ?? true);
     };
-    const alertLayout = new ResizeObserver(placeAlerts);
-    alertLayout.observe(this.tl);
-    alertLayout.observe(this.root);
     this.tooltip = el('div', 'tooltip hidden');
     this.root.appendChild(this.tooltip);
     this.buildMinimap();
@@ -230,8 +239,9 @@ export class UI {
       const open = inventory.getAttribute('aria-expanded') !== 'true';
       inventory.setAttribute('aria-expanded', String(open));
       grid.classList.toggle('hidden', !open);
-      if (open) this.villagePriorities.close();
+      if (open) { this.villagePriorities.close(); this.setGoalsOpen(false); }
     };
+    this.closeInventory = () => { inventory.setAttribute('aria-expanded', 'false'); grid.classList.add('hidden'); };
     this.villagePriorities = new VillagePrioritiesPanel(
       () => this.game.colony.villagePriority,
       value => this.game.colony.setVillagePriority(value),
@@ -239,6 +249,7 @@ export class UI {
         this.closePopups();
         inventory.setAttribute('aria-expanded', 'false');
         grid.classList.add('hidden');
+        this.setGoalsOpen(false);
       });
     this.tl.append(inventory, grid, this.villagePriorities.button, this.villagePriorities.panel);
     // The next village title and what it still needs: a checklist, each building a tap away.
@@ -251,10 +262,10 @@ export class UI {
     try { const saved = localStorage.getItem(GOALS_OPEN_KEY); if (saved) open = saved === '1'; } catch { /* storage unavailable */ }
     this.goalsOpen = open;
     this.goalToggle.onclick = () => {
-      this.goalsOpen = !this.goalsOpen;
+      this.setGoalsOpen(!this.goalsOpen);
       try { localStorage.setItem(GOALS_OPEN_KEY, this.goalsOpen ? '1' : '0'); } catch { /* storage unavailable */ }
-      this.goalShown = '';
-      this.renderGoals();
+      // One list open at a time down the left side.
+      if (this.goalsOpen) { this.closeInventory(); this.villagePriorities.close(); }
     };
     this.goalList.onclick = (e) => {
       const item = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-build]');
@@ -266,6 +277,14 @@ export class UI {
     };
     this.tl.append(this.goalToggle, this.goalList);
     this.root.appendChild(this.tl);
+  }
+
+  private closeInventory: () => void = () => {};
+  private setGoalsOpen(open: boolean): void {
+    if (this.goalsOpen === open) return;
+    this.goalsOpen = open;
+    this.goalShown = '';
+    this.renderGoals();
   }
 
   private goalToggle!: HTMLButtonElement;
@@ -375,11 +394,15 @@ export class UI {
   private zenBtn!: HTMLButtonElement;
   /** Natural mode: every button, panel, hint and notification hidden but the one eye. */
   zen = false;
-  /** The gold-framed banner for building completions (and later other notices). */
-  private notices!: NoticeBanner;
+  /** Pop-ups in the middle of the screen (see GameDialog). */
+  dialog!: GameDialog;
   /** Announce something in the banner (not while the interface is hidden). */
   notice(n: Notice): void {
-    if (!this.zen && !this.photo?.open) this.notices.push(n);
+    if (this.zen || this.photo?.open) return;
+    this.dialog.push({
+      icon: n.important ? 'star' : 'tick', kicker: n.kicker ?? (n.important ? 'Milestone' : 'Complete'), title: n.title, body: n.line,
+      benefit: n.benefit, image: n.image, news: !n.important,
+    });
   }
 
   toggleZen(on = !this.zen): void {
@@ -1138,31 +1161,37 @@ export class UI {
     }
     // Keep warnings in the inbox while the interface is hidden.
     if (this.zen) return;
-    const t = el('div', `toast ${kind}`, kind === 'milestone' ? `<span class="tm">${ICONS.bless}</span><span><small>Milestone</small><br>${text}</span>` : text);
-    if (action?.label) {
-      t.classList.add('encounter');
-      const message = el('span', 'encounter-text');
-      message.textContent = text;
-      t.replaceChildren(message);
-      const watch = el('button', 'obtn sm', action.label);
-      watch.onclick = () => {
-        if (typeof at === 'function' && at() === null) { this.dismissAlert(action.key); return; }
-        action.onView();
-        this.dismissAlert(action.key);
-      };
-      const dismiss = el('button', 'obtn sm', 'Dismiss');
-      dismiss.onclick = () => this.dismissAlert(action.key);
-      t.append(watch, dismiss);
-    } else if (at) {
-      t.classList.add('go');
-      t.title = 'Click to go there';
-      t.insertAdjacentHTML('beforeend', '<span class="go-arrow" aria-hidden="true">›</span>');
-      t.onclick = () => {
-        action?.onView();
-        this.game.focusAt(at);
-        t.remove();
-      };
+    // Anything worth stopping for is a pop-up in the middle of the screen, cleared by the player:
+    // milestones, events with a choice, and news or warnings about a place on the island.
+    const split = splitMessage(text);
+    if (kind === 'milestone') {
+      this.dialog.push({ icon: 'star', kicker: 'Milestone', title: split.title, body: split.body });
+      return;
     }
+    if (action?.label) {
+      this.dialog.push({
+        icon: kind === 'warn' ? 'warn' : 'ask', kicker: kind === 'warn' ? 'Warning' : 'Something to see', title: split.title, body: split.body,
+        actions: [
+          { label: 'Later' },
+          { label: action.label, primary: true, run: () => {
+            if (typeof at === 'function' && at() === null) { this.dismissAlert(action.key); return; }
+            action.onView();
+            this.dismissAlert(action.key);
+          } },
+        ],
+      });
+      return;
+    }
+    if (at) {
+      this.dialog.push({
+        icon: kind === 'warn' ? 'warn' : 'info', kicker: kind === 'warn' ? 'Warning' : 'News', title: split.title, body: split.body,
+        news: kind !== 'warn',
+        actions: [{ label: 'Show me', run: () => this.game.focusAt(at) }, { label: 'OK', primary: true }],
+      });
+      return;
+    }
+    // Quick feedback on what the player just did: a short message mid-screen that fades by itself.
+    const t = el('div', `toast ${kind}`, text);
     if (retained) this.alerts.find(a => action ? a.key === action.key : !a.key && a.text === text)!.toast = t;
     t.setAttribute('role', 'status');
     this.toasts.appendChild(t);
@@ -1170,8 +1199,9 @@ export class UI {
     setTimeout(() => {
       t.classList.remove('in');
       setTimeout(() => t.remove(), 500);
-    }, action?.label ? 6000 : kind === 'milestone' ? 5200 : 3400);
-    while (this.toasts.children.length > 4) this.toasts.firstElementChild?.remove();
+    }, 3000);
+    // One quick message at a time, and only the latest two kept.
+    while (this.toasts.children.length > 2) this.toasts.firstElementChild?.remove();
   }
 
   setHint(text: string | null): void {
@@ -1211,6 +1241,7 @@ export class UI {
       if (followed) this.followPill.innerHTML = `${ICONS.follow}<span>Following <b>${followed.name}</b></span><span class="fp-x" aria-hidden="true">${ICONS.close}</span>`;
       this.followPill.setAttribute('aria-label', followed ? `Stop following ${followed.name}` : '');
     }
+    this.dialog.tick();
     this.timer -= dt;
     if (this.timer <= 0) {
       this.timer = 0.25;
@@ -1404,6 +1435,14 @@ export class UI {
       this.info.classList.add('hidden');
       this.infoKey = '';
       return;
+    }
+    if (this.info.classList.contains('hidden') && matchMedia('(max-width: 720px), (max-height: 520px)').matches) {
+      // Small screens: a selection card and the left-hand lists would overlap. Fold the lists away.
+      this.closeInventory();
+      this.villagePriorities.close();
+      this.goalsOpen = false;
+      this.goalShown = '';
+      this.renderGoals();
     }
     this.info.classList.remove('hidden');
     let html = '';
@@ -1941,7 +1980,6 @@ export class UI {
   /** Back after a while: how long, what the islanders gathered, and what the village needs next. */
   welcomeBack(seconds: number, gains: Partial<Record<ResourceKey, number>>): void {
     if (this.photo?.open || this.zen) return;
-    this.welcome?.remove();
     const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60);
     const away = seconds >= 86400 ? `${Math.floor(seconds / 86400)} day${seconds >= 172800 ? 's' : ''}` : h ? `${h} h ${m} min` : `${m} minutes`;
     const food = (gains.grain ?? 0) + (gains.fruit ?? 0) + (gains.meat ?? 0) + (gains.fish ?? 0);
@@ -1953,21 +1991,13 @@ export class UI {
       ? (() => { const items = p.checklist(next).filter((i) => !(i.done && i.text.startsWith('Reach '))); const todo = items.find((i) => !i.done);
         return `<p class="wb-next"><b>Next: ${TITLES[next - 1]}</b> · ${items.filter((i) => i.done).length} of ${items.length} done${todo ? `<br><span class="muted">${todo.text}</span>` : ''}</p>`; })()
       : '';
-    const modal = el('div', 'modal welcome-modal');
-    modal.innerHTML = `<div class="panel card welcome-card" role="dialog" aria-labelledby="wb-title">
-      <div class="wb-kicker">You were away ${away}</div>
-      <div class="wb-title" id="wb-title">Welcome back to ${this.game.islandName}</div>
-      ${list ? `<p>Your islanders kept busy while you were gone:</p><div class="wb-gains">${list}</div>` : '<p>Your islanders have been waiting for you. All is well on the island.</p>'}
-      ${goal}
-      <div class="actions"><button class="btn" data-a="ok">Back to the island</button></div>
-    </div>`;
-    const close = () => { modal.remove(); if (this.welcome === modal) this.welcome = null; };
-    modal.onclick = (e) => { if (e.target === modal || (e.target as HTMLElement).closest('[data-a="ok"]')) close(); };
-    this.welcome = modal;
-    this.root.appendChild(modal);
+    this.dialog.push({
+      icon: 'home', kicker: `You were away ${away}`, title: `Welcome back to ${this.game.islandName}`, html: true,
+      body: (list ? `<p>Your islanders kept busy while you were gone:</p><div class="wb-gains">${list}</div>` : '<p>Your islanders have been waiting for you. All is well on the island.</p>') + goal,
+      actions: [{ label: 'Back to the island', primary: true }],
+    });
     this.game.audio?.sfx('milestone');
   }
-  private welcome: HTMLElement | null = null;
 
   milestone(id: string): void {
     const m = MILESTONES.find((x) => x.id === id);
