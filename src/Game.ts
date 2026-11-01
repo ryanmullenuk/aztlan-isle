@@ -493,6 +493,8 @@ export class Game {
     this.jaguars.dogs = this.dogs;
     this.scene.add(this.dogs.meshes.group, this.jaguars.meshes.group);
     this.boats.blockCells(this.wildlife.coral.cells());
+    // Rocks along the coast: boats keep a hull's width off them (canoes caught on them before).
+    this.boats.blockCells(this.coastRocks.boatCells());
     // A few great sea stacks off the exposed coasts (clear of the reefs); boats steer round them.
     const reefs = [...this.wildlife.coral.patches.map((p) => ({ x: p.x, z: p.z, r: p.r + 1 })), ...this.veg.plants.filter((p) => p.kind === 'reef' || p.kind === 'searock').map((p) => ({ x: p.x, z: p.z, r: 1.2 }))];
     this.seaStacks = new SeaStacks(this.world, opts.seed, reefs);

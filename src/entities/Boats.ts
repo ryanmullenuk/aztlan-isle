@@ -701,7 +701,41 @@ interface Arrival extends Vessel {
   timer: number;
   phase: number;
   onLand?: (people: Islander[]) => void;
+  /** Closest it has come to the landing, and how long since it last got closer (to unstick it). */
+  best?: number;
+  stall?: number;
+  /** Gliding straight in to the beach after getting stuck. */
+  glide?: boolean;
+  /** Sand heaped up at the bow and along the sides as it runs up the beach. */
+  sand?: THREE.Mesh;
+  /** Its own copy of the hull and sand materials, made when it fades away. */
+  fading?: THREE.Material[];
 }
+
+/** Seconds an empty canoe rests on the beach, and how long it takes to fade away. */
+const BEACHED_SECONDS = 75, FADE_SECONDS = 3;
+
+/** A low heap of sand pushed up at a canoe's bow, with a ridge along each side (model space: bow toward +z). */
+function sandHeapGeometry(): THREE.BufferGeometry {
+  const parts = [
+    new THREE.SphereGeometry(1, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2).scale(0.42, 0.13, 0.3).translate(0, 0, 0.98),
+    new THREE.SphereGeometry(1, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2).scale(0.1, 0.07, 0.62).translate(0.33, 0, 0.32),
+    new THREE.SphereGeometry(1, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2).scale(0.1, 0.07, 0.62).translate(-0.33, 0, 0.32),
+  ];
+  const g = new THREE.BufferGeometry();
+  const pos: number[] = [], idx: number[] = [];
+  for (const p of parts) {
+    const P = p.getAttribute('position'), I = p.index!, base = pos.length / 3;
+    for (let i = 0; i < P.count; i++) pos.push(P.getX(i), P.getY(i), P.getZ(i));
+    for (let i = 0; i < I.count; i++) idx.push(base + I.getX(i));
+    p.dispose();
+  }
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+const SAND_HEAP = sandHeapGeometry();
 
 /** Canoes and fishing boats: built at jetties, crewed by fishers, sail to fish schools, net and return. */
 export class Boats {
@@ -1179,8 +1213,17 @@ export class Boats {
     const hb = W.waveHeight(v.x + fx * L, v.z + fz * L, time), hs = W.waveHeight(v.x - fx * L, v.z - fz * L, time);
     const hp = W.waveHeight(v.x + px * B, v.z + pz * B, time), hn = W.waveHeight(v.x - px * B, v.z - pz * B, time);
     const m = BOATS.maxTilt;
-    const ty = SEA_SURFACE + 0.03 + ((hb + hs + hp + hn) / 4) * BOATS.bob * calm;
-    const tp = Math.max(-m, Math.min(m, ((hs - hb) / (2 * L)) * BOATS.pitch * calm));
+    let ty = SEA_SURFACE + 0.03 + ((hb + hs + hp + hn) / 4) * BOATS.bob * calm;
+    let tp = Math.max(-m, Math.min(m, ((hs - hb) / (2 * L)) * BOATS.pitch * calm));
+    // Over shallows and running up a beach the hull rides on the sand under it, bow lifting with
+    // the slope, never sinking through it.
+    const w = this.world;
+    const gb = w.heightAt(v.x + fx * L, v.z + fz * L), gs = w.heightAt(v.x - fx * L, v.z - fz * L), gm = w.heightAt(v.x, v.z);
+    const ground = Math.max(gm, (gb + gs) / 2) + 0.025;
+    if (ground > ty) {
+      ty = ground;
+      tp = Math.atan2(gs - gb, 2 * L);
+    }
     const tr = Math.max(-m, Math.min(m, ((hp - hn) / (2 * B)) * BOATS.roll * calm));
     const r = v.ride;
     const e = r.init ? Math.min(1, dt * 4) : 1;
@@ -1264,13 +1307,43 @@ export class Boats {
     return { x: lx, z: lz };
   }
 
+  /** How far the canoe's hull reaches below its origin (model units). */
+  private keel = -1;
+  private keelDepth(): number {
+    if (this.keel < 0) {
+      const g = this.geos[0];
+      g.computeBoundingBox();
+      this.keel = Math.max(0, -(g.boundingBox?.min.y ?? 0));
+    }
+    return this.keel;
+  }
+
   private stepArrivals(dt: number, time: number, traffic: Hull[]): void {
     const half = HULL_HALF * 1.1, beam = HULL_BEAM * 1.1;
     for (const a of this.arrivals.slice()) {
       if (a.state === 'sail') {
         const me = traffic.find((h) => h.ref === a)!;
-        // No bow check: the canoe runs up onto the beach at the end.
-        a.idx = this.sailPath(a, me, a.path, a.idx, 2.6, dt, traffic, false);
+        const end = a.path[a.path.length - 1];
+        const left = Math.hypot(end.x - a.x, end.z - a.z);
+        // Not getting any closer for a while (caught on something): glide straight in to the beach.
+        if (left < (a.best ?? Infinity) - 0.25) { a.best = left; a.stall = 0; }
+        else a.stall = (a.stall ?? 0) + dt;
+        if ((a.stall ?? 0) > 5) a.glide = true;
+        if (a.glide) {
+          const want = Math.atan2(end.x - a.x, end.z - a.z);
+          let turn = want - a.heading;
+          while (turn > Math.PI) turn -= Math.PI * 2;
+          while (turn < -Math.PI) turn += Math.PI * 2;
+          a.heading += turn * Math.min(1, dt * 2.5);
+          a.speed = Math.min(1.4, a.speed + dt * 1.5);
+          const step = Math.min(left, a.speed * dt);
+          a.x += Math.sin(want) * step;
+          a.z += Math.cos(want) * step;
+          if (left < 0.15) a.idx = a.path.length;
+        } else {
+          // No bow check: the canoe runs up onto the beach at the end.
+          a.idx = this.sailPath(a, me, a.path, a.idx, 2.6, dt, traffic, false);
+        }
         if (a.idx >= a.path.length) {
           // Landed: the settlers step ashore; the canoe is pulled up on the sand.
           a.state = 'beached';
@@ -1278,7 +1351,12 @@ export class Boats {
           // Pulled a little way up the sand, not dragged inland.
           const toLand = Math.hypot(a.land.x - a.x, a.land.z - a.z), up = Math.min(0.9, toLand * 0.5);
           a.rest = { x: a.x + Math.sin(a.heading) * up, z: a.z + Math.cos(a.heading) * up };
-          a.timer = 120;
+          a.timer = BEACHED_SECONDS;
+          // The bow ploughs up a little sand as the canoe runs ashore.
+          a.sand = new THREE.Mesh(SAND_HEAP, new THREE.MeshStandardMaterial({ color: 0xd2b47e, roughness: 1 }));
+          a.sand.receiveShadow = true;
+          a.sand.scale.setScalar(0.01);
+          a.mesh.add(a.sand);
           a.speed = 0;
           for (const r of a.rowers) r.dispose();
           a.rowers.length = 0;
@@ -1293,8 +1371,26 @@ export class Boats {
         a.timer -= dt;
         if (a.timer <= 0) {
           this.group.remove(a.mesh);
+          for (const m of a.fading ?? []) m.dispose();
+          (a.sand?.material as THREE.Material | undefined)?.dispose();
           this.arrivals = this.arrivals.filter((x) => x !== a);
           continue;
+        }
+        // Its work done, the canoe fades away (with the sand it pushed up).
+        if (a.timer < FADE_SECONDS) {
+          if (!a.fading) {
+            a.fading = [];
+            a.mesh.traverse((o) => {
+              const m = o as THREE.Mesh;
+              if (!m.isMesh) return;
+              const mat = (m.material as THREE.Material).clone();
+              mat.transparent = true;
+              m.material = mat;
+              a.fading!.push(mat);
+            });
+            (a.mesh.children[0] as THREE.Mesh).castShadow = false;
+          }
+          for (const m of a.fading) m.opacity = Math.max(0, a.timer / FADE_SECONDS);
         }
       }
       if (a.state === 'sail') this.ride(a.mesh, a, time, dt, half, beam);
@@ -1309,8 +1405,19 @@ export class Boats {
         const floor = (x: number, z: number) => Math.max(SEA_SURFACE - 0.02, this.world.heightAt(x, z));
         const bow = floor(a.x + fx * reach, a.z + fz * reach), stern = floor(a.x - fx * reach, a.z - fz * reach), mid = floor(a.x, a.z);
         const pitch = Math.atan2(bow - stern, reach * 2);
-        a.mesh.position.set(a.x, Math.max(mid, (bow + stern) / 2) + 0.02, a.z);
+        // On its keel, not sunk in the sand: the hull's bottom sits on the ground (bedded a touch,
+        // as a loaded canoe settles), and it floats as before where there is still water under it.
+        const keel = this.keelDepth() * a.mesh.scale.y;
+        const ground = Math.max(mid, (bow + stern) / 2);
+        a.mesh.position.set(a.x, Math.max(0.03, ground + keel * 0.82), a.z);
         a.mesh.rotation.set(-pitch, a.heading, 0, 'YXZ');
+        if (a.sand) {
+          // Heaped up as it slides ashore, sat on the sand under the canoe (in its own scaled frame).
+          const shown = Math.min(1, 1 - Math.hypot(rest.x - a.x, rest.z - a.z) / 0.9 + 0.25);
+          const onSand = ground > SEA_SURFACE - 0.01 ? 1 : 0.4;
+          a.sand.scale.setScalar(Math.max(0.01, shown * onSand));
+          a.sand.position.set(0, -keel * 0.82 / a.mesh.scale.y + 0.01, 0);
+        }
       }
       a.rowers.forEach((r, k) => (r.rotation.z = Math.sin(a.phase + k * 0.7) * 0.04 * (k % 2 ? -1 : 1)));
     }

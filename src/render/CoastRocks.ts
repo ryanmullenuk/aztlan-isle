@@ -43,8 +43,29 @@ interface Site {
 export class CoastRocks {
   readonly group = new THREE.Group();
   readonly sites: Site[] = [];
+  /** Every rock placed (the big ones and the small ones round them): centre and radius. */
+  readonly rocks: { x: number; z: number; r: number }[] = [];
   private spray = new Particles(800, 0xf6fcff);
   private foam = new Particles(300, 0xf2f9ff, 0.7);
+
+  /**
+   * Water cells a boat must keep out of: each rock plus about half a hull's width (the rocks only
+   * block the cells under their middles for walkers; a canoe is long and wide).
+   */
+  boatCells(clearance = 0.55): number[] {
+    const w = this.world, out: number[] = [];
+    for (const k of this.rocks) {
+      const R = k.r + clearance, [cx, cz] = w.cellOf(k.x, k.z), n = Math.ceil(R) + 1;
+      for (let dz = -n; dz <= n; dz++) for (let dx = -n; dx <= n; dx++) {
+        if (!w.inBounds(cx + dx, cz + dz)) continue;
+        // The nearest point of the cell to the rock.
+        const px = Math.max(w.centerX(cx + dx) - 0.5, Math.min(k.x, w.centerX(cx + dx) + 0.5));
+        const pz = Math.max(w.centerZ(cz + dz) - 0.5, Math.min(k.z, w.centerZ(cz + dz) + 0.5));
+        if (Math.hypot(px - k.x, pz - k.z) <= R) out.push(w.idx(cx + dx, cz + dz));
+      }
+    }
+    return out;
+  }
 
   /** @param extra sea rocks already in the world (they get breaking waves too) */
   constructor(private world: World, seed: number, extra: { x: number; z: number }[] = []) {
@@ -89,6 +110,7 @@ export class CoastRocks {
     const b = new GeoBuilder();
     const wet = SEA_SURFACE + 0.16;
     const rock = (x: number, z: number, r: number, top: number, turn: number) => {
+      this.rocks.push({ x, z, r });
       const bed = Math.min(w.heightAt(x, z), SEA_SURFACE - 0.05) - 0.15;
       // About as tall as wide: in water too deep to break the surface it lies on the seabed.
       let h = Math.max(0.2, top - bed);
