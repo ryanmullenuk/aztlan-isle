@@ -32,7 +32,23 @@ class GameViewController: CAPBridgeViewController {
     }
 
     fileprivate func sharePhoto(_ image: UIImage) {
-        let sheet = UIActivityViewController(activityItems: [image], applicationActivities: nil)
+        presentShare([image])
+    }
+
+    /// A time-lapse video: written to a temporary file, so the share sheet offers Save Video.
+    fileprivate func shareVideo(name: String, data: Data) {
+        let safe = name.replacingOccurrences(of: "/", with: "-")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(safe.isEmpty ? "Aztlan Isle time-lapse.mp4" : safe)
+        do {
+            try data.write(to: url, options: .atomic)
+        } catch {
+            return
+        }
+        presentShare([url])
+    }
+
+    private func presentShare(_ items: [Any]) {
+        let sheet = UIActivityViewController(activityItems: items, applicationActivities: nil)
         sheet.popoverPresentationController?.sourceView = view
         sheet.popoverPresentationController?.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.maxY - 60, width: 1, height: 1)
         sheet.popoverPresentationController?.permittedArrowDirections = .down
@@ -85,14 +101,19 @@ private final class HapticHandler: NSObject, WKScriptMessageHandler {
     }
 }
 
-/// Receives a Photo Mode picture (base64 JPEG) and offers it in the share sheet.
+/// Receives a Photo Mode picture (base64 JPEG) or a time-lapse video (MP4) and offers it in the share sheet.
 private final class PhotoHandler: NSObject, WKScriptMessageHandler {
     weak var owner: GameViewController?
     init(_ owner: GameViewController) { self.owner = owner }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let body = message.body as? [String: Any], let b64 = body["data"] as? String,
-              let data = Data(base64Encoded: b64), let image = UIImage(data: data) else { return }
-        owner?.sharePhoto(image)
+              let data = Data(base64Encoded: b64) else { return }
+        let name = body["name"] as? String ?? ""
+        if name.hasSuffix(".mp4") || name.hasSuffix(".webm") {
+            owner?.shareVideo(name: name, data: data)
+        } else if let image = UIImage(data: data) {
+            owner?.sharePhoto(image)
+        }
     }
 }

@@ -14,6 +14,43 @@ const nativePhoto = (): Bridge | undefined =>
   (window as unknown as { webkit?: { messageHandlers?: { photo?: Bridge } } }).webkit?.messageHandlers?.photo;
 
 /**
+ * A picture or video to the app's share sheet or Save dialog, the browser's share sheet, or a
+ * download (the type is told by the file name's extension).
+ */
+export async function shareFile(blob: Blob, name: string): Promise<'shared' | 'downloaded'> {
+  const native = nativePhoto();
+  if (native) {
+    const data = await new Promise<string>((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(String(r.result).replace(/^data:[^,]+,/, ''));
+      r.onerror = () => rej(r.error);
+      r.readAsDataURL(blob);
+    });
+    native.postMessage({ name, data });
+    return 'shared';
+  }
+  const file = new File([blob], name, { type: blob.type });
+  const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
+  if (nav.canShare?.({ files: [file] })) {
+    try {
+      await nav.share({ files: [file], title: name });
+      return 'shared';
+    } catch (e) {
+      if ((e as DOMException)?.name === 'AbortError') return 'shared';
+    }
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  return 'downloaded';
+}
+
+/**
  * Photo Mode: the interface is hidden but for a small toolbar, the island pauses, and the player
  * frames a shot with the usual pan, turn and zoom. Choose dawn, day or night light, add a little
  * tilt-shift, and capture: the picture goes to the share sheet (or a Save dialog on the Mac, or a
@@ -60,6 +97,11 @@ export class PhotoMode {
     const tiltWrap = document.createElement('div');
     tiltWrap.className = 'pb-seg pb-tilt';
     tiltWrap.append(this.tilt, this.strength);
+    // The island's growth time-lapse (a picture taken each afternoon).
+    const lapse = document.createElement('button');
+    lapse.className = 'pb-btn';
+    lapse.textContent = 'Time-lapse';
+    lapse.onclick = () => void this.game.ui.timeLapse.openFor(this.game.lapseKey);
     const shoot = document.createElement('button');
     shoot.className = 'pb-shoot';
     shoot.setAttribute('aria-label', 'Take photo');
@@ -70,7 +112,7 @@ export class PhotoMode {
     close.setAttribute('aria-label', 'Close Photo Mode');
     close.innerHTML = ICONS.close;
     close.onclick = () => this.close();
-    this.bar.append(lights, tiltWrap, shoot, close);
+    this.bar.append(lights, tiltWrap, lapse, shoot, close);
     root.append(this.bar);
   }
 
@@ -142,46 +184,12 @@ export class PhotoMode {
       haptic('light');
       this.game.audio?.sfx('select');
       const name = `${(this.game.islandName || 'Aztlan Isle').replace(/[^\w -]+/g, '').trim() || 'Aztlan Isle'} ${new Date().toISOString().slice(0, 10)}.jpg`;
-      await this.deliver(blob, name);
+      if ((await shareFile(blob, name)) === 'downloaded') this.toast('Photo saved to your downloads.');
     } catch {
       this.toast('The photo could not be taken. Please try again.', 'warn');
     } finally {
       this.busy = false;
     }
-  }
-
-  /** To the app's share sheet or Save dialog, the browser's share sheet, or a download. */
-  private async deliver(blob: Blob, name: string): Promise<void> {
-    const native = nativePhoto();
-    if (native) {
-      const data = await new Promise<string>((res, rej) => {
-        const r = new FileReader();
-        r.onload = () => res(String(r.result).replace(/^data:[^,]+,/, ''));
-        r.onerror = () => rej(r.error);
-        r.readAsDataURL(blob);
-      });
-      native.postMessage({ name, data });
-      return;
-    }
-    const file = new File([blob], name, { type: blob.type });
-    const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
-    if (nav.canShare?.({ files: [file] })) {
-      try {
-        await nav.share({ files: [file], title: name });
-        return;
-      } catch (e) {
-        if ((e as DOMException)?.name === 'AbortError') return;
-      }
-    }
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = name;
-    document.body.append(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 4000);
-    this.toast('Photo saved to your downloads.');
   }
 
   /** A brief white flash over the picture, like a shutter. */

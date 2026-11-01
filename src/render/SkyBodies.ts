@@ -182,6 +182,7 @@ const MILKY_FS = /* glsl */ `
 
 const _p = new THREE.Vector3();
 const _c = new THREE.Color();
+const _c2 = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _up = new THREE.Vector3(0, 1, 0);
 const deg = Math.PI / 180;
@@ -201,6 +202,8 @@ export class SkyBodies {
   private sunGlow: THREE.Sprite;
   private moon: THREE.Sprite;
   private moonGlow: THREE.Sprite;
+  /** The new moon's dark disc, crossing the sun in an eclipse. */
+  private shade: THREE.Sprite;
   private static DIST = 1100;
   /** The turning night sky (it wheels round the celestial pole through the day): stars, Milky Way. */
   private sky = new THREE.Group();
@@ -225,6 +228,9 @@ export class SkyBodies {
     this.sun = sprite(radialTexture([[0, 'rgba(255,255,255,1)'], [0.78, 'rgba(255,255,255,1)'], [0.9, 'rgba(255,255,255,0.35)'], [1, 'rgba(255,255,255,0)']]), true, -5);
     this.moonGlow = sprite(glow, true, -6);
     this.moon = sprite(moonTexture(), false, -5);
+    this.shade = sprite(radialTexture([[0, 'rgba(255,255,255,1)'], [0.9, 'rgba(255,255,255,1)'], [1, 'rgba(255,255,255,0)']]), false, -4);
+    (this.shade.material as THREE.SpriteMaterial).color.setRGB(0.012, 0.014, 0.025);
+    this.shade.visible = false;
     this.group.name = 'skyBodies';
 
     const px = Math.min(2, typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
@@ -247,8 +253,11 @@ export class SkyBodies {
     this.group.add(this.sky);
   }
 
-  /** Place them for this frame, around the camera. `overcast` 0..1 hides them behind cloud. */
-  update(camera: THREE.Camera, ls: LightState, overcast: number, dayT = 0, time = 0): void {
+  /**
+   * Place them for this frame, around the camera. `overcast` 0..1 hides them behind cloud;
+   * `eclipse` 0..1 is how much of the sun the moon covers.
+   */
+  update(camera: THREE.Camera, ls: LightState, overcast: number, dayT = 0, time = 0, eclipse = 0): void {
     const cam = camera.position, D = SkyBodies.DIST;
     const size = (angle: number) => 2 * D * Math.tan((angle * deg) / 2);
     const clouds = 1 - Math.min(1, overcast * 1.1);
@@ -294,6 +303,24 @@ export class SkyBodies {
       const gm = this.sunGlow.material as THREE.SpriteMaterial;
       gm.color.copy(ls.sunColor).multiplyScalar(0.55 + 0.35 * low);
       gm.opacity = sunVis * 0.7;
+      // An eclipse: the moon's dark disc slides across from the upper right; at totality only a
+      // pearly corona is left round it, and the wide glow fades with the light.
+      this.shade.visible = eclipse > 0.001;
+      if (this.shade.visible) {
+        _q.setFromRotationMatrix(camera.matrixWorld);
+        const off = (1 - eclipse) * disc * 1.05;
+        this.shade.position.copy(_p).add(_c2.set(0.8, 0.6, 0).applyQuaternion(_q).multiplyScalar(off));
+        const sd = disc * 1.04;
+        this.shade.scale.set(sd, sd, 1);
+        (this.shade.material as THREE.SpriteMaterial).opacity = sunVis;
+        const total = THREE.MathUtils.smoothstep(eclipse, 0.9, 1);
+        cm.color.lerp(_c.setRGB(1.6, 1.7, 1.9), total);
+        const c2 = size(9 * (1 + 0.6 * low) * (1 + 0.5 * total));
+        this.sunCorona.scale.set(c2, c2, 1);
+        gm.opacity *= 1 - 0.85 * total;
+      }
+    } else {
+      this.shade.visible = false;
     }
 
     // The moon: rises into the night sky with the moonlight, a cool halo round it.

@@ -103,6 +103,8 @@ export class Colony {
   private usedNames = new Set<string>();
   readonly grid = new SpatialHash<Islander>(4);
   hooks: ColonyHooks = {};
+  /** A lift (or dent) to everyone's spirits from something that happened (an omen, a rescue), wearing off over a few minutes. */
+  moodBoost = 0;
   private lastDay = -1;
   /** Game-time clock for blacklist expiry. */
   private clock = 0;
@@ -927,7 +929,8 @@ export class Colony {
     const hx = home ? home.x : isl.x, hz = home ? home.z : isl.z;
     const r2 = COMFORTS.wellRadius * COMFORTS.wellRadius;
     if (this.bld.list.some((w) => w.key === 'well' && w.complete && (w.x - hx) ** 2 + (w.z - hz) ** 2 < r2)) target += COMFORTS.wellHappy;
-    isl.happy += (Math.min(1, target) - isl.happy) * 0.08;
+    target += this.moodBoost;
+    isl.happy += (Math.min(1, Math.max(0, target)) - isl.happy) * 0.08;
 
     // Sick or hurt: off to a Healing Centre (or home to rest) until cured.
     if (isl.condition !== 'well') return this.goHeal(isl);
@@ -2934,6 +2937,7 @@ export class Colony {
       this.sicken();
     }
 
+    this.moodBoost *= Math.exp(-dt / 360);
     let happy = 0;
     // Seed all neighbours before anyone moves, including those later in the update order.
     this.avoidanceGrid.clear();

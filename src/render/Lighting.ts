@@ -27,6 +27,9 @@ const STORM_HEMI_DAY = new THREE.Color(0x8a97a8);
 const STORM_HEMI_NIGHT = new THREE.Color(0x1f2836);
 const STORM_FOG_DAY = new THREE.Color(0x7f8a96);
 const STORM_FOG_NIGHT = new THREE.Color(0x0f141c);
+/** Eclipse: the last sunlight thin and coppery, the sky a deep dusky blue. */
+const ECLIPSE_SUN = new THREE.Color(0xffb27a);
+const ECLIPSE_SKY = new THREE.Color(0x3a4a70);
 /** Lightning: a cold blue-white flash on the land and in the sky. */
 const FLASH_LIGHT = new THREE.Color(0xd4e0ff);
 const FLASH_SKY = new THREE.Color(0x7d8cb0);
@@ -59,6 +62,8 @@ export class Lighting {
   overcast = 0;
   /** Lightning flash on the scene (0..~1.4), set each frame by the weather. */
   flash = 0;
+  /** How dark an eclipse has made the day (0..1). */
+  eclipse = 0;
   ultra = false;
 
   constructor(scene: THREE.Scene, shadowSize: number) {
@@ -155,6 +160,21 @@ export class Lighting {
       this.hemi.color.multiplyScalar(1 - night * 0.25);
       this.hemi.intensity *= 1 - night * 0.15;
       this.ambient.intensity *= 1 - night * 0.2;
+    }
+
+    // An eclipse: the sunlight fails, the sky goes a deep coppery dusk and the stars come out.
+    const ec = this.eclipse * s.day;
+    if (ec > 0.001) {
+      s.sunIntensity *= 1 - 0.88 * ec;
+      this.sun.intensity = s.sunIntensity;
+      this.sun.color.lerp(ECLIPSE_SUN, ec);
+      this.hemi.intensity *= 1 - 0.5 * ec;
+      this.hemi.color.lerp(ECLIPSE_SKY, ec * 0.7);
+      this.ambient.intensity *= 1 - 0.2 * ec;
+      s.fog.lerp(ECLIPSE_SKY, ec * 0.75);
+      s.exposure *= 1 - 0.1 * ec;
+      s.night = Math.max(s.night, ec * 0.75);
+      s.day = 1 - s.night;
     }
 
     // Lightning: everything lights up cold and blue-white for an instant (most of all in the dark).

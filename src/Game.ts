@@ -78,6 +78,10 @@ import { View } from './render/View';
 import { WaterBirds } from './entities/WaterBirds';
 import { Butterflies } from './entities/Butterflies';
 import { Fireflies, JumpingFish } from './entities/NightLife';
+import { MoodMarkers } from './render/MoodMarkers';
+import { moodOf, type MoodKind, type MoodWorld } from './economy/Mood';
+import { RareEventSystem } from './economy/RareEventSystem';
+import { addLapseFrame, lastLapseDay } from './world/LapseStore';
 import { SeaTurtles } from './entities/SeaTurtles';
 import { Jellyfish } from './entities/Jellyfish';
 import { Alligators } from './entities/Alligators';
@@ -133,6 +137,8 @@ export interface Settings {
   music: number;
   muted: boolean;
   chatter: boolean;
+  /** Badges over islanders who are hungry, tired, sick or worried. */
+  moodIcons: boolean;
   wildlifeAlerts: boolean;
   fps: boolean;
   showMap: boolean;
@@ -240,6 +246,19 @@ export class Game {
   lighting: Lighting;
   skyBodies: SkyBodies;
   private rainbow = new Rainbow();
+  /** Eclipses, comets and stranded whales. */
+  rare!: RareEventSystem;
+  /** Badges over the islanders saying how they feel. */
+  private moodMarkers = new MoodMarkers();
+  private moodIds: { id: number; kind: MoodKind }[] = [];
+  private moodTimer = 0;
+  /** Growth time-lapse: this island's key, the last day pictured (null until read), and a picture due this frame. */
+  private lapseIsland = '';
+  private lapseDay: number | null = null;
+  private lapsePending = false;
+  private lapseCam = new THREE.PerspectiveCamera(36, 16 / 9, 1, 2000);
+  /** Real seconds played since Play (no picture straight away while the clouds part). */
+  private playedFor = 0;
   /** Seconds to the next check for today's chest, and the day one was last offered. */
   private chestTimer = 6;
   private chestOffered = '';
@@ -481,7 +500,8 @@ export class Game {
 
     this.lighting = new Lighting(this.scene, cfg.shadowSize);
     this.skyBodies = new SkyBodies();
-    this.scene.add(this.skyBodies.group, this.rainbow.mesh);
+    this.scene.add(this.skyBodies.group, this.rainbow.mesh, this.moodMarkers.group);
+    this.rare = new RareEventSystem(this);
     const seaAngle = Math.atan2(this.world.seaDir.z, this.world.seaDir.x);
     this.lighting.eveningAzimuth = seaAngle + Math.PI;
 
@@ -1062,7 +1082,7 @@ export class Game {
 
   private loadSettings(preset: PresetName): Settings {
     // Depth of field (the tilt-shift look) is off unless the player turns it on in Settings.
-    const def: Settings = { preset, dofOptIn: true, dof: true, dofStrength: NEW_GAME_DOF, volume: 0.7, music: 0.5, muted: false, chatter: true, wildlifeAlerts: true, fps: false, showMap: false, autoQuality: true, shadows: true, dayNight: true, weather: true, motion: true, pixel: false, instantBuild: false, renderScale: 1, motionRes: true, haptics: true, batterySaver: typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches };
+    const def: Settings = { preset, dofOptIn: true, dof: true, dofStrength: NEW_GAME_DOF, volume: 0.7, music: 0.5, muted: false, chatter: true, moodIcons: true, wildlifeAlerts: true, fps: false, showMap: false, autoQuality: true, shadows: true, dayNight: true, weather: true, motion: true, pixel: false, instantBuild: false, renderScale: 1, motionRes: true, haptics: true, batterySaver: typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches };
     try {
       const s = JSON.parse(localStorage.getItem(SAVE.settingsKey) ?? 'null');
       // Settings saved before depth of field became opt-in had it on by default: start those off too.
@@ -2400,6 +2420,122 @@ export class Game {
     });
   }
 
+  /** How things are round the island, for reading moods. */
+  moodWorld(): MoodWorld {
+    return { storm: this.powers.state === 'storm', night: this.time.isNight, winter: this.time.seasonIndex === 3, afraid: this.rare.afraid };
+  }
+
+  /** Twice a second, read each islander's mood; every frame, keep the badges over their heads. */
+  private updateMoods(realDt: number): void {
+    this.moodTimer -= realDt;
+    if (this.moodTimer <= 0) {
+      this.moodTimer = 0.5;
+      this.moodIds = [];
+      if (this.settings.moodIcons !== false && !this.photoMode && !this.wildlifeView?.active) {
+        const w = this.moodWorld();
+        // Anyone with a request already has a bubble over them.
+        const asking = new Set((this.requests?.list ?? []).map((r) => r.who));
+        for (const i of this.colony.list) {
+          if (i.hidden || asking.has(i.id)) continue;
+          const kind = moodOf(i, w);
+          if (kind) this.moodIds.push({ id: i.id, kind });
+        }
+      }
+    }
+    const list = [];
+    for (const m of this.moodIds) {
+      const i = this.colony.byId(m.id);
+      if (i && !i.hidden) list.push({ x: i.x, y: i.y, z: i.z, kind: m.kind, seed: i.id });
+    }
+    this.moodMarkers.update(realDt, list, this.rig.cur.dist);
+  }
+
+  /** Which island the time-lapse pictures belong to. */
+  get lapseKey(): string {
+    return this.lapseIsland || `${this.world.seed}-${this.world.islandType}`;
+  }
+
+  /** Once a day, in the afternoon light, a picture of the island for its time-lapse. */
+  private scheduleLapse(realDt: number): void {
+    if (!this.playing || this.stopped) return;
+    this.playedFor += realDt;
+    if (!this.lapseIsland) {
+      this.lapseIsland = `${this.world.seed}-${this.world.islandType}`;
+      void lastLapseDay(this.lapseIsland).then((d) => { this.lapseDay = d; });
+    }
+    if (this.lapseDay === null || this.lapseDay >= this.time.day || this.playedFor < 8 || this.photoMode) return;
+    const t = this.settings.dayNight ? this.time.t : 0.47;
+    if (t < 0.44 || t > 0.62 || this.time.paused) return;
+    this.lapseDay = this.time.day;
+    this.lapsePending = true;
+  }
+
+  /**
+   * Draw the island from the time-lapse camera into a corner of the canvas and copy it out,
+   * before this frame's real picture covers it. Always from the same side and angle, over the
+   * first fire, pulling back as the village spreads (never closer again).
+   */
+  private lapseRadius = 0;
+  private captureLapse(): void {
+    this.lapsePending = false;
+    const r = this.renderer, cv = r.domElement;
+    const W = Math.min(960, cv.width, Math.floor((cv.height * 16) / 9));
+    const H = Math.round((W * 9) / 16);
+    if (W < 320) return;
+    const fire = this.buildings.list.find((b) => b.key === 'campfire');
+    const cx = fire ? fire.x : this.rig.target.x, cz = fire ? fire.z : this.rig.target.z;
+    let reach = 26;
+    for (const b of this.buildings.list) reach = Math.max(reach, Math.hypot(b.x - cx, b.z - cz) + 10);
+    this.lapseRadius = Math.max(this.lapseRadius, Math.min(reach, this.world.N * 0.55));
+    const cam = this.lapseCam, pitch = (50 * Math.PI) / 180;
+    const d = (this.lapseRadius / Math.tan((cam.fov * Math.PI) / 360)) * 1.05;
+    const gy = Math.max(0, this.world.heightAt(cx, cz));
+    cam.position.set(cx + Math.sin(this.defaultYaw) * Math.cos(pitch) * d, gy + Math.sin(pitch) * d, cz + Math.cos(this.defaultYaw) * Math.cos(pitch) * d);
+    cam.lookAt(cx, gy, cz);
+    cam.far = d * 3 + 400;
+    cam.updateProjectionMatrix();
+    cam.layers.mask = this.rig.camera.layers.mask;
+    cam.updateMatrixWorld();
+    // Things that belong to the player's own view stay out of the picture.
+    const hide = [this.moodMarkers.group, this.requestMarkers, this.rainbow.mesh, this.rare.comet.mesh, this.brush, this.skyBodies.group];
+    const was = hide.map((o) => o.visible);
+    hide.forEach((o) => (o.visible = false));
+    const fog = this.scene.fog as THREE.Fog, near = fog.near, far = fog.far;
+    fog.near = d * 1.2;
+    fog.far = fog.near + RENDER.fogFar;
+    const pr = r.getPixelRatio(), vp = new THREE.Vector4(), sc = new THREE.Vector4(), scOn = r.getScissorTest();
+    r.getViewport(vp);
+    r.getScissor(sc);
+    try {
+      r.setRenderTarget(null);
+      r.setViewport(0, 0, W / pr, H / pr);
+      r.setScissor(0, 0, W / pr, H / pr);
+      r.setScissorTest(true);
+      r.render(this.scene, cam);
+      const out = document.createElement('canvas');
+      out.width = W;
+      out.height = H;
+      out.getContext('2d')?.drawImage(cv, 0, cv.height - H, W, H, 0, 0, W, H);
+      const frame = { island: this.lapseIsland, day: this.time.day, pop: this.colony.list.length, title: TITLES[this.progression.stage - 1] ?? 'Camp', season: this.time.season, year: this.time.year };
+      out.toBlob((blob) => {
+        if (!blob) return;
+        void addLapseFrame({ ...frame, blob }).then((ok) => {
+          // Once there are a few days to watch, say where to find it (once per island).
+          if (ok && frame.day === 4) this.ui?.toast('Your island’s time-lapse has begun: open Photo Mode and choose Time-lapse to watch the village grow.');
+        });
+      }, 'image/jpeg', 0.82);
+    } catch (e) {
+      console.warn('Time-lapse picture failed', e);
+    } finally {
+      r.setViewport(vp);
+      r.setScissor(sc);
+      r.setScissorTest(scOn);
+      fog.near = near;
+      fog.far = far;
+      hide.forEach((o, k) => (o.visible = was[k]));
+    }
+  }
+
   /** A new foundation has dropped into place. */
   private onFoundationLanded(b: Building): void {
     this.audio?.sfx('thud', b.x, b.z);
@@ -2736,7 +2872,7 @@ export class Game {
     fog.far = fog.near + RENDER.fogFar;
     this.renderer.toneMappingExposure = ls.exposure;
     // The sun and moon in the sky (seen when the view looks up: free-roam, or tilted low).
-    this.skyBodies.update(this.rig.camera, ls, this.lighting.overcast, this.settings.dayNight ? this.time.t : RENDER.fixedTimeOfDay, t);
+    this.skyBodies.update(this.rig.camera, ls, this.lighting.overcast, this.settings.dayNight ? this.time.t : RENDER.fixedTimeOfDay, t, this.rare.cover);
     this.rainbow.update(realDt, this.rig.camera, this.rig.target, ls, this.lighting.overcast);
 
     const ws = this.water.shared;
@@ -2809,9 +2945,13 @@ export class Game {
     this.volcano.daylight = ls.day;
     this.driftClouds.update(realDt, ls.day, this.rig.cur.dist, this.rig.camera.position);
     for (const s of this.systems) s(realDt, dt);
+    // After the islanders have moved: those gathered at a whale or a ritual are held in place.
+    this.rare.update(realDt, dt);
     this.healers.update(dt);
     const healers = this.healers.list;
     this.rig3d.update(healers.length ? [...this.colony.list, ...healers] : this.colony.list, this.selectedIslander, realDt, this.selectedIslanders);
+    this.updateMoods(realDt);
+    this.scheduleLapse(realDt);
 
     if (this.canalDirty) {
       const [x0, z0, x1, z1] = this.canalDirty;
@@ -3010,6 +3150,7 @@ export class Game {
     this.motionResolution(realDt);
     this.lensFlare(realDt);
     frameShadows(this.renderer);
+    if (this.lapsePending) this.captureLapse();
     const focus = this.rig.camera.position.distanceTo(this.rig.target);
     this.post.render(realDt, focus, this.lighting.state.night);
   }

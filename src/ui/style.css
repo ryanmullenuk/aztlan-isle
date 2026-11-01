@@ -570,7 +570,7 @@ button.goal-item:hover { background: rgba(255, 255, 255, 0.08); }
 #hud.zen > .zen-eye:hover { opacity: 1; }
 
 /* Photo Mode: only its toolbar (and any toast) over the island. */
-#hud.photo > *:not(.photo-bar):not(.toasts) { display: none !important; }
+#hud.photo > *:not(.photo-bar):not(.toasts):not(.lapse) { display: none !important; }
 .photo-bar {
   position: absolute; left: 50%; bottom: calc(14px + var(--safe-b, 0px)); transform: translateX(-50%);
   display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 22px; pointer-events: auto;
@@ -579,7 +579,7 @@ button.goal-item:hover { background: rgba(255, 255, 255, 0.08); }
 }
 .photo-bar.hidden { display: none; }
 .pb-seg { display: flex; align-items: center; gap: 2px; padding: 2px; border-radius: 14px; background: rgba(255, 255, 255, 0.07); }
-.pb-btn { border: 0; background: none; color: #e9e2d0; font-weight: 700; font-size: 12px; padding: 7px 10px; border-radius: 11px; min-height: 32px; }
+.pb-btn { border: 0; background: none; color: #e9e2d0; font-weight: 700; font-size: 12px; padding: 7px 10px; border-radius: 11px; min-height: 32px; white-space: nowrap; }
 .pb-btn[aria-pressed="true"] { background: #e8c66b; color: #1d1608; }
 .pb-btn:disabled { opacity: 0.4; }
 .pb-range { width: 76px; accent-color: #e8c66b; margin: 0 6px 0 2px; }
@@ -1355,3 +1355,24 @@ body.notice-showing .toasts { margin-top: min(130px, 21vw); }
   #hud .tl:not(.tl-collapsed) > .inventory-toggle { width: min(218px, calc(100vw - 78px)); }
 }
 .goal-head b { color: var(--gold); font-weight: 800; }
+
+/* Island mood: a face and a score under the clock, and what is troubling the village. */
+.mood-score { font-size: 13px; margin: 2px 0 6px; }
+.mood-score b { font-size: 20px; color: var(--gold); margin-right: 4px; }
+.mood-panel .nb { margin-bottom: 8px; }
+.mood-panel h3 { font-size: 12px; margin: 10px 0 5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.mood-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+.mood-list li { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.mood-list i { width: 12px; height: 12px; border-radius: 50%; flex: none; box-shadow: 0 0 0 1.5px #2a1a0c; }
+.mood-list span { flex: 1; }
+.mood-tips { margin: 0; padding-left: 16px; display: grid; gap: 5px; font-size: 12px; line-height: 1.4; }
+
+/* The growth time-lapse: a picture a day, played back over a dimmed island. */
+.lapse { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 16px; background: rgba(6, 10, 14, 0.6); pointer-events: auto; }
+.lapse.hidden { display: none; }
+.lapse-card { width: min(760px, 100%); padding: 14px; max-height: calc(var(--app-h, 100dvh) - 32px); overflow-y: auto; }
+.lapse-canvas { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; border-radius: 10px; background: #18222a; }
+.lapse-scrub { width: 100%; margin: 10px 0 6px; accent-color: #e8c66b; }
+.lapse-row { display: flex; gap: 8px; justify-content: center; }
+.lapse-row .btn { min-height: 40px; min-width: 110px; }
+.lapse-note { text-align: center; margin: 8px 0 0; }

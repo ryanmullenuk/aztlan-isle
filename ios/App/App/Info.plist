@@ -75,5 +75,7 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Aztlan Isle saves your island photos and time-lapse videos to your library when you choose Save.</string>
 </dict>
 </plist>

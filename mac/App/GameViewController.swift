@@ -96,20 +96,21 @@ final class GameViewController: NSViewController, WKNavigationDelegate, WKUIDele
         if let window = view.window { panel.beginSheetModal(for: window, completionHandler: write) } else { write(panel.runModal()) }
     }
 
-    /// Save a Photo Mode picture where the player chooses (Pictures by default).
+    /// Save a Photo Mode picture (Pictures by default) or a time-lapse video (Movies by default) where the player chooses.
     fileprivate func savePhoto(name: String, data: Data) {
+        let video = name.hasSuffix(".mp4") || name.hasSuffix(".webm")
         let panel = NSSavePanel()
         panel.nameFieldStringValue = name.isEmpty ? "Aztlan Isle.jpg" : name
-        panel.allowedContentTypes = [.jpeg]
-        panel.directoryURL = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first
-        panel.message = "Save your photo of the island"
+        panel.allowedContentTypes = video ? [name.hasSuffix(".webm") ? (UTType(filenameExtension: "webm") ?? .movie) : .mpeg4Movie] : [.jpeg]
+        panel.directoryURL = FileManager.default.urls(for: video ? .moviesDirectory : .picturesDirectory, in: .userDomainMask).first
+        panel.message = video ? "Save your island's time-lapse" : "Save your photo of the island"
         let write: (NSApplication.ModalResponse) -> Void = { response in
             guard response == .OK, let url = panel.url else { return }
             do {
                 try data.write(to: url)
             } catch {
                 let alert = NSAlert()
-                alert.messageText = "The photo could not be saved there."
+                alert.messageText = video ? "The video could not be saved there." : "The photo could not be saved there."
                 alert.informativeText = error.localizedDescription
                 alert.runModal()
             }
@@ -153,7 +154,7 @@ private final class HapticHandler: NSObject, WKScriptMessageHandler {
     }
 }
 
-/// Receives a Photo Mode picture (base64 JPEG) and offers to save it.
+/// Receives a Photo Mode picture (base64 JPEG) or a time-lapse video (MP4) and offers to save it.
 private final class PhotoHandler: NSObject, WKScriptMessageHandler {
     weak var owner: GameViewController?
     init(_ owner: GameViewController) { self.owner = owner }

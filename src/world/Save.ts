@@ -1,4 +1,5 @@
 import { isIslandType, type IslandType } from './generator';
+import type { RareSave } from '../economy/RareEvents';
 import { isHouseStyle } from '../buildings/models';
 import type { EncounterSave } from '../entities/WildlifeEncounters';
 import type { StormFireSave } from '../buildings/StormFire';
@@ -38,6 +39,8 @@ export interface SaveData {
   research?: ResearchSave;
   /** The forecasts already announced, so loading doesn't repeat them. */
   forecast?: ForecastSave;
+  /** The next rare event planned (an eclipse, a comet, a stranded whale). */
+  rare?: RareSave;
   volcano?: VolcanoSave;
   fires?: StormFireSave;
   encounters?: EncounterSave;
@@ -176,6 +179,7 @@ export function serialize(g: Game): SaveData {
     weather: { state: g.powers?.state ?? 'clear', ...(g.powers ? g.powers.schedule : {}) },
     ...(g.research ? { research: g.research.save() } : {}),
     ...(g.forecaster ? { forecast: g.forecaster.save() } : {}),
+    ...(g.rare?.save() ? { rare: g.rare.save()! } : {}),
     ...(g.volcano ? { volcano: g.volcano.save() } : {}),
     world: { layer: toB64(layerU), sandy: q8(w.sandy), forest: q8(w.forest), rocky: q8(w.rocky), wear: q8(w.wear), path: toB64(w.path), bridge: toB64(w.bridge), canal: toB64(w.canal) },
     ...(g.fires ? { fires: g.fires.save() } : {}),
@@ -323,6 +327,7 @@ export function applyRest(g: Game, d: SaveData): void {
   if (g.powers && d.weather.state === 'storm') g.powers.startStorm();
   else if (g.powers) g.powers.restoreSchedule(d.weather);
   if (g.forecaster && d.forecast) g.forecaster.restore(d.forecast);
+  g.rare?.restore(d.rare);
   if (g.research) {
     if (d.research) g.research.restore(d.research);
     else {

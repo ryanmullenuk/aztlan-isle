@@ -6,6 +6,9 @@ import { PANEL_ICONS } from './panelIcons';
 import { NoticeBanner, type Notice } from './NoticeBanner';
 import { animalName } from '../entities/Animals';
 import { VillagePrioritiesPanel } from './VillagePrioritiesPanel';
+import { MoodPanel } from './MoodPanel';
+import { TimeLapseView } from './TimeLapseView';
+import { MOOD_LABEL, moodOf } from '../economy/Mood';
 import { settingsMarkup, wireSettingsTabs } from './SettingsPanel';
 import { serialize } from '../world/Save';
 import { islandFile, parseIslandFile, downloadIsland, MAX_ISLAND_FILE_BYTES } from '../world/IslandFile';
@@ -101,6 +104,10 @@ export class UI {
   private root = document.getElementById('hud')!;
   private tl!: HTMLDivElement;
   private villagePriorities!: VillagePrioritiesPanel;
+  private moodPanel!: MoodPanel;
+  private moodTimer = 0;
+  /** The growth time-lapse viewer. */
+  timeLapse!: TimeLapseView;
   private resEls: Record<string, HTMLSpanElement> = {};
   private timeEl!: HTMLDivElement;
   private perfEl!: HTMLDivElement;
@@ -144,7 +151,7 @@ export class UI {
     { title: 'Look around', text: 'With Move (1), drag with the mouse or one finger to pan the island; WASD and the arrow keys work too. Rotate with Q/E, a middle-drag, or by dragging the compass at the end of the toolbar.', done: (g) => Math.hypot(g.rig.cur.x - this.tutStart.x, g.rig.cur.z - this.tutStart.z) > 8 || Math.abs(g.rig.cur.yaw - g.rig.goal.yaw) > 0.3 },
     { title: 'Zoom in', text: 'Scroll or pinch to zoom in close to your islanders (you can hear them chatter), and out to see the whole island.', done: (g) => Math.abs(g.rig.cur.dist - this.tutStart.dist) > 15 },
     { title: 'Meet your villagers', text: 'Tap an islander near the campfire to see their name, job and needs. More settlers arrive by canoe when you have spare beds and food.', done: (g) => g.selectedIslander >= 0 },
-    { title: 'Your village at a glance', text: 'Tap the clock and island name (top left) to open <b>Inventory</b> (what you have), <b>Agenda</b> (what your villagers focus on) and <b>Objective</b> (what the village needs for its next title). Tap it again to tuck them away.', done: () => this.hudOpened },
+    { title: 'Your village at a glance', text: 'Tap the clock and island name (top left) to open <b>Inventory</b> (what you have), <b>Agenda</b> (what your villagers focus on), <b>Mood</b> (how they feel, and what would cheer them) and <b>Objective</b> (what the village needs for its next title). Tap it again to tuck them away.', done: () => this.hudOpened },
     { title: 'Build a Hut', text: 'Open Build (3), choose a Hut and place it on flat land. Your builders bring the wood and put it up.', done: (g) => g.buildings.list.some((b) => b.key === 'hut' || b.key === 'home') },
     { title: 'Grow food', text: 'Build a Vegetable Farm, or a Fishing Jetty on the shore. Your first harvest or catch moves the village on to the next stage.', done: (g) => g.buildings.list.some((b) => b.key === 'farm' || b.key === 'jetty') },
     { title: 'Clear the ground', text: 'Pick Select (2) and drag over trees and rocks, then choose Clear area. Islanders fell the trees and quarry the rocks, leaving open land to build on.', done: (g) => g.stats.cleared > 0 },
@@ -235,7 +242,7 @@ export class UI {
       this.tl.classList.toggle('tl-collapsed', !on);
       timePanel.setAttribute('aria-expanded', String(on));
       if (on) this.hudOpened = true;
-      else { this.closeInventory(); this.villagePriorities?.close(); this.setGoalsOpen(false); }
+      else { this.closeInventory(); this.villagePriorities?.close(); this.moodPanel?.close(); this.setGoalsOpen(false); }
       try { localStorage.setItem(HUD_OPEN_KEY, on ? '1' : '0'); } catch { /* storage unavailable */ }
     };
     timePanel.onclick = () => { setOpen(this.tl.classList.contains('tl-collapsed')); this.game.audio?.sfx('click'); };
@@ -262,7 +269,7 @@ export class UI {
       const open = inventory.getAttribute('aria-expanded') !== 'true';
       inventory.setAttribute('aria-expanded', String(open));
       grid.classList.toggle('hidden', !open);
-      if (open) { this.villagePriorities.close(); this.setGoalsOpen(false); }
+      if (open) { this.villagePriorities.close(); this.moodPanel.close(); this.setGoalsOpen(false); }
     };
     this.closeInventory = () => { inventory.setAttribute('aria-expanded', 'false'); grid.classList.add('hidden'); };
     this.villagePriorities = new VillagePrioritiesPanel(
@@ -272,9 +279,16 @@ export class UI {
         this.closePopups();
         inventory.setAttribute('aria-expanded', 'false');
         grid.classList.add('hidden');
+        this.moodPanel.close();
         this.setGoalsOpen(false);
       });
-    this.tl.append(inventory, grid, this.villagePriorities.button, this.villagePriorities.panel);
+    this.moodPanel = new MoodPanel(this.game, () => {
+      this.closePopups();
+      this.closeInventory();
+      this.villagePriorities.close();
+      this.setGoalsOpen(false);
+    });
+    this.tl.append(inventory, grid, this.villagePriorities.button, this.villagePriorities.panel, this.moodPanel.button, this.moodPanel.panel);
     // The next village title and what it still needs: a checklist, each building a tap away.
     this.goalToggle = el('button', 'inventory-toggle goal-toggle hidden', '') as HTMLButtonElement;
     this.goalToggle.type = 'button';
@@ -288,7 +302,7 @@ export class UI {
       this.setGoalsOpen(!this.goalsOpen);
       try { localStorage.setItem(GOALS_OPEN_KEY, this.goalsOpen ? '1' : '0'); } catch { /* storage unavailable */ }
       // One list open at a time down the left side.
-      if (this.goalsOpen) { this.closeInventory(); this.villagePriorities.close(); }
+      if (this.goalsOpen) { this.closeInventory(); this.villagePriorities.close(); this.moodPanel.close(); }
     };
     this.goalList.onclick = (e) => {
       const item = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-build]');
@@ -416,6 +430,7 @@ export class UI {
     this.zenBtn.onclick = () => this.toggleZen(false);
     this.root.appendChild(this.zenBtn);
     this.photo = new PhotoMode(this.game, this.root, (text, kind) => this.toast(text, kind));
+    this.timeLapse = new TimeLapseView(this.root, () => this.game.islandName, (text, kind) => this.toast(text, kind));
   }
 
   /** Photo Mode's toolbar and state. */
@@ -1255,6 +1270,8 @@ export class UI {
   update(dt: number): void {
     const g0 = this.game;
     this.villagePriorities.sync();
+    this.moodTimer -= dt;
+    if (this.moodTimer <= 0) { this.moodTimer = 1; this.moodPanel.sync(); }
     // Keep the open trade menu's boat timers fresh.
     if (this.tradeModal && !this.tradeModal.classList.contains('hidden')) {
       this.tradeTimer -= dt;
@@ -1523,6 +1540,7 @@ export class UI {
         ${this.bar('Food', isl.hunger, isl.hunger < 0.3 ? 'low' : '')}
         ${this.bar('Rest', isl.rest, isl.rest < 0.25 ? 'low' : '')}
         ${this.bar('Happiness', isl.happy, isl.happy > 0.6 ? 'good' : '')}
+        ${(() => { const k = moodOf(isl, g.moodWorld()); return k ? `<div class="kv"><span>Feeling</span><b>${MOOD_LABEL[k]}</b></div>` : ''; })()}
         <div class="actions">
           <button class="btn small" data-a="explore">Explore POV</button><button class="btn small" data-a="follow">${ICONS.follow} ${g.followId === isl.id ? 'Stop following' : 'Follow'}</button>
           ${isl.manualRole ? '<button class="btn small" data-a="auto">Auto job</button>' : ''}
