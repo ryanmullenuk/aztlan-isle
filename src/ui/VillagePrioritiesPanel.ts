@@ -15,8 +15,8 @@ export class VillagePrioritiesPanel {
     this.button.setAttribute('aria-expanded', 'false');
     this.panel.className = 'panel village-priorities hidden';
     this.panel.id = 'village-priorities';
-    this.panel.setAttribute('aria-label', 'Village priorities');
-    this.panel.innerHTML = '<h2>Village priorities</h2><p class="muted small">Workers change jobs gradually after finishing their current task; individual orders and needs come first.</p>';
+    this.panel.setAttribute('aria-label', 'Agenda');
+    this.panel.innerHTML = '<h2>Agenda</h2><p class="muted small">Workers change jobs gradually after finishing their current task; individual orders and needs come first.</p>';
     const group = document.createElement('div');
     group.setAttribute('role', 'group');
     group.setAttribute('aria-label', 'Workforce preference');
@@ -58,8 +58,8 @@ export class VillagePrioritiesPanel {
     const priority = this.get();
     if (priority === this.current) return;
     this.current = priority;
-    this.button.innerHTML = `<span class="az-ico" aria-hidden="true">${PANEL_ICONS.temple}</span><span class="az-lbl"><span class="az-pre">Village · </span>${VILLAGE_PRIORITIES[priority].label}</span><span class="inventory-chevron" aria-hidden="true">⌄</span>`;
-    this.button.setAttribute('aria-label', `Village priorities: ${VILLAGE_PRIORITIES[priority].label}`);
+    this.button.innerHTML = `<span class="az-ico" aria-hidden="true">${PANEL_ICONS.temple}</span><span class="az-lbl"><span class="az-pre">Agenda · </span>${VILLAGE_PRIORITIES[priority].label}</span><span class="inventory-chevron" aria-hidden="true">⌄</span>`;
+    this.button.setAttribute('aria-label', `Agenda: ${VILLAGE_PRIORITIES[priority].label}`);
     for (const button of this.choices) button.setAttribute('aria-pressed', String(button.dataset.priority === priority));
   }
 

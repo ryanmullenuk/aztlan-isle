@@ -3,11 +3,18 @@ import type { Islander } from '../entities/Islander';
 import { canChatter, chatterGain, chatterPan, chatterPhrase, type ChatterCamera } from './Chatter';
 
 /**
- * Procedural audio with the Web Audio API. Every sound is synthesised at runtime (no files):
+ * Audio with the Web Audio API. The island's theme is a recorded track (public/audio); everything
+ * else is synthesised at runtime:
  *  - ambience: waves, wind in the palms, jungle insects, bird calls, positional waterfall roar
- *  - music: generative pentatonic flute over soft hand drums
+ *  - music: the island theme on a loop, softened at night and in storms (with a low storm drone),
+ *    and a short flute fanfare for a new title
  *  - effects: UI clicks, chopping, building, splashes, bird flaps and more
  */
+/** The island's theme (in public/, relative to the page). */
+const THEME_FILE = 'audio/island-theme.mp3';
+/** A tiny silent WAV, played in the unlocking tap. */
+const SILENCE = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=';
+
 export class AudioEngine {
   private ctx: AudioContext | null = null;
   private master!: GainNode;
@@ -25,8 +32,6 @@ export class AudioEngine {
   private fallPanner!: PannerNode;
   private last = new Map<string, number>();
   private nextBeat = 0;
-  private beat = 0;
-  private phrase: number[] = [];
   private birdTimer = 2;
   volume: number = AUDIO.masterVolume;
   music: number = 0.5;
@@ -86,7 +91,52 @@ export class AudioEngine {
     droneFilter.connect(drone).connect(this.musicBus);
     this.drone = drone;
     this.nextBeat = ctx.currentTime + 0.5;
+    this.startTheme(ctx);
     this.applyVolumes();
+  }
+
+  /** The island theme: a recorded track streamed through the music bus (so volume and moods apply). */
+  private theme: HTMLAudioElement | null = null;
+  private themeFilter: BiquadFilterNode | null = null;
+  private themeGain: GainNode | null = null;
+  private themeReady = false;
+
+  private startTheme(ctx: AudioContext): void {
+    if (typeof Audio === 'undefined') return;
+    const el = new Audio();
+    el.loop = true;
+    el.preload = 'auto';
+    this.theme = el;
+    // Unlock the element in this tap (the track itself arrives a moment later): a blessed element
+    // may then start on its own on iPhone and in Safari.
+    el.src = SILENCE;
+    el.play().then(() => el.pause(), () => {});
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 18000;
+    const gain = ctx.createGain();
+    this.themeFilter = filter;
+    this.themeGain = gain;
+    // Fetched whole (5 MB) and played from memory: no range requests to the app's own scheme.
+    fetch(new URL(THEME_FILE, document.baseURI).href)
+      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(`${r.status}`))))
+      .then((blob) => {
+        el.src = URL.createObjectURL(blob);
+        ctx.createMediaElementSource(el).connect(filter).connect(gain).connect(this.musicBus);
+        this.themeReady = true;
+        this.syncTheme();
+      })
+      .catch((e) => console.warn('The island theme could not be loaded', e));
+    document.addEventListener('visibilitychange', () => this.syncTheme());
+  }
+
+  /** Playing only when it can be heard: not muted, music above zero, and the game in view. */
+  private syncTheme(): void {
+    const el = this.theme;
+    if (!el || !this.themeReady) return;
+    const audible = !this.muted && this.music > 0.001 && !document.hidden;
+    if (audible && el.paused) el.play().catch(() => {});
+    else if (!audible && !el.paused) el.pause();
   }
 
   applyVolumes(): void {
@@ -96,6 +146,7 @@ export class AudioEngine {
     this.musicBus.gain.setTargetAtTime(AUDIO.musicVolume * this.music * 2, t, 0.3);
     this.ambBus.gain.setTargetAtTime(AUDIO.ambientVolume, t, 0.3);
     this.sfxBus.gain.setTargetAtTime(AUDIO.sfxVolume, t, 0.1);
+    this.syncTheme();
   }
 
   private makeNoise(brown: boolean): AudioBuffer {
@@ -282,40 +333,6 @@ export class AudioEngine {
     n.connect(f).connect(g).connect(this.musicBus);
     n.start(t, Math.random());
     n.stop(t + 0.1);
-  }
-
-  private scheduleMusic(): void {
-    const ctx = this.ctx!;
-    const spb = 60 / 74 / 2; // eighth notes at 74 bpm
-    while (this.nextBeat < ctx.currentTime + 0.4) {
-      const t = this.nextBeat;
-      const b = this.beat % 32;
-      const night = this.mood.night, storm = this.mood.storm;
-      // Night: a soft heartbeat of drums and no shaker. Storm: an urgent, building pattern.
-      if (b % 8 === 0) this.drum(t, true, 0.8 * (1 - 0.35 * night) + 0.3 * storm);
-      if ((b % 8 === 3 || b % 8 === 6) && Math.random() >= night * 0.6) this.drum(t, false, 0.45 * (1 - 0.4 * night) + 0.2 * storm);
-      if (storm > 0.3 && (b % 8 === 2 || b % 8 === 5 || b % 8 === 7)) this.drum(t, b % 8 === 7, 0.2 + 0.35 * storm);
-      if (b % 2 === 1 && Math.random() >= night) this.shaker(t, (0.6 + Math.random() * 0.3) * (1 - 0.7 * night));
-      if (storm > 0.5 && b % 2 === 0) this.shaker(t, 0.35 * storm);
-      if (b === 0) {
-        // New phrase: a gentle walk through the scale.
-        this.phrase = [];
-        let idx = Math.floor(Math.random() * 4) + 1;
-        for (let k = 0; k < 8; k++) {
-          idx = Math.max(0, Math.min(this.scale.length - 1, idx + [-2, -1, -1, 0, 1, 1, 2][Math.floor(Math.random() * 7)]));
-          this.phrase.push(Math.random() < 0.3 ? -1 : idx);
-        }
-      }
-      if (b % 4 === 0 && this.phrase.length) {
-        const note = this.phrase[(b / 4) | 0];
-        // Fewer, longer notes at night; low and sparse in a storm.
-        const play = 0.85 * (1 - 0.35 * night) * (1 - 0.5 * storm);
-        const pitch = storm > 0.5 ? this.scale[Math.min(note, 4)] * 0.5 : this.scale[note] * (night > 0.5 ? 0.5 : 1);
-        if (note >= 0 && Math.random() < play) this.flute(pitch, t, spb * (Math.random() < 0.4 + 0.3 * night ? 6 : 3), 0.9 - 0.25 * night);
-      }
-      this.nextBeat += spb;
-      this.beat++;
-    }
   }
 
   /** A short fanfare when the village earns a new title: rising flute over a big drum. */
@@ -596,7 +613,9 @@ export class AudioEngine {
     this.mood.night += (L.night - this.mood.night) * k;
     this.mood.storm += (L.storm - this.mood.storm) * k;
     this.drone?.gain.setTargetAtTime(0.11 * this.mood.storm * (0.7 + 0.3 * Math.sin(ctx.currentTime * 0.4)), t, 0.6);
-    this.scheduleMusic();
+    // The theme softens and mellows at night, and drops back under the storm.
+    this.themeFilter?.frequency.setTargetAtTime(18000 - this.mood.night * 14500 - this.mood.storm * 9000, t, 0.8);
+    this.themeGain?.gain.setTargetAtTime(1 - this.mood.night * 0.3 - this.mood.storm * 0.4, t, 0.8);
     // Jungle birdsong during the day.
     this.birdTimer -= dt;
     if (this.birdTimer <= 0) {

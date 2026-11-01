@@ -158,6 +158,8 @@ export interface Settings {
   haptics: boolean;
   /** Draw at 30 frames a second while the view is still (cooler, longer battery life). */
   batterySaver: boolean;
+  /** Which pop-ups show: all, only important ones, or none. */
+  popups?: 'all' | 'important' | 'off';
 }
 
 /** Minimal interface the UI and colony use for sound (implemented by the audio engine). */
@@ -187,6 +189,8 @@ function requestBubbleMaterial(): THREE.SpriteMaterial {
 
 /** Away at least this long (seconds) before the welcome back card. */
 const WELCOME_AFTER = 300;
+/** Tilt-shift strength a new game starts with: 15% of the slider (0..2). */
+const NEW_GAME_DOF = 0.3;
 /** Camera distance beyond which animals stop casting shadows. */
 const SMALL_SHADOWS_TO = 70;
 /** How far the camera closes in when it starts following an islander. */
@@ -1021,7 +1025,7 @@ export class Game {
 
   private loadSettings(preset: PresetName): Settings {
     // Depth of field (the tilt-shift look) is off unless the player turns it on in Settings.
-    const def: Settings = { preset, dofOptIn: true, dof: false, dofStrength: RENDER.dof.strength, volume: 0.7, music: 0.5, muted: false, chatter: true, wildlifeAlerts: true, fps: false, showMap: false, autoQuality: true, shadows: true, dayNight: true, weather: true, motion: true, pixel: false, instantBuild: false, renderScale: 1, motionRes: true, haptics: true, batterySaver: typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches };
+    const def: Settings = { preset, dofOptIn: true, dof: true, dofStrength: NEW_GAME_DOF, volume: 0.7, music: 0.5, muted: false, chatter: true, wildlifeAlerts: true, fps: false, showMap: false, autoQuality: true, shadows: true, dayNight: true, weather: true, motion: true, pixel: false, instantBuild: false, renderScale: 1, motionRes: true, haptics: true, batterySaver: typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches };
     try {
       const s = JSON.parse(localStorage.getItem(SAVE.settingsKey) ?? 'null');
       // Settings saved before depth of field became opt-in had it on by default: start those off too.
@@ -2384,6 +2388,12 @@ export class Game {
   }
 
   newIsland(sandbox = false, type: IslandType = 'classic'): void {
+    // A new game starts with a gentle tilt-shift (the player can still turn it off in Settings).
+    if (this.settings) {
+      this.settings.dof = true;
+      this.settings.dofStrength = NEW_GAME_DOF;
+      try { localStorage.setItem(SAVE.settingsKey, JSON.stringify(this.settings)); } catch { /* storage unavailable */ }
+    }
     try {
       localStorage.setItem(SAVE.key + '-mode', sandbox ? 'sandbox' : 'normal');
       localStorage.setItem(SAVE.key + '-type', type);

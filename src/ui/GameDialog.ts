@@ -26,7 +26,12 @@ export interface DialogItem {
   actions?: DialogAction[];
   /** Everyday news (a building finished, a birth): merged with other news waiting at the same time. */
   news?: boolean;
+  /** Worth showing even when the player keeps only important pop-ups (dangers, titles, coming back). */
+  important?: boolean;
 }
+
+/** Which pop-ups the player wants: all of them, only the important ones, or none. */
+export type PopupMode = 'all' | 'important' | 'off';
 
 const ICONS: Record<DialogIcon, string> = {
   tick: '<svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="21" fill="#1f9d4c" stroke="#8ef0a8" stroke-width="3"/><path d="M14.5 24.5l6.5 6.5 13-14" fill="none" stroke="#f4fff6" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
@@ -50,6 +55,8 @@ export class GameDialog {
   private lastNews = -Infinity;
   /** Whether a pop-up may appear now (not mid-drag, not while placing, not in Photo Mode). */
   canShow: () => boolean = () => true;
+  /** The player's choice in Settings (see PopupMode). */
+  mode: () => PopupMode = () => 'all';
   onShow: () => void = () => {};
 
   constructor(parent: HTMLElement) {
@@ -63,6 +70,8 @@ export class GameDialog {
   }
 
   push(item: DialogItem): void {
+    const mode = this.mode();
+    if (mode === 'off' || (mode === 'important' && !item.important)) return;
     // The same thing said twice while waiting (a repeated warning) only shows once.
     if (this.queue.some((q) => q.title === item.title && q.body === item.body) || (this.open?.title === item.title && this.open?.body === item.body)) return;
     this.queue.push(item);

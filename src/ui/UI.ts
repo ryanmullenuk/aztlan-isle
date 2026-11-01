@@ -20,7 +20,7 @@ import { CONDITION_LABEL, ROLE_LABEL, type Islander } from '../entities/Islander
 import { islanderLine } from './islanderLines';
 import { ISLAND_TYPES, type IslandType } from '../world/generator';
 import { PhotoMode } from './PhotoMode';
-import { GameDialog } from './GameDialog';
+import { GameDialog, type PopupMode } from './GameDialog';
 import { GOD_NAME, randomIslandName } from '../world/names';
 import { Ground } from '../world/World';
 import { ICONS, icon } from './icons';
@@ -56,6 +56,8 @@ const ISLAND_ICONS: Record<IslandType, string> = {
   archipelago: '<svg viewBox="0 0 48 48"><rect width="48" height="48" rx="8" fill="#2f8f9a"/><circle cx="22" cy="24" r="7" fill="#7fb35a"/><circle cx="9" cy="12" r="3.5" fill="#6fa64e"/><circle cx="38" cy="10" r="4" fill="#6fa64e"/><circle cx="40" cy="30" r="3.5" fill="#6fa64e"/><circle cx="10" cy="37" r="4" fill="#6fa64e"/><circle cx="28" cy="40" r="3" fill="#6fa64e"/><circle cx="34" cy="20" r="2.5" fill="#6fa64e"/></svg>',
 };
 
+/** Whether the clock's menu (inventory, agenda, objective) is open (remembered per device). */
+const HUD_OPEN_KEY = 'aztlan-hud-open';
 /** Whether the goal checklist is open (remembered per device). */
 const GOALS_OPEN_KEY = 'aztlan-goals-open';
 
@@ -141,6 +143,7 @@ export class UI {
     { title: 'Look around', text: 'With Move (1), drag with the mouse or one finger to pan the island; WASD and the arrow keys work too. Rotate with Q/E, a middle-drag, or by dragging the compass at the end of the toolbar.', done: (g) => Math.hypot(g.rig.cur.x - this.tutStart.x, g.rig.cur.z - this.tutStart.z) > 8 || Math.abs(g.rig.cur.yaw - g.rig.goal.yaw) > 0.3 },
     { title: 'Zoom in', text: 'Scroll or pinch to zoom in close to your islanders (you can hear them chatter), and out to see the whole island.', done: (g) => Math.abs(g.rig.cur.dist - this.tutStart.dist) > 15 },
     { title: 'Meet your villagers', text: 'Tap an islander near the campfire to see their name, job and needs. More settlers arrive by canoe when you have spare beds and food.', done: (g) => g.selectedIslander >= 0 },
+    { title: 'Your village at a glance', text: 'Tap the clock and island name (top left) to open <b>Inventory</b> (what you have), <b>Agenda</b> (what your villagers focus on) and <b>Objective</b> (what the village needs for its next title). Tap it again to tuck them away.', done: () => this.hudOpened },
     { title: 'Build a Hut', text: 'Open Build (3), choose a Hut and place it on flat land. Your builders bring the wood and put it up.', done: (g) => g.buildings.list.some((b) => b.key === 'hut' || b.key === 'home') },
     { title: 'Grow food', text: 'Build a Vegetable Farm, or a Fishing Jetty on the shore. Your first harvest or catch moves the village on to the next stage.', done: (g) => g.buildings.list.some((b) => b.key === 'farm' || b.key === 'jetty') },
     { title: 'Clear the ground', text: 'Pick Select (2) and drag over trees and rocks, then choose Clear area. Islanders fell the trees and quarry the rocks, leaving open land to build on.', done: (g) => g.stats.cleared > 0 },
@@ -158,6 +161,7 @@ export class UI {
     this.toasts = el('div', 'toasts');
     this.root.appendChild(this.toasts);
     this.dialog = new GameDialog(this.root);
+    this.dialog.mode = () => this.game.settings.popups ?? 'all';
     // Not while the player is busy: mid-drag, placing, sculpting, in Photo Mode or a cinematic.
     this.dialog.canShow = () => {
       const g = this.game;
@@ -219,6 +223,24 @@ export class UI {
     tx.append(this.timeEl, this.dateEl, this.perfEl);
     clock.append(this.sunIcon, tx);
     timePanel.appendChild(clock);
+    // The clock and island name open and close everything else in this corner.
+    timePanel.insertAdjacentHTML('beforeend', '<span class="tl-chev" aria-hidden="true">⌄</span>');
+    timePanel.setAttribute('role', 'button');
+    timePanel.tabIndex = 0;
+    timePanel.setAttribute('aria-label', 'Village: inventory, agenda and objective');
+    let hudOpen = false;
+    try { hudOpen = localStorage.getItem(HUD_OPEN_KEY) === '1'; } catch { /* storage unavailable */ }
+    const setOpen = (on: boolean) => {
+      this.tl.classList.toggle('tl-collapsed', !on);
+      timePanel.setAttribute('aria-expanded', String(on));
+      if (on) this.hudOpened = true;
+      else { this.closeInventory(); this.villagePriorities?.close(); this.setGoalsOpen(false); }
+      try { localStorage.setItem(HUD_OPEN_KEY, on ? '1' : '0'); } catch { /* storage unavailable */ }
+    };
+    timePanel.onclick = () => { setOpen(this.tl.classList.contains('tl-collapsed')); this.game.audio?.sfx('click'); };
+    timePanel.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); timePanel.click(); } };
+    this.tl.classList.toggle('tl-collapsed', !hudOpen);
+    timePanel.setAttribute('aria-expanded', String(hudOpen));
     this.tl.appendChild(timePanel);
     const grid = el('div', 'panel resgrid inventory-panel hidden');
     grid.id = 'inventory-panel';
@@ -280,6 +302,8 @@ export class UI {
   }
 
   private closeInventory: () => void = () => {};
+  /** The player has opened the clock's menu at least once (for the tutorial). */
+  private hudOpened = false;
   private setGoalsOpen(open: boolean): void {
     if (this.goalsOpen === open) return;
     this.goalsOpen = open;
@@ -306,8 +330,8 @@ export class UI {
     if (hide) return;
     const done = items.filter((i) => i.done).length;
     this.goalToggle.setAttribute('aria-expanded', String(this.goalsOpen));
-    this.goalToggle.innerHTML = `<span class="az-ico" aria-hidden="true">${PANEL_ICONS.temple}</span><span class="az-lbl">Next: ${TITLES[next - 1]}</span><span class="goal-count">${done}/${items.length}</span><span class="inventory-chevron" aria-hidden="true">⌄</span>`;
-    this.goalList.innerHTML = `<div class="goal-head">${STAGES[next - 1]}</div>` + items.map((i) => {
+    this.goalToggle.innerHTML = `<span class="az-ico" aria-hidden="true">${PANEL_ICONS.temple}</span><span class="az-lbl">Objective</span><span class="goal-count">${done}/${items.length}</span><span class="inventory-chevron" aria-hidden="true">⌄</span>`;
+    this.goalList.innerHTML = `<div class="goal-head">Become a <b>${TITLES[next - 1]}</b> · ${STAGES[next - 1]}</div>` + items.map((i) => {
       const mark = i.done ? '<span class="goal-mark done">✓</span>' : '<span class="goal-mark"></span>';
       return i.build && !i.done
         ? `<button type="button" class="goal-item" data-build="${i.build}">${mark}<span>${i.text}</span><span class="goal-go" aria-hidden="true">›</span></button>`
@@ -401,7 +425,7 @@ export class UI {
     if (this.zen || this.photo?.open) return;
     this.dialog.push({
       icon: n.important ? 'star' : 'tick', kicker: n.kicker ?? (n.important ? 'Milestone' : 'Complete'), title: n.title, body: n.line,
-      benefit: n.benefit, image: n.image, news: !n.important,
+      benefit: n.benefit, image: n.image, news: !n.important, important: n.important,
     });
   }
 
@@ -753,6 +777,11 @@ export class UI {
       this.syncSettingsControls();
     };
     this.presetSelect = sel;
+    const popups = card.querySelector<HTMLSelectElement>('[data-n="popups"]');
+    if (popups) {
+      popups.value = s.popups ?? 'all';
+      popups.onchange = () => { s.popups = popups.value as PopupMode; this.game.applySettings(); };
+    }
     // Island name: typed, or rolled from Nahuatl place-name roots.
     const nameIn = card.querySelector<HTMLInputElement>('[data-n="name"]')!;
     nameIn.value = this.game.islandName;
@@ -1165,7 +1194,7 @@ export class UI {
     // milestones, events with a choice, and news or warnings about a place on the island.
     const split = splitMessage(text);
     if (kind === 'milestone') {
-      this.dialog.push({ icon: 'star', kicker: 'Milestone', title: split.title, body: split.body });
+      this.dialog.push({ icon: 'star', kicker: 'Milestone', title: split.title, body: split.body, important: true });
       return;
     }
     if (action?.label) {
@@ -1185,7 +1214,7 @@ export class UI {
     if (at) {
       this.dialog.push({
         icon: kind === 'warn' ? 'warn' : 'info', kicker: kind === 'warn' ? 'Warning' : 'News', title: split.title, body: split.body,
-        news: kind !== 'warn',
+        news: kind !== 'warn', important: kind === 'warn',
         actions: [{ label: 'Show me', run: () => this.game.focusAt(at) }, { label: 'OK', primary: true }],
       });
       return;
@@ -1994,7 +2023,7 @@ export class UI {
     this.dialog.push({
       icon: 'home', kicker: `You were away ${away}`, title: `Welcome back to ${this.game.islandName}`, html: true,
       body: (list ? `<p>Your islanders kept busy while you were gone:</p><div class="wb-gains">${list}</div>` : '<p>Your islanders have been waiting for you. All is well on the island.</p>') + goal,
-      actions: [{ label: 'Back to the island', primary: true }],
+      actions: [{ label: 'Back to the island', primary: true }], important: true,
     });
     this.game.audio?.sfx('milestone');
   }

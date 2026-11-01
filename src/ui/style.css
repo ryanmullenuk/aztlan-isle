@@ -1332,3 +1332,19 @@ body.notice-showing .toasts { margin-top: min(130px, 21vw); }
 @media (orientation: landscape) and (max-height: 520px) {
   #hud .tl { max-height: calc(var(--app-h, 100dvh) - max(8px, var(--safe-t)) - var(--safe-b) - 112px); }
 }
+
+/* The clock and island name open the rest of the top-left corner (inventory, agenda, objective). */
+#hud .time-panel { position: relative; cursor: pointer; pointer-events: auto; user-select: none; -webkit-user-select: none; }
+#hud .time-panel:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.tl-chev { position: absolute; right: 9px; bottom: 6px; font-size: 16px; line-height: 1; color: var(--gold); transition: transform 0.18s; }
+#hud .tl:not(.tl-collapsed) .tl-chev { transform: rotate(180deg); }
+#hud .tl.tl-collapsed > :not(.time-panel) { display: none !important; }
+/* The agenda reads like the other rows: AGENDA · BALANCED. */
+#hud .village-toggle { text-transform: uppercase; letter-spacing: 0.09em; }
+@media (max-width: 720px) {
+  .tl-chev { right: 6px; bottom: 3px; font-size: 13px; }
+  .az-pre { display: inline; }
+  /* Opened on a phone, the rows are wide enough to read in full. */
+  #hud .tl:not(.tl-collapsed) > .inventory-toggle { width: min(218px, calc(100vw - 78px)); }
+}
+.goal-head b { color: var(--gold); font-weight: 800; }
