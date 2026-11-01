@@ -4,6 +4,8 @@ import { Simplex2, clamp, smoothstep } from '../world/noise';
 import { RNG } from '../world/rng';
 import { World } from '../world/World';
 import { SHADOW_LAYER } from '../render/ShadowLayer';
+import { FX } from '../render/materials';
+import { groundDetailTexture } from './groundDetail';
 
 const tmpA = new THREE.Color();
 const tmpB = new THREE.Color();
@@ -39,6 +41,12 @@ const C = {
  * Colours are baked into vertex colours; dynamic path wear and farm soil come from a
  * small data texture sampled in the fragment shader.
  */
+/** The ground palette under a name that the constructor's locals don't hide. */
+const PALETTE = C;
+
+/** How far round each point the ground is looked at for hollows and ridges (world units). */
+const SHAPE_REACH = 0.7;
+
 /** Camera distance beyond which the ground is drawn with one quad per cell. */
 export const TERRAIN_COARSE_AT = 85;
 
@@ -71,6 +79,14 @@ export class Terrain {
      * the water so each wave's swash carries on up the sand in step with the sea's own. */
     uShore: { value: null as THREE.Texture | null },
     uStorm: { value: 0 },
+    /** Hand-painted detail (grass, sand, rock, earth in R, G, B, A; see groundDetail). */
+    uDetail: { value: null as THREE.Texture | null },
+    /** The island's own grass, sand and rock colours, for sharpening the edges between them. */
+    uGrassCol: { value: new THREE.Color(COLORS.grass) },
+    uSandCol: { value: new THREE.Color(COLORS.sand) },
+    uRockCol: { value: new THREE.Color(COLORS.rock) },
+    uSunView: FX.uSunView,
+    uSunI: FX.uSunI,
   };
 
   private sub: number;
@@ -108,6 +124,9 @@ export class Terrain {
     this.geo.setAttribute('color', new THREE.BufferAttribute(colr, 3));
     this.geo.setAttribute('aMask', new THREE.BufferAttribute(mask, 4));
     this.geo.setAttribute('aForest', new THREE.BufferAttribute(forestM, 1));
+    // How much each point sits in a hollow (x) and on a ridge or edge (y): contact shadows at the
+    // foot of cliffs and in crevices, lit lips along terrace and rock edges.
+    this.geo.setAttribute('aShape', new THREE.BufferAttribute(new Float32Array(V * V * 2), 2));
     this.geo.setIndex(new THREE.BufferAttribute(idx, 1));
 
     const N = world.N;
@@ -118,6 +137,13 @@ export class Terrain {
     this.wearTex.needsUpdate = true;
     this.uniforms.uWear.value = this.wearTex;
 
+    this.uniforms.uDetail.value = groundDetailTexture();
+    // The island type's ground (as in colorAt): black sand and ashy grass, or deep jungle green.
+    if (world.islandType === 'volcanic') {
+      this.uniforms.uSandCol.value.lerp(PALETTE.blackSand, 0.82);
+      this.uniforms.uGrassCol.value.lerp(PALETTE.ashGrass, 0.6);
+      this.uniforms.uRockCol.value.lerp(PALETTE.basalt, 0.6);
+    } else if (world.islandType === 'jungle') this.uniforms.uGrassCol.value.lerp(PALETTE.jungleFloor, 0.22);
     this.material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0 });
     this.material.onBeforeCompile = (shader) => this.patchShader(shader);
     // Chunks: same attributes (one GPU buffer), separate index ranges and bounds.
@@ -135,7 +161,7 @@ export class Terrain {
           }
         }
         const g = new THREE.BufferGeometry();
-        for (const name of ['position', 'normal', 'color', 'aMask', 'aForest']) g.setAttribute(name, this.geo.getAttribute(name));
+        for (const name of ['position', 'normal', 'color', 'aMask', 'aForest', 'aShape']) g.setAttribute(name, this.geo.getAttribute(name));
         const hi = new THREE.BufferAttribute(new Uint32Array(ix), 1);
         // The same chunk with one quad per cell, on the same vertices (only cell corners used).
         const lo: number[] = [], st = subdiv;
@@ -249,7 +275,9 @@ export class Terrain {
     const colr = this.geo.getAttribute('color') as THREE.BufferAttribute;
     const mask = this.geo.getAttribute('aMask') as THREE.BufferAttribute;
     const fmask = this.geo.getAttribute('aForest') as THREE.BufferAttribute;
+    const shape = this.geo.getAttribute('aShape') as THREE.BufferAttribute;
     const P = pos.array as Float32Array, NR = nor.array as Float32Array, CL = colr.array as Float32Array, MK = mask.array as Float32Array, FM = fmask.array as Float32Array;
+    const SH = shape.array as Float32Array;
     const e = 0.2;
     const n = new THREE.Vector3();
     for (let j = j0; j <= j1; j++) {
@@ -276,8 +304,20 @@ export class Terrain {
         MK[v * 4 + 2] = m.sand;
         MK[v * 4 + 3] = m.rock;
         FM[v] = m.forest;
+        // Hollow or ridge: how far the ground a short way off in eight directions rises above, or
+        // falls below, this point.
+        // (The average difference: on an even slope the rise one way cancels the fall the other.)
+        let net = 0;
+        for (let k = 0; k < 8; k++) {
+          const a = (k / 8) * Math.PI * 2;
+          net += w.heightAt(x + Math.cos(a) * SHAPE_REACH, z + Math.sin(a) * SHAPE_REACH) - y;
+        }
+        net /= 8 * SHAPE_REACH;
+        SH[v * 2] = Math.min(1, Math.max(0, net) * 4);
+        SH[v * 2 + 1] = Math.min(1, Math.max(0, -net) * 4);
       }
     }
+    shape.needsUpdate = true;
     pos.needsUpdate = true;
     nor.needsUpdate = true;
     colr.needsUpdate = true;
@@ -419,10 +459,13 @@ export class Terrain {
         `#include <common>
         attribute vec4 aMask;
         attribute float aForest;
+        attribute vec2 aShape;
         varying vec3 vWPos;
         varying vec4 vMask;
         varying float vForest;
-        varying float vViewDist;`
+        varying float vViewDist;
+        varying vec2 vShape;
+        varying vec3 vWNrm;`
       )
       .replace(
         '#include <worldpos_vertex>',
@@ -431,6 +474,8 @@ export class Terrain {
         vWPos = wpT.xyz;
         vMask = aMask;
         vForest = aForest;
+        vShape = aShape;
+        vWNrm = normalize(mat3(modelMatrix) * objectNormal);
         vViewDist = length(cameraPosition - wpT.xyz);`
       );
     shader.fragmentShader = shader.fragmentShader
@@ -478,6 +523,27 @@ export class Terrain {
         roughnessFactor = mix(roughnessFactor, 0.32, swWet * 0.8);`
       )
       .replace(
+        '#include <emissivemap_fragment>',
+        `#include <emissivemap_fragment>
+        {
+          // Dry sand glints: tiny grains catching the sun as the view moves over the beach.
+          float dry = vMask.z * smoothstep(0.08, 0.3, vWPos.y) * (1.0 - smoothstep(18.0, 45.0, vViewDist));
+          if (dry > 0.02 && uSunI > 0.3) {
+            vec2 gc = floor(vWPos.xz * 26.0);
+            float pick = th21(gc + 3.7);
+            if (pick > 0.93) {
+              vec2 gf = fract(vWPos.xz * 26.0) - 0.5;
+              vec3 facet = normalize(vec3(th21(gc) - 0.5, 1.2, th21(gc + 9.1) - 0.5));
+              vec3 nv = normalize((viewMatrix * vec4(facet, 0.0)).xyz);
+              vec3 r = reflect(normalize(vViewPosition), nv);
+              float glint = pow(max(dot(r, normalize(uSunView)), 0.0), 60.0);
+              float dotK = 1.0 - smoothstep(0.05, 0.22, length(gf));
+              totalEmissiveRadiance += vec3(1.0, 0.96, 0.85) * glint * dotK * dry * min(uSunI / 3.0, 1.0) * 2.2;
+            }
+          }
+        }`
+      )
+      .replace(
         '#include <normal_fragment_maps>',
         `#include <normal_fragment_maps>
         {
@@ -504,10 +570,24 @@ export class Terrain {
         uniform vec3 uSoilCol;
         uniform float uCaustic;
         uniform float uUltra;
+        uniform sampler2D uDetail;
+        uniform vec3 uGrassCol;
+        uniform vec3 uSandCol;
+        uniform vec3 uRockCol;
+        uniform vec3 uSunView;
+        uniform float uSunI;
         varying vec3 vWPos;
         varying vec4 vMask;
         varying float vForest;
         varying float vViewDist;
+        varying vec2 vShape;
+        varying vec3 vWNrm;
+        /** The rock pattern projected from three sides, so cliffs are textured without stretching. */
+        float rockTri(vec3 p, vec3 n) {
+          vec3 w = pow(abs(n), vec3(4.0));
+          w /= max(w.x + w.y + w.z, 1e-4);
+          return texture2D(uDetail, p.zy * 0.4).b * w.x + texture2D(uDetail, p.xz * 0.4).b * w.y + texture2D(uDetail, p.xy * 0.4).b * w.z;
+        }
         float th21(vec2 p){ p = fract(p*vec2(123.34, 456.21)); p += dot(p, p+45.32); return fract(p.x*p.y); }
         float vn2(vec2 p){ vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
           return mix(mix(th21(i), th21(i + vec2(1.0, 0.0)), f.x), mix(th21(i + vec2(0.0, 1.0)), th21(i + vec2(1.0, 1.0)), f.x), f.y); }
@@ -583,11 +663,53 @@ export class Terrain {
           float nearK = 1.0 - smoothstep(30.0, 85.0, vViewDist);
           if (vWPos.y > -0.02) {
             vec2 xz = vWPos.xz;
+            // ---- Painted texture, natural edges, terrace lips and contact shadows ----
+            {
+              float texK = 1.0 - smoothstep(40.0, 120.0, vViewDist);
+              vec4 dt = texture2D(uDetail, xz * 0.3);
+              // Broad, soft variation (smooth noise, not the strokes magnified into bars).
+              float broad = vn2(xz * 0.18 + 5.0) - 0.5;
+              float rt = rockTri(vWPos * vec3(1.0, 1.6, 1.0), vWNrm);
+              float en = vn2(xz * 1.6) - 0.5;
+              // Edges: sand fills the low spots first and grass breaks off in ragged clumps; rock
+              // shows through where its pattern is high. Only the band between them changes.
+              if (vMask.z > 0.03 && vMask.z < 0.97) {
+                float sandC = smoothstep(0.42, 0.58, vMask.z + (dt.g - 0.5) * 0.45 + en * 0.4 - (dt.r - 0.5) * 0.25);
+                float dS = sandC - vMask.z;
+                diffuseColor.rgb = mix(diffuseColor.rgb, dS > 0.0 ? uSandCol : uGrassCol, abs(dS) * 0.85);
+              }
+              if (vMask.w > 0.03 && vMask.w < 0.97) {
+                float rockC = smoothstep(0.4, 0.6, vMask.w + (rt - 0.5) * 0.6 + en * 0.3);
+                float dR = rockC - vMask.w;
+                diffuseColor.rgb = mix(diffuseColor.rgb, dR > 0.0 ? uRockCol : diffuseColor.rgb * 1.04, abs(dR) * 0.7);
+              }
+              // Hand-painted texture: blades in the grass, grain in the sand, earth on bare slopes.
+              float grassK = vMask.x * (1.0 - vMask.z), sandK = vMask.z, earthK = (1.0 - vMask.y) * (1.0 - vMask.w) * (1.0 - vMask.z);
+              float g = (dt.r - 0.5) * 0.5 + broad * 0.12;
+              diffuseColor.rgb *= 1.0 + grassK * g * texK;
+              // Sunlit blade tips lean warm, shaded ones cool.
+              diffuseColor.rgb *= mix(vec3(1.0), g > 0.0 ? vec3(1.05, 1.03, 0.9) : vec3(0.95, 1.0, 1.02), grassK * abs(g) * 2.0 * texK);
+              diffuseColor.rgb *= 1.0 + sandK * ((dt.g - 0.5) * 0.24 + broad * 0.08) * texK;
+              diffuseColor.rgb *= 1.0 + earthK * (dt.a - 0.5) * 0.3 * texK;
+              // Terrace lips: a lighter grassy rim where flat ground drops away; contact shadows in
+              // hollows and at the foot of every bank and cliff.
+              float ridge = vShape.y, hollow = vShape.x;
+              float lip = smoothstep(0.05, 0.35, ridge) * vMask.y * (1.0 - vMask.w * 0.6);
+              diffuseColor.rgb *= mix(vec3(1.0), vec3(1.14, 1.12, 0.96), lip * (0.55 + 0.45 * vMask.x));
+              diffuseColor.rgb *= 1.0 - smoothstep(0.04, 0.5, hollow) * 0.32;
+              // Rock: chiselled facets, worn lighter edges and dark crevices (rock 9).
+              float rkT = smoothstep(0.2, 0.7, vMask.w) * (1.0 - vMask.z) * (1.0 - vMask.x * 0.8);
+              if (rkT > 0.02) {
+                diffuseColor.rgb *= 1.0 + rkT * (rt - 0.5) * 0.75 * texK;
+                diffuseColor.rgb *= 1.0 + rkT * smoothstep(0.08, 0.45, ridge) * 0.22;
+                diffuseColor.rgb *= 1.0 - rkT * smoothstep(0.06, 0.4, hollow) * 0.28;
+              }
+            }
             // Grass: broad lush / sun-dried patches and small clover clumps.
             float gp = vn2(xz * 0.3) * 0.6 + vn2(xz * 1.05 + 7.0) * 0.4;
             diffuseColor.rgb *= mix(vec3(1.0), mix(vec3(0.86, 0.95, 0.84), vec3(1.08, 1.05, 0.86), gp), vMask.x);
-            float clover = smoothstep(0.62, 0.8, vn2(xz * 3.3)) * vMask.x * nearK;
-            diffuseColor.rgb *= 1.0 - clover * 0.12;
+            // (The painted texture gives the grass its small-scale clumps now: the old thresholded
+            // clover noise drew square, grid-aligned blotches.)
             // Sand: wind ripples on the dry beach, pebbles and shells.
             float dry = vMask.z * smoothstep(0.08, 0.3, vWPos.y);
             float rip = sin(dot(xz, vec2(0.8, 0.6)) * 8.5 + vn2(xz * 0.7) * 7.0) * 0.5 + 0.5;
