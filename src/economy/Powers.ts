@@ -27,6 +27,8 @@ export class Powers {
   private timer = 0;
   /** Smoothed 0..1 intensities. */
   rainAmt = 0;
+  /** How wet the ground is (0..1), lagging behind the rain. */
+  wetness = 0;
   stormAmt = 0;
   private rain = new RainField();
   private sparkles: THREE.Points;
@@ -281,6 +283,10 @@ export class Powers {
     this.lighting.overcast = Math.min(1, this.rainAmt * 0.5 + this.stormAmt * 0.45);
     FX.uWind.value = 1 + this.rainAmt * 0.6 + this.stormAmt * 2.2;
     this.water.shared.uStorm.value = this.stormAmt;
+    this.water.shared.uRain.value = this.rainAmt;
+    // The ground soaks up the rain in half a minute or so, and dries over a few minutes after.
+    const soak = this.rainAmt > 0.05 ? Math.min(1, this.rainAmt * 1.6) : 0;
+    this.wetness += (soak - this.wetness) * Math.min(1, dt / (soak > this.wetness ? 30 : 150));
 
     // Lightning during storms: a forked bolt on the open sea every few seconds.
     if (this.state === 'storm' && this.stormAmt > 0.6 && !this.time.paused) {

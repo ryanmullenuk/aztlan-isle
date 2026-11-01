@@ -37,7 +37,13 @@ export class AudioEngine {
   music: number = 0.5;
   muted = false;
   /** Listener context set each frame by the game. */
-  listener = { x: 0, y: 0, z: 0, zoom: 60, coast: 0, forest: 0, wind: 1, night: 0, rain: 0, storm: 0 };
+  listener = { x: 0, y: 0, z: 0, zoom: 60, coast: 0, forest: 0, wind: 1, night: 0, rain: 0, storm: 0, damp: 0, fire: 0, village: 0 };
+  private rainBed!: GainNode;
+  private fireBed!: GainNode;
+  private gullTimer = 3;
+  private frogTimer = 2;
+  private crackleTimer = 0.5;
+  private workTimer = 2;
   /** The music's mood, eased towards the listener's: night (sparser, lower) and storm (urgent drums, a low drone). */
   private mood = { night: 0, storm: 0 };
   private drone: GainNode | null = null;
@@ -240,6 +246,25 @@ export class AudioEngine {
       o.start();
       t.start();
     }
+    // Rain on the leaves and the ground: a soft hiss under it all.
+    const rn = this.loopSource(this.noise);
+    const rhp = ctx.createBiquadFilter();
+    rhp.type = 'highpass';
+    rhp.frequency.value = 1800;
+    const rlp = ctx.createBiquadFilter();
+    rlp.type = 'lowpass';
+    rlp.frequency.value = 7500;
+    this.rainBed = ctx.createGain();
+    this.rainBed.gain.value = 0;
+    rn.connect(rhp).connect(rlp).connect(this.rainBed).connect(this.ambBus);
+    // A fire's low roar (the crackles are separate pops on top).
+    const fr = this.loopSource(this.brown);
+    const flp = ctx.createBiquadFilter();
+    flp.type = 'lowpass';
+    flp.frequency.value = 380;
+    this.fireBed = ctx.createGain();
+    this.fireBed.gain.value = 0;
+    fr.connect(flp).connect(this.fireBed).connect(this.ambBus);
     // Waterfall roar, positioned in 3D.
     const fn = this.loopSource(this.noise);
     const ff = ctx.createBiquadFilter();
@@ -621,6 +646,135 @@ export class AudioEngine {
     if (this.birdTimer <= 0) {
       this.birdTimer = 0.8 + Math.random() * 3;
       if (L.night < 0.5 && L.rain < 0.5) this.birdCall(L.forest * zoomFade);
+    }
+    // The places round the view: rain hissing, a fire roaring and crackling, gulls over the shore,
+    // frogs in the damp at night, and the knocks and taps of village work by day.
+    this.rainBed.gain.setTargetAtTime(L.rain * (0.22 + L.storm * 0.18) * (0.5 + zoomFade * 0.5), t, 0.8);
+    const fire = L.fire * zoomFade * (1 - L.rain * 0.5);
+    this.fireBed.gain.setTargetAtTime(fire * 0.18, t, 0.4);
+    this.crackleTimer -= dt;
+    if (this.crackleTimer <= 0) {
+      this.crackleTimer = 0.04 + Math.random() * 0.35;
+      if (fire > 0.05) this.crackle(fire);
+    }
+    this.gullTimer -= dt;
+    if (this.gullTimer <= 0) {
+      this.gullTimer = 3 + Math.random() * 7;
+      if (L.night < 0.5 && L.storm < 0.5) this.gullCry(L.coast * zoomFade);
+    }
+    this.frogTimer -= dt;
+    if (this.frogTimer <= 0) {
+      this.frogTimer = 0.5 + Math.random() * 2.2;
+      if (L.night > 0.45) this.frog(L.damp * zoomFade * (0.6 + L.rain * 0.6));
+    }
+    this.workTimer -= dt;
+    if (this.workTimer <= 0) {
+      this.workTimer = 0.4 + Math.random() * 1.6;
+      if (L.night < 0.4 && L.storm < 0.5) this.workKnock(L.village * zoomFade);
+    }
+  }
+
+  /** A pop from a burning log. */
+  private crackle(vol: number): void {
+    const ctx = this.ctx!;
+    const t = ctx.currentTime + 0.01;
+    const n = ctx.createBufferSource();
+    n.buffer = this.noise;
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.frequency.value = 1500 + Math.random() * 3500;
+    f.Q.value = 1.5;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.12 * vol * (0.4 + Math.random() * 0.6), t + 0.002);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.02 + Math.random() * 0.03);
+    const pan = ctx.createStereoPanner();
+    pan.pan.value = Math.random() * 0.4 - 0.2;
+    n.connect(f).connect(g).connect(pan).connect(this.ambBus);
+    n.start(t, Math.random() * 2);
+    n.stop(t + 0.08);
+  }
+
+  /** A gull's call: a few falling, nasal "kee-ow"s. */
+  private gullCry(vol: number): void {
+    if (vol < 0.08) return;
+    const ctx = this.ctx!;
+    const pan = ctx.createStereoPanner();
+    pan.pan.value = Math.random() * 1.6 - 0.8;
+    pan.connect(this.ambBus);
+    const calls = 1 + Math.floor(Math.random() * 3);
+    for (let k = 0; k < calls; k++) {
+      const s = ctx.currentTime + 0.01 + k * (0.28 + Math.random() * 0.1);
+      const base = 1300 + Math.random() * 300;
+      const o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(base * 1.25, s);
+      o.frequency.linearRampToValueAtTime(base * 1.35, s + 0.05);
+      o.frequency.exponentialRampToValueAtTime(base * 0.75, s + 0.24);
+      const f = ctx.createBiquadFilter();
+      f.type = 'bandpass';
+      f.frequency.value = 2200;
+      f.Q.value = 2.5;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, s);
+      g.gain.exponentialRampToValueAtTime(0.05 * vol, s + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.0001, s + 0.26);
+      o.connect(f).connect(g).connect(pan);
+      o.start(s);
+      o.stop(s + 0.3);
+    }
+  }
+
+  /** A frog's croak: a low, buzzy double "rib-bit". */
+  private frog(vol: number): void {
+    if (vol < 0.06) return;
+    const ctx = this.ctx!;
+    const pan = ctx.createStereoPanner();
+    pan.pan.value = Math.random() * 1.4 - 0.7;
+    pan.connect(this.ambBus);
+    const base = 140 + Math.random() * 120;
+    for (let k = 0; k < 2; k++) {
+      const s = ctx.currentTime + 0.01 + k * 0.13;
+      const o = ctx.createOscillator();
+      o.type = 'square';
+      o.frequency.setValueAtTime(base * (k ? 1.2 : 1), s);
+      o.frequency.exponentialRampToValueAtTime(base * (k ? 0.9 : 0.8), s + 0.08);
+      const f = ctx.createBiquadFilter();
+      f.type = 'lowpass';
+      f.frequency.value = 900;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, s);
+      g.gain.exponentialRampToValueAtTime(0.06 * vol, s + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, s + 0.09);
+      o.connect(f).connect(g).connect(pan);
+      o.start(s);
+      o.stop(s + 0.12);
+    }
+  }
+
+  /** Somewhere in the village someone is at work: a mallet on wood, a pestle in a bowl. */
+  private workKnock(vol: number): void {
+    if (vol < 0.06) return;
+    const ctx = this.ctx!;
+    const pan = ctx.createStereoPanner();
+    pan.pan.value = Math.random() * 1.2 - 0.6;
+    pan.connect(this.ambBus);
+    const wood = Math.random() < 0.65;
+    const hits = 1 + Math.floor(Math.random() * 3);
+    const f0 = wood ? 380 + Math.random() * 160 : 650 + Math.random() * 250;
+    for (let k = 0; k < hits; k++) {
+      const s = ctx.currentTime + 0.01 + k * (0.22 + Math.random() * 0.08);
+      const o = ctx.createOscillator();
+      o.type = wood ? 'triangle' : 'sine';
+      o.frequency.setValueAtTime(f0, s);
+      o.frequency.exponentialRampToValueAtTime(f0 * 0.7, s + 0.07);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, s);
+      g.gain.exponentialRampToValueAtTime(0.07 * vol, s + 0.004);
+      g.gain.exponentialRampToValueAtTime(0.0001, s + (wood ? 0.08 : 0.16));
+      o.connect(g).connect(pan);
+      o.start(s);
+      o.stop(s + 0.2);
     }
   }
 

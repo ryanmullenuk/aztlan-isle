@@ -391,6 +391,11 @@ function setGlow(b: Building, windows: models.Glow[] | undefined): void {
   b.finished.add(b.glow);
 }
 
+/** Seconds of work the current build (or upgrade) takes in all. */
+function buildSeconds(b: Building): number {
+  return b.upgrading ? (b.key === 'boatworkshop' ? (BOAT_WORKSHOP.upgrades[b.tier-1]?.time ?? b.def.buildTime) : b.key === 'stonemason' ? (STONEMASON.upgrades[b.tier - 1]?.time ?? b.def.buildTime) : b.key === 'home' ? HOMES.upgradeTime[b.tier + 1] : TEMPLE.upgradeTime[b.tier + 1]) : b.def.buildTime;
+}
+
 export class BuildingSystem {
   readonly group = new THREE.Group();
   private demolitions: Demolition[] = [];
@@ -1329,7 +1334,7 @@ export class BuildingSystem {
       return;
     }
     if (b.ruined || b.integrity < 1) return;
-    const time = b.upgrading ? (b.key === 'boatworkshop' ? (BOAT_WORKSHOP.upgrades[b.tier-1]?.time ?? b.def.buildTime) : b.key === 'stonemason' ? (STONEMASON.upgrades[b.tier - 1]?.time ?? b.def.buildTime) : b.key === 'home' ? HOMES.upgradeTime[b.tier + 1] : TEMPLE.upgradeTime[b.tier + 1]) : b.def.buildTime;
+    const time = buildSeconds(b);
     let next = Math.min(1, b.progress + (dt * (this.decreeFactor?.('build') ?? 1)) / time);
     if(b.key==='greattemple' && !b.complete && b.monumentPaid!==undefined) {
       while(next>b.monumentPaid/4 && b.monumentPaid<4) {
@@ -1340,6 +1345,23 @@ export class BuildingSystem {
     b.progress = next;
     if (b.progress >= 1) this.finish(b);
     else this.updateStageVisuals(b);
+  }
+
+  /**
+   * Seconds of work left on a build or upgrade that pearls can finish now, or null when it can't be
+   * hurried (finished, damaged, under repair, or a monument built phase by phase).
+   */
+  rushSeconds(b: Building): number | null {
+    if ((b.complete && !b.upgrading) || b.ruined || b.repairing || b.integrity < 1) return null;
+    if (b.key === 'greattemple' || b.key === 'palace') return null;
+    return (1 - b.progress) * buildSeconds(b);
+  }
+
+  /** Finish a build or upgrade straight away (the pearls are paid by the caller). */
+  rush(b: Building): boolean {
+    if (this.rushSeconds(b) === null) return false;
+    this.finish(b);
+    return true;
   }
 
   private finish(b: Building): void {

@@ -87,6 +87,10 @@ export class Terrain {
     uRockCol: { value: new THREE.Color(COLORS.rock) },
     uSunView: FX.uSunView,
     uSunI: FX.uSunI,
+    /** How wet the ground is from rain (0..1: soaks in while it rains, dries out after). */
+    uWet: { value: 0 },
+    /** How hard it is raining right now (raindrop rings in the puddles). */
+    uRainNow: { value: 0 },
   };
 
   private sub: number;
@@ -520,7 +524,8 @@ export class Terrain {
           }
         }
         #include <roughnessmap_fragment>
-        roughnessFactor = mix(roughnessFactor, 0.32, swWet * 0.8);`
+        roughnessFactor = mix(roughnessFactor, 0.32, swWet * 0.8);
+        roughnessFactor = mix(mix(roughnessFactor, 0.6, tWet * 0.4), 0.62, tPuddle);`
       )
       .replace(
         '#include <emissivemap_fragment>',
@@ -546,6 +551,18 @@ export class Terrain {
       .replace(
         '#include <normal_fragment_maps>',
         `#include <normal_fragment_maps>
+        if (tPuddle > 0.05 && uRainNow > 0.05) {
+          // Raindrops landing in the puddles: rings spreading out and fading.
+          for (int k = 0; k < 2; k++) {
+            vec2 q = vWPos.xz * (3.0 + float(k) * 1.7) + float(k) * 7.3;
+            vec2 c = floor(q), f = fract(q) - 0.5;
+            float ph = fract(uTime * 0.9 + th21(c + float(k)));
+            vec2 d = f - (vec2(th21(c + 1.3), th21(c + 5.1)) - 0.5) * 0.5;
+            float r = length(d) + 1e-4, x = r - ph * 0.42;
+            float ring = sin(x * 55.0) * exp(-x * x / 0.003) * (1.0 - ph) * tPuddle * uRainNow;
+            normal = normalize(normal + (viewMatrix * vec4(d.x / r * ring, 0.0, d.y / r * ring, 0.0)).xyz * 0.6);
+          }
+        }
         {
           // Fine relief on rock and earth faces: chiselled, cracked stone instead of smooth plaster.
           // Ultra carries deeper relief further out.
@@ -576,6 +593,8 @@ export class Terrain {
         uniform vec3 uRockCol;
         uniform vec3 uSunView;
         uniform float uSunI;
+        uniform float uWet;
+        uniform float uRainNow;
         varying vec3 vWPos;
         varying vec4 vMask;
         varying float vForest;
@@ -629,6 +648,7 @@ export class Terrain {
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
+        float tWet = 0.0, tPuddle = 0.0;
         {
           vec2 wuv = (vWPos.xz + uWorld * 0.5) / uWorld;
           vec4 wr = texture2D(uWear, wuv);
@@ -638,9 +658,20 @@ export class Terrain {
           float soil = smoothstep(0.1, 0.6, wr.g) * vMask.y;
           float furrow = 0.82 + 0.18 * sin(vWPos.x * 7.0);
           diffuseColor.rgb = mix(diffuseColor.rgb, uSoilCol * furrow, soil);
-          // Trampled paths: terracotta dirt with a ragged edge.
+          // Trampled paths, in stages: grass walked on now and then is flattened and paler, then wears
+          // through to packed earth (pebbles where it is trodden hardest) with a darker trodden rim.
+          float trod = smoothstep(0.04, 0.3, wr.r) * (1.0 - smoothstep(0.35, 0.65, wr.r)) * vMask.x * (1.0 - vMask.z);
+          diffuseColor.rgb *= mix(vec3(1.0), vec3(1.07, 1.04, 0.86), trod);
           float wear = smoothstep(0.3 + grain * 0.35, 0.9 + grain * 0.1, wr.r) * (0.4 + 0.6 * vMask.y);
-          diffuseColor.rgb = mix(diffuseColor.rgb, mix(uPathCol, uPathCol2, grain), wear);
+          vec3 dirt = mix(uPathCol, uPathCol2, grain) * (1.0 + (texture2D(uDetail, vWPos.xz * 0.3).a - 0.5) * 0.4 * smoothstep(0.5, 1.0, wr.r));
+          vec2 pbc = floor(vWPos.xz * 6.0);
+          float pbh = th21(pbc + 51.0);
+          if (pbh > 0.86) {
+            vec2 pbf = fract(vWPos.xz * 6.0) - 0.5 - (vec2(th21(pbc + 2.9), th21(pbc + 6.1)) - 0.5) * 0.5;
+            dirt = mix(dirt, lin(vec3(0.66, 0.6, 0.52)) * (0.85 + 0.3 * fract(pbh * 41.0)), smoothstep(0.12, 0.07, length(pbf)) * smoothstep(0.6, 0.9, wr.r));
+          }
+          diffuseColor.rgb = mix(diffuseColor.rgb, dirt, wear);
+          diffuseColor.rgb *= 1.0 - wear * (1.0 - wear) * 0.5;
           // Swamp: the ground turns dark and wet, then to slick mud toward the pools.
           float swp = wr.a;
           if (swp > 0.004) {
@@ -778,6 +809,22 @@ export class Terrain {
             stone *= 0.9 + 0.12 * smoothstep(0.06, 0.35, fl.x);
             vec3 joint = mix(lin(vec3(0.34, 0.29, 0.22)), lin(vec3(0.33, 0.42, 0.2)), smoothstep(0.4, 0.8, vn2(vWPos.xz * 3.0)));
             diffuseColor.rgb = mix(diffuseColor.rgb, mix(joint, stone, gap), pathK);
+          }
+          // Rain: the ground darkens as it soaks, puddles gather in hollows and on trodden earth, and
+          // it all dries out once the rain has passed (puddles last longest).
+          if (uWet > 0.01 && vWPos.y > 0.04) {
+            float soak = uWet * (1.0 - vMask.w * 0.4);
+            diffuseColor.rgb *= 1.0 - soak * mix(0.3, 0.18, vMask.z);
+            // Rounded pools, likeliest in dips and on trodden earth and tilled soil.
+            float pn = vn2(vWPos.xz * 0.7 + 13.0) * 0.75 + vn2(vWPos.xz * 2.1 + 4.0) * 0.25;
+            float site = pn + vShape.x * 0.45 + wear * 0.3 + soil * 0.2 + pathK * 0.1;
+            float pud = smoothstep(0.79, 0.83, site + uWet * 0.06) * vMask.y * (1.0 - vMask.z) * smoothstep(0.3, 0.6, uWet);
+            // Dark, sky-tinted water with a lighter wet rim where it meets the grass.
+            float pudIn = smoothstep(0.81, 0.87, site + uWet * 0.06);
+            diffuseColor.rgb = mix(diffuseColor.rgb, lin(vec3(0.3, 0.38, 0.44)) * 0.55, pud * mix(0.55, 1.0, pudIn));
+            diffuseColor.rgb *= 1.0 + pud * (1.0 - pudIn) * 0.35;
+            tWet = soak;
+            tPuddle = pud;
           }
           // Caustics dancing on the shallow seabed.
           if (vWPos.y < 0.02) {

@@ -1276,6 +1276,13 @@ body.notice-showing .toasts { margin-top: min(130px, 21vw); }
 .gd-news li { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; line-height: 1.35; }
 .gd-news li svg { width: 22px; height: 22px; flex: none; margin-top: 1px; }
 .gd-news b { font-size: 14px; }
+/* The daily chest: the week's chests in a row, today's lit up, opened ones dimmed. */
+.dc-week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; margin: 6px 0 10px; }
+.dc-day { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px; border-radius: 10px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.08); font-size: 13px; }
+.dc-day small { font-size: 10px; opacity: 0.7; white-space: nowrap; }
+.dc-day .ic { width: 18px; height: 18px; }
+.dc-day.done { opacity: 0.45; }
+.dc-day.today { background: rgba(232, 198, 107, 0.18); border-color: rgba(232, 198, 107, 0.8); box-shadow: 0 0 12px rgba(232, 198, 107, 0.35); }
 @media (max-width: 480px) {
   .gd-title { font-size: 19px; }
   #hud#hud .gd-btn { min-width: 0; flex: 1; }

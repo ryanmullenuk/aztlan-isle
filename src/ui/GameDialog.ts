@@ -28,6 +28,8 @@ export interface DialogItem {
   news?: boolean;
   /** Worth showing even when the player keeps only important pop-ups (dangers, titles, coming back). */
   important?: boolean;
+  /** Shown whatever the player chose for pop-ups (a reward to collect, not a notice). */
+  always?: boolean;
 }
 
 /** Which pop-ups the player wants: all of them, only the important ones, or none. */
@@ -71,7 +73,7 @@ export class GameDialog {
 
   push(item: DialogItem): void {
     const mode = this.mode();
-    if (mode === 'off' || (mode === 'important' && !item.important)) return;
+    if (!item.always && (mode === 'off' || (mode === 'important' && !item.important))) return;
     // The same thing said twice while waiting (a repeated warning) only shows once.
     if (this.queue.some((q) => q.title === item.title && q.body === item.body) || (this.open?.title === item.title && this.open?.body === item.body)) return;
     this.queue.push(item);

@@ -28,6 +28,7 @@ import type { Where } from './where';
 import { CARGO_KEYS, CargoKey, haulText, holdValue } from '../entities/Voyage';
 import { BUILD_MENU, GARDEN_TOOLS, PAINT_TOOLS, TERRAIN_TOOLS, TOOLBAR, TOOLS, ToolId } from './tools';
 import { GARDEN } from '../vegetation/Garden';
+import { DAILY_PEARLS, dayKey, rushPearls } from '../economy/DailyChest';
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = ''): HTMLElementTagNameMap[K] => {
   const e = document.createElement(tag);
@@ -302,6 +303,11 @@ export class UI {
   }
 
   private closeInventory: () => void = () => {};
+  /** The tutorial card is on screen. */
+  get tutorialOpen(): boolean {
+    return !!this.tutorial && !this.tutorial.classList.contains('hidden');
+  }
+
   /** The player has opened the clock's menu at least once (for the tutorial). */
   private hudOpened = false;
   private setGoalsOpen(open: boolean): void {
@@ -913,7 +919,7 @@ export class UI {
         <li>A <b>Watchtower</b> near the jungle or the swamps guards the village by itself, day and night, with no villager needed (a torch burns on its roof after dark). Arrows fly from its windows at jaguars and alligators that come in range: wounded ones flee, and a few hits kill one. The island is never emptied of them, though: new jaguars swim over from beyond the map, and new alligators turn up in the swamps.</li>
         <li>Plant a garden: open <b>Flora</b> (4), pick <b>Flowers</b>, <b>Bushes</b> or <b>Shrubs &amp; ferns</b> and hold and drag over open ground, like laying a path. Plants pop up as you go, each stroke in its own colours. <b>Dig up plants</b> clears them again. It's free, and just for looks. (No need to harvest: your islanders fell, mine and pick by themselves.)</li>
         <li><b>Trees</b> (in Flora) plants real trees by dragging, for a little Belief each: they burst up out of the ground, grow wood for your woodcutters (and regrow from the stump), and fruit trees feed your gatherers.</li>
-        <li><b>Pearls</b> wash up on the beaches in open oysters (tap one, or a villager walking by picks it up), and fishers sometimes find one in their catch.</li>
+        <li><b>Pearls</b> wash up on the beaches in open oysters (tap one, or a villager walking by picks it up), and fishers sometimes find one in their catch. A <b>daily chest</b> of pearls waits each day you play, growing with your streak. Spend pearls on a building's card to <b>finish it now</b> (one pearl per minute of work left).</li>
         <li>A finished <b>Trade Dock</b> can build the great <b>voyage ship</b>. Tap the ship, load goods with − and + (pearls fetch the most), and set sail with two villagers. Out past the horizon it may meet storms (calm them with Belief from the dock's card in time!), raiders, good markets or a green island. It comes home with chickens, <b>herbs</b> (processed into medicine at a Herbalist’s Garden) and <b>spices</b> (which cure the sick and injured at a Healing Centre) and goods, and waits under a green orb for you to unload. Some voyages never come back. A green orb over a visiting trader's boat means bargains are on offer.</li>
         <li>Idle villagers help build by day without being asked. Give them a job yourself and they keep to it.</li>
         <li>Felled trees lie where they fall until woodcutters have carried all their wood home, a load at a time, then sink into the ground and later regrow from the stump.</li>
@@ -1571,7 +1577,7 @@ export class UI {
         <div class="actions"><button class="btn small" data-a="capture" ${free && (!d.needsPen || hasPen) ? '' : 'disabled'}>${ICONS.harvest} ${label}</button></div>
         <p class="muted small">Tip: select an islander first, then tap an animal to send them after it.</p>`;
     } else if (b) {
-      key = `b${b.id}|${['pigpen','chickenpen'].includes(b.key) ? g.wildlife.penCount(b)+'/'+g.buildings.of('butcher',true).filter(buildingOperational).length : ''}|${Math.round(b.integrity * 100)}:${b.fire > 0}:${b.ruined}:${b.repairing}:${Math.round(b.repairProgress * 100)}:${g.powers.state}:${g.fires.status(b)}:${g.eco.canAfford(g.buildings.repairCost(b))}|${Math.floor(g.eco.goods.carvedstone)}|${g.progression.summary}|${g.buildings.boatRequirement(3)}|${g.buildings.constructionRequirement('home')}|${g.buildings.list.filter(x=>x.key==='stonemason' && x.complete).map(x=>x.tier).join(',')}|${Math.floor(g.eco.food)}|${b.key === 'tradedock' || b.key === 'market' ? g.trade.visitKey(b) + '|' + g.voyage.key() + '|' + JSON.stringify(g.eco.goods) : ''}|${b.key === 'greathall' ? JSON.stringify(g.colony.hallCount(b)) : ''}|${b.key === 'palace' ? b.decree ?? '' : ''}|${b.key === 'observatory' ? this.observatoryKey() : ''}|${b.key === 'healer' ? g.colony.patients(b).map((p) => `${p.id}:${p.condition}:${Math.ceil(p.conditionT / 60)}:${p.task?.slot}:${g.colony.canCure(p)}`).join(',') + JSON.stringify(g.eco.goods) : ''}|${b.key === 'watchtower' ? `${g.defence.stats(b).shots}|${g.defence.stats(b).kills}|` : ''}${b.key === 'kennel' ? `${g.dogs.alive.length}|${g.dogs.alive.filter((d) => d.puppy).length}|${Math.ceil(b.breedT)}|${Math.ceil(b.breedCool / 5)}|${b.dogRole}|${Math.floor(g.eco.food / 4)}|` : ''}${b.key === 'market' ? JSON.stringify(b.marketStock) : ''}|${b.key === 'herbalist' || b.key === 'stonemason' ? JSON.stringify(g.eco.goods) : ''}|${b.complete}|${Math.round(b.progress * 50)}|${b.tier}|${b.residents.length}|${b.upgrading}|${Math.round(b.growth * 20)}|${b.boats.length}|${b.boatBuild > 0}|${b.training.length}|${Math.floor(g.eco.res.wood / 5)}|${Math.floor(g.eco.res.stone / 5)}|${Math.floor(g.eco.res.belief / 5)}`;
+      key = `b${b.id}|${['pigpen','chickenpen'].includes(b.key) ? g.wildlife.penCount(b)+'/'+g.buildings.of('butcher',true).filter(buildingOperational).length : ''}|${Math.round(b.integrity * 100)}:${b.fire > 0}:${b.ruined}:${b.repairing}:${Math.round(b.repairProgress * 100)}:${g.powers.state}:${g.fires.status(b)}:${g.eco.canAfford(g.buildings.repairCost(b))}|${Math.floor(g.eco.goods.carvedstone)}|${g.progression.summary}|${g.buildings.boatRequirement(3)}|${g.buildings.constructionRequirement('home')}|${g.buildings.list.filter(x=>x.key==='stonemason' && x.complete).map(x=>x.tier).join(',')}|${Math.floor(g.eco.food)}|${b.key === 'tradedock' || b.key === 'market' ? g.trade.visitKey(b) + '|' + g.voyage.key() + '|' + JSON.stringify(g.eco.goods) : ''}|${b.key === 'greathall' ? JSON.stringify(g.colony.hallCount(b)) : ''}|${b.key === 'palace' ? b.decree ?? '' : ''}|${b.key === 'observatory' ? this.observatoryKey() : ''}|${b.key === 'healer' ? g.colony.patients(b).map((p) => `${p.id}:${p.condition}:${Math.ceil(p.conditionT / 60)}:${p.task?.slot}:${g.colony.canCure(p)}`).join(',') + JSON.stringify(g.eco.goods) : ''}|${b.key === 'watchtower' ? `${g.defence.stats(b).shots}|${g.defence.stats(b).kills}|` : ''}${b.key === 'kennel' ? `${g.dogs.alive.length}|${g.dogs.alive.filter((d) => d.puppy).length}|${Math.ceil(b.breedT)}|${Math.ceil(b.breedCool / 5)}|${b.dogRole}|${Math.floor(g.eco.food / 4)}|` : ''}${b.key === 'market' ? JSON.stringify(b.marketStock) : ''}|${b.key === 'herbalist' || b.key === 'stonemason' ? JSON.stringify(g.eco.goods) : ''}|${b.complete}|${Math.round(b.progress * 50)}|${b.tier}|${b.residents.length}|${b.upgrading}|${Math.round(b.growth * 20)}|${b.boats.length}|${b.boatBuild > 0}|${b.training.length}|${Math.floor(g.eco.res.wood / 5)}|${Math.floor(g.eco.res.stone / 5)}|${Math.floor(g.eco.res.belief / 5)}|${Math.floor(g.eco.goods.pearls)}`;
       html = this.buildingHtml(b);
     }
     if (!force && key === this.infoKey) return;
@@ -1683,6 +1689,11 @@ export class UI {
       body += `<p class="muted small">${g.buildings.of('butcher',true).some(buildingOperational) ? 'Slaughterhouse workers collect these animals and take them there to prepare meat.' : 'Animals stay in this pen. Build a completed, working Slaughterhouse to turn penned animals into food.'}</p>`;
     }
     let actions = '';
+    const rushLeft = g.eco.godMode ? null : g.buildings.rushSeconds(b);
+    if (rushLeft !== null) {
+      const n = rushPearls(rushLeft), have = Math.floor(g.eco.goods.pearls);
+      actions += `<button class="btn small" data-a="rush" ${have >= n ? '' : 'disabled'} title="${have >= n ? 'Spend pearls to finish it now' : `You have ${have} pearl${have === 1 ? '' : 's'}`}">Finish now <span class="c">${icon('pearls')}${n}</span></button>`;
+    }
     if (b.complete && (b.key === 'pigpen' || b.key === 'chickenpen')) actions += `<button class="btn small" data-a="roundup">${ICONS.people} ROUND UP</button><p class="muted small">Send idle adults to catch ${b.key === 'pigpen' ? 'pigs' : 'chickens'} and bring them to this pen.</p>`;
     if (b.key === 'palace' && b.complete) {
       const now = b.decree ?? PALACE_RULES.firstDecree;
@@ -1778,6 +1789,16 @@ export class UI {
     }
     if (b) {
       if (a === 'repair') { this.toast(g.buildings.repair(b)); this.renderInfo(true); return; }
+      if (a === 'rush') {
+        const left = g.buildings.rushSeconds(b), n = left === null ? 0 : rushPearls(left);
+        if (left !== null && g.eco.goods.pearls >= n) {
+          g.eco.goods.pearls -= n;
+          g.buildings.rush(b);
+          g.audio?.sfx('build', b.x, b.z);
+        }
+        this.renderInfo(true);
+        return;
+      }
       if (a === 'calmfire') { g.powers.calm(); this.renderInfo(true); return; }
       if (a.startsWith('patient:')) g.select({ islander: Number(a.slice(8)) });
       if (a.startsWith('curemedicine:') || a.startsWith('curespices:')) {
@@ -2026,6 +2047,22 @@ export class UI {
       actions: [{ label: 'Back to the island', primary: true }], important: true,
     });
     this.game.audio?.sfx('milestone');
+  }
+
+  /**
+   * Today's chest: a row of the week's chests with today's lit up, and a button to open it. Shown
+   * even when pop-ups are turned off (it is a reward to collect, not a notice).
+   */
+  dailyChest(day: number, pearls: number, claim: () => void): void {
+    const week = DAILY_PEARLS.map((n, i) => {
+      const d = i + 1, cur = Math.min(day, DAILY_PEARLS.length);
+      return `<span class="dc-day${d < cur ? ' done' : d === cur ? ' today' : ''}"><small>Day ${d}${d === DAILY_PEARLS.length ? '+' : ''}</small>${icon('pearls')}<b>${n}</b></span>`;
+    }).join('');
+    this.dialog.push({
+      icon: 'star', kicker: day > 1 ? `${day} days in a row` : 'A gift from the sea', title: 'Daily chest', html: true, always: true,
+      body: `<div class="dc-week">${week}</div><p>Open a chest every day to keep your streak going: the pearls grow each day. Spend them to finish a build straight away, or trade them on a voyage.</p>`,
+      actions: [{ label: `Open · ${pearls} pearl${pearls === 1 ? '' : 's'}`, primary: true, run: claim }],
+    });
   }
 
   milestone(id: string): void {

@@ -771,6 +771,8 @@ export class Boats {
   onPearl: ((fisher: Islander | null, x: number, z: number) => void) | null = null;
   /** Number of boats ever launched (milestone). */
   launched = 0;
+  /** A storm is raging: no canoe puts out, and any at sea head home. */
+  storm = false;
   onLaunch: () => void = () => {};
   sfx: (n: string, x: number, z: number) => void = () => {};
 
@@ -862,6 +864,7 @@ export class Boats {
 
   /** A fisher arrives at the jetty: crew a free docked boat. */
   board(isl: Islander, j: Building): boolean {
+    if (this.storm) return false;
     const b = this.list.find((x) => x.jetty === j.id && x.state === 'docked' && !x.crew);
     if (!b) return false;
     const school = this.chooseSchool(b);
@@ -1496,6 +1499,7 @@ export class Boats {
   private step(b: Boat, me: Hull, dt: number, time: number, traffic: Hull[]): void {
     const j = this.bld.byId(b.jetty)!;
     if (b.onTrip) b.fishTime -= dt;
+    if (this.storm && (b.state === 'out' || b.state === 'netting')) this.goHome(b, j);
     let moving = false;
     if (b.state === 'out' || b.state === 'return') {
       if (b.state === 'return' && b.mooring) {

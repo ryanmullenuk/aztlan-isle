@@ -85,6 +85,7 @@ const waterFrag = /* glsl */ `
   uniform vec3 uSkyCol;
   uniform float uDay;
   uniform float uStorm;
+  uniform float uRain;
   uniform vec3 cDeep; uniform vec3 cDeep2; uniform vec3 cMid; uniform vec3 cShallow; uniform vec3 cShallowB; uniform vec3 cFoam;
   varying vec3 vW;
 
@@ -335,6 +336,18 @@ const waterFrag = /* glsl */ `
         grad += (dv / r) * cos(ph) * env * 0.5;
         ripFoam += env * smoothstep(0.5, 1.0, sin(ph)) * exp(-age * 0.9) * 0.3;
         ripFoam += rp.w * exp(-r * r / (1.5 + age * 1.5)) * exp(-age * 0.5) * 0.35;
+      }
+    }
+    // Rain: little rings spreading wherever the drops land (near the view only).
+    if (uRain > 0.01) {
+      float rk = uRain * (1.0 - smoothstep(25.0, 70.0, length(cameraPosition - vW)));
+      for (int k = 0; k < 2; k++) {
+        vec2 q = p * (1.6 + float(k) * 0.9) + float(k) * 7.3;
+        vec2 c = floor(q), f = fract(q) - 0.5;
+        float ph = fract(t * 0.8 + hsh(c + float(k)));
+        vec2 d = f - (vec2(hsh(c + 1.3), hsh(c + 5.1)) - 0.5) * 0.5;
+        float r = length(d) + 1e-4, x = r - ph * 0.45;
+        grad += (d / r) * cos(x * 48.0) * exp(-x * x / 0.004) * (1.0 - ph) * 0.5 * rk;
       }
     }
     vec3 n = normalize(vec3(-grad.x, 1.0, -grad.y));
@@ -759,6 +772,8 @@ export class Water {
     uSkyCol: { value: new THREE.Color(COLORS.sky) },
     uDay: { value: 1 },
     uStorm: { value: 0 },
+    /** How hard it is raining (rings on the water). */
+    uRain: { value: 0 },
     /** Swell set: (dir x, dir z, amplitude, packet centre) and (wavenumber, half-width, phase, 0). */
     uSet0: { value: new THREE.Vector4(1, 0, 0, 0) },
     uSet1: { value: new THREE.Vector4(0.25, 30, 0, 0) },

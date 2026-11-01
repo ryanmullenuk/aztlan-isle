@@ -32,6 +32,8 @@ import { Sculptor, SculptMode } from './terrain/Sculpt';
 import { Water } from './water/Water';
 import { Lighting } from './render/Lighting';
 import { SkyBodies } from './render/SkyBodies';
+import { Rainbow } from './render/Rainbow';
+import { chestFor, dayKey, loadChest, saveChest } from './economy/DailyChest';
 import { PostFX } from './render/PostFX';
 import { CameraRig } from './render/CameraRig';
 import { FX, setCanopyFade } from './render/materials';
@@ -75,6 +77,7 @@ import { JAG_BASE, Jaguar, Jaguars } from './entities/Jaguars';
 import { View } from './render/View';
 import { WaterBirds } from './entities/WaterBirds';
 import { Butterflies } from './entities/Butterflies';
+import { Fireflies, JumpingFish } from './entities/NightLife';
 import { SeaTurtles } from './entities/SeaTurtles';
 import { Jellyfish } from './entities/Jellyfish';
 import { Alligators } from './entities/Alligators';
@@ -236,6 +239,12 @@ export class Game {
   sculptor: Sculptor;
   lighting: Lighting;
   skyBodies: SkyBodies;
+  private rainbow = new Rainbow();
+  /** Seconds to the next check for today's chest, and the day one was last offered. */
+  private chestTimer = 6;
+  private chestOffered = '';
+  /** Seconds to the next look round the view for sounds (fires, the village, damp ground). */
+  private soundScan = 0;
   post: PostFX;
   input: Input;
   ui: UI;
@@ -244,6 +253,8 @@ export class Game {
   dogs!: Dogs;
   waterBirds!: WaterBirds;
   butterflies!: Butterflies;
+  private fireflies!: Fireflies;
+  private jumpingFish!: JumpingFish;
   turtles!: SeaTurtles;
   jellies!: Jellyfish;
   gators!: Alligators;
@@ -470,7 +481,7 @@ export class Game {
 
     this.lighting = new Lighting(this.scene, cfg.shadowSize);
     this.skyBodies = new SkyBodies();
-    this.scene.add(this.skyBodies.group);
+    this.scene.add(this.skyBodies.group, this.rainbow.mesh);
     const seaAngle = Math.atan2(this.world.seaDir.z, this.world.seaDir.x);
     this.lighting.eveningAzimuth = seaAngle + Math.PI;
 
@@ -531,6 +542,10 @@ export class Game {
     this.scene.add(this.waterBirds.meshes.group);
     this.butterflies = new Butterflies(this.world, this.veg.plants.filter((p) => p.kind === 'flowerbush' || p.kind === 'bush'), Math.round(110 * cfg.vegDensity), this.flowers.blooms());
     this.scene.add(this.butterflies.mesh);
+    this.fireflies = new Fireflies(this.world, Math.round(70 * cfg.vegDensity));
+    this.jumpingFish = new JumpingFish(this.world, this.water);
+    this.jumpingFish.onSplash = (x, z) => this.audio.sfx('splash', x, z);
+    this.scene.add(this.fireflies.points, this.jumpingFish.group);
     this.turtles = new SeaTurtles(this.world, SEA_SURFACE);
     this.scene.add(this.turtles.meshes.group);
     this.jellies = new Jellyfish(this.world, this.water);
@@ -926,7 +941,13 @@ export class Game {
       // Island movement off: nothing sways (the wind still sounds the same).
       const wind = FX.uWind.value;
       if (!this.settings.motion) FX.uWind.value = 0;
+      const wasRaining = this.raining;
       this.raining = this.powers.raining;
+      // A shower clearing in daylight leaves a rainbow out over the sea.
+      if (wasRaining && !this.raining) this.rainbow.show();
+      this.boats.storm = this.powers.state === 'storm';
+      this.terrain.uniforms.uWet.value = this.powers.wetness;
+      this.terrain.uniforms.uRainNow.value = this.powers.rainAmt;
       const L = this.audio.listener;
       const tg = this.rig.target;
       const ci = this.world.cellIndexAt(tg.x, tg.z);
@@ -939,6 +960,22 @@ export class Game {
       L.wind = wind;
       L.night = this.lighting.state.night;
       L.rain = this.powers.rainAmt;
+      // Damp ground for the frogs, and fires and busy buildings near the view, every half second.
+      this.soundScan -= realDt;
+      if (this.soundScan <= 0 && ci >= 0) {
+        this.soundScan = 0.5;
+        L.damp = Math.max(this.world.sampleField(this.world.swamp, tg.x, tg.z) * 2, Math.max(0, 1 - this.world.distWater[ci] / 10) * 0.5);
+        let fire = 0, near = 0;
+        for (const b of this.buildings.list) {
+          if (!b.complete) continue;
+          const d = Math.hypot(b.x - tg.x, b.z - tg.z);
+          if (d > 16) continue;
+          near += 1 - d / 16;
+          if (b.key === 'campfire' || b.key === 'smokehouse') fire = Math.max(fire, 1 - d / 12);
+        }
+        L.fire = Math.max(0, fire);
+        L.village = Math.min(1, near / 4);
+      }
       L.storm = this.powers.state === 'storm' ? 1 : this.volcano.state.phase === 'erupting' ? 0.85 : this.volcano.state.phase === 'smoking' ? 0.3 : 0;
       this.audio.update(realDt);
       const cam = this.rig.camera, right = cam.matrixWorld.elements;
@@ -2309,6 +2346,25 @@ export class Game {
     });
   }
 
+  /** Offer today's chest if it hasn't been opened (not in sandbox, nor during the tutorial). */
+  private offerChest(): void {
+    if (this.eco.godMode || this.stopped || this.ui.tutorialOpen || this.photoMode) return;
+    const now = new Date(), today = dayKey(now);
+    if (this.chestOffered === today) return;
+    const chest = chestFor(loadChest(), now);
+    if (!chest) return;
+    this.chestOffered = today;
+    this.ui.dailyChest(chest.day, chest.pearls, () => {
+      // Re-check on opening, in case it was opened in another window meanwhile.
+      const again = chestFor(loadChest(), new Date());
+      if (!again) return;
+      saveChest({ last: dayKey(new Date()), streak: again.day });
+      this.eco.goods.pearls += again.pearls;
+      this.audio?.sfx('milestone');
+      this.ui.toast(`+${again.pearls} pearl${again.pearls === 1 ? '' : 's'} from the daily chest`);
+    });
+  }
+
   /** When the saved island being played was last saved (0 once welcomed back), and when the app was hidden. */
   private awaySince = 0;
   private hiddenAt = 0;
@@ -2681,6 +2737,7 @@ export class Game {
     this.renderer.toneMappingExposure = ls.exposure;
     // The sun and moon in the sky (seen when the view looks up: free-roam, or tilted low).
     this.skyBodies.update(this.rig.camera, ls, this.lighting.overcast, this.settings.dayNight ? this.time.t : RENDER.fixedTimeOfDay, t);
+    this.rainbow.update(realDt, this.rig.camera, this.rig.target, ls, this.lighting.overcast);
 
     const ws = this.water.shared;
     ws.uSunDir.value.copy(ls.sunDir);
@@ -2730,6 +2787,8 @@ export class Game {
     this.dogs.update(dt, this.time.isNight);
     this.waterBirds.update(dt, this.time.hour, this.input.hover.active && !this.input.navigating && !this.wildlifeView?.active && this.cursorActive ? this.cursorWorld : null);
     this.butterflies.update(dt, realDt, ls.day, this.raining, this.input.hover.active && !this.input.navigating && !this.wildlifeView?.active && this.cursorActive ? this.cursorWorld : null);
+    this.fireflies.update(realDt, t, ls.night, this.powers.rainAmt, this.renderer.domElement.height);
+    this.jumpingFish.update(dt, this.rig.target, this.boats.fishing(), this.powers.state === 'storm');
     this.jellies.update(dt, this.input.hover.active && !this.input.navigating && !this.wildlifeView?.active && this.cursorActive ? this.cursorWorld : null);
     this.turtles.people = this.colony.grid;
     this.turtles.update(dt);
@@ -2782,12 +2841,20 @@ export class Game {
       this.flowers.refresh();
     }
     this.wearTimer -= dt;
-    if (this.wearTimer <= 0 && this.colony.wearDirty) {
+    if (this.wearTimer <= 0) {
+      // Trodden grass grows back where nobody walks any more (also while the village is quiet).
       this.wearTimer = 2;
       this.colony.wearDirty = false;
       const decay = ISLANDER.wearDecayPerSecond * 2;
-      for (let i = 0; i < this.world.wear.length; i++) if (this.world.wear[i] > 0) this.world.wear[i] = Math.max(0, this.world.wear[i] - decay);
-      this.terrain.updateWear();
+      let any = false;
+      for (let i = 0; i < this.world.wear.length; i++) if (this.world.wear[i] > 0) { this.world.wear[i] = Math.max(0, this.world.wear[i] - decay); any = true; }
+      if (any) this.terrain.updateWear();
+    }
+    // Once a day (on this device), a chest of pearls.
+    this.chestTimer -= realDt;
+    if (this.chestTimer <= 0) {
+      this.chestTimer = 15;
+      this.offerChest();
     }
     this.milestoneTimer -= realDt;
     if (this.milestoneTimer <= 0) {
