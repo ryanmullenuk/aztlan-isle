@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { SHADOW_LAYER } from '../render/ShadowLayer';
 import { characterModelKey, isElder, type CharacterModelKey } from './CharacterVariants';
 import { View } from '../render/View';
 import { ISLANDER } from '../config';
@@ -12,8 +11,6 @@ import { CarryPose } from './CarryPose';
 
 /** World units per metre: islanders are modelled at ~1.8 m and stand ~0.62 units tall. */
 const S0 = 0.62 / 1.8;
-/** How far the shadow stand-ins slide toward the sun (world units): just past the sun shadow's depth bias. */
-const SHADOW_LIFT = 0.3;
 
 /**
  * Joint angles for one frame of animation (radians; metres for offsets). Conventions:
@@ -585,10 +582,8 @@ export class IslanderRig {
   private pawnBody: THREE.InstancedMesh;
   private pawnHead: THREE.InstancedMesh;
   /** Shadow-only stand-ins for the islanders drawn in full (a few dozen triangles each, not thousands). */
-  private shadowBody: THREE.InstancedMesh;
   /** A soft dark patch on the ground under each islander's feet (the sun's shadow sits a little off them). */
   private contact: THREE.InstancedMesh;
-  private shadowHead: THREE.InstancedMesh;
 
   constructor() {
     // Props (tools, headdresses, carried loads); the bodies are the two character models.
@@ -629,17 +624,13 @@ export class IslanderRig {
       m.setColorAt(0, new THREE.Color(1, 1, 1));
       m.count = 0;
       m.frustumCulled = false;
-      m.castShadow = true;
       this.group.add(m);
       return m;
     };
     this.pawnBody = pawn(new THREE.CylinderGeometry(0.3, 0.32, 1.2, 6).translate(0, 0.6, 0));
     this.pawnHead = pawn(new THREE.IcosahedronGeometry(0.3, 0).translate(0, 1.45, 0));
-    this.shadowBody = pawn(this.pawnBody.geometry);
-    this.shadowHead = pawn(this.pawnHead.geometry);
-    for (const m of [this.shadowBody, this.shadowHead]) m.layers.set(SHADOW_LAYER);
-    // The sun's shadow is pushed a little off the feet (its normal bias), which leaves islanders
-    // looking as if they hover; a soft contact shadow under them sets them down on the ground.
+    // Islanders cast no sun shadow: each has a soft round shadow straight below, as if the sun were
+    // overhead, which keeps them on the ground at any hour (and spares the shadow pass a village).
     const R = 32, fade = new Uint8Array(R * R * 4);
     for (let y = 0; y < R; y++) for (let x = 0; x < R; x++) {
       const d = Math.hypot(x + 0.5 - R / 2, y + 0.5 - R / 2) / (R / 2);
@@ -650,7 +641,7 @@ export class IslanderRig {
     fadeTex.needsUpdate = true;
     this.contact = new THREE.InstancedMesh(
       new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
-      new THREE.MeshBasicMaterial({ color: 0x000000, map: fadeTex, transparent: true, opacity: 0.55, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+      new THREE.MeshBasicMaterial({ color: 0x000000, map: fadeTex, transparent: true, opacity: 0.5, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
       ISLANDER.max,
     );
     this.contact.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -665,7 +656,7 @@ export class IslanderRig {
     acc.setUsage(THREE.DynamicDrawUsage);
     geo.setAttribute('iAccent', acc);
     const mesh = new THREE.InstancedMesh(geo, peopleMaterial(), cap);
-    mesh.castShadow = true;
+    mesh.castShadow = false;
     mesh.receiveShadow = true;
     mesh.frustumCulled = false;
     mesh.count = 0;
@@ -692,7 +683,7 @@ export class IslanderRig {
     geo.setAttribute('iLook', look);
     const mesh = new THREE.InstancedMesh(geo, mat, cap);
     mesh.customDepthMaterial = depth;
-    // Its shadow comes from the simple stand-in figure (see shadowBody), not this detailed body.
+    // No sun shadow: the soft round shadow below stands in (see contact).
     mesh.castShadow = false;
     mesh.receiveShadow = true;
     mesh.frustumCulled = false;
@@ -806,8 +797,6 @@ export class IslanderRig {
     attribute.needsUpdate = true;
   }
 
-  /** Toward the sun (set by the game each frame), for the shadow stand-ins. */
-  readonly sunDir = new THREE.Vector3(0, 1, 0);
   /** Ground height under a world point (set by the game; flat ground when absent). */
   groundAt: ((x: number, z: number) => number) | null = null;
   /** Per islander: the last pose drawn, and a short blend from it when the activity changes. */
@@ -861,9 +850,9 @@ export class IslanderRig {
     const M = this.m;
     const skinned = !!this.skins.m && !!this.skins.f;
     if (skinned) for (const set of new Set(Object.values(this.skins))) if (set) set.n = 0;
-    let pawns = 0, shadows = 0, feet = 0;
+    let pawns = 0, feet = 0;
     const contact = (isl: Islander, sc: number) => {
-      const r = sc * 1.05;
+      const r = sc * 1.35;
       this.tmp.makeScale(r, 1, r).setPosition(isl.x, isl.y + 0.012, isl.z);
       this.contact.setMatrixAt(feet++, this.tmp);
     };
@@ -893,16 +882,6 @@ export class IslanderRig {
       const sc = S0 * (isl.child ? ISLANDER.childScale : 1) * (g === 'f' ? 0.98 : 1);
       this.rot(M.base, isl.x, isl.y, isl.z, 0, isl.heading, 0, 'XYZ', sc);
       if (!p.lying && !isl.sleeping) contact(isl, sc);
-      if (skinned) {
-        // Slid toward the sun: the same spot in the shadow map, but past the shadow's depth bias,
-        // which would otherwise start an islander's shadow well clear of their feet.
-        this.tmp2.copy(M.base);
-        this.tmp2.elements[12] += this.sunDir.x * SHADOW_LIFT;
-        this.tmp2.elements[13] += this.sunDir.y * SHADOW_LIFT;
-        this.tmp2.elements[14] += this.sunDir.z * SHADOW_LIFT;
-        this.shadowBody.setMatrixAt(shadows, this.tmp2);
-        this.shadowHead.setMatrixAt(shadows++, this.tmp2);
-      }
       // The children's own models have their big heads built in; only the founding pair's would need enlarging.
       const hs = isl.child && !hasChildModel(this.skins) ? 1.22 : 1;
       // Nothing to draw until the character models have loaded.
@@ -922,10 +901,6 @@ export class IslanderRig {
     }
     this.contact.count = feet;
     if (feet) this.upload(this.contact.instanceMatrix, feet);
-    for (const m of [this.shadowBody, this.shadowHead]) {
-      m.count = shadows;
-      if (shadows) this.upload(m.instanceMatrix, shadows);
-    }
     for (const [key, mesh] of this.meshes) {
       const n = this.count.get(key) ?? 0;
       mesh.count = n;
