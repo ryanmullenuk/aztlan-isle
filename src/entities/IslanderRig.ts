@@ -6,7 +6,8 @@ import { ISLANDER } from '../config';
 import { peopleMaterial, peopleSkinnedMaterial } from '../render/materials';
 import { Islander } from './Islander';
 import { PartKey, SKELETON, Skeleton, buildPeopleParts } from './PeopleModels';
-import { BI, BONE_COUNT, GlbModel, loadGlbPeople } from './glbPeople';
+import { BI, BONE_COUNT, GlbModel } from './glbPeople';
+import { loadIslanderModels } from './islanderModels';
 import { CarryPose } from './CarryPose';
 
 /** World units per metre: islanders are modelled at ~1.8 m and stand ~0.62 units tall. */
@@ -570,7 +571,7 @@ export class IslanderRig {
       if (BODY.has(key)) geo.dispose();
       else this.addMesh(key, geo, ISLANDER.max);
     }
-    loadGlbPeople()
+    loadIslanderModels()
       .then((glb) => {
         for (const g of Object.keys(glb) as CharacterModelKey[]) this.skins[g] = this.makeSkin(glb[g]);
       })

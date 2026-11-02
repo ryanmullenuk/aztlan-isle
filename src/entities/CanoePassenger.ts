@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { bakePose, loadGlbPeople, GlbPeople } from './glbPeople';
+import { bakePose, GlbPeople } from './glbPeople';
+import { loadIslanderModels } from './islanderModels';
 import { patchStylised, stylisedMaterial } from '../render/materials';
 
 /** A seated copy of the same character models used by the islanders ashore (a baked pose). */
@@ -17,7 +18,7 @@ export class CanoePassenger extends THREE.Group {
       held.castShadow = true;
       this.add(held);
     }
-    loadGlbPeople().then((models) => {
+    loadIslanderModels().then((models) => {
       if (!this.disposed) this.seat(models);
     }).catch((err) => console.error('Canoe character failed to load.', err));
   }

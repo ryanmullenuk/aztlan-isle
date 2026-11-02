@@ -1,4 +1,4 @@
-import { loadGlbPeople } from './entities/glbPeople';
+import { loadIslanderModels } from './entities/islanderModels';
 import './ui/style.css';
 import { Game, appViewport } from './Game';
 import { PresetName, SAVE, WORLD } from './config';
@@ -48,7 +48,7 @@ const splash = new SplashFx();
 async function boot(): Promise<void> {
   // Start downloading the islander models now: they arrive while the island is being shaped
   // (the game picks up this same request), rather than only once it has been.
-  void loadGlbPeople().catch(() => {});
+  void loadIslanderModels().catch(() => {});
   text('Shaping the island…');
   splash.generating();
   // Let the text and progress paint before the (synchronous) world generation.

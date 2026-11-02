@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { IslanderRig, poseFor } from '../src/entities/IslanderRig';
-import { BI, BONES, RIGS, type BoneName } from '../src/entities/glbPeople';
+import { BI, BONES, type BoneName } from '../src/entities/glbPeople';
+import { RIGS } from '../src/entities/islanderModels';
 
 /** A rig posing the founding man's skeleton, without loading any model files. */
 function rigFor(key: keyof typeof RIGS = 'm') {
