@@ -44,7 +44,7 @@ test('Lantern Night falls on autumn’s last evening, once a year', () => {
 test('the wonders are late, phased monuments', () => {
   for (const k of WONDER_KEYS) {
     assert.ok(isWonder(k) && isPhased(k));
-    assert.equal(BUILD_STAGE[k], 7);
+    assert.equal(BUILD_STAGE[k], 8);
     assert.ok(BUILDINGS[k].cost.carvedStone! > 0, 'they need carved stone');
   }
   assert.ok(isPhased('greattemple') && !isWonder('greattemple'));

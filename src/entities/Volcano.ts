@@ -17,16 +17,30 @@ export interface VolcanoSave { x: number; z: number; phase: VolcanoPhase; remain
 export const VOLCANO_SMOKE_SECONDS = 300;
 export const VOLCANO_COST = 50;
 export const VOLCANO_HAPPINESS = 0.15;
+export const VOLCANO = {
+  /** Seconds (its own clock) before it first stirs, and asleep between stirrings (a day or more). */
+  firstStir: 600,
+  quiet: [900, 2100] as [number, number],
+  /** The share of stirrings that end in lava; the rest only smoke and rumble, then settle. */
+  eruptChance: 0.35,
+  /** The last seconds of smoke before lava: the ground shakes and the plume darkens. */
+  rumble: 90,
+  /** Seconds of lava, and of cooling (or the smoke thinning away) after. */
+  eruptSecs: 65,
+  coolSecs: 25,
+};
 
 /** Simulation timer is persisted; decorative animation never consumes the game's random stream. */
 export class VolcanoCycle {
   phase: VolcanoPhase = 'dormant';
-  remaining = 150;
+  remaining = VOLCANO.firstStir;
   cycle = 0;
   coolingHot = false;
+  /** Whether lava may come at all just now (none early in a game); set by the game. */
+  allowErupt: () => boolean = () => true;
   constructor(private seed: number, saved?: VolcanoSave) {
     if (saved && ['dormant', 'smoking', 'erupting', 'cooling'].includes(saved.phase)
-      && Number.isFinite(saved.remaining) && saved.remaining >= 0 && saved.remaining <= 900) {
+      && Number.isFinite(saved.remaining) && saved.remaining >= 0 && saved.remaining <= 3000) {
       this.phase = saved.phase; this.remaining = saved.remaining;
       // Preserve time already spent smoking when loading the old 35-second warning.
       if (saved.phase === 'smoking' && saved.warningVersion !== 2)
@@ -36,17 +50,25 @@ export class VolcanoCycle {
     }
   }
   get active(): boolean { return this.phase === 'smoking' || this.phase === 'erupting'; }
+  /** This stirring is one that ends in lava (fixed by the island and the cycle, so forecasts can read it). */
+  get erupts(): boolean { return new RNG(this.seed + this.cycle * 7919 + 13).next() < VOLCANO.eruptChance; }
+  /** Smoking, and lava is on its way: the ground shakes. */
+  get rumbling(): boolean { return this.phase === 'smoking' && this.remaining <= VOLCANO.rumble && this.erupts && this.allowErupt(); }
   onErupt: () => void = () => {};
   update(dt: number): void {
     if (!Number.isFinite(dt) || dt <= 0) return;
     this.remaining -= dt;
     while (this.remaining <= 0) {
       if (this.phase === 'dormant') { this.phase = 'smoking'; this.remaining += VOLCANO_SMOKE_SECONDS; }
-      else if (this.phase === 'smoking') { this.phase = 'erupting'; this.remaining += 65; this.onErupt(); }
-      else if (this.phase === 'erupting') { this.coolingHot = true; this.phase = 'cooling'; this.remaining += 25; }
+      else if (this.phase === 'smoking') {
+        if (this.erupts && this.allowErupt()) { this.phase = 'erupting'; this.remaining += VOLCANO.eruptSecs; this.onErupt(); }
+        // Only smoke this time: it thins away and the mountain sleeps again.
+        else { this.coolingHot = false; this.phase = 'cooling'; this.remaining += VOLCANO.coolSecs; }
+      }
+      else if (this.phase === 'erupting') { this.coolingHot = true; this.phase = 'cooling'; this.remaining += VOLCANO.coolSecs; }
       else {
         this.phase = 'dormant'; this.cycle++;
-        this.remaining += new RNG(this.seed + this.cycle * 7919).range(240, 480);
+        this.remaining += new RNG(this.seed + this.cycle * 7919).range(VOLCANO.quiet[0], VOLCANO.quiet[1]);
       }
     }
   }
@@ -656,12 +678,20 @@ export class Volcano {
   save(): VolcanoSave | undefined {
     return this.group.visible ? { x: this.x, z: this.z, phase: this.state.phase, remaining: this.state.remaining, cycle: this.state.cycle, coolingHot: this.state.coolingHot, warningVersion: 2 } : undefined;
   }
+  /** The ground was shaking last update (to announce it once). */
+  private rumbled = false;
   update(dt: number): void {
     if (!this.group.visible) return;
     const previous = this.state.phase;
     this.state.update(dt); this.age += dt;
+    const wasRumbling = this.rumbled;
+    this.rumbled = this.state.rumbling;
     if (previous !== this.state.phase && this.state.phase === 'smoking')
-      this.notify('The volcano will smoke for five minutes before lava appears. Use Calm for 50 Belief before it erupts, or lose 75 Belief.');
+      this.notify('The volcano is smoking. It may settle, or it may erupt: calm it now for 50 Belief, or wait and watch (an eruption costs 75 Belief).');
+    if (this.rumbled && !wasRumbling)
+      this.notify('The ground is shaking and the smoke turns black: lava is coming! Calm the volcano now for 50 Belief.');
+    if (previous === 'smoking' && this.state.phase === 'cooling')
+      this.notify('The volcano’s smoke thins away. It has settled, this time.');
     if (previous !== this.state.phase && this.state.phase === 'erupting')
       this.notify('The volcano is erupting! 75 Belief lost. Use Calm for 50 Belief to stop the lava.');
     this.animate(dt);
@@ -769,11 +799,13 @@ export class Volcano {
       this.bombs.instanceMatrix.needsUpdate = true;
     }
     const glowMat = this.craterGlow.material as THREE.SpriteMaterial;
-    glowMat.opacity = strength * (0.2 + Math.sin(t * 2.7) * 0.03);
+    // Lava on its way: the plume thickens and darkens, and the crater starts to glow.
+    const rumble = this.state.rumbling ? Math.min(1, (VOLCANO.rumble - this.state.remaining) / 20) : 0;
+    glowMat.opacity = Math.max(strength, rumble * 0.45) * (0.2 + Math.sin(t * 2.7) * 0.03);
     // Smoke: a thin pale plume while it threatens; a dense, dark ash column, lit orange from below,
     // while it erupts. Puffs rise fast from the vent, slow, swell and drift downwind.
-    const erupting = phase === 'erupting';
-    const amount = this.state.active ? (erupting ? 1 : 0.7) : cooling * 0.5;
+    const erupting = phase === 'erupting', heavy = erupting ? 1 : rumble * 0.8;
+    const amount = this.state.active ? 0.7 + 0.3 * heavy : cooling * 0.5;
     this.smoke.forEach((m, i) => {
       const life = 15 + (i % 5) * 1.6;
       const f = ((t / life + i / SMOKE) % 1);
@@ -781,15 +813,15 @@ export class Volcano {
       const swirl = i * 2.39996 + t * 0.15;
       const spread = 0.5 + f * 3.2;
       const drift = f * f * 9;
-      const size = (erupting ? 4 : 2.6) + f * (erupting ? 17 : 11) + (i % 4) * 0.8;
-      m.position.set(0.38 + drift + Math.cos(swirl) * spread, 9.6 + rise * (erupting ? 17 : 13), Math.sin(swirl) * spread * 1.2 + f * f * 2.5);
+      const size = 2.6 + 1.4 * heavy + f * (11 + 6 * heavy) + (i % 4) * 0.8;
+      m.position.set(0.38 + drift + Math.cos(swirl) * spread, 9.6 + rise * (13 + 4 * heavy), Math.sin(swirl) * spread * 1.2 + f * f * 2.5);
       // Undo the mountain's uneven scale so puffs stay round.
       m.scale.set(size / 1.5, size / 2.15, 1);
       const material = m.material as THREE.SpriteMaterial;
       const fade = Math.min(1, f / 0.06) * (1 - f) ** 1.3;
-      material.opacity = amount * fade * (erupting ? 0.95 : 0.8) * (i % 2 || !this.state.active || erupting ? 1 : 0.6);
+      material.opacity = amount * fade * (0.8 + 0.15 * heavy) * (i % 2 || !this.state.active || heavy > 0.5 ? 1 : 0.6);
       const ember = strength * Math.max(0, 1 - f * 3.2);
-      const grey = erupting ? 0.2 + f * 0.2 : 0.46 + f * 0.16;
+      const grey = (0.46 + f * 0.16) * (1 - heavy) + (0.2 + f * 0.2) * heavy;
       const lit = grey * (0.25 + 0.75 * this.daylight);
       material.color.setRGB(lit + ember * 0.55, lit * 0.97 + ember * 0.18, lit * 0.95 + ember * 0.02);
       material.rotation = Math.sin(i * 1.7) * 0.3 + f * (i % 2 ? 0.25 : -0.25);

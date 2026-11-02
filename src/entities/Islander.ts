@@ -92,6 +92,10 @@ export interface Islander {
   child: boolean;
   /** Game seconds alive (children grow up after a while). */
   age: number;
+  /** Taught by an elder as they came of age: works faster. */
+  skilled?: boolean;
+  /** The elder who taught them. */
+  teacher?: string;
   x: number;
   y: number;
   z: number;

@@ -10,7 +10,7 @@ test('the goal checklist lists every requirement, met or not, and missing() is j
   const p = new Progression(() => ({ buildings: [], population: 4, food: 0, carved: 0, sandbox: false, milestones }));
   milestones.add('progress:stage:2');
   const items = p.checklist(3);
-  assert.deepEqual(items.map((i) => i.done), [true, false, true, false]);
+  assert.deepEqual(items.map((i) => i.done), [true, true, false, true, false]);
   assert.equal(items.find((i) => i.text.includes('Food Store'))?.build, 'grainstore');
   assert.deepEqual(p.missing(3), items.filter((i) => !i.done).map((i) => i.text));
 });

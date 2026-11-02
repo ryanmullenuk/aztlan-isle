@@ -19,7 +19,7 @@ import { serialize, applyRest } from '../src/world/Save';
 import { islandFile, parseIslandFile } from '../src/world/IslandFile';
 
 /** A research progression with a settable stage and purse (spends are counted). */
-function research(stage = 7, rich = true) {
+function research(stage = 8, rich = true) {
   const ctx = { stage, rich, bypassed: false, spent: 0 };
   const r = new Research({
     stage: () => ctx.stage,
@@ -111,8 +111,8 @@ test('locks explain themselves: order, stage, one study at a time and cost', () 
   const { r, ctx } = research(3);
   assert.equal(r.lockReason(2), 'Study The Count of Seasons (tier 1) first');
   r.done = 3;
-  assert.equal(r.lockReason(4), 'Reach Community (settlement stage 4)');
-  ctx.stage = 4;
+  assert.equal(r.lockReason(4), 'Reach Community (settlement stage 5)');
+  ctx.stage = 5;
   ctx.rich = false;
   assert.match(r.start(4), /Not enough/); assert.equal(r.active, 0); assert.equal(ctx.spent, 0);
   ctx.rich = true;

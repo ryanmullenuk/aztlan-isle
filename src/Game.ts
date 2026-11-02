@@ -73,8 +73,10 @@ import { shapeWaterfall } from './world/waterfallSite';
 import { Bridges } from './buildings/Bridges';
 import { TradeFleet } from './entities/Trade';
 import { GOD_NAME, randomIslandName } from './world/names';
-import { FAUNA, GREAT_HALL, SPECIES, TIME, FIREWORKS, GOODS, RARE_GOODS, WONDER_EFFECT, isDecor, type GoodKey, type WonderKey } from './config';
+import { FAUNA, GREAT_HALL, SPECIES, TIME, FIREWORKS, GOODS, RARE_GOODS, WONDER_EFFECT, isDecor, isWonder, type GoodKey, type WonderKey } from './config';
 import { WeddingSystem } from './economy/Weddings';
+import { SeasonGoals } from './economy/SeasonGoals';
+import { Raids } from './economy/Raids';
 import { LanternNight } from './economy/LanternNight';
 import { MONKEY_BASE } from './entities/Monkeys';
 import { DOG_BASE, Dogs } from './entities/Dogs';
@@ -255,6 +257,10 @@ export class Game {
   rare!: RareEventSystem;
   /** Couples asking to marry, and their weddings. */
   weddings!: WeddingSystem;
+  /** A goal for each season (more islanders, stores, food before winter, good cheer). */
+  seasonGoals!: SeasonGoals;
+  /** Rival raiders from other islands. */
+  raids!: Raids;
   /** Lantern Night, once a year after the harvest. */
   lanternNight!: LanternNight;
   /** Firework displays over the village. */
@@ -339,7 +345,7 @@ export class Game {
   });
   /** Storm and volcano forecasts from a staffed Observatory. */
   readonly forecaster = new Forecaster();
-  readonly progression = new Progression(()=>({buildings:this.buildings.list,population:this.colony.list.length,food:this.eco.food,carved:this.eco.goods.carvedstone,sandbox:this.eco.godMode,milestones:this.milestones}));
+  readonly progression = new Progression(()=>({buildings:this.buildings.list,population:this.colony.list.length,food:this.eco.food,carved:this.eco.goods.carvedstone,sandbox:this.eco.godMode,milestones:this.milestones,day:this.time?.day??0}));
   /** -1, 0 or 1 while a rotate button is held. */
   rotateHold = 0;
   private defaultYaw = 0;
@@ -501,6 +507,7 @@ export class Game {
     this.scene.add(this.rig3d.group);
     this.sculptor = new Sculptor(this.world, this.terrain, this.water, this.veg, this.eco);
     this.buildings.earnedWorkshopTier = () => this.progression.workshopTier;
+    this.buildings.population = () => this.colony?.list.length ?? 0;
     this.buildings.progressionRequirement = key => this.progression.requirement(key) || this.research.requirement(key) ||
       (key === 'firemaker' && !this.found('gunpowder') ? 'Rare discovery: voyagers must first bring gunpowder home' : '');
     this.buildings.progressionUpgrade = b => this.progression.upgradeRequirement(b) ||
@@ -518,6 +525,8 @@ export class Game {
     this.fireworks.onSound = (n, x, z) => this.audio?.sfx(n, x, z);
     this.rare = new RareEventSystem(this);
     this.weddings = new WeddingSystem(this);
+    this.seasonGoals = new SeasonGoals(this);
+    this.raids = new Raids(this);
     this.lanternNight = new LanternNight(this);
     this.scene.add(this.lanternNight.lanterns.points);
     const seaAngle = Math.atan2(this.world.seaDir.z, this.world.seaDir.x);
@@ -534,6 +543,7 @@ export class Game {
     this.boats = new Boats(this.world, this.water, this.buildings, this.colony, this.eco, this.wildlife, this.veg);
     this.scene.add(this.boats.group);
     this.trade = new TradeFleet(this.world, this.water, this.buildings, this.eco, this.boats);
+    this.trade.fame = () => this.fame;
     this.trade.population = () => this.colony.list.length;
     this.scene.add(this.trade.group);
     this.voyage = new Voyages(this.world, this.buildings, this.eco, this.boats, this.colony);
@@ -665,6 +675,8 @@ export class Game {
     }, save?.encounters);
     if (save) this.fires.announceRestored();
     this.volcano.state.onErupt = () => { this.eco.res.belief = Math.max(0, this.eco.res.belief - 75); };
+    // No lava early on: until the fifth day and a skilled village, the mountain only smokes.
+    this.volcano.state.allowErupt = () => this.time.day >= 5 && this.progression.stage >= 3;
     this.volcano.notify = message => this.ui.toast(message, 'warn', () => ({ x: this.volcano.x, z: this.volcano.z }));
     // A new game (or a save from before anyone landed) starts with the arrival canoe.
     if (this.colony.list.length === 0) this.beginSettlement();
@@ -2600,6 +2612,13 @@ export class Game {
   }
 
   /** A finished, standing wonder of this kind. */
+  /** The island's fame: one for each wonder and for the Great Temple. Traders come sooner and offer more. */
+  get fame(): number {
+    let f = 0;
+    for (const b of this.buildings.list) if ((isWonder(b.key) || b.key === 'greattemple') && b.complete && !b.ruined) f++;
+    return f;
+  }
+
   wonder(key: WonderKey): boolean {
     return this.buildings.list.some((b) => b.key === key && b.complete && !b.ruined);
   }
@@ -3074,6 +3093,8 @@ export class Game {
     // After the islanders have moved: those gathered at a whale or a ritual are held in place.
     this.rare.update(realDt, dt);
     this.weddings.update(dt);
+    this.seasonGoals.update();
+    this.raids.update();
     this.lanternNight.update(dt);
     // The Sun Stone's favour: a steady trickle of Belief.
     if (dt > 0 && this.wonder('sunstone')) this.eco.add('belief', (WONDER_EFFECT.beliefPerMinute * dt) / 60);
@@ -3144,9 +3165,9 @@ export class Game {
   }
 
   /** The volcano's next stirring, while it sleeps (none on islands without one). */
-  get volcanoOutlook(): { cycle: number; inSeconds: number } | null {
+  get volcanoOutlook(): { cycle: number; inSeconds: number; erupts: boolean } | null {
     const v = this.volcano;
-    return v?.group.visible && v.state.phase === 'dormant' ? { cycle: v.state.cycle, inSeconds: v.state.remaining } : null;
+    return v?.group.visible && v.state.phase === 'dormant' ? { cycle: v.state.cycle, inSeconds: v.state.remaining, erupts: v.state.erupts && v.state.allowErupt() } : null;
   }
 
   /** Once a second: post, re-state or withdraw the Observatory's forecasts. */

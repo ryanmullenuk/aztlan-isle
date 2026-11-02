@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { processMedicine } from './Herbalist';
 import { needsStonemason, masonryCost, STONEMASON, BOAT_WORKSHOP, DECREES, PALACE_RULES, type DecreeKey } from '../config';
-import { BUILDINGS, BuildingDef, BuildingKey, ECONOMY, FARM, HOMES, JETTY, TEMPLE, FARM_TYPES, isFarm, isDecor, isPhased, isWonder } from '../config';
+import { BUILDINGS, BUILD_RISE, BUILD_SITES, BuildingDef, BuildingKey, ECONOMY, FARM, HOMES, JETTY, TEMPLE, FARM_TYPES, isFarm, isDecor, isPhased, isWonder } from '../config';
 import { Economy, Cost } from '../economy/Economy';
 import { buildingMaterial, canopyMaterial, fireMaterial, flameMaterial, FX, patchStylised } from '../render/materials';
 import { Terrain } from '../terrain/Terrain';
@@ -506,6 +506,26 @@ export class BuildingSystem {
     return true;
   }
 
+  /** Islanders in the village (set by the game), for how many sites can be under way at once. */
+  population: () => number = () => 0;
+  /** Building sites that may be under construction at once. */
+  siteCap(): number {
+    return Math.min(BUILD_SITES.max, BUILD_SITES.base + Math.floor(this.population() / BUILD_SITES.perPeople));
+  }
+
+  /** What the next building of this kind costs: the base price, rising with each one already standing (see BUILD_RISE). */
+  costFor(key: BuildingKey): BuildingDef['cost'] {
+    const base = BUILDINGS[key].cost;
+    if (isDecor(key) || isPhased(key) || BUILD_RISE.never.includes(key) || this.eco.godMode) return base;
+    let n = 0;
+    for (const b of this.list) if (b.key === key) n++;
+    const extra = n - (BUILD_RISE.freeOf[key] ?? BUILD_RISE.free);
+    if (extra < 0) return base;
+    const k = Math.min(BUILD_RISE.cap, 1 + BUILD_RISE.step * (extra + 1));
+    const up = (v: number) => (v ? Math.ceil(v * k) : 0);
+    return { wood: up(base.wood), stone: up(base.stone), belief: up(base.belief), ...(base.carvedStone ? { carvedStone: up(base.carvedStone) } : {}) };
+  }
+
   of(key: BuildingKey, completeOnly = true): Building[] {
     return this.list.filter((b) => b.key === key && (!completeOnly || buildingOperational(b)));
   }
@@ -681,15 +701,20 @@ export class BuildingSystem {
     }
     const entrance = this.entranceBlocked(key, cx, cz, w, d, rot, layer, movingB);
     if (entrance) return { ok: false, reason: entrance };
-    if (!moving && !this.eco.canAfford(def.cost)) {
+    if (!moving && !this.eco.godMode && !isDecor(key) && !BUILD_RISE.never.includes(key)) {
+      const cap = this.siteCap(), open = this.list.filter((b) => !b.complete && !isDecor(b.key) && !BUILD_RISE.never.includes(b.key)).length;
+      if (open >= cap) return { ok: false, reason: `Your builders have ${open} buildings under way: finish one first (more at once as the village grows)` };
+    }
+    const cost = this.costFor(key);
+    if (!moving && !this.eco.canAfford(cost)) {
       const shortages: string[] = [];
       const need = (label: string, required: number, available: number) => {
         if (required > available) shortages.push(`${Math.ceil(required - available)} ${label}`);
       };
-      need('wood', def.cost.wood, this.eco.res.wood);
-      need('stone', def.cost.stone, this.eco.res.stone);
-      need('belief', def.cost.belief, this.eco.res.belief);
-      need('carved stone', def.cost.carvedStone ?? 0, this.eco.goods.carvedstone);
+      need('wood', cost.wood, this.eco.res.wood);
+      need('stone', cost.stone, this.eco.res.stone);
+      need('belief', cost.belief, this.eco.res.belief);
+      need('carved stone', cost.carvedStone ?? 0, this.eco.goods.carvedstone);
       return { ok: false, reason: `Need ${shortages.join(', ')} more to build` };
     }
     return { ok: true, reason: '' };
@@ -834,15 +859,15 @@ export class BuildingSystem {
   }
 
   place(key: BuildingKey, cx: number, cz: number, rot: number, instant = false): Building {
-    const def = BUILDINGS[key];
+    const def = BUILDINGS[key], cost = this.costFor(key);
     if (!instant) {
       const reason = this.constructionRequirement(key);
-      if (reason || !this.eco.canAfford(def.cost)) throw new Error(reason || 'Not enough resources');
+      if (reason || !this.eco.canAfford(cost)) throw new Error(reason || 'Not enough resources');
     }
     const b = new Building(this.nextId++, key, cx, cz, rot, this.world.layer[this.world.idx(cx, cz)], this.world);
     // Houses take the look of the district they are built in (a saved house keeps the one it had).
     if (key === 'hut' || key === 'home') b.style = this.restoreStyle ?? this.styleAt(b.x, b.z);
-    if (!instant) this.eco.spend(def.cost);
+    if (!instant) this.eco.spend(cost);
     if (isPhased(key)) b.monumentPaid = instant ? 4 : 1;
     let paved = false;
     for (let z = cz; z < cz + b.d; z++) for (let x = cx; x < cx + b.w; x++) {

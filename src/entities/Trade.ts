@@ -1,7 +1,7 @@
 import { buildingOperational } from '../buildings/BuildingCondition';
 import * as THREE from 'three';
 import type { Where } from '../ui/where';
-import { FOOD_KEYS, MARKET, ResourceKey, TRADE, TradeOffer } from '../config';
+import { FOOD_KEYS, MARKET, ResourceKey, TRADE, TRADE_FAME, TradeOffer } from '../config';
 import { Building, BuildingSystem } from '../buildings/Buildings';
 import { Economy } from '../economy/Economy';
 import { GeoBuilder, M, P } from '../render/GeoBuilder';
@@ -89,6 +89,19 @@ export class TradeFleet {
   private mat = patchStylised(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, metalness: 0, side: THREE.DoubleSide }));
   /** Seconds to the next visit (counts only while there is a finished Trade Dock). */
   private visitIn = between(TRADE.visitors.every);
+  /** The island's fame (its wonders and Great Temple; set by the game): traders come sooner and offer more. */
+  fame: () => number = () => 0;
+  /** The visitors' terms, improved by fame. */
+  private terms(): typeof TRADE.visitors {
+    const f = this.fame(), V = TRADE.visitors;
+    if (!f) return V;
+    const k = 1 + TRADE_FAME.rate * f;
+    return { ...V, rate: [V.rate[0] * k, V.rate[1] * k] as [number, number], deals: [V.deals[0], V.deals[1] + Math.floor(f / 2)] as [number, number] };
+  }
+  /** Seconds to the next visit: famous islands are visited more often. */
+  private nextVisit(): number {
+    return between(TRADE.visitors.every) / (1 + TRADE_FAME.often * this.fame());
+  }
   /** Messages for the player (arrivals, departures). */
   notify: (msg: string, at?: Where) => void = () => {};
 
@@ -284,7 +297,7 @@ export class TradeFleet {
     const docks = [...this.bld.of('tradedock'), ...this.bld.of('market').filter(d=>Object.values(d.marketStock).some(n=>n!>=5))].filter((d) => d.complete);
     if (docks.length && !this.visitors.length) {
       this.visitIn -= dt;
-      if (this.visitIn <= 0) this.visitIn = this.sendVisitor(docks[Math.floor(Math.random() * docks.length)]) ? between(TRADE.visitors.every) : TRADE.visitors.retry;
+      if (this.visitIn <= 0) this.visitIn = this.sendVisitor(docks[Math.floor(Math.random() * docks.length)]) ? this.nextVisit() : TRADE.visitors.retry;
     }
     const half = HULL_HALF * VISITOR_SCALE, beam = HULL_BEAM * VISITOR_SCALE;
     for (const v of this.visitors.slice()) {
@@ -299,7 +312,7 @@ export class TradeFleet {
             v.mooring = false;
             v.state = 'moored';
             v.timer = between(TRADE.visitors.stay);
-            v.deals = visitorDeals(dock.key === 'market' ? Object.fromEntries(Object.keys(this.eco.res).map(k=>[k,Math.min(this.eco.res[k as ResourceKey],dock.marketStock[k as ResourceKey]??0)])) as Record<ResourceKey,number> : this.eco.res);
+            v.deals = visitorDeals(dock.key === 'market' ? Object.fromEntries(Object.keys(this.eco.res).map(k=>[k,Math.min(this.eco.res[k as ResourceKey],dock.marketStock[k as ResourceKey]??0)])) as Record<ResourceKey,number> : this.eco.res, Math.random, this.terms());
             this.notify(`Traders from ${v.from} have arrived ${dock.key === 'market' ? 'near the Market Square' : 'at the Trade Dock'} with goods to trade.`, { x: dock.x, z: dock.z });
           }
         } else {

@@ -702,6 +702,8 @@ interface Arrival extends Vessel {
   timer: number;
   phase: number;
   onLand?: (people: Islander[]) => void;
+  /** Raiders from a rival island: nobody steps ashore to join the village; they leave again. */
+  raid?: boolean;
   /** Closest it has come to the landing, and how long since it last got closer (to unstick it). */
   best?: number;
   stall?: number;
@@ -752,6 +754,8 @@ export class Boats {
   private floatsGeo = netFloatsGeometry();
   /** Boats' own double-sided material (never modify the shared stylised one). */
   private hullMat = patchStylised(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, metalness: 0, side: THREE.DoubleSide }));
+  /** Rival raiders' canoes: the same hull stained dark red. */
+  private raidHullMat = patchStylised(new THREE.MeshStandardMaterial({ vertexColors: true, color: 0x8a3a2c, roughness: 0.8, metalness: 0, side: THREE.DoubleSide }));
   private netMat = new THREE.MeshBasicMaterial({ map: netTexture(), transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: true });
   /** Rocks and reefs (fixed). */
   private blocked: Uint8Array;
@@ -1244,20 +1248,20 @@ export class Boats {
 
   /** Position of the first canoe still at sea (for the camera during the opening). */
   get arrivalPos(): { x: number; z: number } | null {
-    const a = this.arrivals.find((x) => x.state === 'sail');
+    const a = this.arrivals.find((x) => x.state === 'sail' && !x.raid);
     return a ? { x: a.x, z: a.z } : null;
   }
 
   /** Settlers still on their way (not yet landed). */
   get arriving(): number {
-    return this.arrivals.filter((a) => a.state === 'sail').reduce((s, a) => s + a.genders.length, 0);
+    return this.arrivals.filter((a) => a.state === 'sail' && !a.raid).reduce((s, a) => s + a.genders.length, 0);
   }
 
   /**
    * Send a canoe of settlers in from the open sea to the main island's shore nearest `to`.
    * Returns the landing point (for the camera), or null if no shore was found.
    */
-  sendSettlers(genders: ('m' | 'f')[], to: { x: number; z: number }, onLand?: (people: Islander[]) => void): { x: number; z: number } | null {
+  sendSettlers(genders: ('m' | 'f')[], to: { x: number; z: number }, onLand?: (people: Islander[]) => void, raid = false): { x: number; z: number } | null {
     const w = this.world;
     const N = w.N;
     this.refreshNav();
@@ -1292,7 +1296,7 @@ export class Boats {
     sz = Math.max(-lim, Math.min(lim, sz));
     const path = this.waterPath(sx, sz, lx, lz, true) ?? [{ x: lx, z: lz }];
     const mesh = new THREE.Group();
-    const hull = new THREE.Mesh(this.geos[0], this.hullMat);
+    const hull = new THREE.Mesh(this.geos[0], raid ? this.raidHullMat : this.hullMat);
     mesh.add(hull, hullShadow(hull.geometry));
     const rowers: CanoePassenger[] = [];
     genders.forEach((gender, k) => {
@@ -1304,7 +1308,7 @@ export class Boats {
     mesh.scale.setScalar(BOAT_SCALE * 1.1);
     mesh.position.set(sx, 0.03, sz);
     this.group.add(mesh);
-    this.arrivals.push({ mesh, rowers, path, idx: 0, x: sx, z: sz, heading: Math.atan2(lx - sx, lz - sz), speed: 0, ride: newRide(), wakeAcc: 0, genders, land, state: 'sail', timer: 0, phase: 0, onLand });
+    this.arrivals.push({ mesh, rowers, path, idx: 0, x: sx, z: sz, heading: Math.atan2(lx - sx, lz - sz), speed: 0, ride: newRide(), wakeAcc: 0, genders, land, state: 'sail', timer: 0, phase: 0, onLand, raid });
     return { x: lx, z: lz };
   }
 
@@ -1359,10 +1363,12 @@ export class Boats {
           a.sand.scale.setScalar(0.01);
           a.mesh.add(a.sand);
           a.speed = 0;
+          this.sfx('splash', a.x, a.z);
+          // Raiders stay with their canoe (they grab what they can and are gone).
+          if (a.raid) { a.onLand?.([]); continue; }
           for (const r of a.rowers) r.dispose();
           a.rowers.length = 0;
           const people = a.genders.map((g, k) => this.colony.spawn(g, a.land.x + (k - (a.genders.length - 1) / 2) * 0.5, a.land.z));
-          this.sfx('splash', a.x, a.z);
           a.onLand?.(people);
         } else {
           a.phase += dt * 3.2 * Math.min(1, a.speed / 1.5 + 0.2);
@@ -1371,6 +1377,7 @@ export class Boats {
       } else {
         a.timer -= dt;
         if (a.timer <= 0) {
+          for (const r of a.rowers) r.dispose();
           this.group.remove(a.mesh);
           for (const m of a.fading ?? []) m.dispose();
           (a.sand?.material as THREE.Material | undefined)?.dispose();

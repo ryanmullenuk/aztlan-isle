@@ -32,6 +32,10 @@ import type { Where } from './where';
 import { CARGO_KEYS, CargoKey, haulText, holdValue } from '../entities/Voyage';
 import { BUILD_MENU, GARDEN_TOOLS, PAINT_TOOLS, TERRAIN_TOOLS, TOOLBAR, TOOLS, ToolId } from './tools';
 import { GARDEN } from '../vegetation/Garden';
+
+/** A building's price as icons and amounts. */
+const costHtml = (c: { wood: number; stone: number; belief: number; carvedStone?: number }) =>
+  [c.wood ? `${icon('wood')}${c.wood}` : '', c.stone ? `${icon('stone')}${c.stone}` : '', c.belief ? `${icon('belief')}${c.belief}` : '', c.carvedStone ? `${icon('carvedstone')}${c.carvedStone}` : ''].join('');
 import { DAILY_PEARLS, dayKey, rushPearls } from '../economy/DailyChest';
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = ''): HTMLElementTagNameMap[K] => {
@@ -346,7 +350,8 @@ export class UI {
     const items = hide ? [] : p.checklist(next).filter((i) => !(i.done && i.text.startsWith('Reach ')));
     const asks = hide ? [] : g.requests?.list ?? [];
     const wed = hide ? null : g.weddings?.wishText ?? null;
-    const key = hide ? 'hidden' : `${next}|${this.goalsOpen}|${items.map((i) => `${i.done ? 1 : 0}${i.text}`).join('|')}|${asks.map((r) => r.id).join(',')}|${wed}`;
+    const season = hide ? null : g.seasonGoals?.text ?? null, seasonMet = !!g.seasonGoals?.met;
+    const key = hide ? 'hidden' : `${next}|${this.goalsOpen}|${items.map((i) => `${i.done ? 1 : 0}${i.text}`).join('|')}|${asks.map((r) => r.id).join(',')}|${wed}|${season}|${seasonMet}`;
     if (key === this.goalShown) return;
     this.goalShown = key;
     this.goalToggle.classList.toggle('hidden', hide);
@@ -360,7 +365,8 @@ export class UI {
       return i.build && !i.done
         ? `<button type="button" class="goal-item" data-build="${i.build}">${mark}<span>${i.text}</span><span class="goal-go" aria-hidden="true">›</span></button>`
         : `<div class="goal-item${i.done ? ' done' : ''}">${mark}<span>${i.text}</span></div>`;
-    }).join('') + (asks.length || wed ? `<div class="goal-head goal-asks">Requests</div>` : '') +
+    }).join('') + (season ? `<div class="goal-head goal-asks">This season</div><div class="goal-item${seasonMet ? ' done' : ''}"><span class="goal-mark${seasonMet ? ' done' : ''}">${seasonMet ? '✓' : ''}</span><span>${season}</span></div>` : '') +
+      (asks.length || wed ? `<div class="goal-head goal-asks">Requests</div>` : '') +
       (wed ? `<button type="button" class="goal-item ask" data-wed="1"><span class="goal-mark ask">♥</span><span>${wed}: tap to grant the wedding</span><span class="goal-go" aria-hidden="true">›</span></button>` : '') +
       asks.map((r) =>
       `<button type="button" class="goal-item ask" data-build="${r.key}"><span class="goal-mark ask">!</span><span>${r.text}</span><span class="goal-go" aria-hidden="true">›</span></button>`).join('');
@@ -656,7 +662,7 @@ export class UI {
     const grid = el('div', 'bm-grid');
     const buildItem = (key: BuildingKey) => {
       const def = BUILDINGS[key];
-      const cost = [def.cost.wood ? `${icon('wood')}${def.cost.wood}` : '', def.cost.stone ? `${icon('stone')}${def.cost.stone}` : '', def.cost.belief ? `${icon('belief')}${def.cost.belief}` : '', def.cost.carvedStone ? `${icon('carvedstone')}${def.cost.carvedStone}` : ''].join('');
+      const cost = costHtml(def.cost);
       const b = el('button', 'bm-item', `<span class="bm-ic">${ICONS[BUILD_ICON[key]]}</span><span class="bm-nm">${def.name}</span><span class="bm-cost">${cost}</span>`);
       b.setAttribute('aria-label', def.name);
       if (key === 'herbalgarden' || key === 'herbalist') {
@@ -934,6 +940,8 @@ export class UI {
       </div>
       <h4>Your village</h4><ul>
         <li>Light the <b>tribal fire</b> where your first two islanders land: a husband and wife. The <b>Objective</b> list (top left) shows what earns the next title, from Camp to <b>Capital of the Isle</b>; each title unlocks new buildings.</li>
+        <li><b>Titles come in order, and take time:</b> food first (Village), then health (Large Village: Well, Herbalist, Healing Centre), then the town’s halls (Town: Market, Great Hall, Watchtower), and only then worship (Temple Town: the <b>Temple</b>). From the Village on, a settlement must also settle in for a day or more at each title before it earns the next.</li>
+        <li><b>Building costs rise:</b> after the first couple of each kind (a few more for huts, homes and farms), each further one costs a little more. Your builders can only work on a few buildings at once: two to start, one more for every six islanders.</li>
         <li>Buildings need flat land (flatten it with the Terrain tools). A <b>Stonemason’s Workshop</b> turns stone into <b>carved stone</b>, which every stone building needs; its upgrades unlock Temples, the Great Pyramid and the Great Temple.</li>
         <li>Idle islanders help build by day without being asked. Select an islander, then tap a building, tree, rock or fruit bush to give them that job; they keep to it.</li>
         <li>Stores hold your wood, stone and food. Felled trees lie where they fall until all their wood is carried home, then regrow from the stump. Plant more with <b>Flora → Trees</b>.</li>
@@ -942,21 +950,23 @@ export class UI {
       <h4>Islanders and families</h4><ul>
         <li>Islanders need food, rest and a home. Their <b>Mood</b> (top left) shows how the village feels; badges over heads show who is hungry, tired, sick, afraid, wet, cold, homeless or unhappy, and hearts show the very happy. Happy islanders bring <b>Belief</b>.</li>
         <li>Unhappy islanders with needs and nothing to do mope about; very happy ones sometimes break into a dance.</li>
-        <li><b>Only married couples have children</b>, and only a husband and wife living together (one child per house). Children play and never work.</li>
+        <li><b>Only married couples have children</b>, and only a husband and wife living together (one child per house). Children play and never work; after four days they <b>come of age</b> and join the village’s work.</li>
         <li><b>Weddings:</b> now and then a man and a woman <b>wish to marry</b> (at most one wedding every five days). The wish waits for a day in your <b>Requests</b>: grant it and the couple kneel at the temple (or the tribal fire) while the village gathers, then everyone dances, and the newlyweds make a home together (+Belief). Let a wish go ungranted and the couple are heartbroken and the gods displeased (−Belief).</li>
         <li><b>Requests:</b> islanders also wish for things like a Well or a Torch near their home. Build it in time for Belief and a happier islander.</li>
-        <li>Some adults are elders, with grey hair and a walking staff.</li>
+        <li>Some adults are <b>elders</b>, with grey hair and a walking staff. When a child comes of age, an elder (from their own home if one lives there) passes on their skills: the young adult is <b>skilled</b> and builds, farms, gathers and carves a quarter faster for life.</li>
       </ul>
       <h4>Belief and the gods</h4><ul>
-        <li>Belief comes from happy islanders, priests praying at temples, bonfire evenings, granted wishes, weddings and celebrations. Spend it on god powers (<b>Power</b>, 6): rain, calming storms and the volcano, and more.</li>
+        <li>Belief comes from happy islanders, priests praying at temples, bonfire evenings, granted wishes, weddings, seasonal goals and celebrations. Spend it on god powers (<b>Power</b>, 6): rain, calming storms and the volcano, and more.</li>
+        <li><b>Before a temple, Belief is a slow trickle.</b> A working Temple multiplies the Belief your happy islanders bring (two and a half times, more as it is upgraded), and a Great Temple adds more again.</li>
         <li>Temples upgrade twice into the Great Pyramid. The Great Temple is built in four phases.</li>
-        <li><b>Wonders</b> (Capital of the Isle, one of each, built in four phases): the <b>Colossal Head</b> makes everyone a little happier, the <b>Sun Stone</b> brings a steady trickle of Belief, and the <b>Sky Tower</b> makes research half as fast again.</li>
+        <li><b>Wonders</b> (Capital of the Isle, one of each, built in four phases): the <b>Colossal Head</b> makes everyone a little happier, the <b>Sun Stone</b> brings a steady trickle of Belief, and the <b>Sky Tower</b> makes research half as fast again. Each wonder (and the Great Temple) also adds to your island’s <b>fame</b>: visiting traders come sooner and offer better deals.</li>
       </ul>
       <h4>Health and danger</h4><ul>
         <li>Now and then someone falls sick. Sick and hurt islanders limp along. Build a <b>Healing Centre</b> and cure them with food (or medicine and spices) before their time runs out.</li>
         <li><b>Jaguars and alligators</b> attack islanders who venture <b>out beyond the village</b>; among the houses they are very rarely bold enough to strike. The freshly mauled crawl home. Dogs, warriors and a <b>Watchtower</b> (which shoots by itself, day and night) keep them off.</li>
         <li>Anyone fleeing, or answering the Great Hall’s alarm bell, runs looking back over their shoulder.</li>
-        <li>When the <b>volcano</b> smokes you have five minutes: tap it and <b>Calm</b> it with Belief. An <b>Observatory</b> warns of storms and eruptions, and studies research that unlocks buildings.</li>
+        <li>The <b>volcano</b> sleeps for a day or more at a time. When it smokes, most times it only smokes and rumbles and then settles; about one time in three it erupts five minutes later (−75 Belief). In the last minute and a half before lava the ground shakes and the smoke turns black. Tap it and <b>Calm</b> it for 50 Belief, or wait and see. It never erupts in the first five days, nor before your village is a Village. An <b>Observatory</b> warns of storms and of whether the volcano will erupt, and studies research that unlocks buildings.</li>
+        <li><b>Raiders:</b> every few days rival canoes come looking for an easy village. With enough warriors and watchtowers (a warrior and a watchtower will do) they turn back (+Belief); otherwise they land and carry off some of your food, wood and stone (half as much if a warrior meets them).</li>
       </ul>
       <h4>Trade, pearls and fireworks</h4><ul>
         <li><b>Pearls</b> wash up on the beaches (tap one, or a passer-by picks it up) and turn up in fishing catches; a <b>daily chest</b> waits each day you play. Spend them to finish a building now, or trade them.</li>
@@ -965,6 +975,7 @@ export class UI {
       </ul>
       <h4>Seasons and events</h4><ul>
         <li>Seasons change every few days. Storms pour (calm them with Belief); after rain, look for a rainbow.</li>
+        <li><b>Seasonal goals:</b> each season sets the village a goal (more islanders in spring, wood and stone in summer, food before winter, good cheer through winter), shown with your objectives. Meet it by the season’s end for Belief and a happier village.</li>
         <li><b>Lantern Night:</b> on the last evening of autumn the village walks down to the shore and lets paper lanterns drift out over the sea (+Belief, a happier village).</li>
         <li>Rare events: an <b>eclipse</b> frightens the village until the priests hold a ritual, a <b>comet</b> crosses the night sky, and a <b>whale</b> may strand on a beach for your islanders to push back to sea.</li>
         <li>Whales, turtles, dolphins, jellyfish, birds and fireflies live around the island. Tap a whale to bring it up.</li>
@@ -1454,7 +1465,11 @@ export class UI {
       const goals=this.buildMenu.querySelector('[data-progression]');if(goals)goals.textContent=g.progression.summary;
       for (const [key, b] of this.buildItems) {
         const reason = g.buildings.constructionRequirement(key);
-        b.classList.toggle('dim', !!reason || !e.canAfford(BUILDINGS[key].cost));
+        const price = g.buildings.costFor(key);
+        b.classList.toggle('dim', !!reason || !e.canAfford(price));
+        // The price rises with each one already built.
+        const pc = b.querySelector<HTMLElement>('.bm-cost'), tag = `${price.wood}|${price.stone}|${price.belief}|${price.carvedStone ?? 0}`;
+        if (pc && pc.dataset.c !== tag) { pc.dataset.c = tag; pc.innerHTML = costHtml(price); }
         b.title = reason || BUILDINGS[key].name;
         let lock=b.querySelector('.bm-lock');if(!lock){lock=el('span','bm-purpose bm-lock');b.appendChild(lock);}lock.textContent=reason;
         b.setAttribute('aria-disabled', String(!!reason));
@@ -1589,6 +1604,8 @@ export class UI {
         <div class="kv"><span>Doing</span><b>${g.colony.activity(isl)}</b></div>
         <div class="kv"><span>Carrying</span><b>${carry}</b></div>
         <div class="kv"><span>Home</span><b>${home ? home.label : 'None, sleeps by the fire'}</b></div>
+        ${isl.spouse !== undefined ? `<div class="kv"><span>Married to</span><b>${g.colony.byId(isl.spouse)?.name ?? '—'}</b></div>` : ''}
+        ${isl.skilled ? `<div class="kv"><span>Skilled</span><b class="good">Taught by ${isl.teacher ?? 'an elder'}: works faster</b></div>` : ''}
         ${this.healthText(isl) ? `<div class="kv"><span>Health</span><b>${this.healthText(isl)}</b></div>` : ''}
         ${isl.condition !== 'well' ? `<p class="muted small">${g.buildings.list.some((x) => x.key === 'healer' && x.complete) ? 'Cure them from the Healing Centre’s card.' : 'Build a Healing Centre to cure them.'}</p>` : ''}
         ${this.bar('Food', isl.hunger, isl.hunger < 0.3 ? 'low' : '')}
@@ -1673,8 +1690,8 @@ export class UI {
       const w = WONDERS[b.key];
       if (!b.complete) {
         const phase = Math.min(3, Math.floor(b.progress * 4)), c = b.def.cost;
-        body += `<p>${w.phases[phase]} · Phase ${phase + 1}/4</p><p class="muted small">Each phase: ${c.wood} wood · ${c.stone} stone · ${c.carvedStone ?? 0} carved stone · ${c.belief} Belief. Builders pause until the next phase can be supplied.</p><p class="muted small">When it stands: ${w.bonus.toLowerCase()}.</p>`;
-      } else body += `<div class="kv"><span>Wonder</span><b>${w.bonus}</b></div>`;
+        body += `<p>${w.phases[phase]} · Phase ${phase + 1}/4</p><p class="muted small">Each phase: ${c.wood} wood · ${c.stone} stone · ${c.carvedStone ?? 0} carved stone · ${c.belief} Belief. Builders pause until the next phase can be supplied.</p><p class="muted small">When it stands: ${w.bonus.toLowerCase()}, and the island's fame grows (traders come sooner with better deals).</p>`;
+      } else body += `<div class="kv"><span>Wonder</span><b>${w.bonus}</b></div><div class="kv"><span>Fame</span><b>${g.fame}: traders come sooner and offer more</b></div>`;
     }
     if(b.key==='greattemple'&&!b.complete){const names=['Foundations','Terraces','Stairs','Shrines'];const phase=Math.min(3,Math.floor(b.progress*4));body+=`<p>${names[phase]} · Phase ${phase+1}/4</p><p class="muted small">Each phase: 40 wood · 120 stone · 30 carved stone · 50 Belief. Builders pause until the next phase can be supplied.</p>`;}
     if (!b.complete) body += `${this.bar(`Building ${Math.round(b.progress * 100)}%`, b.progress, 'good')}<div class="kv"><span>Builders</span><b>${b.builders.size} / ${b.def.builders}</b></div>`;

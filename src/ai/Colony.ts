@@ -1,4 +1,5 @@
 import { buildingOperational, buildingSafe } from '../buildings/BuildingCondition';
+import { isElder } from '../entities/CharacterVariants';
 import type { FireJob } from '../buildings/StormFire';
 import { gatheringWeights, jobRank, specialistShare, villagePriority, type VillagePriority } from './VillagePriority';
 import { marketBatch } from '../economy/Market';
@@ -913,8 +914,34 @@ export class Colony {
     }
   }
 
+  /** How fast an islander works: those taught by an elder work faster. */
+  private pace(isl: Islander): number {
+    return isl.skilled ? ISLANDER.skilledPace : 1;
+  }
+
+  /**
+   * Children come of age after a few days. If the village has an elder (from their own home if
+   * one lives there), the elder passes on their skills: the young adult works faster for life.
+   */
+  private growUp(): void {
+    const elders = this.list.filter((i) => !i.child && !i.npc && isElder(i));
+    for (const kid of this.list) {
+      if (!kid.child || kid.age < ISLANDER.childGrowDays * TIME.dayLength) continue;
+      kid.child = false;
+      const teacher = elders.find((e) => e.home === kid.home && e.home >= 0) ?? elders[Math.floor(this.rnd() * elders.length)];
+      if (teacher) {
+        kid.skilled = true;
+        kid.teacher = teacher.name;
+      }
+      this.hooks.notify?.(teacher
+        ? `${kid.name} has come of age, taught by the elder ${teacher.name}: they will work faster all their life.`
+        : `${kid.name} has come of age and joins the village’s work.`, () => (kid.hidden ? null : { x: kid.x, z: kid.z }));
+    }
+  }
+
   /** Dawn: a married couple living in a house without a child may have one (one child per house, huts too). */
   private dawn(): void {
+    this.growUp();
     for (const b of this.bld.list) {
       if (!buildingSafe(b) || (b.key !== 'hut' && b.key !== 'home')) continue;
       if (this.list.length >= ISLANDER.max) return;
@@ -1580,7 +1607,7 @@ export class Colony {
         isl.anim = t.kind === 'chop' ? 'chop' : t.kind === 'mine' ? 'mine' : 'harvest';
         isl.reachHigh = p.kind === 'banana' || (p.kind === 'apple' && p.variant === 1);
         const before = t.timer;
-        t.timer -= dt;
+        t.timer -= dt * this.pace(isl);
         // A chop / clink sound on each swing.
         if (t.kind !== 'gather' && Math.floor(before * 1.4) !== Math.floor(t.timer * 1.4)) this.hooks.sfx?.(t.kind === 'chop' ? 'chop' : 'mine', isl.x, isl.z);
         if (t.timer > 0) return;
@@ -1660,7 +1687,7 @@ export class Colony {
         this.faceTo(isl, b.x - isl.x, b.z - isl.z, dt);
         isl.anim = 'build';
         b.builders.add(isl.id);
-        this.bld.addProgress(b, dt);
+        this.bld.addProgress(b, dt * this.pace(isl));
         const before = t.timer;
         t.timer -= dt;
         if (Math.floor(before * 1.5) !== Math.floor(t.timer * 1.5)) this.hooks.sfx?.('build', isl.x, isl.z);
@@ -1682,7 +1709,7 @@ export class Colony {
         isl.anim = harvesting ? 'harvest' : 'farm';
         isl.tool = harvesting ? 'none' : 'hoe';
         if (!harvesting) f.tendTimer = 12;
-        t.timer -= dt;
+        t.timer -= dt * this.pace(isl);
         if (t.timer > 0) return;
         if (harvesting) {
           if (f.key === 'herbalgarden' && !this.bld.list.some(b => b.key === 'herbalist' && buildingOperational(b) && !b.upgrading)) return this.releaseTask(isl);
@@ -1726,7 +1753,7 @@ export class Colony {
         }
         this.faceTo(isl, b.x - isl.x, b.z - isl.z, dt);
         isl.anim = 'build';
-        t.timer -= dt;
+        t.timer -= dt * this.pace(isl);
         if (t.timer > 0) return;
         if (this.eco.res.stone >= STONEMASON.input && this.eco.goods.carvedstone <= STONEMASON.cap - STONEMASON.output) {
           this.eco.res.stone -= STONEMASON.input;
@@ -3068,7 +3095,7 @@ export class Colony {
       }
     }
     this.separate(dt);
-    this.eco.add('belief', happy * ISLANDER.beliefPerHappyPerSecond * (this.bld.decreeFactor?.('gods') ?? 1) * dt);
+    this.eco.add('belief', happy * ISLANDER.beliefPerHappyPerSecond * this.sacredFactor() * (this.bld.decreeFactor?.('gods') ?? 1) * dt);
     void JETTY;
   }
 
@@ -3078,6 +3105,17 @@ export class Colony {
    * down or busy at a fixed spot holds their place and the walker steps round them. Nudges only
    * ever land on open ground (never into water or a building they aren't already in).
    */
+  /** How much the village's temples multiply its Belief: the best working temple's tier, and a Great Temple on top. */
+  sacredFactor(): number {
+    let f = TEMPLE.beliefFactor[0], great = 0;
+    for (const b of this.bld.list) {
+      if (!b.complete || !buildingOperational(b)) continue;
+      if (b.key === 'temple') f = Math.max(f, TEMPLE.beliefFactor[Math.min(3, b.tier)]);
+      else if (b.key === 'greattemple') great = TEMPLE.greatBelief;
+    }
+    return f + great;
+  }
+
   private separate(dt: number): void {
     const W = this.world;
     const free = (i: Islander) => i.anim === 'walk' || i.anim === 'run' || i.anim === 'carry' ||

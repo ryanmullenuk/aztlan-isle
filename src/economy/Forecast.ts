@@ -3,7 +3,7 @@ import { OBSERVATORY } from '../config';
 /** A storm the weather has already scheduled: its id, game seconds until it arrives, and how long it will last. */
 export interface StormOutlook { id: number; inSeconds: number; length: number }
 /** The volcano's next stirring: its cycle, and seconds (its own clock) until it starts to smoke. */
-export interface VolcanoOutlook { cycle: number; inSeconds: number }
+export interface VolcanoOutlook { cycle: number; inSeconds: number; /** It will erupt (not just smoke). */ erupts?: boolean }
 
 export interface ForecastInput {
   /** A complete, operational Observatory with a priest on its staff. */
@@ -64,6 +64,7 @@ export class Forecaster {
   }
 
   volcanoText(v: VolcanoOutlook): string {
+    if (v.erupts === false) return `Observatory: the fire mountain stirs. Smoke is expected in ${minutes(v.inSeconds)}, but the signs say it will only smoke this time and settle again.`;
     return `Observatory: the fire mountain stirs. Smoke is expected in ${minutes(v.inSeconds)}, then lava five minutes later. Clear the slopes and keep 50 Belief ready to calm it.`;
   }
 

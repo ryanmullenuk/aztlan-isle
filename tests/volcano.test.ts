@@ -1,22 +1,28 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Volcano, VolcanoCycle, volcanoRockGeometry, volcanoSurface } from '../src/entities/Volcano';
+import { VOLCANO, Volcano, VolcanoCycle, volcanoRockGeometry, volcanoSurface } from '../src/entities/Volcano';
 import { World } from '../src/world/World';
 import { generateIsland } from '../src/world/generator';
 import { growIslets } from '../src/world/islets';
 import { WORLD } from '../src/config';
 
+/** A seed whose first stirring ends in lava (most only smoke), stirring after 150 s like the old cycle. */
+const LAVA = (() => { for (let s = 1; ; s++) if (new VolcanoCycle(s).erupts) return s; })();
+const lavaCycle = (seed = LAVA) => { const v = new VolcanoCycle(seed); v.remaining = 150; return v; };
+/** Point a placed volcano's cycle at a stirring that erupts, 150 s away. */
+const toLava = (v: Volcano) => { while (!v.state.erupts) v.state.cycle++; v.state.remaining = 150; };
+
 test('smoke precedes eruption and cooling leads to a dormant interval', () => {
-  const v = new VolcanoCycle(42);
+  const v = lavaCycle();
   v.update(150); assert.equal(v.phase, 'smoking');
   v.update(299); assert.equal(v.phase, 'smoking');
   v.update(1); assert.equal(v.phase, 'erupting');
   v.update(65); assert.equal(v.phase, 'cooling');
   v.update(25); assert.equal(v.phase, 'dormant');
-  assert.ok(v.remaining >= 240 && v.remaining <= 480);
+  assert.ok(v.remaining >= 900 && v.remaining <= 2100);
 });
 test('Calm charges only active volcanoes and cannot reward repeated clicks', () => {
-  const v = new VolcanoCycle(42); let spent = 0;
+  const v = lavaCycle(); let spent = 0;
   assert.equal(v.calm(c => { spent += c; return true; }), false);
   v.update(150);
   assert.equal(v.calm(() => false), false); assert.equal(v.phase, 'smoking');
@@ -50,7 +56,7 @@ test('crater geometry has finite positions and normals', () => {
 });
 test('cooling retains the mountain and basalt channels but removes lava and smoke', () => {
   const w = new World(); generateIsland(w, WORLD.islandSeed); growIslets(w);
-  const v = new Volcano(w);
+  const v = new Volcano(w); toLava(v);
   const staticCount = v.group.children.length;
   v.update(455);
   assert.equal(v.state.phase, 'erupting');
@@ -67,9 +73,9 @@ test('cooling retains the mountain and basalt channels but removes lava and smok
 });
 
 test('smoke countdown persists and old saves receive the longer warning', () => {
-  const old = new VolcanoCycle(42, { x: 0, z: 0, phase: 'smoking', remaining: 15, cycle: 0 });
+  const old = new VolcanoCycle(LAVA, { x: 0, z: 0, phase: 'smoking', remaining: 15, cycle: 0 });
   assert.equal(old.remaining, 280);
-  const current = new VolcanoCycle(42, { x: 0, z: 0, phase: 'smoking', remaining: 120, cycle: 0, warningVersion: 2 });
+  const current = new VolcanoCycle(LAVA, { x: 0, z: 0, phase: 'smoking', remaining: 120, cycle: 0, warningVersion: 2 });
   current.update(0); assert.equal(current.remaining, 120);
   current.update(119); assert.equal(current.phase, 'smoking');
   current.update(1); assert.equal(current.phase, 'erupting');
@@ -86,7 +92,7 @@ test('joined side peak rises above its saddle and breaks radial symmetry', () =>
 
 test('an eruption brims the lake, spills rounded lobes and fountains, under a dense plume drawn after the sea', () => {
   const w = new World(); generateIsland(w, WORLD.islandSeed); growIslets(w);
-  const v = new Volcano(w);
+  const v = new Volcano(w); toLava(v);
   v.update(150 + 300 + 0.1);
   assert.equal(v.state.phase, 'erupting');
   const smoke = v.group.children.filter(o => o.name === 'Volcanic smoke') as import('three').Sprite[];
@@ -110,20 +116,20 @@ test('an eruption brims the lake, spills rounded lobes and fountains, under a de
 });
 
 test('uncalmed eruptions charge once, including a large time step; calming avoids the charge', () => {
-  const v = new VolcanoCycle(42);
+  const v = lavaCycle();
   let belief = 100, penalties = 0;
   v.onErupt = () => { belief = Math.max(0, belief - 75); penalties++; };
   v.update(451);
   assert.equal(belief, 25); assert.equal(penalties, 1);
   v.update(50);
   assert.equal(penalties, 1);
-  const calmed = new VolcanoCycle(42);
+  const calmed = lavaCycle();
   calmed.onErupt = v.onErupt;
   calmed.update(150);
   calmed.calm(() => true);
   calmed.update(30);
   assert.equal(penalties, 1);
-  const skipped = new VolcanoCycle(42);
+  const skipped = lavaCycle();
   skipped.onErupt = v.onErupt;
   skipped.update(530);
   assert.equal(penalties, 2); assert.equal(belief, 0);
@@ -144,4 +150,24 @@ test('weathered volcano retains deterministic geometry with broader ash and basa
   assert.ok(shader.fragmentShader.includes('float coarseFade'));
   assert.equal(material.map,null);assert.equal(material.normalMap,null);
   first.dispose();second.dispose();material.dispose();
+});
+
+test('most stirrings only smoke and settle; none erupt while lava is not allowed; the ground shakes before lava', () => {
+  let smokeOnly = 0;
+  for (let seed = 1; seed <= 60; seed++) {
+    const v = new VolcanoCycle(seed); let lava = 0;
+    v.onErupt = () => lava++;
+    v.update(VOLCANO.firstStir + 300 + 1);
+    if (!lava) { smokeOnly++; assert.equal(v.phase, 'cooling'); assert.equal(v.coolingHot, false); }
+  }
+  assert.ok(smokeOnly > 30 && smokeOnly < 55, `${smokeOnly} of 60 only smoked`);
+  const early = lavaCycle(); let lava = 0;
+  early.onErupt = () => lava++;
+  early.allowErupt = () => false;
+  early.update(150 + 300 + 1);
+  assert.equal(lava, 0); assert.equal(early.phase, 'cooling');
+  const shaking = lavaCycle();
+  shaking.update(150 + 300 - VOLCANO.rumble - 1); assert.equal(shaking.rumbling, false);
+  shaking.update(2); assert.equal(shaking.rumbling, true);
+  assert.ok(VOLCANO.quiet[0] >= 600, 'it sleeps a day or more between stirrings');
 });

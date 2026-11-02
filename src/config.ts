@@ -213,6 +213,8 @@ export const ISLANDER = {
   /** Closest two adults stand to one another (world units; children take a little less). */
   personalSpace: 0.26,
   childGrowDays: 4,
+  /** Work pace of islanders an elder taught as they came of age. */
+  skilledPace: 1.25,
   /** Needs drain per game second (0..1 scale). */
   hungerDrain: 1 / 420,
   restDrain: 1 / 700,
@@ -225,7 +227,8 @@ export const ISLANDER = {
   praySeconds: 12,
   birthChancePerDay: 0.7,
   birthFoodMin: 30,
-  beliefPerHappyPerSecond: 0.035,
+  /** Belief from each happy islander, before any temple: a slow trickle (temples multiply it, see TEMPLE.beliefFactor). */
+  beliefPerHappyPerSecond: 0.014,
   happyThreshold: 0.6,
   aiThinkInterval: 0.6,
   pathRequestsPerFrame: 5,
@@ -273,6 +276,26 @@ export const WONDER_EFFECT = { happy: 0.1, beliefPerMinute: 6, research: 1.5 };
 export type DecorKey = 'bannersun' | 'bannereagle' | 'bannerteal' | 'pennants' | 'featherbanner' | 'flagstring';
 export const DECOR_KEYS: DecorKey[] = ['bannersun', 'bannereagle', 'bannerteal', 'pennants', 'featherbanner', 'flagstring'];
 export const isDecor = (key: string): key is DecorKey => (DECOR_KEYS as string[]).includes(key);
+
+/**
+ * Each further building of a kind costs a little more than the last (once a few stand), so growing
+ * is a choice rather than a spree. Decorations, torches and the one-of-a-kind monuments don't rise.
+ */
+/** Building sites under construction at once: a couple to start, one more for every few islanders. */
+/** Fame (each wonder, and the Great Temple): per point, better trader rates and more frequent visits. */
+export const TRADE_FAME = { rate: 0.1, often: 0.25 };
+
+export const BUILD_SITES = { base: 2, perPeople: 6, max: 8 };
+
+export const BUILD_RISE = {
+  /** How many of a kind come at the base price (houses and farms: more). */
+  free: 2,
+  freeOf: { hut: 4, home: 3, farm: 3, maizefarm: 3, chinampa: 3, fishhut: 3 } as Partial<Record<string, number>>,
+  /** Added to the price for each one beyond those, up to `cap` times the base. */
+  step: 0.15,
+  cap: 2.5,
+  never: ['torch', 'campfire'] as string[],
+};
 
 export interface BuildingDef {
   key: BuildingKey;
@@ -398,7 +421,10 @@ export const HOMES = {
 };
 
 export const TEMPLE = {
-  beliefPerTier: [0, 0.25, 0.55, 1.1],
+  /** The village's Belief from happy islanders, multiplied by its best working temple's tier (none: 1);
+   *  a Great Temple adds greatBelief on top. The temple is the big step up in Belief. */
+  beliefFactor: [1, 2.5, 3.2, 4],
+  greatBelief: 1,
   upgradeCost: [
     { wood: 0, stone: 0, belief: 0 },
     { wood: 0, stone: 0, belief: 0 },
@@ -1101,15 +1127,15 @@ export interface ResearchTier {
  */
 export const RESEARCH: ResearchTier[] = [
   { name: 'The Count of Seasons', text: 'The 365-day calendar tells when to plant and when to store.', unlocks: ['maizefarm', 'chinampa', 'smokehouse'], upgrades: [], gains: ['The coming season, shown at the Observatory'], cost: { food: 20, wood: 10, stone: 0, belief: 0 }, time: 120, stage: 3 },
-  { name: 'Moon and Herb Lore', text: 'Herbs are planted and gathered by the phases of the moon.', unlocks: ['herbalgarden', 'herbalist', 'healer'], upgrades: [], gains: [], cost: { food: 30, wood: 15, stone: 0, belief: 0 }, time: 180, stage: 3 },
-  { name: 'Signs of Fire and Water', text: 'Priests read the smoke and the springs.', unlocks: ['well'], upgrades: [], gains: ['Volcano warnings come earlier (about 5–7 minutes)'], cost: { food: 30, wood: 20, stone: 10, belief: 0 }, time: 240, stage: 3 },
-  { name: 'Market Days', text: 'The calendar sets days for exchange.', unlocks: ['market'], upgrades: [], gains: [], cost: { food: 40, wood: 25, stone: 15, belief: 0 }, time: 300, stage: 4 },
-  { name: 'Horizon Watch', text: 'Watchers learn the signs of danger on the horizon.', unlocks: ['watchtower', 'kennel'], upgrades: [], gains: [], cost: { food: 40, wood: 30, stone: 20, belief: 0 }, time: 300, stage: 4 },
-  { name: 'Council of the Calendar', text: 'The village meets on the days the calendar names.', unlocks: ['greathall'], upgrades: [], gains: [], cost: { food: 50, wood: 40, stone: 30, belief: 0 }, time: 360, stage: 4 },
-  { name: 'The Sacred Count', text: 'The 260-day ritual calendar orders worship and war.', unlocks: ['temple', 'warroom'], upgrades: [], gains: [], cost: { food: 60, wood: 40, stone: 40, belief: 20 }, time: 420, stage: 5 },
-  { name: 'Star Paths', text: 'Navigators steer by the stars.', unlocks: ['tradedock'], upgrades: ['tradeBoats'], gains: [], cost: { food: 70, wood: 60, stone: 40, belief: 20 }, time: 540, stage: 6 },
-  { name: 'The Tribute Calendar', text: 'The ruler counts tribute by the calendar.', unlocks: ['palace'], upgrades: ['templeUpgrade'], gains: [], cost: { food: 90, wood: 80, stone: 80, belief: 40 }, time: 660, stage: 6 },
-  { name: 'The Binding of the Years', text: 'The 52-year New Fire ceremony binds the calendars together.', unlocks: ['greattemple'], upgrades: [], gains: ['Storm forecasts also tell how long the storm will last'], cost: { food: 120, wood: 100, stone: 120, belief: 60 }, time: 900, stage: 7 },
+  { name: 'Moon and Herb Lore', text: 'Herbs are planted and gathered by the phases of the moon.', unlocks: ['herbalgarden', 'herbalist', 'healer'], upgrades: [], gains: [], cost: { food: 30, wood: 15, stone: 0, belief: 0 }, time: 180, stage: 4 },
+  { name: 'Signs of Fire and Water', text: 'Priests read the smoke and the springs.', unlocks: ['well'], upgrades: [], gains: ['Volcano warnings come earlier (about 5–7 minutes)'], cost: { food: 30, wood: 20, stone: 10, belief: 0 }, time: 240, stage: 4 },
+  { name: 'Market Days', text: 'The calendar sets days for exchange.', unlocks: ['market'], upgrades: [], gains: [], cost: { food: 40, wood: 25, stone: 15, belief: 0 }, time: 300, stage: 5 },
+  { name: 'Horizon Watch', text: 'Watchers learn the signs of danger on the horizon.', unlocks: ['watchtower', 'kennel'], upgrades: [], gains: [], cost: { food: 40, wood: 30, stone: 20, belief: 0 }, time: 300, stage: 5 },
+  { name: 'Council of the Calendar', text: 'The village meets on the days the calendar names.', unlocks: ['greathall'], upgrades: [], gains: [], cost: { food: 50, wood: 40, stone: 30, belief: 0 }, time: 360, stage: 5 },
+  { name: 'The Sacred Count', text: 'The 260-day ritual calendar orders worship and war.', unlocks: ['temple', 'warroom'], upgrades: [], gains: [], cost: { food: 60, wood: 40, stone: 40, belief: 20 }, time: 420, stage: 6 },
+  { name: 'Star Paths', text: 'Navigators steer by the stars.', unlocks: ['tradedock'], upgrades: ['tradeBoats'], gains: [], cost: { food: 70, wood: 60, stone: 40, belief: 20 }, time: 540, stage: 7 },
+  { name: 'The Tribute Calendar', text: 'The ruler counts tribute by the calendar.', unlocks: ['palace'], upgrades: ['templeUpgrade'], gains: [], cost: { food: 90, wood: 80, stone: 80, belief: 40 }, time: 660, stage: 7 },
+  { name: 'The Binding of the Years', text: 'The 52-year New Fire ceremony binds the calendars together.', unlocks: ['greattemple'], upgrades: [], gains: ['Storm forecasts also tell how long the storm will last'], cost: { food: 120, wood: 100, stone: 120, belief: 60 }, time: 900, stage: 8 },
 ];
 export const RESEARCH_UPGRADE_LABEL: Record<ResearchUpgrade, string> = { tradeBoats: 'Trade-boat research at the Boat Workshop', templeUpgrade: 'Great Pyramid upgrades' };
 
