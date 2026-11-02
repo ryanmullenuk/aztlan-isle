@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { processMedicine } from './Herbalist';
 import { needsStonemason, masonryCost, STONEMASON, BOAT_WORKSHOP, DECREES, PALACE_RULES, type DecreeKey } from '../config';
-import { BUILDINGS, BuildingDef, BuildingKey, ECONOMY, FARM, HOMES, JETTY, TEMPLE, FARM_TYPES, isFarm, isDecor } from '../config';
+import { BUILDINGS, BuildingDef, BuildingKey, ECONOMY, FARM, HOMES, JETTY, TEMPLE, FARM_TYPES, isFarm, isDecor, isPhased, isWonder } from '../config';
 import { Economy, Cost } from '../economy/Economy';
 import { buildingMaterial, canopyMaterial, fireMaterial, flameMaterial, FX, patchStylised } from '../render/materials';
 import { Terrain } from '../terrain/Terrain';
@@ -585,6 +585,7 @@ export class BuildingSystem {
     if (tier === 0) return 'Complete a Stonemason’s Workshop first';
     if (key === 'temple' && tier < 2) return 'Stonemason upgrade 1 required: unlock Temples';
     if (key === 'greattemple' && tier < 4) return 'Stonemason upgrade 3 required: unlock the Great Temple';
+    if (isWonder(key) && this.list.some((b) => b.key === key)) return `The island already has its ${BUILDINGS[key].name}`;
     return '';
   }
 
@@ -842,7 +843,7 @@ export class BuildingSystem {
     // Houses take the look of the district they are built in (a saved house keeps the one it had).
     if (key === 'hut' || key === 'home') b.style = this.restoreStyle ?? this.styleAt(b.x, b.z);
     if (!instant) this.eco.spend(def.cost);
-    if (key === 'greattemple') b.monumentPaid = instant ? 4 : 1;
+    if (isPhased(key)) b.monumentPaid = instant ? 4 : 1;
     let paved = false;
     for (let z = cz; z < cz + b.d; z++) for (let x = cx; x < cx + b.w; x++) {
       const i = this.world.idx(x, z);
@@ -1021,7 +1022,7 @@ export class BuildingSystem {
       this.terrain.updateWear();
     }
     this.world.navigationVersion++;
-    if (refund) this.eco.refund(b.def.cost, 0.5 * (b.key==='greattemple' ? (b.monumentPaid??4) : 1));
+    if (refund) this.eco.refund(b.def.cost, 0.5 * (isPhased(b.key) ? (b.monumentPaid??4) : 1));
     this.group.remove(b.group);
     // Free the full model too when the simple copy is showing (the copy goes with it).
     if (b.finishedHi && b.finished.geometry !== b.finishedHi) {
@@ -1079,6 +1080,9 @@ export class BuildingSystem {
       case 'herbalgarden': return models.herbalGardenModel();
       case 'herbalist': return models.herbalistModel();
       case 'firemaker': return models.firemakerModel();
+      case 'olmechead': return models.colossalHeadModel();
+      case 'sunstone': return models.sunStoneModel();
+      case 'skytower': return models.skyTowerModel();
       case 'healer': return models.healingCentreModel();
       case 'well': return models.wellModel();
       case 'butcher': return models.butcherModel(sw, sd);
@@ -1317,7 +1321,7 @@ export class BuildingSystem {
 
   waitingForMaterials(b: Building): boolean {
     if (b.fire > 0 || ((b.ruined || b.integrity < 1) && !b.repairing)) return true;
-    return b.key==='greattemple' && !b.complete && b.monumentPaid!==undefined && b.monumentPaid<4 && b.progress>=b.monumentPaid/4 && !this.eco.canAfford(b.def.cost);
+    return isPhased(b.key) && !b.complete && b.monumentPaid!==undefined && b.monumentPaid<4 && b.progress>=b.monumentPaid/4 && !this.eco.canAfford(b.def.cost);
   }
 
   /** Called by builders every frame they work. */
@@ -1337,7 +1341,7 @@ export class BuildingSystem {
     if (b.ruined || b.integrity < 1) return;
     const time = buildSeconds(b);
     let next = Math.min(1, b.progress + (dt * (this.decreeFactor?.('build') ?? 1)) / time);
-    if(b.key==='greattemple' && !b.complete && b.monumentPaid!==undefined) {
+    if(isPhased(b.key) && !b.complete && b.monumentPaid!==undefined) {
       while(next>b.monumentPaid/4 && b.monumentPaid<4) {
         if(!this.eco.spend(b.def.cost)){next=b.monumentPaid/4;break;}
         b.monumentPaid++;
@@ -1354,7 +1358,7 @@ export class BuildingSystem {
    */
   rushSeconds(b: Building): number | null {
     if ((b.complete && !b.upgrading) || b.ruined || b.repairing || b.integrity < 1) return null;
-    if (b.key === 'greattemple' || b.key === 'palace') return null;
+    if (isPhased(b.key) || b.key === 'palace') return null;
     return (1 - b.progress) * buildSeconds(b);
   }
 

@@ -24,7 +24,24 @@ interface Member {
 export class Gathering {
   private members: Member[] = [];
 
-  constructor(private colony: GatherColony, private anim: Anim, private cx: number, private cz: number) {}
+  /** What those taking part do (it can change: watching, then dancing). */
+  anim: Anim;
+
+  constructor(private colony: GatherColony, anim: Anim, private cx: number, private cz: number) {
+    this.anim = anim;
+  }
+
+  /** The islanders taking part (arrived or on their way). */
+  get ids(): number[] {
+    return this.members.map((m) => m.id);
+  }
+
+  /** Call one particular islander to a place of their own (the bride and groom, say). */
+  join(i: Islander, x: number, z: number): void {
+    if (this.members.some((m) => m.id === i.id)) return;
+    this.colony.walkTo(i, x, z);
+    this.members.push({ id: i.id, x, z, here: false });
+  }
 
   /** Islanders on their way or taking part. */
   get size(): number {

@@ -121,6 +121,8 @@ export interface Islander {
   skin: number;
   cloth: number;
   cloth2: number;
+  /** Married to (an islander's id), once wed at the temple. */
+  spouse?: number;
   headdress: number;
   /** Scenery figures drawn like villagers but not part of the village (the Healing Centre's healer). */
   npc?: 'healer';

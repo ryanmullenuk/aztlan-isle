@@ -4550,3 +4550,150 @@ export function firemakerModel(): BuildingModel {
   blooms(b, -1.25, 0.1, 1.25, 4, 0.2, 0.08, 33);
   return { finished: b.build(), torches, height: 2.0 };
 }
+
+// ---------------- Wonders ----------------
+
+/** Plaza flagstones on a low plinth, size × size, under a wonder. */
+function wonderPlaza(b: GeoBuilder, size: number): void {
+  b.add(P.box(size, 0.18, size), { color: CUT.stoneDark }, M.t(0, 0.09, 0));
+  const n = Math.round(size / 0.4), cell = size / n;
+  flagstones(b, -size / 2, -size / 2, n, n, cell, 0.18, (i, j) => ((i * 3 + j * 5) % 4 === 0 ? CUT.stoneDark : (i + j) % 2 ? CUT.stone : CUT.stoneLight));
+}
+
+/** Basalt, kept dark enough that the building skin reads it as carved rock, not laid stone blocks. */
+const BAS = { dark: c(0x3f4836), mid: c(0x56634a), light: c(0x6a7652), moss: c(0x5d7a46) };
+
+/**
+ * The Colossal Head: a ruler's face carved from one basalt boulder, in a close helmet with a brow
+ * band and knobs, ear flaps and ear spools; broad nose, heavy-lidded eyes and thick lips, gazing
+ * out (+z) over a flagstone plaza with offerings and fire bowls.
+ */
+export function colossalHeadModel(): BuildingModel {
+  const b = new GeoBuilder(), torches: THREE.Vector3[] = [];
+  wonderPlaza(b, 4.6);
+  stoneBlock(b, 3.3, 0.32, 3.0, 0, 0.18, -0.35, false);
+  fretBand(b, M.t(0, 0.34, 1.16), 3.2, 0.16, K.red, AD.cream);
+  const y0 = 0.5, hz = -0.35;
+  const shade = (p: THREE.Vector3) => BAS.mid.clone().lerp(BAS.light, Math.min(1, Math.max(0, (p.y - y0) / 3)) * 0.45);
+  // Jaw, face and the helmet over it.
+  b.add(P.rbox(2.25, 1.15, 2.0, 0.2, 2), { color: shade }, M.t(0, y0 + 0.6, hz));
+  b.add(P.rbox(2.5, 1.25, 2.15, 0.22, 2), { color: shade }, M.t(0, y0 + 1.65, hz));
+  b.add(P.rbox(2.8, 1.05, 2.4, 0.32, 2), { color: BAS.dark }, M.t(0, y0 + 2.62, hz - 0.03));
+  // The helmet's brow band, with four knobs, and its ear flaps.
+  b.add(P.box(2.84, 0.24, 0.2), { color: BAS.dark }, M.t(0, y0 + 2.16, hz + 1.12));
+  for (const x of [-0.9, -0.3, 0.3, 0.9]) b.add(P.sphere(0.13, 0), { color: BAS.mid }, M.t(x, y0 + 2.4, hz + 1.16));
+  for (const s of [-1, 1]) {
+    b.add(P.rbox(0.26, 1.45, 0.95, 0.08, 1), { color: BAS.dark }, M.t(s * 1.32, y0 + 1.75, hz));
+    b.add(P.cyl(0.21, 0.21, 0.12, 10), { color: BAS.light }, M.t(s * 1.47, y0 + 1.35, hz + 0.12, 0, 0, Math.PI / 2));
+    b.add(P.cyl(0.09, 0.09, 0.14, 8), { color: BAS.dark }, M.t(s * 1.48, y0 + 1.35, hz + 0.12, 0, 0, Math.PI / 2));
+  }
+  // The face (front at z = fz): brow, almond eyes under heavy lids, broad nose, full cheeks, thick lips.
+  const fz = hz + 1.07;
+  b.add(P.box(1.9, 0.14, 0.14), { color: BAS.dark }, M.t(0, y0 + 1.98, fz));
+  for (const s of [-1, 1]) {
+    b.add(P.sphere(0.2, 1), { color: BAS.light }, M.t(s * 0.46, y0 + 1.74, fz, 0, 0, 0, 1.45, 0.55, 0.42));
+    b.add(P.box(0.5, 0.06, 0.12), { color: BAS.dark }, M.t(s * 0.46, y0 + 1.85, fz + 0.04, 0, 0, -s * 0.12));
+    b.add(P.sphere(0.065, 0), { color: c(0x1e211d) }, M.t(s * 0.44, y0 + 1.73, fz + 0.08));
+    b.add(P.sphere(0.4, 1), { color: shade }, M.t(s * 0.76, y0 + 1.08, fz - 0.06, 0, 0, 0, 1, 0.8, 0.45));
+    b.add(P.sphere(0.13, 0), { color: shade }, M.t(s * 0.26, y0 + 1.1, fz + 0.16));
+  }
+  b.add(P.box(0.62, 0.58, 0.34), { color: shade }, M.t(0, y0 + 1.33, fz + 0.12, -0.28, 0, 0));
+  b.add(P.rbox(0.98, 0.17, 0.24, 0.06, 1), { color: BAS.mid }, M.t(0, y0 + 0.8, fz + 0.05));
+  b.add(P.rbox(0.88, 0.2, 0.24, 0.06, 1), { color: BAS.mid }, M.t(0, y0 + 0.58, fz + 0.04));
+  b.add(P.box(0.82, 0.04, 0.06), { color: c(0x1e211d) }, M.t(0, y0 + 0.69, fz + 0.15));
+  // A little moss on the helmet, where the rain runs.
+  for (const [x, z, s] of [[-0.8, -0.6, 0.35], [0.5, -0.9, 0.3], [0.9, 0.2, 0.22]] as const) b.add(P.sphere(s, 0), { color: BAS.moss }, M.t(x, y0 + 3.1, hz + z, 0, 0, 0, 1, 0.18, 1));
+  // Offerings: flowers and painted pots before the face, fire bowls on posts at the corners.
+  blooms(b, 0, 0.18, 1.75, 10, 0.9, 0.2, 77);
+  for (const s of [-1, 1]) {
+    frettedPot(b, s * 0.65, 0.18, 1.55, 1.1);
+    b.add(P.box(0.42, 0.62, 0.42), { color: CUT.stone }, M.t(s * 1.85, 0.49, 1.75));
+    torches.push(fireBowl(b, s * 1.85, 0.8, 1.75, 1.25));
+  }
+  return { finished: b.build(), torches, height: 3.9 };
+}
+
+const SUN = { stone: c(0xcdb48a), dark: c(0xa98f66), ochre: c(0xd39b3a), red: c(0xb23a2c), teal: c(0x2f8f86) };
+
+/**
+ * The Sun Stone: a great carved disc set upright between two stone posts on a stepped plinth,
+ * painted in rings: an ochre rim with a band of red and turquoise day-signs, eight red rays, and
+ * the sun's face at the heart with its tongue out. Fire bowls and banners at the corners.
+ */
+export function sunStoneModel(): BuildingModel {
+  const b = new GeoBuilder(), torches: THREE.Vector3[] = [];
+  wonderPlaza(b, 4.6);
+  const cz = -0.45;
+  stoneBlock(b, 3.8, 0.3, 2.3, 0, 0.18, cz, false);
+  stoneBlock(b, 3.1, 0.3, 1.6, 0, 0.48, cz, false);
+  fretBand(b, M.t(0, 0.33, cz + 1.16), 3.7, 0.14, K.red, AD.cream);
+  fretBand(b, M.t(0, 0.63, cz + 0.81), 3.0, 0.14, BANNER.teal, AD.cream);
+  for (const s of [-1, 1]) {
+    b.add(P.box(0.36, 3.1, 0.5), { color: CUT.stone }, M.t(s * 1.78, 0.78 + 1.55, cz));
+    b.add(P.box(0.5, 0.16, 0.62), { color: CUT.stoneLight }, M.t(s * 1.78, 0.78 + 3.18, cz));
+  }
+  const cy = 2.45, R = 1.55, f = cz + 0.16;
+  // The disc, and its painted rings on the face (each a shade proud of the last).
+  b.add(P.cyl(R, R, 0.32, 32), { color: SUN.stone }, M.t(0, cy, cz, Math.PI / 2, 0, 0));
+  const ring = (r: number, dz: number, color: THREE.Color, seg = 30) => b.add(P.cyl(r, r, 0.03, seg), { color }, M.t(0, cy, f + dz, Math.PI / 2, 0, 0));
+  ring(R * 0.97, 0.015, SUN.ochre);
+  ring(R * 0.88, 0.035, SUN.stone);
+  for (let k = 0; k < 20; k++) {
+    const a = (k / 20) * Math.PI * 2, r = R * 0.78;
+    b.add(P.box(0.2, 0.18, 0.04), { color: k % 2 ? SUN.red : SUN.teal }, M.t(Math.cos(a) * r, cy + Math.sin(a) * r, f + 0.07, 0, 0, a));
+  }
+  ring(R * 0.66, 0.06, SUN.dark);
+  ring(R * 0.6, 0.075, SUN.stone);
+  for (let k = 0; k < 8; k++) {
+    const a = (k / 8) * Math.PI * 2 + Math.PI / 8;
+    b.add(P.cone(0.17, 0.42, 4), { color: SUN.red }, M.t(Math.cos(a) * 0.62, cy + Math.sin(a) * 0.62, f + 0.11, 0, 0, a - Math.PI / 2, 1, 1, 0.25));
+  }
+  ring(R * 0.36, 0.1, SUN.teal);
+  ring(R * 0.27, 0.12, SUN.ochre);
+  // The sun's face: eyes, brow and the tongue out.
+  for (const s of [-1, 1]) b.add(P.box(0.09, 0.07, 0.03), { color: c(0x3a2a20) }, M.t(s * 0.13, cy + 0.08, f + 0.15));
+  b.add(P.box(0.32, 0.04, 0.03), { color: SUN.red }, M.t(0, cy + 0.19, f + 0.15));
+  b.add(P.box(0.09, 0.24, 0.03), { color: SUN.red }, M.t(0, cy - 0.17, f + 0.15));
+  // Fire bowls on posts at the front corners; banners at the back.
+  for (const s of [-1, 1]) {
+    b.add(P.box(0.42, 0.62, 0.42), { color: CUT.stone }, M.t(s * 1.85, 0.49, 1.75));
+    torches.push(fireBowl(b, s * 1.85, 0.8, 1.75, 1.25));
+    bannerPole(b, s * 2.05, -2.0, 2.0, 0);
+  }
+  blooms(b, 0, 0.18, 1.6, 8, 0.8, 0.2, 91);
+  return { finished: b.build(), torches, height: 4.2 };
+}
+
+/**
+ * The Sky Tower: four stepped terraces with fretted friezes, a steep stair up the front, and the
+ * star-watchers' shrine on top with a sighting post on its roof; fires burn at the terrace corners.
+ */
+export function skyTowerModel(): BuildingModel {
+  const b = new GeoBuilder(), torches: THREE.Vector3[] = [];
+  wonderPlaza(b, 5.6);
+  const cz = -0.3, h = 0.92;
+  let y = 0.18;
+  [4.8, 3.9, 3.0, 2.2].forEach((w, k) => {
+    stoneBlock(b, w, h, w, 0, y, cz, false);
+    fretBand(b, M.t(0, y + h * 0.62, cz + w / 2 + 0.008), w - 0.1, 0.16, k % 2 ? BANNER.teal : K.red, AD.cream);
+    if (k < 3) for (const s of [-1, 1]) torches.push(fireBowl(b, s * (w / 2 - 0.22), y + h, cz - w / 2 + 0.22, 0.9));
+    y += h;
+  });
+  // The stair: from the plaza straight up the front to the top terrace.
+  const top = y, n = 22, z0 = cz + 2.75, z1 = cz + 1.1;
+  for (let k = 0; k < n; k++) {
+    const t = k / n, rise = (top - 0.18) / n;
+    b.add(P.box(0.95, rise + 0.01, 0.2), { color: k % 2 ? CUT.stoneLight : CUT.stone }, M.t(0, 0.18 + t * (top - 0.18) + rise / 2, z0 - t * (z0 - z1)));
+  }
+  const slope = Math.atan2(top - 0.18, z0 - z1), run = Math.hypot(top - 0.18, z0 - z1);
+  for (const s of [-1, 1]) b.add(P.box(0.16, 0.16, run), { color: CUT.stoneDark }, M.t(s * 0.56, 0.18 + (top - 0.18) / 2 + 0.08, (z0 + z1) / 2, slope, 0, 0));
+  // The shrine on top: a small cut-stone house with a red roof, a door to the stair, and the sighting post.
+  stoneBlock(b, 1.4, 0.75, 1.2, 0, top, cz - 0.15, false);
+  b.add(P.box(1.6, 0.12, 1.4), { color: K.red }, M.t(0, top + 0.81, cz - 0.15));
+  b.add(P.box(1.5, 0.08, 1.3), { color: AD.cream }, M.t(0, top + 0.91, cz - 0.15));
+  tealDoor(b, 0, top, cz + 0.46, 0.34, 0.5);
+  for (const [rx, rz] of [[0.5, 0.4], [-0.5, -0.4]] as const) b.add(P.cyl(0.025, 0.025, 0.9, 5), { color: K.timberDark }, M.t(0, top + 1.3, cz - 0.15, rx, 0, rz));
+  for (const s of [-1, 1]) torches.push(fireBowl(b, s * 0.85, top, cz + 0.55, 0.9));
+  for (const s of [-1, 1]) bannerPole(b, s * 2.55, 2.3, 1.9, 0);
+  return { finished: b.build(), torches, height: top + 1.8 };
+}

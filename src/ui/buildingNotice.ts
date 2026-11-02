@@ -36,6 +36,9 @@ const ROLE: Partial<Record<BuildingKey, string>> = {
   boatworkshop: 'Canoes can now be built at Fishing Jetties',
   stonemason: 'Masonry unlocked',
   firemaker: 'Gunpowder can be packed into fireworks',
+  olmechead: 'Every islander feels watched over',
+  sunstone: 'A steady trickle of Belief',
+  skytower: 'Research goes half as fast again',
 };
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;

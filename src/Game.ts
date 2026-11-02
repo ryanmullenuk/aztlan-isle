@@ -73,7 +73,9 @@ import { shapeWaterfall } from './world/waterfallSite';
 import { Bridges } from './buildings/Bridges';
 import { TradeFleet } from './entities/Trade';
 import { GOD_NAME, randomIslandName } from './world/names';
-import { FAUNA, GREAT_HALL, SPECIES, TIME, FIREWORKS, GOODS, RARE_GOODS, type GoodKey } from './config';
+import { FAUNA, GREAT_HALL, SPECIES, TIME, FIREWORKS, GOODS, RARE_GOODS, WONDER_EFFECT, type GoodKey, type WonderKey } from './config';
+import { WeddingSystem } from './economy/Weddings';
+import { LanternNight } from './economy/LanternNight';
 import { MONKEY_BASE } from './entities/Monkeys';
 import { DOG_BASE, Dogs } from './entities/Dogs';
 import { JAG_BASE, Jaguar, Jaguars } from './entities/Jaguars';
@@ -251,6 +253,10 @@ export class Game {
   private rainbow = new Rainbow();
   /** Eclipses, comets and stranded whales. */
   rare!: RareEventSystem;
+  /** Couples asking to marry, and their weddings. */
+  weddings!: WeddingSystem;
+  /** Lantern Night, once a year after the harvest. */
+  lanternNight!: LanternNight;
   /** Firework displays over the village. */
   readonly fireworks = new Fireworks();
   /** Rare goods bought from the traders today (saved). */
@@ -511,6 +517,9 @@ export class Game {
     this.scene.add(this.skyBodies.group, this.rainbow.mesh, this.moodMarkers.group, this.fireworks.points);
     this.fireworks.onSound = (n, x, z) => this.audio?.sfx(n, x, z);
     this.rare = new RareEventSystem(this);
+    this.weddings = new WeddingSystem(this);
+    this.lanternNight = new LanternNight(this);
+    this.scene.add(this.lanternNight.lanterns.points);
     const seaAngle = Math.atan2(this.world.seaDir.z, this.world.seaDir.x);
     this.lighting.eveningAzimuth = seaAngle + Math.PI;
 
@@ -2508,7 +2517,7 @@ export class Game {
     cam.layers.mask = this.rig.camera.layers.mask;
     cam.updateMatrixWorld();
     // Things that belong to the player's own view stay out of the picture.
-    const hide = [this.fireworks.points, this.moodMarkers.group, this.requestMarkers, this.rainbow.mesh, this.rare.comet.mesh, this.brush, this.skyBodies.group];
+    const hide = [this.fireworks.points, this.lanternNight.lanterns.points, this.moodMarkers.group, this.requestMarkers, this.rainbow.mesh, this.rare.comet.mesh, this.brush, this.skyBodies.group];
     const was = hide.map((o) => o.visible);
     hide.forEach((o) => (o.visible = false));
     const fog = this.scene.fog as THREE.Fog, near = fog.near, far = fog.far;
@@ -2571,6 +2580,11 @@ export class Game {
 
   buildBoat(b: Building): void {
     this.boatHandler?.(b);
+  }
+
+  /** A finished, standing wonder of this kind. */
+  wonder(key: WonderKey): boolean {
+    return this.buildings.list.some((b) => b.key === key && b.complete && !b.ruined);
   }
 
   // ---------------- Rare goods and fireworks ----------------
@@ -2967,6 +2981,7 @@ export class Game {
     this.skyBodies.update(this.rig.camera, ls, this.lighting.overcast, this.settings.dayNight ? this.time.t : RENDER.fixedTimeOfDay, t, this.rare.cover);
     this.rainbow.update(realDt, this.rig.camera, this.rig.target, ls, this.lighting.overcast);
     this.fireworks.update(realDt, this.rig.camera, this.renderer.domElement.height, ls.night);
+    this.lanternNight.lanterns.update(realDt, this.renderer.domElement.height, ls.night);
 
     const ws = this.water.shared;
     ws.uSunDir.value.copy(ls.sunDir);
@@ -2995,7 +3010,8 @@ export class Game {
     this.colony.update(dt);
     this.markFoes(dt);
     // Observatory research: priests on duty this frame study the active tier.
-    const studied = this.research.advance(dt, this.colony.observing);
+    // The Sky Tower: the star-watchers see further.
+    const studied = this.research.advance(dt * (this.wonder('skytower') ? WONDER_EFFECT.research : 1), this.colony.observing);
     if (studied) this.onResearched(studied);
     this.forecaster.tick(dt > 0 ? realDt : 0);
     const fire = this.buildings.list.find((b) => b.key === 'campfire');
@@ -3040,6 +3056,10 @@ export class Game {
     for (const s of this.systems) s(realDt, dt);
     // After the islanders have moved: those gathered at a whale or a ritual are held in place.
     this.rare.update(realDt, dt);
+    this.weddings.update(dt);
+    this.lanternNight.update(dt);
+    // The Sun Stone's favour: a steady trickle of Belief.
+    if (dt > 0 && this.wonder('sunstone')) this.eco.add('belief', (WONDER_EFFECT.beliefPerMinute * dt) / 60);
     this.healers.update(dt);
     const healers = this.healers.list;
     this.rig3d.celebrate = this.fireworks.active;

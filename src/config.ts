@@ -254,7 +254,20 @@ export const ECONOMY = {
   varietyHappiness: 0.05,
 };
 
-export type BuildingKey = 'boatworkshop' | 'campfire' | 'hut' | 'home' | 'temple' | 'greattemple' | 'farm' | 'maizefarm' | 'chinampa' | 'butcher' | 'smokehouse' | 'woodstore' | 'grainstore' | 'warroom' | 'jetty' | 'torch' | 'bonfire' | 'firepit' | 'well' | 'tradedock' | 'kennel' | 'greathall' | 'pigpen' | 'chickenpen' | 'healer' | 'herbalist' | 'herbalgarden' | 'stonemason' | 'market' | 'watchtower' | 'palace' | 'observatory' | 'fishhut' | 'firemaker' | DecorKey;
+export type BuildingKey = 'boatworkshop' | 'campfire' | 'hut' | 'home' | 'temple' | 'greattemple' | 'farm' | 'maizefarm' | 'chinampa' | 'butcher' | 'smokehouse' | 'woodstore' | 'grainstore' | 'warroom' | 'jetty' | 'torch' | 'bonfire' | 'firepit' | 'well' | 'tradedock' | 'kennel' | 'greathall' | 'pigpen' | 'chickenpen' | 'healer' | 'herbalist' | 'herbalgarden' | 'stonemason' | 'market' | 'watchtower' | 'palace' | 'observatory' | 'fishhut' | 'firemaker' | WonderKey | DecorKey;
+
+/** Wonders: rare late monuments, one of each per island, built in four phases with a lasting bonus. */
+export type WonderKey = 'olmechead' | 'sunstone' | 'skytower';
+export const WONDER_KEYS: WonderKey[] = ['olmechead', 'sunstone', 'skytower'];
+export const isWonder = (key: string): key is WonderKey => (WONDER_KEYS as string[]).includes(key);
+/** Built phase by phase (each phase pays the building's cost again): the Great Temple and the wonders. */
+export const isPhased = (key: string): boolean => key === 'greattemple' || isWonder(key);
+export const WONDERS: Record<WonderKey, { phases: [string, string, string, string]; bonus: string }> = {
+  olmechead: { phases: ['Quarrying the basalt', 'Hauling the boulder', 'Carving the face', 'Polishing'], bonus: 'Islanders feel watched over: everyone is a little happier' },
+  sunstone: { phases: ['Raising the plinth', 'Cutting the disc', 'Carving the rays', 'Painting'], bonus: 'The sun’s favour: a steady trickle of Belief' },
+  skytower: { phases: ['Foundations', 'Lower terraces', 'Upper terraces', 'Sky shrine'], bonus: 'Star-watchers see further: research is half as fast again' },
+};
+export const WONDER_EFFECT = { happy: 0.1, beliefPerMinute: 6, research: 1.5 };
 
 /** Placeable decorations: Aztec banners and flags (no workers, islanders walk past them). */
 export type DecorKey = 'bannersun' | 'bannereagle' | 'bannerteal' | 'pennants' | 'featherbanner' | 'flagstring';
@@ -297,6 +310,9 @@ export const BUILDINGS: Record<BuildingKey, BuildingDef> = {
   tradedock: { key: 'tradedock', name: 'Trade Dock', description: 'A long pier and trading house on the shore, facing open water. Build trade boats here and send them to trade your spare goods for what you need.', size: [2, 2], cost: { wood: 40, stone: 20, belief: 0 }, buildTime: 300, builders: 3, workers: 0, placeable: true },
   torch: { key: 'torch', name: 'Torch', description: 'A tall torch on a post. Place it along paths or anywhere to light the village at night. Villagers can walk past it.', size: [1, 1], cost: { wood: 3, stone: 0, belief: 0 }, buildTime: 15, builders: 1, workers: 0, placeable: true },
   bonfire: { key: 'bonfire', name: 'Bonfire', description: 'A great stone-ringed fire with towering orange flames. In the evenings villagers gather here to sing and tell stories: they grow happier and the tribe gains Belief.', size: [3, 3], cost: { wood: 20, stone: 6, belief: 0 }, buildTime: 90, builders: 2, workers: 0, placeable: true },
+  olmechead: { key: 'olmechead', name: 'Colossal Head', description: 'A colossal head carved from a single basalt boulder, wearing a ruler’s helmet, gazing out over the island. A wonder: built in four phases (each costing 30 wood, 140 stone, carved stone and 40 Belief) by many hands. When it stands, every islander feels watched over and a little happier. One per island.', size: [5, 5], cost: { wood: 30, stone: 140, belief: 40 }, buildTime: 2000, builders: 8, workers: 0, placeable: true },
+  sunstone: { key: 'sunstone', name: 'Sun Stone', description: 'A great carved stone disc of the sun, its rays, days and ages painted in ochre, red and turquoise, standing on a stepped plinth. A wonder: built in four phases (each costing 30 wood, 120 stone, carved stone and 60 Belief). When it stands, the sun’s favour brings a steady trickle of Belief. One per island.', size: [5, 5], cost: { wood: 30, stone: 120, belief: 60 }, buildTime: 2000, builders: 8, workers: 0, placeable: true },
+  skytower: { key: 'skytower', name: 'Sky Tower', description: 'A tall stepped tower of four terraces crowned with a star-watchers’ shrine, fires burning at its corners. A wonder: built in four phases (each costing 80 wood, 120 stone, carved stone and 40 Belief). When it stands, the Observatory’s research goes half as fast again. One per island.', size: [6, 6], cost: { wood: 80, stone: 120, belief: 40 }, buildTime: 2200, builders: 8, workers: 0, placeable: true },
   firemaker: { key: 'firemaker', name: 'Firemaker’s Workshop', description: 'A stone kiln and a thatched workbench stacked with rockets. A firemaker packs gunpowder into fireworks, three from each jar. Launch them from here to celebrate. Unlocked once voyagers bring gunpowder home.', size: [4, 3], cost: { wood: 30, stone: 20, belief: 0 }, buildTime: 240, builders: 3, workers: 1, placeable: true },
   firepit: { key: 'firepit', name: 'Cooking Firepit', description: 'A large stone hearth with roaring flames. Islanders gather and dance here at night; roasted meat also makes meals more filling.', size: [2, 2], cost: { wood: 12, stone: 8, belief: 0 }, buildTime: 75, builders: 2, workers: 0, placeable: true },
   well: { key: 'well', name: 'Well', description: 'Provides fresh water for the village and supplies islanders fighting building fires. Keep a well nearby and accessible to help protect your buildings.', size: [2, 2], cost: { wood: 6, stone: 20, belief: 0 }, buildTime: 120, builders: 2, workers: 0, placeable: true },

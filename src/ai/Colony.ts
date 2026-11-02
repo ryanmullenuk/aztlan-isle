@@ -6,7 +6,7 @@ import { packFireworks } from '../economy/RareGoods';
 import { needsSelfCare } from './GroupSelection';
 import * as THREE from 'three';
 import type { Where } from '../ui/where';
-import { ECONOMY, FARM, FOOD_KEYS, ISLANDER, JETTY, NAMES, OBSERVATORY, ResourceKey, TEMPLE, WARRIOR, FARM_TYPES, isFarm, SMOKE, COMFORTS, PATHS, GREAT_HALL, HEALTH, HERBALIST, STONEMASON, TIME, FIREWORKS } from '../config';
+import { ECONOMY, FARM, FOOD_KEYS, ISLANDER, JETTY, NAMES, OBSERVATORY, ResourceKey, TEMPLE, WARRIOR, FARM_TYPES, isFarm, SMOKE, COMFORTS, PATHS, GREAT_HALL, HEALTH, HERBALIST, STONEMASON, TIME, FIREWORKS, WONDER_EFFECT } from '../config';
 import { Building, BuildingSystem, doorStep } from '../buildings/Buildings';
 import { HALL, HEAL, OBS } from '../buildings/models';
 import { Economy } from '../economy/Economy';
@@ -874,6 +874,28 @@ export class Colony {
       }
       if (best) move(isl, best);
     }
+    // 2b) The married live together: one moves in with the other, or both to a house with room for two.
+    for (const isl of this.list) {
+      const sp = isl.spouse !== undefined ? this.byId(isl.spouse) : undefined;
+      if (!sp || isl.child || isl.home === sp.home && isl.home >= 0 || isl.id > sp.id) continue;
+      // (Within a Home's couples, so the rebalancing above never moves them apart again.)
+      const room = (b: Building | undefined, n: number) => !!b && buildingSafe(b) && b.key !== 'fishhut' && b.housing - b.residents.length >= n &&
+        (b.key !== 'home' || b.residents.length + n <= couplesFor(b) * 2);
+      const leave = (x: Islander) => {
+        const old = this.bld.byId(x.home);
+        if (old) old.residents = old.residents.filter((id) => id !== x.id);
+        x.home = -1;
+      };
+      const into = (x: Islander, b: Building) => { leave(x); move(x, b); };
+      const a = this.bld.byId(isl.home), b = this.bld.byId(sp.home);
+      if (room(b, 1)) into(isl, b!);
+      else if (room(a, 1)) into(sp, a!);
+      else {
+        const both = this.bld.list.filter((h) => (h.key === 'home' || h.key === 'hut') && room(h, 2))
+          .sort((h1, h2) => ((h1.x - isl.x) ** 2 + (h1.z - isl.z) ** 2) - ((h2.x - isl.x) ** 2 + (h2.z - isl.z) ** 2))[0];
+        if (both) { into(isl, both); into(sp, both); }
+      }
+    }
     // 3) Children: one per house. A child whose house is gone moves to the nearest house without one.
     const isHouse = (b: Building | undefined) => buildingSafe(b) && (b!.key === 'hut' || b!.key === 'home');
     for (const kid of this.list) {
@@ -900,7 +922,9 @@ export class Colony {
       const adults = b.residents.map((id) => this.byId(id)).filter((i): i is Islander => !!i && !i.child);
       if (!adults.some((i) => i.gender === 'm') || !adults.some((i) => i.gender === 'f')) continue;
       if (this.eco.food < ISLANDER.birthFoodMin) continue;
-      if (this.rnd() > ISLANDER.birthChancePerDay) continue;
+      // A married couple at home is twice as likely to have a child.
+      const wed = adults.some((a) => a.spouse !== undefined && adults.some((o) => o.id === a.spouse));
+      if (this.rnd() > ISLANDER.birthChancePerDay * (wed ? 2 : 1)) continue;
       const g = this.rnd() < 0.5 ? 'm' : 'f';
       const kid = this.spawn(g, b.door.x, b.door.z, true);
       // The child lives here but takes no bed.
@@ -928,6 +952,8 @@ export class Colony {
     if (home) target += home.key === 'home' ? 0.32 : 0.22;
     if (isl.hunger > 0.45) target += 0.2;
     if (this.bld.of('greattemple').length) target += 0.15;
+    // The Colossal Head watches over the island.
+    if (this.bld.list.some((b) => b.key === 'olmechead' && b.complete && !b.ruined)) target += WONDER_EFFECT.happy;
     if (this.bld.of('temple').length) target += 0.1 + Math.min(0.1, this.bld.of('temple').reduce((s, b) => s + b.tier, 0) * 0.03);
     if (FOOD_KEYS.filter((k) => this.eco.res[k] > 0).length >= 3) target += ECONOMY.varietyHappiness;
     // Fresh water close to home.
@@ -2844,6 +2870,7 @@ export class Colony {
       b.builders.delete(isl.id);
     }
     this.list = this.list.filter((i) => i !== isl);
+    for (const o of this.list) if (o.spouse === isl.id) o.spouse = undefined;
     this.onRemoved(isl);
   }
 

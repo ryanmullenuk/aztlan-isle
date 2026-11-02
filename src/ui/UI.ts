@@ -13,7 +13,7 @@ import { rareBlock, rareLeft } from '../economy/RareGoods';
 import { settingsMarkup, wireSettingsTabs } from './SettingsPanel';
 import { serialize } from '../world/Save';
 import { islandFile, parseIslandFile, downloadIsland, MAX_ISLAND_FILE_BYTES } from '../world/IslandFile';
-import { DEFENCE, DOGS, GOODS, GOOD_KEYS, GoodKey, VOYAGE, FAUNA, PATHS, BUILDINGS, BuildingKey, CAMERA, JETTY, MILESTONES, PresetName, SAVE, SPECIES, WARRIOR, FARM_TYPES, SMOKE, STONEMASON, BOAT_WORKSHOP, TRADE, TradeOffer, ResourceKey, FIREWORKS, RARE_GOODS, DECREES, PALACE_RULES, type DecreeKey, RESEARCH, RESEARCH_UPGRADE_LABEL, OBSERVATORY, TIME, DECOR_KEYS } from '../config';
+import { DEFENCE, DOGS, GOODS, GOOD_KEYS, GoodKey, VOYAGE, FAUNA, PATHS, BUILDINGS, BuildingKey, CAMERA, JETTY, MILESTONES, PresetName, SAVE, SPECIES, WARRIOR, FARM_TYPES, SMOKE, STONEMASON, BOAT_WORKSHOP, TRADE, TradeOffer, ResourceKey, FIREWORKS, RARE_GOODS, WONDER_KEYS, WONDERS, isWonder, DECREES, PALACE_RULES, type DecreeKey, RESEARCH, RESEARCH_UPGRADE_LABEL, OBSERVATORY, TIME, DECOR_KEYS } from '../config';
 import { MONKEY_BASE } from '../entities/Monkeys';
 import { DOG_BASE } from '../entities/Dogs';
 import { JAG_BASE } from '../entities/Jaguars';
@@ -67,7 +67,7 @@ const HUD_OPEN_KEY = 'aztlan-hud-open';
 const GOALS_OPEN_KEY = 'aztlan-goals-open';
 
 const BUILD_ICON: Record<BuildingKey, string> = {
-  boatworkshop: 'b_boatworkshop', market: 'b_market', stonemason: 'b_stonemason', herbalist: 'b_herbalist', herbalgarden: 'b_herbalgarden', firemaker: 'b_firemaker',
+  boatworkshop: 'b_boatworkshop', market: 'b_market', stonemason: 'b_stonemason', herbalist: 'b_herbalist', herbalgarden: 'b_herbalgarden', firemaker: 'b_firemaker', olmechead: 'b_olmechead', sunstone: 'b_sunstone', skytower: 'b_skytower',
   campfire: 'belief', hut: 'b_hut', home: 'b_home', temple: 'b_temple', greattemple: 'b_greattemple', farm: 'b_farm', butcher: 'b_butcher',
   woodstore: 'b_woodstore', grainstore: 'b_grainstore', warroom: 'b_warroom', jetty: 'b_jetty',
   maizefarm: 'b_maize', chinampa: 'b_chinampa', smokehouse: 'b_smoke',
@@ -684,6 +684,9 @@ export class UI {
     pathItem('unpath', 'Remove path', 'b_unpath', '', '<b>Remove path, bridge or canal</b><br>Hold and drag over a path, bridge or canal to take it away (canals are filled back in).');
     pathItem('regrass', 'Restore grass', 'b_regrass', 'Free', '<b>Restore grass</b><br>Hold and drag over bare, trodden earth or old dirt tracks to grow the grass back. Stone paths stay (use Remove path for those).');
     // Banners and flags to dress the village.
+    // Wonders: rare late monuments, one of each.
+    grid.appendChild(el('div', 'bm-section', 'Wonders'));
+    WONDER_KEYS.forEach(buildItem);
     grid.appendChild(el('div', 'bm-section', 'Decorations'));
     DECOR_KEYS.forEach(buildItem);
     this.buildMenu.appendChild(grid);
@@ -1642,6 +1645,13 @@ export class UI {
     }
     let body = '';
     if(b.key==='palace'&&!b.complete){const names=['Platform','Grand stair and plaza','Halls and courtyard','Roofs, crest and gardens'];const phase=Math.min(3,Math.floor(b.progress*4));body+=`<p>${names[phase]} · Phase ${phase+1}/4</p>`;}
+    if (isWonder(b.key)) {
+      const w = WONDERS[b.key];
+      if (!b.complete) {
+        const phase = Math.min(3, Math.floor(b.progress * 4)), c = b.def.cost;
+        body += `<p>${w.phases[phase]} · Phase ${phase + 1}/4</p><p class="muted small">Each phase: ${c.wood} wood · ${c.stone} stone · ${c.carvedStone ?? 0} carved stone · ${c.belief} Belief. Builders pause until the next phase can be supplied.</p><p class="muted small">When it stands: ${w.bonus.toLowerCase()}.</p>`;
+      } else body += `<div class="kv"><span>Wonder</span><b>${w.bonus}</b></div>`;
+    }
     if(b.key==='greattemple'&&!b.complete){const names=['Foundations','Terraces','Stairs','Shrines'];const phase=Math.min(3,Math.floor(b.progress*4));body+=`<p>${names[phase]} · Phase ${phase+1}/4</p><p class="muted small">Each phase: 40 wood · 120 stone · 30 carved stone · 50 Belief. Builders pause until the next phase can be supplied.</p>`;}
     if (!b.complete) body += `${this.bar(`Building ${Math.round(b.progress * 100)}%`, b.progress, 'good')}<div class="kv"><span>Builders</span><b>${b.builders.size} / ${b.def.builders}</b></div>`;
     else if (b.upgrading) body += `${this.bar(`Upgrading ${Math.round(b.progress * 100)}%`, b.progress, 'good')}`;

@@ -44,6 +44,9 @@ export interface SaveData {
   rare?: RareSave;
   /** Rare goods bought from the traders today (gunpowder and so on). */
   rareSales?: RareSales;
+  /** When the next couple will ask to marry, and the year Lantern Night was last held. */
+  weddings?: { next: number };
+  lanterns?: { held: number };
   volcano?: VolcanoSave;
   fires?: StormFireSave;
   encounters?: EncounterSave;
@@ -183,6 +186,8 @@ export function serialize(g: Game): SaveData {
     ...(g.research ? { research: g.research.save() } : {}),
     ...(g.forecaster ? { forecast: g.forecaster.save() } : {}),
     ...(g.rare?.save() ? { rare: g.rare.save()! } : {}),
+    ...(g.weddings ? { weddings: g.weddings.save() } : {}),
+    ...(g.lanternNight ? { lanterns: g.lanternNight.save() } : {}),
     ...(g.rareSales ? { rareSales: { day: g.rareSales.day, bought: { ...g.rareSales.bought } } } : {}),
     ...(g.volcano ? { volcano: g.volcano.save() } : {}),
     world: { layer: toB64(layerU), sandy: q8(w.sandy), forest: q8(w.forest), rocky: q8(w.rocky), wear: q8(w.wear), path: toB64(w.path), bridge: toB64(w.bridge), canal: toB64(w.canal) },
@@ -214,6 +219,7 @@ export function serialize(g: Game): SaveData {
       ...(i.lastHallVisit !== undefined ? { lastHallVisit: i.lastHallVisit } : {}),
       ...(i.greatTemplePrayer ? { greatTemplePrayer: i.greatTemplePrayer } : {}),
       ...(i.condition !== 'well' ? { condition: i.condition, conditionT: i.conditionT } : {}),
+      ...(i.spouse !== undefined ? { spouse: i.spouse } : {}),
     })),
     schools: g.wildlife?.schools.map((s) => Math.round(s.stock * 10) / 10) ?? [],
     animals: g.wildlife?.animals.serialize() ?? [],
@@ -333,6 +339,8 @@ export function applyRest(g: Game, d: SaveData): void {
   if (g.forecaster && d.forecast) g.forecaster.restore(d.forecast);
   g.rare?.restore(d.rare);
   g.rareSales = restoreSales(d.rareSales);
+  g.weddings?.restore(d.weddings);
+  g.lanternNight?.restore(d.lanterns);
   if (g.research) {
     if (d.research) g.research.restore(d.research);
     else {
