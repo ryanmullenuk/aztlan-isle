@@ -777,8 +777,15 @@ export const GREAT_HALL = {
 export const HEALTH = {
   /** Chance per islander (adults and children) per game day of falling sick. */
   sickChancePerDay: 0.02,
-  /** Nobody falls sick while the village is smaller than this. */
-  minPopulation: 6,
+  /**
+   * Nobody falls sick until the village has more than 50 islanders: by then it usually has a
+   * herbalist and a Healing Centre to look after them.
+   */
+  minPopulation: 51,
+  /** Chance per game day that a sick islander passes it to each person sharing their home. */
+  spreadChancePerDay: 0.3,
+  /** A working herbalist's remedies cut the spread to this share. */
+  herbalistSpread: 0.4,
   /** How often (game seconds) the sickness rolls are made. */
   checkSeconds: 10,
   /** Game seconds a sick or mauled islander lives without treatment. */

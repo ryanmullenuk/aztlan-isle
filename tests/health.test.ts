@@ -7,7 +7,7 @@ import { Economy } from '../src/economy/Economy';
 import { makeIslander } from '../src/entities/Islander';
 import { islandFile, parseIslandFile } from '../src/world/IslandFile';
 import { serialize } from '../src/world/Save';
-import { HEALTH, WORLD } from '../src/config';
+import { HEALTH, TIME, WORLD } from '../src/config';
 
 function setup(withCentre = false) {
   const world = { half: 100, layerY: () => 0, groundY: () => 0 } as any;
@@ -156,4 +156,34 @@ test('island files carry painted districts and reject unknown styles or unsafe n
     f.save.districts = [bad];
     assert.throws(() => parseIslandFile(JSON.stringify(f)));
   }
+});
+
+test('sickness only comes to villages of more than 50, and spreads to people sharing a home', () => {
+  const { colony, notes } = setup();
+  let roll = 0;
+  (colony as any).rnd = () => roll;
+  const villagers = (n: number) => Array.from({ length: n }, (_, i) => makeIslander(10 + i, `V${i}`, i % 2 ? 'm' : 'f', 0, 0, () => 0.5));
+  colony.list = villagers(50);
+  (colony as any).sicken();
+  assert.ok(colony.list.every((i) => i.condition === 'well'), 'a village of 50 stays well');
+  // 51: chance rolls only (nobody shares a home), and the roll of 0.99 never comes up.
+  colony.list = villagers(51);
+  roll = 0.99;
+  (colony as any).sicken();
+  assert.ok(colony.list.every((i) => i.condition === 'well'));
+  // A sick housemate passes it on: the spread roll succeeds while the plain chance does not.
+  const [a, b, c] = colony.list;
+  a.home = b.home = 7;
+  c.home = 8;
+  (colony as any).afflict(a, 'sick');
+  const spread = (HEALTH.spreadChancePerDay * HEALTH.checkSeconds) / TIME.dayLength;
+  roll = spread / 2;
+  (colony as any).rnd = () => roll;
+  // Plain chance also succeeds at this roll if it is below p, so make it a housemate-only roll.
+  const p = (HEALTH.sickChancePerDay * HEALTH.checkSeconds) / TIME.dayLength;
+  assert.ok(roll > p, 'the test roll sits between the plain chance and the spread chance');
+  (colony as any).sicken();
+  assert.equal(b.condition, 'sick');
+  assert.equal(c.condition, 'well', 'someone in another home does not catch it');
+  assert.ok(notes.some((n) => n.text.includes(`caught ${a.name}'s sickness`)));
 });

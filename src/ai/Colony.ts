@@ -2601,14 +2601,25 @@ export class Colony {
     return `Build a Healing Centre to cure them within ${Math.ceil(isl.conditionT / 60)} minutes.`;
   }
 
-  /** Now and then someone falls sick (not while the village is still tiny). */
+  /**
+   * Now and then someone falls sick (only once the village is large), and the sick pass it to the
+   * people they share a home with, less so when a herbalist is making remedies.
+   */
   private sicken(): void {
     if (this.list.length < HEALTH.minPopulation) return;
     const p = (HEALTH.sickChancePerDay * HEALTH.checkSeconds) / TIME.dayLength;
+    const herbs = this.bld.list.some((b) => b.key === 'herbalist' && buildingOperational(b) && !b.upgrading);
+    const spread = (HEALTH.spreadChancePerDay * HEALTH.checkSeconds / TIME.dayLength) * (herbs ? HEALTH.herbalistSpread : 1);
     for (const isl of this.list) {
-      if (isl.condition !== 'well' || isl.hidden || this.rnd() >= p) continue;
+      if (isl.condition !== 'well' || isl.hidden) continue;
+      let from: Islander | undefined;
+      if (isl.home >= 0) for (const o of this.list) {
+        if (o !== isl && o.home === isl.home && o.condition === 'sick' && this.rnd() < spread) { from = o; break; }
+      }
+      if (!from && this.rnd() >= p) continue;
       this.afflict(isl, 'sick');
-      this.hooks.notify?.(`${isl.name} has fallen sick. ${this.careNote(isl)}`, () => (isl.hidden ? null : { x: isl.x, z: isl.z }), 'warn');
+      const how = from ? `caught ${from.name}'s sickness at home` : 'fallen sick';
+      this.hooks.notify?.(`${isl.name} has ${how}. ${this.careNote(isl)}`, () => (isl.hidden ? null : { x: isl.x, z: isl.z }), 'warn');
     }
   }
 
