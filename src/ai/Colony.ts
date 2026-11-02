@@ -284,6 +284,8 @@ export class Colony {
     if (isl.hunger <= 0.02) speed *= 0.7;
     if (isl.injured > 0) speed *= 0.6;
     if (isl.condition !== 'well') speed *= HEALTH.sickSpeed;
+    // Freshly mauled: crawling, very slowly.
+    if (isl.condition === 'mauled' && isl.injured > 0) speed *= 0.35;
     const cell = this.world.cellIndexAt(isl.x, isl.z);
     if (cell >= 0) {
       speed *= 1 - this.world.forest[cell] * 0.35;

@@ -13,6 +13,7 @@
     "ios:sync": "npm run build && cap sync ios",
     "mac": "mac/build.sh",
     "mac:upload": "mac/build.sh upload",
+    "islander:prepare": "/Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup --python scripts/blender/prepare_islander.py -- art/islander_male_source.glb public/models/islander_male.glb 5000 0b5942dc=twerk 13c13a4d=sad_idle 4c8a25ce=injured_run 5768825f=jog c71a8e61=zombie_crawl eb0d9311=run_look_back eb17439f=idle",
     "test": "node --import tsx --test tests/*.test.ts",
     "perf": "node --import tsx scripts/performance.ts",
     "perf:paths": "node --import tsx scripts/pathfinding-performance.ts"

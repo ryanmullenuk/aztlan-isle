@@ -6,7 +6,7 @@ import { ISLANDER } from '../config';
 import { peopleMaterial, peopleSkinnedMaterial } from '../render/materials';
 import { Islander } from './Islander';
 import { PartKey, SKELETON, Skeleton, buildPeopleParts } from './PeopleModels';
-import { BI, BONE_COUNT, GlbModel } from './glbPeople';
+import { BI, BONE_COUNT, GlbModel, type ClipName } from './glbPeople';
 import { loadIslanderModels } from './islanderModels';
 import { CarryPose } from './CarryPose';
 
@@ -121,6 +121,29 @@ export function shownAnim(isl: Islander): Islander['anim'] {
   }
   if (isl.child && isl.anim === 'idle' && Math.sin(isl.animT * 0.12 + isl.id * 1.7) > 0.25) return 'play';
   return isl.anim;
+}
+
+/**
+ * Which of the model's own animation clips an islander plays now (null: the procedural pose).
+ * Standing about: the idle; downcast when they have needs and nothing to do; dancing at the fires,
+ * now and then when very happy, and often while fireworks light the sky. The sick and the hurt
+ * limp along in the injured run, and the badly mauled crawl; anyone fleeing or answering the
+ * alarm bell runs looking back over their shoulder, and an ordinary run is a jog.
+ */
+export function clipFor(isl: Islander, celebrating = false): ClipName | null {
+  if (isl.hidden || isl.sleeping || isl.floorY !== null) return null;
+  const a = isl.anim, moving = a === 'walk' || a === 'run';
+  if (isl.condition === 'mauled' && isl.injured > 0 && moving && !isl.carry) return 'zombie_crawl';
+  if ((isl.condition !== 'well' || isl.injured > 0) && moving && !isl.carry) return 'injured_run';
+  if (a === 'run' && !isl.carry && (isl.task?.kind === 'flee' || isl.task?.kind === 'hall')) return 'run_look_back';
+  if (a === 'run' && !isl.carry && !isl.warrior) return 'jog';
+  if (a === 'dance') return 'twerk';
+  if (shownAnim(isl) !== 'idle' || isl.warrior || isl.carry) return null;
+  const now = isl.animT * 0.06 + isl.id * 2.3;
+  if (celebrating && isl.id % 3 !== 0 && Math.sin(now) > -0.4) return 'twerk';
+  if (isl.happy > 0.8 && Math.sin(now) > 0.82) return 'twerk';
+  if (!isl.task && (isl.happy < 0.35 || isl.hunger < 0.2 || isl.rest < 0.15)) return 'sad_idle';
+  return 'idle';
 }
 
 /** Procedural animation for every islander activity. */
@@ -488,7 +511,7 @@ const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
  */
 export { isElder };
 /** Whether the children's models are loaded (else children are drawn as small founding islanders). */
-const hasChildModel = (skins: Partial<Record<CharacterModelKey, unknown>> | undefined) => !!skins?.boy && !!skins?.girl;
+const hasChildModel = (skins: Partial<Record<CharacterModelKey, { model: GlbModel }>> | undefined) => !!skins?.boy && !!skins?.m && skins.boy.model !== skins.m.model;
 /** Built-in body parts, no longer drawn (the character models are the bodies). */
 const BODY = new Set<string>(['pelvis', 'chest', 'head', 'uarm', 'farm', 'thigh', 'shin'].flatMap((b) => [`${b}_m`, `${b}_f`]));
 const TOOLS = ['axe', 'pick', 'hoe', 'spear', 'hammer'] as const;
@@ -573,7 +596,12 @@ export class IslanderRig {
     }
     loadIslanderModels()
       .then((glb) => {
-        for (const g of Object.keys(glb) as CharacterModelKey[]) this.skins[g] = this.makeSkin(glb[g]);
+        // Keys drawn with the same model share one skinned mesh (one draw for all of them).
+        const made = new Map<GlbModel, SkinSet>();
+        for (const g of Object.keys(glb) as CharacterModelKey[]) {
+          if (!made.has(glb[g])) made.set(glb[g], this.makeSkin(glb[g]));
+          this.skins[g] = made.get(glb[g]);
+        }
       })
       .catch((err) => console.error('Islander models failed to load.', err));
     this.ring = new THREE.Mesh(
@@ -699,11 +727,11 @@ export class IslanderRig {
       let need = -Infinity;
       for (const [th, sh, gnd, , lift] of legs) {
         const a = p.hipPitch + th;
-        need = Math.max(need, Math.max(FOOT_H + gnd - ankle(a, sh), KNEE_R + gnd + L.thigh * Math.cos(a) * splay) - hipDY - lift);
+        need = Math.max(need, Math.max((model.ankle ?? FOOT_H) + gnd - ankle(a, sh), KNEE_R + gnd + L.thigh * Math.cos(a) * splay) - hipDY - lift);
       }
       let settle = 0;
       for (const [th, sh, gnd, plant, lift] of legs) {
-        const gap = need + hipDY + lift + ankle(p.hipPitch + th, sh) - (FOOT_H + gnd);
+        const gap = need + hipDY + lift + ankle(p.hipPitch + th, sh) - ((model.ankle ?? FOOT_H) + gnd);
         // Only the difference in ground height between the feet (on flat ground the stride's own shape stands).
         if (plant > 0.5 && gap > 0.003) settle = Math.max(settle, Math.min(gap, Math.abs(groundL - groundR), 0.16));
       }
@@ -711,7 +739,7 @@ export class IslanderRig {
       for (const side of [0, 1] as const) {
         const [th, sh, gnd, , lift] = legs[side], a = p.hipPitch + th;
         // How far below the hip joint this foot's ankle must be, and the knee bend that gives it.
-        const reach = need + hipDY + lift - (FOOT_H + gnd);
+        const reach = need + hipDY + lift - ((model.ankle ?? FOOT_H) + gnd);
         if (ankle(a, sh) >= -reach) continue;
         const c = THREE.MathUtils.clamp((reach / splay - L.thigh * Math.cos(a)) / L.shin, -1, 1);
         const k = Math.max(sh, Math.acos(c) - a);
@@ -758,6 +786,11 @@ export class IslanderRig {
   groundAt: ((x: number, z: number) => number) | null = null;
   /** Per islander: the last pose drawn, and a short blend from it when the activity changes. */
   private blends = new Map<number, { anim: string; from: Pose; last: Pose; t: number }>();
+  /** Per islander: the clip playing (null: procedural), its time, and a fade from the last frame shown. */
+  private clipStates = new Map<number, { name: ClipName | null; t: number; fade: number; from: Float32Array; last: Float32Array }>();
+  /** Fireworks are lighting the sky (islanders standing about dance). */
+  celebrate = false;
+  private frameDt = 0;
 
   /** Ease from the previous activity's pose into the new one over a fraction of a second. */
   private blend(isl: Islander, p: Pose, dt: number): Pose {
@@ -797,10 +830,11 @@ export class IslanderRig {
   }
 
   update(list: Islander[], selected: number, _dt: number, group?: ReadonlySet<number>): void {
+    this.frameDt = _dt;
     this.count.clear();
     const M = this.m;
     const skinned = !!this.skins.m && !!this.skins.f;
-    if (skinned) for (const set of Object.values(this.skins)) set.n = 0;
+    if (skinned) for (const set of new Set(Object.values(this.skins))) if (set) set.n = 0;
     let pawns = 0, shadows = 0;
     const far2 = this.lodDist * this.lodDist;
     for (const isl of list) {
@@ -839,6 +873,7 @@ export class IslanderRig {
     if (this.blends.size > list.length + 16) {
       const alive = new Set(list.map((l) => l.id));
       for (const id of this.blends.keys()) if (!alive.has(id)) this.blends.delete(id);
+      for (const id of this.clipStates?.keys() ?? []) if (!alive.has(id)) this.clipStates.delete(id);
     }
     for (const m of [this.pawnBody, this.pawnHead]) {
       m.count = pawns;
@@ -860,7 +895,8 @@ export class IslanderRig {
       if (acc) this.upload(acc, n);
     }
     if (skinned) {
-      for (const s of Object.values(this.skins)) {
+      for (const s of new Set(Object.values(this.skins))) {
+        if (!s) continue;
         s.mesh.count = s.n;
         if (!s.n) continue;
         this.upload(s.mesh.instanceMatrix, s.n);
@@ -888,6 +924,54 @@ export class IslanderRig {
     void TOOLS;
   }
 
+  private clipState(id: number) {
+    // (Created on first use: a rig made without its constructor, as in tests, still works.)
+    this.clipStates ??= new Map();
+    let st = this.clipStates.get(id);
+    if (!st) {
+      st = { name: null, t: 0, fade: 1, from: new Float32Array(BONE_COUNT * 16), last: new Float32Array(BONE_COUNT * 16) };
+      this.clipStates.set(id, st);
+    }
+    return st;
+  }
+
+  /**
+   * Pose the skeleton from one of the model's clips. Moving clips play at the pace the islander
+   * actually covers ground (their own root speed scaled to the islander), so feet don't slide.
+   */
+  private playClip(isl: Islander, clip: NonNullable<GlbModel['clips']>[ClipName], hs: number, sc: number): void {
+    const st = this.clipState(isl.id);
+    const rate = clip!.speed > 0.01 ? THREE.MathUtils.clamp(isl.speed / (clip!.speed * sc), 0.5, 2) : 1;
+    st.t += (this.frameDt || 0) * rate;
+    const c = clip!, f = ((st.t + isl.id * 0.731) % c.duration) * c.fps, i0 = Math.min(c.count - 1, Math.floor(f)), i1 = Math.min(c.count - 1, i0 + 1), k = f - Math.floor(f);
+    const W = this.W, D = c.data;
+    for (let b = 0; b < BONE_COUNT; b++) {
+      const e = W[b].elements, a0 = (i0 * BONE_COUNT + b) * 16, a1 = (i1 * BONE_COUNT + b) * 16;
+      for (let j = 0; j < 16; j++) e[j] = D[a0 + j] + (D[a1 + j] - D[a0 + j]) * k;
+    }
+    if (hs !== 1) W[BI.head].multiply(this.tmp.makeScale(hs, hs, hs));
+  }
+
+  /** Ease from the last frame shown into a new source (another clip, or the procedural pose) over a quarter second. */
+  private crossfade(isl: Islander, name: ClipName | null, clip: unknown): void {
+    const st = this.clipState(isl.id), W = this.W;
+    const now = clip ? name : null;
+    if (st.name !== now) {
+      st.from.set(st.last);
+      st.fade = st.last[15] ? 0 : 1;
+      st.name = now;
+    }
+    if (st.fade < 1) {
+      st.fade = Math.min(1, st.fade + (this.frameDt || 0) / 0.25);
+      const k = ease(st.fade);
+      for (let b = 0; b < BONE_COUNT; b++) {
+        const e = W[b].elements, o = b * 16;
+        for (let j = 0; j < 16; j++) e[j] = st.from[o + j] + (e[j] - st.from[o + j]) * k;
+      }
+    }
+    for (let b = 0; b < BONE_COUNT; b++) st.last.set(W[b].elements, b * 16);
+  }
+
   /** Skinned character model: pose the skeleton, write its skin matrices, then attach props. */
   private drawSkinned(isl: Islander, set: SkinSet, p: Pose, hs: number, sc = S0): void {
     const i = set.n;
@@ -904,10 +988,17 @@ export class IslanderRig {
       set.tex.image = { data, width: BONE_COUNT * 4, height: rows };
       set.tex.needsUpdate = true;
     }
-    const [gL, gR] = this.feetGround(isl, set.model, p, sc);
-    this.poseSkeleton(set.model, p, hs, gL, gR);
-    const load = isl.task?.kind === 'firefight' && isl.task.water ? 'water' : isl.carry?.kind ? LOADS[isl.carry.kind] : undefined;
-    const gripping = !!load && !p.lying && this.carryPose.apply(load, set.model, W, hs);
+    const name = p.lying ? null : clipFor(isl, this.celebrate);
+    const clip = name ? set.model.clips?.[name] : undefined;
+    let gripping = false;
+    if (clip) this.playClip(isl, clip, hs, sc);
+    else {
+      const [gL, gR] = this.feetGround(isl, set.model, p, sc);
+      this.poseSkeleton(set.model, p, hs, gL, gR);
+      const load = isl.task?.kind === 'firefight' && isl.task.water ? 'water' : isl.carry?.kind ? LOADS[isl.carry.kind] : undefined;
+      gripping = !!load && !p.lying && this.carryPose.apply(load, set.model, W, hs);
+    }
+    this.crossfade(isl, clip ? name : null, clip);
     const row = i * BONE_COUNT * 16;
     for (let b = 0; b < BONE_COUNT; b++) {
       this.tmp2.multiplyMatrices(W[b], set.model.bindInv[b]);
@@ -918,7 +1009,7 @@ export class IslanderRig {
     set.accent.setXYZ(i, this.accent.r, this.accent.g, this.accent.b);
     // Elders: grey hair for women, white hair and beard for men (linear tones). Boys: no beard.
     // The elders' own models already have grey and white hair; only greyed when drawn on the founding pair.
-    const elder = isElder(isl) && set.model !== this.skins?.oldm?.model && set.model !== this.skins?.oldf?.model;
+    const elder = isElder(isl) && !set.model.ownElders;
     // (A hair tone above 1.5 also flags the healer's white robe for the shader.)
     set.look.setXYZ(i, elder ? 1 : 0, (isl.gender === 'f' ? 0.46 : 0.7) + (isl.npc === 'healer' ? 2 : 0), isl.child && isl.gender === 'm' ? 1 : 0);
     set.n = i + 1;

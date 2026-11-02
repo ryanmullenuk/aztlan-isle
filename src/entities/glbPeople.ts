@@ -36,7 +36,22 @@ export interface GlbModel {
   hat: { y: number; z: number; s: number };
   /** Limb lengths (joint to joint; hand = wrist to finger tips). */
   len: { upper: number; fore: number; thigh: number; shin: number; hand: number };
+  /** Ankle height above the soles in the bind pose (0.1 if not given). */
+  ankle?: number;
+  /** The model's own animation clips, sampled into the rig's bone frames. */
+  clips?: Partial<Record<ClipName, MotionClip>>;
+  /** The model already draws its elders (grey hair of its own), so the rig doesn't grey it. */
+  ownElders?: boolean;
 }
+
+/** Animation clips a character model can carry (see islanderModels.ts). */
+export type ClipName = 'idle' | 'sad_idle' | 'twerk' | 'injured_run' | 'run_look_back' | 'jog' | 'zombie_crawl';
+
+/**
+ * A clip sampled at `fps` into `count` frames of the rig's 19 bone frames (model space, metres;
+ * 16 floats each, frame-major), with the clip's own root speed (metres a second) taken out.
+ */
+export interface MotionClip { data: Float32Array; count: number; fps: number; duration: number; speed: number }
 
 export type GlbPeople = Record<CharacterModelKey, GlbModel>;
 

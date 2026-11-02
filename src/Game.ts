@@ -3042,6 +3042,7 @@ export class Game {
     this.rare.update(realDt, dt);
     this.healers.update(dt);
     const healers = this.healers.list;
+    this.rig3d.celebrate = this.fireworks.active;
     this.rig3d.update(healers.length ? [...this.colony.list, ...healers] : this.colony.list, this.selectedIslander, realDt, this.selectedIslanders);
     this.updateMoods(realDt);
     this.scheduleLapse(realDt);

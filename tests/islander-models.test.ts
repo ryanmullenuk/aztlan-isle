@@ -1,62 +1,54 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { BI, BONES, bakePose } from '../src/entities/glbPeople';
-import { LOOKS, RIGS, islanderModel } from '../src/entities/islanderModels';
+import { clipFor } from '../src/entities/IslanderRig';
+import { RIGS, paintFor } from '../src/entities/islanderModels';
+import type { BoneName } from '../src/entities/glbPeople';
 
-const models = Object.fromEntries(Object.entries(LOOKS).map(([k, look]) => [k, islanderModel(look, null)]));
+const person = (o: Record<string, unknown> = {}): any => ({ id: 4, anim: 'idle', animT: 0, gender: 'm', task: null, carry: null, hidden: false, sleeping: false, floorY: null,
+  condition: 'well', injured: 0, happy: 0.6, hunger: 0.8, rest: 0.8, child: false, warrior: null, speed: 0, ...o });
 
-test('every block is skinned: weights sum to one on real bones', () => {
-  for (const [key, m] of Object.entries(models)) {
-    const I = m.geometry.getAttribute('aSkinI'), W = m.geometry.getAttribute('aSkinW');
-    for (let i = 0; i < I.count; i++) {
-      let sum = 0;
-      for (let k = 0; k < 4; k++) {
-        const w = W.getComponent(i, k);
-        if (w > 0) assert.ok(I.getComponent(i, k) >= 0 && I.getComponent(i, k) < BONES.length, `${key}: bone index`);
-        sum += w;
-      }
-      assert.ok(Math.abs(sum - 1) < 1e-5, `${key}: weights sum to 1 (${sum})`);
-    }
-  }
+test('standing about plays the idle; with needs and nothing to do, the sad idle', () => {
+  assert.equal(clipFor(person()), 'idle');
+  assert.equal(clipFor(person({ hunger: 0.1 })), 'sad_idle');
+  assert.equal(clipFor(person({ happy: 0.2 })), 'sad_idle');
+  // Busy at a task (waiting at work), not sad.
+  assert.equal(clipFor(person({ happy: 0.2, task: { kind: 'farm' } })), 'idle');
 });
 
-test('the islanders stand on their soles, adults about 1.9 m to the top of the topknot, the ankle 0.1 up', () => {
-  for (const [key, m] of Object.entries(models)) {
-    m.geometry.computeBoundingBox();
-    const bb = m.geometry.boundingBox!;
-    assert.ok(Math.abs(bb.min.y) < 1e-6, `${key} stands on the ground`);
-    assert.equal(RIGS[key as keyof typeof RIGS].joint.footL[1], 0.1);
-    if (!['boy', 'girl'].includes(key)) assert.ok(bb.max.y > 1.75 && bb.max.y < 2.0, `${key} height ${bb.max.y.toFixed(2)}`);
-  }
-  // Children's heads are bigger for their bodies (they are drawn smaller in play).
-  assert.ok(LOOKS.boy.build.head.w > LOOKS.m.build.head.w);
+test('dancing at the fires, sometimes when very happy, and often under fireworks', () => {
+  assert.equal(clipFor(person({ anim: 'dance' })), 'twerk');
+  const happy = Array.from({ length: 200 }, (_, k) => clipFor(person({ happy: 0.95, animT: k * 3 }))).filter((c) => c === 'twerk').length;
+  assert.ok(happy > 5 && happy < 80, `very happy islanders dance now and then (${happy}/200)`);
+  const party = Array.from({ length: 60 }, (_, k) => clipFor(person({ id: k, animT: k }), true)).filter((c) => c === 'twerk').length;
+  assert.ok(party > 15, `many dance while fireworks light the sky (${party}/60)`);
 });
 
-test('skin blocks are flagged for the islander’s tone; hair for elders’ grey', () => {
-  const g = models.m.geometry, M = g.getAttribute('aMat'), H = g.getAttribute('aHairB');
-  let skin = 0, hair = 0;
-  for (let i = 0; i < M.count; i++) { skin += M.getX(i) === 1 ? 1 : 0; hair += H.getX(i) === 1 ? 1 : 0; }
-  assert.ok(skin > 100 && hair > 100);
+test('the sick and hurt limp, the badly mauled crawl, the frightened run looking back', () => {
+  assert.equal(clipFor(person({ anim: 'walk', condition: 'sick' })), 'injured_run');
+  assert.equal(clipFor(person({ anim: 'walk', condition: 'mauled', injured: 100 })), 'zombie_crawl');
+  assert.equal(clipFor(person({ anim: 'walk', condition: 'mauled', injured: 0 })), 'injured_run');
+  assert.equal(clipFor(person({ anim: 'run', task: { kind: 'flee' } })), 'run_look_back');
+  assert.equal(clipFor(person({ anim: 'run', task: { kind: 'hall' } })), 'run_look_back');
+  assert.equal(clipFor(person({ anim: 'run' })), 'jog');
+  // Walking, working and carrying stay procedural (tools and loads in hand).
+  assert.equal(clipFor(person({ anim: 'walk' })), null);
+  assert.equal(clipFor(person({ anim: 'chop' })), null);
+  assert.equal(clipFor(person({ anim: 'run', carry: { kind: 'log' } })), null);
+  assert.equal(clipFor(person({ sleeping: true })), null);
 });
 
-test('the skirt hem follows each thigh, its waist stays on the hips', () => {
-  const g = models.f.geometry, P = g.getAttribute('position'), I = g.getAttribute('aSkinI'), W = g.getAttribute('aSkinW');
-  const hem = LOOKS.f.build.hem;
-  let checked = 0;
-  for (let i = 0; i < P.count; i++) {
-    if (Math.abs(P.getY(i) - hem) > 1e-4 || P.getX(i) < 0.21) continue;
-    const w: Record<number, number> = {};
-    for (let k = 0; k < 4; k++) w[I.getComponent(i, k)] = (w[I.getComponent(i, k)] ?? 0) + W.getComponent(i, k);
-    assert.ok((w[BI.thighL] ?? 0) > 0.5, 'the left hem goes with the left thigh');
-    checked++;
-  }
-  assert.ok(checked > 0);
-});
-
-test('a posed copy (a canoe passenger, seated) stays whole and finite', () => {
-  const geo = bakePose(models.m, { thighL: [-1.4, 0, 0], thighR: [-1.4, 0, 0], shinL: [1.4, 0, 0], shinR: [1.4, 0, 0] });
-  const P = geo.getAttribute('position');
-  for (let i = 0; i < P.count; i++) assert.ok(Number.isFinite(P.getX(i) + P.getY(i) + P.getZ(i)));
-  assert.ok(new THREE.Box3().setFromBufferAttribute(P as THREE.BufferAttribute).max.y < 1.6, 'seated, lower than standing');
+test('the body is coloured by part: hair, face, belt, skirt, soles', () => {
+  const J = Object.fromEntries(Object.entries(RIGS.m.joint).map(([k, v]) => [k, new THREE.Vector3(...v)])) as Record<BoneName, THREE.Vector3>;
+  const at = (x: number, y: number, z: number, bone: string, n = [0, 0, 1]) => paintFor(new THREE.Vector3(x, y, z), new THREE.Vector3(...n), bone, J, 0.25);
+  assert.equal(at(0, 1.5, 0.25, 'Head').color, 'skin');
+  assert.equal(at(0, 1.85, 0, 'Head').hair, true);
+  assert.equal(at(0, 1.75, 0, 'Head').color, 0xe2382b);
+  assert.equal(at(0, 1.5, -0.2, 'Head').hair, true);
+  assert.equal(at(0.1, 0.81, 0.22, 'Spine').color, 0x1f7f6c);
+  assert.equal(at(0.2, 0.01, 0.1, 'LeftFoot').color, 0x6b3a1d);
+  assert.equal(at(0.23, 1.1, 0.1, 'LeftShoulder').color, 0xe2382b);
+  // The shoulder bones also carry the upper chest, which stays tunic.
+  assert.equal(at(0.15, 1.02, 0.2, 'LeftShoulder').color, 0xf4c78f);
+  assert.equal(at(0.1, 1.0, -0.2, 'Spine2', [0, 0, -1]).color, 0xf4c78f);
 });

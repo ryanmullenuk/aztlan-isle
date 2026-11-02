@@ -59,7 +59,7 @@ test('the stride keeps a believable knee bend and never hops', () => {
 });
 
 test('on a slope each foot stands on its own ground (two-bone IK), within a centimetre', () => {
-  const { rig, model } = rigFor('fatf');
+  const { rig, model } = rigFor('m');
   for (const [gL, gR] of [[0.05, -0.05], [-0.06, 0.02], [0.08, 0.08]]) {
     rig.poseSkeleton(model, poseFor(person('idle', 0), true), 1, gL, gR);
     // groundL is the islander's L (-x) foot: the model's .R bones.

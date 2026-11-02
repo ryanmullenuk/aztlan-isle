@@ -3,3 +3,6 @@ dist
 .DS_Store
 *.log
 .claude
+
+# The artist's full-detail character files (prepared into public/models by npm run islander:prepare).
+art/*.glb
