@@ -52,3 +52,14 @@ test('the body is coloured by part: hair, face, belt, skirt, soles', () => {
   assert.equal(at(0.15, 1.02, 0.2, 'LeftShoulder').color, 0xf4c78f);
   assert.equal(at(0.1, 1.0, -0.2, 'Spine2', [0, 0, -1]).color, 0xf4c78f);
 });
+
+test('texels are read as skin (to tint by tone), hair (to grey), or cloth', async () => {
+  const { texelKind } = await import('../src/entities/islanderModels');
+  const srgb = (h: number) => [((h >> 16) & 255) / 255, ((h >> 8) & 255) / 255, (h & 255) / 255] as [number, number, number];
+  assert.equal(texelKind(...srgb(0xd9813f)), 'skin');
+  assert.equal(texelKind(...srgb(0xc47a48)), 'skin');
+  assert.equal(texelKind(...srgb(0x2b201b)), 'hair');
+  assert.equal(texelKind(...srgb(0xf4c78f)), 'other', 'cream cloth');
+  assert.equal(texelKind(...srgb(0xe2382b)), 'other', 'red cloth');
+  assert.equal(texelKind(...srgb(0x1f7f6c)), 'other', 'teal belt');
+});

@@ -3,10 +3,12 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { BI, BONES, BONE_COUNT, type BoneName, type ClipName, type GlbModel, type GlbPeople, type MotionClip } from './glbPeople';
 
 /**
- * The islander character: public/models/islander_male.glb, a skinned block-style man with his
- * own animation clips (prepared from the artist's file by `npm run islander:prepare`, which
- * decimates it to about 5,000 triangles). For now every islander is drawn with him; the women,
- * children and elders will get their own models.
+ * The islander characters: public/models/islander_male.glb and islander_female.glb, skinned
+ * block-style figures with their own colour texture and animation clips (prepared from the
+ * artist's files by `npm run islander:prepare`, which takes each from 200,000 triangles and
+ * three 2048 px textures down to about 3,000 triangles and one 1024 px JPEG). Men, boys and old
+ * men are drawn with the man; women, girls and old women with the woman (children smaller, with
+ * bigger heads; elders with greyed hair).
  *
  * His 52-bone skeleton is folded onto the rig's 19 bones (fingers into the hands, toes into the
  * feet, the four spine bones into hips, spine and chest), so the procedural poses (walking,
@@ -14,12 +16,14 @@ import { BI, BONES, BONE_COUNT, type BoneName, type ClipName, type GlbModel, typ
  * looking back, jog, crawl) are sampled once at load into the same 19 bone frames and played by
  * the rig for the moods and states they belong to.
  *
- * The file has no texture, so each vertex is coloured by the part of the body it belongs to:
- * hair, skin (tinted per islander), the cream tunic with its red V-neck, sleeves and fret, the
- * teal belt, cream cuffs and brown soles.
+ * Colour comes from the model's texture. Skin is found by its colour there and tinted by each
+ * islander's own tone (the middle tone draws it exactly as painted), and hair by its darkness, so
+ * elders' hair can be greyed. A model without a texture is coloured by body part instead.
  */
 
-const FILE = 'models/islander_male.glb';
+const FILES = { m: 'models/islander_male.glb', f: 'models/islander_female.glb' } as const;
+/** The skin tone the texture is painted in: islanders of this tone look exactly as painted. */
+const PAINTED_TONE = new THREE.Color(0xc47a48);
 
 /** Source bones (the file's Mixamo-style names) folded into each rig bone; the first drives it in clips. */
 const fingers = (s: 'Left' | 'Right') => ['Thumb', 'Index', 'Middle', 'Ring', 'Pinky'].flatMap((f) => [1, 2, 3, 4].map((k) => `${s}Hand${f}${k}`));
@@ -135,8 +139,38 @@ function bindFrames(joint: Record<BoneName, THREE.Vector3>): THREE.Matrix4[] {
   });
 }
 
-async function loadMale(): Promise<GlbModel> {
-  const gltf = await new GLTFLoader().loadAsync(new URL(FILE, document.baseURI).href);
+/** What a texel shows: skin (orange), hair (near black), or anything else. */
+export function texelKind(r: number, g: number, b: number): 'skin' | 'hair' | 'other' {
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  if (lum < 0.16 && max - min < 0.16) return 'hair';
+  // Orange-brown: red well above green, green well above blue, and saturated (cream is pale, red cloth has little green).
+  if (r > 0.45 && g > r * 0.38 && g < r * 0.78 && b < g * 0.75 && (max - min) / max > 0.45) return 'skin';
+  return 'other';
+}
+
+/** Read a texture's pixels (once, at load) to tell skin and hair apart. */
+function texels(map: THREE.Texture): ((u: number, v: number) => [number, number, number]) | null {
+  const img = map.image as CanvasImageSource & { width: number; height: number };
+  if (!img?.width) return null;
+  const cv = document.createElement('canvas');
+  cv.width = img.width;
+  cv.height = img.height;
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+  ctx.drawImage(img, 0, 0);
+  const d = ctx.getImageData(0, 0, cv.width, cv.height).data, W = cv.width, H = cv.height;
+  return (u, v) => {
+    // glTF texture coordinates: (0, 0) at the image's top left (the texture isn't flipped).
+    const x = Math.min(W - 1, Math.max(0, Math.floor((u - Math.floor(u)) * W)));
+    const y = Math.min(H - 1, Math.max(0, Math.floor((v - Math.floor(v)) * H)));
+    const i = (y * W + x) * 4;
+    return [d[i] / 255, d[i + 1] / 255, d[i + 2] / 255];
+  };
+}
+
+async function loadModel(file: string): Promise<GlbModel> {
+  const gltf = await new GLTFLoader().loadAsync(new URL(file, document.baseURI).href);
+  const FILE = file;
   gltf.scene.updateMatrixWorld(true);
   let mesh: THREE.SkinnedMesh | null = null;
   gltf.scene.traverse((o) => { if (!mesh && (o as THREE.SkinnedMesh).isSkinnedMesh) mesh = o as THREE.SkinnedMesh; });
@@ -161,7 +195,9 @@ async function loadMale(): Promise<GlbModel> {
 
   // Geometry: positions, flat normals, the weights folded onto the rig's bones, and colours.
   const src = sk.geometry.index ? sk.geometry.toNonIndexed() : sk.geometry;
-  const P = src.getAttribute('position'), N = src.getAttribute('normal');
+  const P = src.getAttribute('position'), N = src.getAttribute('normal'), UV = src.getAttribute('uv');
+  const map = ((Array.isArray(sk.material) ? sk.material[0] : sk.material) as THREE.MeshStandardMaterial).map ?? null;
+  const read = map && UV ? texels(map) : null;
   const SI = src.getAttribute('skinIndex'), SW = src.getAttribute('skinWeight');
   const n = P.count;
   const si = new Float32Array(n * 4), sw = new Float32Array(n * 4), col = new Float32Array(n * 3), mat = new Float32Array(n), hairB = new Float32Array(n);
@@ -187,6 +223,27 @@ async function loadMale(): Promise<GlbModel> {
       }
     }
     nn.normalize();
+    if (read && UV) {
+      // Textured: the texel at the triangle's corners and middle decides skin or hair.
+      const votes = { skin: 0, hair: 0, other: 0 };
+      let mu = 0, mv = 0;
+      for (let i = t; i < t + 3; i++) {
+        votes[texelKind(...read(UV.getX(i), UV.getY(i)))]++;
+        mu += UV.getX(i) / 3; mv += UV.getY(i) / 3;
+      }
+      votes[texelKind(...read(mu, mv))] += 2;
+      // Only clearly skin (or hair): a triangle straddling cloth and skin stays as painted.
+      const kind = votes.skin >= 4 ? 'skin' : votes.hair >= 4 ? 'hair' : 'other';
+      // Skin: white over the painted tone, so the islander's own tone takes its place.
+      if (kind === 'skin') c.setRGB(1 / PAINTED_TONE.r, 1 / PAINTED_TONE.g, 1 / PAINTED_TONE.b);
+      else c.setRGB(1, 1, 1);
+      for (let i = t; i < t + 3; i++) {
+        col.set([c.r, c.g, c.b], i * 3);
+        mat[i] = kind === 'skin' ? 1 : 0;
+        hairB[i] = kind === 'hair' ? 1 : 0;
+      }
+      continue;
+    }
     let top = 0, topW = -1;
     for (const [b, wt] of boneW) if (wt > topW) { topW = wt; top = b; }
     const paint = paintFor(p, nn, bones[top]?.name ?? 'Hips', joint, faceZ);
@@ -213,7 +270,7 @@ async function loadMale(): Promise<GlbModel> {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', P.clone());
   geometry.setAttribute('normal', N.clone());
-  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(n * 2).fill(0.5), 2));
+  geometry.setAttribute('uv', UV ? UV.clone() : new THREE.Float32BufferAttribute(new Float32Array(n * 2).fill(0.5), 2));
   geometry.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   geometry.setAttribute('aSkinI', new THREE.Float32BufferAttribute(si, 4));
   geometry.setAttribute('aSkinW', new THREE.Float32BufferAttribute(sw, 4));
@@ -262,7 +319,7 @@ async function loadMale(): Promise<GlbModel> {
   const tip = joint.handL.clone().multiplyScalar(2).sub(joint.forearmL).lerp(joint.handL, 0.35);
   return {
     geometry,
-    map: null as unknown as THREE.Texture,
+    map: map as unknown as THREE.Texture,
     skinUv: new THREE.Vector2(0.5, 0.5),
     // Headdresses were fitted to a head about 0.39 m across sitting just above the head joint.
     hat: { y: 0.05, z: 0, s: 1.9 },
@@ -282,9 +339,12 @@ async function loadMale(): Promise<GlbModel> {
 
 let pending: Promise<GlbPeople> | null = null;
 
-/** The islander model (loaded once; shared by the rig and the canoe passengers). Every islander uses him for now. */
+/** The islander models (loaded once; shared by the rig and the canoe passengers). */
 export function loadIslanderModels(): Promise<GlbPeople> {
   if (pending) return pending;
-  pending = loadMale().then((m) => ({ m, f: m, m_loosehair: m, f_flower: m, boy: m, girl: m, oldm: m, oldf: m, fatm: m, fatf: m }));
+  pending = Promise.all([loadModel(FILES.m), loadModel(FILES.f)]).then(([m, f]) => ({
+    m, m_loosehair: m, boy: m, oldm: m, fatm: m,
+    f, f_flower: f, girl: f, oldf: f, fatf: f,
+  }));
   return pending;
 }
