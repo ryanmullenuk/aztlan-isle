@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { View } from '../render/View';
 import { SEA_SURFACE } from '../water/Water';
+import { warmLoads, warmWith } from '../render/WarmUp';
 import type { World } from '../world/World';
 
 export const OCTOPUS = {
@@ -71,9 +72,10 @@ export class Octopuses {
   constructor(private world: World) {
     this.group.name = 'octopuses';
     this.spawn();
-    new GLTFLoader().loadAsync(new URL('models/octopus.glb', document.baseURI).href)
+    warmLoads.push(new GLTFLoader().loadAsync(new URL('models/octopus.glb', document.baseURI).href)
       .then((gltf) => this.dress(gltf.scene, gltf.animations))
-      .catch((err) => console.error('Octopus model failed to load.', err));
+      .catch((err) => console.error('Octopus model failed to load.', err)));
+    warmWith(new THREE.Mesh(this.inkGeo, this.inkMat));
   }
 
   /** The seabed under (x, z). */

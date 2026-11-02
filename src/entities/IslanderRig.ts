@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { characterModelKey, isElder, type CharacterModelKey } from './CharacterVariants';
 import { View } from '../render/View';
 import { SoftShadows } from '../render/SoftShadows';
+import { warmLoads } from '../render/WarmUp';
 import { ISLANDER } from '../config';
 import { peopleMaterial, peopleSkinnedMaterial } from '../render/materials';
 import { Islander } from './Islander';
@@ -598,7 +599,7 @@ export class IslanderRig {
       if (BODY.has(key)) geo.dispose();
       else this.addMesh(key, geo, ISLANDER.max);
     }
-    loadIslanderModels()
+    const models = loadIslanderModels()
       .then((glb) => {
         // Keys drawn with the same model share one skinned mesh (one draw for all of them).
         const made = new Map<GlbModel, SkinSet>();
@@ -608,6 +609,8 @@ export class IslanderRig {
         }
       })
       .catch((err) => console.error('Islander models failed to load.', err));
+    // The shader warm-up waits for the characters, so theirs are compiled behind the splash too.
+    warmLoads.push(models);
     this.ring = new THREE.Mesh(
       new THREE.RingGeometry(0.22, 0.3, 24).rotateX(-Math.PI / 2),
       new THREE.MeshBasicMaterial({ color: 0xffe28a, transparent: true, opacity: 0.9, depthWrite: false })

@@ -16,6 +16,7 @@ import { Islander } from './Islander';
 import { CanoePassenger } from './CanoePassenger';
 import { School, Wildlife } from './Wildlife';
 import { hullShadow } from '../render/SoftShadows';
+import { warmWith } from '../render/WarmUp';
 import { giveWay, Hull, hullGap, pickSchool, stationOffset } from './fleet';
 
 /** Eased swell pose of a hull (so it settles gently rather than twitching). */
@@ -750,12 +751,17 @@ export class Boats {
   /** Paddled canoes, and the larger sailing fishing boats. */
   private geos = [boatGeometry(false), fishingBoatGeometry()];
   private paddleGeo = paddleGeometry();
+  /** A paddler too (their textured body shows only once a canoe of settlers or raiders comes). */
+  private lentPaddler = warmWith(new CanoePassenger('m', 0.62 / 1.8 / BOAT_SCALE, this.paddleGeo));
   private netGeo = new THREE.CircleGeometry(1, 20).rotateX(-Math.PI / 2);
   private floatsGeo = netFloatsGeometry();
   /** Boats' own double-sided material (never modify the shared stylised one). */
   private hullMat = patchStylised(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, metalness: 0, side: THREE.DoubleSide }));
   /** Rival raiders' canoes: the same hull stained dark red. */
   private raidHullMat = patchStylised(new THREE.MeshStandardMaterial({ vertexColors: true, color: 0x8a3a2c, roughness: 0.8, metalness: 0, side: THREE.DoubleSide }));
+  /** The canoes made only later (settlers, raiders), lent to the shader warm-up. */
+  private lent = [this.hullMat, this.raidHullMat, Object.assign(this.hullMat.clone(), { transparent: true })]
+    .map((m) => warmWith(new THREE.Mesh(this.geos[0], m)));
   private netMat = new THREE.MeshBasicMaterial({ map: netTexture(), transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: true });
   /** Rocks and reefs (fixed). */
   private blocked: Uint8Array;

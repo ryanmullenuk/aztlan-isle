@@ -101,6 +101,7 @@ import { SwampView } from './water/Swamp';
 import { SEA_SURFACE } from './water/Water';
 import type { Islander } from './entities/Islander';
 import { stripOverscan, viewportSize } from './render/AppViewport';
+import { warmLoads, warmShelf } from './render/WarmUp';
 import { showRestart } from './ui/Restart';
 
 const _pathP = new THREE.Vector3();
@@ -3352,7 +3353,16 @@ export class Game {
     const culled: THREE.Object3D[] = [];
     const empty: THREE.InstancedMesh[] = [];
     const dark: THREE.Light[] = [];
+    const shelf = new THREE.Group();
     try {
+      // The character models (and the like) first: their shaders are warmed with everything else.
+      let wait: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([Promise.allSettled(warmLoads), new Promise((r) => { wait = setTimeout(r, 8000); })]);
+      clearTimeout(wait);
+      // Things made only later in play, lent for the warm-up (see WarmUp), out of sight below the sea.
+      for (const o of warmShelf) shelf.add(o);
+      shelf.position.set(this.rig.target.x, -30, this.rig.target.z);
+      this.scene.add(shelf);
       // Lights that are out of play (themselves or a parent hidden) stay out while warming up.
       this.scene.traverse((o) => {
         if (!(o as THREE.Light).isLight || !o.visible) return;
@@ -3377,6 +3387,7 @@ export class Game {
     } catch {
       // Best effort: anything not warmed here simply compiles when first drawn, as before.
     } finally {
+      this.scene?.remove(shelf);
       for (const o of hidden) o.visible = false;
       for (const o of culled) o.frustumCulled = true;
       for (const m of empty) m.count = 0;
