@@ -403,10 +403,13 @@ export class ReefFish {
     }
     for (const [t, m] of this.meshes) {
       m.count = cnt.get(t) ?? 0;
+      // Hidden when empty: an empty mesh still costs the renderer its setup each frame.
+      m.visible = m.count > 0;
       m.instanceMatrix.needsUpdate = true;
     }
     for (const [t, m] of this.meshesLo) {
       m.count = cntLo.get(t) ?? 0;
+      m.visible = m.count > 0;
       m.instanceMatrix.needsUpdate = true;
     }
   }

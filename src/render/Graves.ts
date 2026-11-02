@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GeoBuilder, M, P } from './GeoBuilder';
 import { stylisedMaterial } from './materials';
-import { softShadowMesh } from './SoftShadows';
+import { SoftShadows } from './SoftShadows';
 
 /** A resting place: who lies there, where, and the day they passed. */
 export interface Grave { name: string; x: number; z: number; y: number; yaw: number; day: number }
@@ -37,14 +37,15 @@ export class Graves {
   readonly group = new THREE.Group();
   list: Grave[] = [];
   private mesh: THREE.InstancedMesh;
-  private shadows: THREE.Mesh[] = [];
+  /** Their soft shadows, one draw for all. */
+  private shadows = new SoftShadows(MAX);
 
   constructor() {
     this.mesh = new THREE.InstancedMesh(graveGeometry(), stylisedMaterial(), MAX);
     this.mesh.count = 0;
     this.mesh.receiveShadow = true;
     this.mesh.name = 'graves';
-    this.group.add(this.mesh);
+    this.group.add(this.mesh, this.shadows.mesh);
   }
 
   add(g: Grave): void {
@@ -78,13 +79,8 @@ export class Graves {
     this.mesh.count = this.list.length;
     this.mesh.instanceMatrix.needsUpdate = true;
     // A soft shadow under each.
-    for (const sh of this.shadows) this.group.remove(sh);
-    this.shadows = this.list.map((g) => {
-      const sh = softShadowMesh(0.55, 0.8);
-      sh.position.set(g.x, g.y + sh.position.y, g.z);
-      sh.rotation.y = g.yaw;
-      this.group.add(sh);
-      return sh;
-    });
+    this.shadows.begin();
+    for (const g of this.list) this.shadows.add(g.x, g.y, g.z, 0.55, 0.8, g.yaw);
+    this.shadows.end();
   }
 }

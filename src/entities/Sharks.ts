@@ -158,6 +158,9 @@ interface Shark {
   slot: number;
   /** Clock for its slow rise and fall through the water. */
   depthT: number;
+  /** Its way round obstacles (offset from the goal; NaN: boxed in), re-planned a few times a second. */
+  plan?: number;
+  planT?: number;
 }
 
 type PodState = 'cruise' | 'circle' | 'chase' | 'leave';
@@ -382,16 +385,24 @@ export class Sharks {
       const goal = Math.atan2(tx-s.x, tz-s.z);
       const angle = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
       const look = Math.max(1.8, s.speed * 1.3);
-      let heading = s.heading, best = Infinity;
-      // Search both sides early; a slight right-hand preference prevents head-on indecision.
-      for (const offset of [0, 0.35, -0.35, 0.7, -0.7, 1.1, -1.1, 1.55, -1.55, 2.2, -2.2, Math.PI]) {
-        const h = goal + offset;
-        if (!this.clearPath(s, s.x+Math.sin(h)*look, s.z+Math.cos(h)*look, true)) continue;
-        const score = Math.abs(offset) + Math.abs(angle(h-s.heading))*0.35 + (offset < 0 ? 0.03 : 0);
-        if (score < best) { best = score; heading = h; }
+      // The way round obstacles is planned four times a second, not every step (it's the costly part).
+      s.planT = (s.planT ?? 0) - dt;
+      if (s.planT <= 0 || s.plan === undefined) {
+        // Staggered, so the sharks don't all plan on the same frame.
+        s.planT = 0.22 + ((s.slot * 0.37 + s.pod * 0.19) % 1) * 0.06;
+        let best = Infinity;
+        s.plan = NaN;
+        // Search both sides early; a slight right-hand preference prevents head-on indecision.
+        for (const offset of [0, 0.35, -0.35, 0.7, -0.7, 1.1, -1.1, 1.55, -1.55, 2.2, -2.2, Math.PI]) {
+          const h = goal + offset;
+          if (!this.clearPath(s, s.x+Math.sin(h)*look, s.z+Math.cos(h)*look, true)) continue;
+          const score = Math.abs(offset) + Math.abs(angle(h-s.heading))*0.35 + (offset < 0 ? 0.03 : 0);
+          if (score < best) { best = score; s.plan = offset; }
+        }
       }
+      const heading = Number.isNaN(s.plan) ? s.heading : goal + s.plan;
       let dh = angle(heading-s.heading);
-      if (!Number.isFinite(best)) { dh = 1.8; want = 0; }
+      if (Number.isNaN(s.plan)) { dh = 1.8; want = 0; }
       const maxTurn = p.state === 'chase' ? 1.6 : 1.0;
       const turn = THREE.MathUtils.clamp(dh * 1.4, -maxTurn, maxTurn);
       s.turn += (turn - s.turn) * Math.min(1, dt * 3);

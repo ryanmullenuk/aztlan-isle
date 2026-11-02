@@ -240,6 +240,8 @@ export class Garden {
       mesh.receiveShadow = true;
       // No sun shadow: a soft shadow under each plant instead.
       const shadow = followerShadows(mesh, mesh.geometry);
+      // Hidden while empty (most kinds aren't planted): empty meshes still cost a draw's setup.
+      mesh.visible = shadow.visible = false;
       this.group.add(mesh, shadow);
       return { mesh, shadow, plants: [] };
     });
@@ -402,6 +404,7 @@ export class Garden {
     p.slot = b.plants.length;
     b.plants.push(p);
     b.mesh.count = b.shadow.count = b.plants.length;
+    b.mesh.visible = b.shadow.visible = b.plants.length > 0;
     this.plants.push(p);
     let list = this.grid.get(cell);
     if (!list) this.grid.set(cell, (list = []));
@@ -424,6 +427,7 @@ export class Garden {
     old.dispose();
     b.shadow.geometry.dispose();
     b.shadow = followerShadows(mesh, mesh.geometry);
+    mesh.visible = b.shadow.visible = mesh.count > 0;
     this.group.add(mesh, b.shadow);
     b.mesh = mesh;
   }
@@ -444,6 +448,7 @@ export class Garden {
       this.place(last);
     }
     b.mesh.count = b.shadow.count = b.plants.length;
+    b.mesh.visible = b.shadow.visible = b.plants.length > 0;
     b.mesh.instanceMatrix.needsUpdate = true;
     const i = this.plants.indexOf(p);
     if (i >= 0) {

@@ -50,15 +50,18 @@ export class Passings {
     const g = this.game;
     if (this.funeral) this.runFuneral(dt);
     if (g.eco.godMode || dt <= 0) return;
-    const adults = g.colony.list.filter((i) => !i.child && !i.npc);
-    for (const isl of adults) {
+    // Elders' years run down (no lists made: this runs every frame).
+    let adults = 0;
+    for (const isl of g.colony.list) {
+      if (isl.child || isl.npc) continue;
+      adults++;
       if (!isElder(isl)) continue;
       if (isl.lifeLeft === undefined) isl.lifeLeft = (PASSING.life[0] + Math.random() * (PASSING.life[1] - PASSING.life[0])) * TIME.dayLength;
       isl.lifeLeft -= dt;
     }
     const h = g.time.hour;
-    if (h < PASSING.hours[0] || h >= PASSING.hours[1] || this.funeral || adults.length < PASSING.minAdults) return;
-    const due = adults.find((i) => isElder(i) && (i.lifeLeft ?? 1) <= 0 && i.condition === 'well' && !i.warrior && (i.sleeping || i.hidden || !i.task));
+    if (h < PASSING.hours[0] || h >= PASSING.hours[1] || this.funeral || adults < PASSING.minAdults) return;
+    const due = g.colony.list.find((i) => !i.child && !i.npc && isElder(i) && (i.lifeLeft ?? 1) <= 0 && i.condition === 'well' && !i.warrior && (i.sleeping || i.hidden || !i.task));
     if (due) this.pass(due);
   }
 

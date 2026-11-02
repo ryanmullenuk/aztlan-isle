@@ -1666,6 +1666,7 @@ export class Animals {
     (this.leash.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
     for (const e of this.meshes.values()) {
       e.mesh.count = e.n;
+      e.mesh.visible = e.n > 0;
       if (e.n) {
         e.mesh.instanceMatrix.needsUpdate = true;
         e.acc.needsUpdate = true;

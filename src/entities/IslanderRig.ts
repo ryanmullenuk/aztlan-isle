@@ -147,9 +147,13 @@ export function clipFor(isl: Islander, celebrating = false): ClipName | null {
 }
 
 /** Procedural animation for every islander activity. */
-export function poseFor(isl: Islander, female: boolean, skel?: Skeleton): Pose {
+/** The resting pose, copied into a reused pose rather than building a new one each frame. */
+const BLANK: Readonly<Pose> = blankPose();
+
+/** `out`: a pose to fill in place (the rig reuses one, so drawing the village makes no garbage). */
+export function poseFor(isl: Islander, female: boolean, skel?: Skeleton, out?: Pose): Pose {
   const t = isl.animT;
-  const p = blankPose();
+  const p = out ? Object.assign(out, BLANK) : blankPose();
   const sk = skel ?? SKELETON[female ? 'f' : 'm'];
   // Bed care is authoritative even if a previous walking animation is still set.
   if (isl.task?.kind === 'heal' && isl.task.phase === 1 && isl.task.stage === 3 && (isl.task.slot ?? -1) >= 0 && isl.condition !== 'well') {
@@ -784,6 +788,10 @@ export class IslanderRig {
   groundAt: ((x: number, z: number) => number) | null = null;
   /** Per islander: the last pose drawn, and a short blend from it when the activity changes. */
   private blends = new Map<number, { anim: string; from: Pose; last: Pose; t: number }>();
+  /** Each foot's ground this frame (reused). */
+  private feet: [number, number] = [0, 0];
+  /** The pose each islander is posed into this frame (reused). */
+  private pose = blankPose();
   /** Per islander: the clip playing (null: procedural), its time, and a fade from the last frame shown. */
   private clipStates = new Map<number, { name: ClipName | null; t: number; fade: number; from: Float32Array; last: Float32Array }>();
   /** Fireworks are lighting the sky (islanders standing about dance). */
@@ -814,8 +822,11 @@ export class IslanderRig {
 
   /** How far the ground under each foot sits above (or below) the body's own spot, in model metres. */
   private feetGround(isl: Islander, model: GlbModel, p: Pose, sc: number): [number, number] {
-    if (!this.groundAt || isl.floorY !== null || p.lying) return [0, 0];
-    const L = model.len, out: [number, number] = [0, 0];
+    // (Lazily made: some tests build the rig without its constructor.)
+    const out = (this.feet ??= [0, 0]);
+    out[0] = out[1] = 0;
+    if (!this.groundAt || isl.floorY !== null || p.lying) return out;
+    const L = model.len;
     const sin = Math.sin(isl.heading), cos = Math.cos(isl.heading);
     for (const side of [0, 1] as const) {
       const a = p.hipPitch + (side ? p.thR : p.thL), k = side ? p.shR : p.shL;
@@ -856,7 +867,7 @@ export class IslanderRig {
       }
       const g = isl.gender;
       const sk = SKELETON[g];
-      const p = this.blend(isl, poseFor(isl, g === 'f', sk), _dt);
+      const p = this.blend(isl, poseFor(isl, g === 'f', sk, this.pose), _dt);
       this.skin.setHex(isl.skin);
       this.accent.setHex(isl.cloth2);
       const sc = S0 * (isl.child ? ISLANDER.childScale : 1) * (g === 'f' ? 0.98 : 1);
@@ -875,6 +886,7 @@ export class IslanderRig {
     }
     for (const m of [this.pawnBody, this.pawnHead]) {
       m.count = pawns;
+      m.visible = pawns > 0;
       if (!pawns) continue;
       this.upload(m.instanceMatrix, pawns);
       if (m.instanceColor) this.upload(m.instanceColor, pawns);
@@ -883,6 +895,8 @@ export class IslanderRig {
     for (const [key, mesh] of this.meshes) {
       const n = this.count.get(key) ?? 0;
       mesh.count = n;
+      // Hidden when empty: an empty mesh still costs the renderer its setup each frame.
+      mesh.visible = n > 0;
       if (n === 0) continue;
       this.upload(mesh.instanceMatrix, n);
       if (mesh.instanceColor) this.upload(mesh.instanceColor, n);

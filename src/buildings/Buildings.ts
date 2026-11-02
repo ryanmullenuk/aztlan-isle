@@ -506,6 +506,20 @@ export class BuildingSystem {
     return true;
   }
 
+  /** How many of each kind stand (any state), recounted when buildings come or go (or a second on, for upgrades). */
+  private counts = { n: -1, id: -1, at: 0, by: new Map<string, number>() };
+  private countOf(key: BuildingKey): number {
+    const c = this.counts, now = Date.now();
+    if (c.n !== this.list.length || c.id !== this.nextId || now - c.at > 1000) {
+      c.at = now;
+      c.by.clear();
+      for (const b of this.list) c.by.set(b.key, (c.by.get(b.key) ?? 0) + 1);
+      c.n = this.list.length;
+      c.id = this.nextId;
+    }
+    return c.by.get(key) ?? 0;
+  }
+
   /** Islanders in the village (set by the game), for how many sites can be under way at once. */
   population: () => number = () => 0;
   /** Building sites that may be under construction at once. */
@@ -517,9 +531,7 @@ export class BuildingSystem {
   costFor(key: BuildingKey): BuildingDef['cost'] {
     const base = BUILDINGS[key].cost;
     if (isDecor(key) || isPhased(key) || BUILD_RISE.never.includes(key) || this.eco.godMode) return base;
-    let n = 0;
-    for (const b of this.list) if (b.key === key) n++;
-    const extra = n - (BUILD_RISE.freeOf[key] ?? BUILD_RISE.free);
+    const extra = this.countOf(key) - (BUILD_RISE.freeOf[key] ?? BUILD_RISE.free);
     if (extra < 0) return base;
     const k = Math.min(BUILD_RISE.cap, 1 + BUILD_RISE.step * (extra + 1));
     const up = (v: number) => (v ? Math.ceil(v * k) : 0);

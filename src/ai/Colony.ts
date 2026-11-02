@@ -3106,14 +3106,20 @@ export class Colony {
    * down or busy at a fixed spot holds their place and the walker steps round them. Nudges only
    * ever land on open ground (never into water or a building they aren't already in).
    */
+  /** The temples' Belief multiplier, worked out at most once a second (see sacredFactor). */
+  private sacred = { at: -Infinity, f: 1 };
+
   /** How much the village's temples multiply its Belief: the best working temple's tier, and a Great Temple on top. */
   sacredFactor(): number {
+    const now = this.time.elapsed;
+    if (now - this.sacred.at < 1 && now >= this.sacred.at) return this.sacred.f;
     let f = TEMPLE.beliefFactor[0], great = 0;
     for (const b of this.bld.list) {
       if (!b.complete || !buildingOperational(b)) continue;
       if (b.key === 'temple') f = Math.max(f, TEMPLE.beliefFactor[Math.min(3, b.tier)]);
       else if (b.key === 'greattemple') great = TEMPLE.greatBelief;
     }
+    this.sacred = { at: now, f: f + great };
     return f + great;
   }
 

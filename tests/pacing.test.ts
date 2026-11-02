@@ -7,7 +7,10 @@ import { goalFor, goalText } from '../src/economy/SeasonGoals';
 import { RAID, defence, plunder } from '../src/economy/Raids';
 
 const system = (keys: string[], population = 0) =>
-  ({ list: keys.map((key) => ({ key, complete: true })), eco: { godMode: false }, population: () => population }) as any;
+  Object.assign(Object.create(BuildingSystem.prototype), {
+    list: keys.map((key) => ({ key, complete: true })), eco: { godMode: false }, population: () => population,
+    nextId: keys.length + 1, counts: { n: -1, id: -1, at: 0, by: new Map() },
+  });
 
 test('each further building of a kind costs more, up to a cap; houses start rising later; decor never', () => {
   const cost = (keys: string[], key: string) => BuildingSystem.prototype.costFor.call(system(keys), key as any);
