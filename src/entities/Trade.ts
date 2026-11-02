@@ -9,6 +9,7 @@ import { patchStylised } from '../render/materials';
 import { Water } from '../water/Water';
 import { World } from '../world/World';
 import { BOAT_SCALE, BoatLook, Boats, boatGeometry, HULL_BEAM, HULL_HALF, newRide, tradeShipGeometry, Vessel } from './Boats';
+import { hullShadow } from '../render/SoftShadows';
 import { Hull, traderHome, VisitorDeal, visitorDeals } from './fleet';
 
 /** A trade boat: docks at its Trade Dock, sails away over the horizon with goods, returns with others. */
@@ -132,10 +133,8 @@ export class TradeFleet {
   launch(dock: Building): void {
     const mesh = new THREE.Group();
     const hull = new THREE.Mesh(this.hull, this.mat);
-    hull.castShadow = true;
     const cargo = new THREE.Mesh(this.cargoGeo, this.mat);
-    cargo.castShadow = true;
-    mesh.add(hull, cargo);
+    mesh.add(hull, hullShadow(hull.geometry), cargo);
     mesh.scale.setScalar(BOAT_SCALE * SHIP_SCALE);
     this.group.add(mesh);
     const at = this.berth(dock, this.of(dock).length);
@@ -340,10 +339,8 @@ export class TradeFleet {
     if (!path) return false;
     const mesh = new THREE.Group();
     const hull = new THREE.Mesh(dock.key === 'market' ? this.canoeHull : this.visitorHull, this.mat);
-    hull.castShadow = true;
     const cargo = new THREE.Mesh(dock.key === 'market' ? this.canoeCargo : this.visitorCargo, this.mat);
-    cargo.castShadow = true;
-    mesh.add(hull, cargo);
+    mesh.add(hull, hullShadow(hull.geometry), cargo);
     mesh.scale.setScalar(BOAT_SCALE * VISITOR_SCALE);
     this.group.add(mesh);
     const first = path[0] ?? at.approach;

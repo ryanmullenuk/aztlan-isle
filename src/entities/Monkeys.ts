@@ -3,6 +3,7 @@ import type { Where } from '../ui/where';
 import { View } from '../render/View';
 import { FAUNA } from '../config';
 import { peopleMaterial } from '../render/materials';
+import { SoftShadows } from '../render/SoftShadows';
 import { RNG } from '../world/rng';
 import { SpatialHash } from '../world/SpatialHash';
 import { World } from '../world/World';
@@ -192,6 +193,8 @@ function local(out: THREE.Matrix4, x: number, y: number, z: number, rx: number, 
  */
 export class Monkeys {
   readonly group = new THREE.Group();
+  /** A soft shadow under each monkey on the ground, in place of a sun shadow. */
+  private shadows = new SoftShadows(32);
   list: Monkey[] = [];
   private trees: CanopyTree[] = [];
   private links: number[][] = [];
@@ -221,7 +224,6 @@ export class Monkeys {
     const mat = peopleMaterial();
     const mk = (key: string, g: THREE.BufferGeometry, n: number) => {
       const m = new THREE.InstancedMesh(g, mat, Math.max(1, n));
-      m.castShadow = true;
       m.frustumCulled = false;
       m.count = 0;
       m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -230,6 +232,7 @@ export class Monkeys {
       this.partList.push(this.parts[key]);
       this.group.add(m);
     };
+    this.group.add(this.shadows.mesh);
     const n = this.list.length;
     // Jointed: pot-bellied pelvis + chest (waist joint), long upper arm / forearm / hooked hand,
     // thigh / shin / foot, and a prehensile tail of TAIL_N tapering pieces ending in a bare grip pad.
@@ -731,10 +734,14 @@ export class Monkeys {
   private render(dt: number): void {
     const P = this.parts;
     for (const pt of this.partList) pt.n = 0;
+    this.shadows.begin();
     for (const m of this.list) {
       if (m.dead) continue;
       if (!View.sees(m.x, m.y, m.z, 0.5)) continue;
       const s = m.scale;
+      // A soft shadow below while on (or just off) the ground; none up in the trees.
+      const gy = this.world.groundY(m.x, m.z);
+      if (m.y - gy < 0.8) this.shadows.add(m.x, gy, m.z, 0.5 * s);
       const t = this.time + m.phase;
       // Ground strides are locked to the distance actually covered.
       const moved = Math.hypot(m.x - m.px, m.z - m.pz);
@@ -798,6 +805,7 @@ export class Monkeys {
       // Stolen food clutched to the chest.
       if (m.raid?.carry) this.put(P.loot, _J.multiplyMatrices(_C, local(_T, 0, 0.03, 0.062, 0, 0, 0)));
     }
+    this.shadows.end();
     for (const pt of this.partList) {
       pt.mesh.count = pt.n;
       pt.mesh.visible = pt.n > 0;

@@ -3,6 +3,7 @@ import { patchStylised } from '../render/materials';
 import { SEA_SURFACE, type Water } from '../water/Water';
 import type { World } from '../world/World';
 import { createWhale, type WhaleRig } from './WhaleModel';
+import { softShadowMesh } from '../render/SoftShadows';
 import { poseWhale, WHALE_GIRTH, type WhaleDrive } from './WhaleMotion';
 
 /** Whale length (it is smaller than the great whales out at sea: a young one that lost its way). */
@@ -79,6 +80,8 @@ export class Stranding {
   readonly slots: { x: number; z: number }[] = [];
   private rig: WhaleRig;
   private root = new THREE.Group();
+  /** A soft shadow on the sand beneath it, in place of a sun shadow. */
+  private shadow = softShadowMesh(WHALE_GIRTH * L * 2.6, L * 0.95);
   private t = 0;
   private phaseT = 0;
   private ground: number;
@@ -88,9 +91,9 @@ export class Stranding {
     this.x = site.x;
     this.z = site.z;
     this.rig = createWhale(patchStylised(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0 }), 0.3));
-    this.rig.mesh.castShadow = true;
     this.rig.mesh.frustumCulled = false;
     this.root.add(this.rig.mesh);
+    this.group.add(this.shadow);
     this.root.scale.setScalar(L);
     this.group.add(this.root);
     this.group.name = 'strandedWhale';
@@ -191,6 +194,8 @@ export class Stranding {
     const g = Math.max(SEA_SURFACE - 0.3, Math.min(this.ground, this.world.heightAt(x, z)));
     this.root.position.set(x, g + WHALE_GIRTH * L * 0.62 - sink, z);
     this.root.rotation.set(0, this.yaw, roll, 'YXZ');
+    this.shadow.position.set(x, g + 0.012, z);
+    this.shadow.rotation.y = this.yaw;
   }
 
   /** Spray where part of it meets the water: `along` whale lengths from the middle (toward the head). */

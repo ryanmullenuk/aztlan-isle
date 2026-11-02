@@ -463,7 +463,6 @@ export class Marine {
     };
     dmat.customProgramCacheKey = () => 'dolphin';
     this.dolphinMesh = new THREE.InstancedMesh(dgeo, dmat, total);
-    this.dolphinMesh.castShadow = true;
     this.dolphinMesh.frustumCulled = false;
     this.dolphinMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.dolphinMesh.count = 0;

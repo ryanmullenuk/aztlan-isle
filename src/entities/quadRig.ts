@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { animalForm } from './animalForm';
 import { GeoBuilder, M, P, facet } from '../render/GeoBuilder';
 import { peopleMaterial } from '../render/materials';
+import { SoftShadows } from '../render/SoftShadows';
 import { splitBody } from './animalModels';
 
 /**
@@ -928,6 +929,12 @@ const wrapPi = (a: number) => {
 /** Instanced meshes for the rig parts, tinted per animal through the accent (coat) and optional marking colours. */
 export class QuadMeshes {
   readonly group = new THREE.Group();
+  /** A soft shadow under each animal, in place of a sun shadow. */
+  readonly shadows = new SoftShadows(64);
+  constructor() {
+    this.group.add(this.shadows.mesh);
+  }
+
   private meshes = new Map<string, { mesh: THREE.InstancedMesh; acc: THREE.InstancedBufferAttribute; n: number; marks: boolean }>();
 
   /** `marks`: the part has mat-1 markings tinted by a second per-instance colour (see put). */
@@ -936,7 +943,6 @@ export class QuadMeshes {
     acc.setUsage(THREE.DynamicDrawUsage);
     geo.setAttribute('iAccent', acc);
     const mesh = new THREE.InstancedMesh(geo, peopleMaterial(), cap);
-    mesh.castShadow = true;
     mesh.frustumCulled = false;
     mesh.count = 0;
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -950,6 +956,7 @@ export class QuadMeshes {
 
   begin(): void {
     for (const e of this.meshes.values()) e.n = 0;
+    this.shadows.begin();
   }
 
   put(key: string, m: THREE.Matrix4, col: THREE.Color, mark?: THREE.Color): void {
@@ -965,6 +972,7 @@ export class QuadMeshes {
   }
 
   end(): void {
+    this.shadows.end();
     for (const e of this.meshes.values()) {
       e.mesh.count = e.n;
       e.mesh.visible = e.n > 0;
@@ -1134,6 +1142,7 @@ export function drawQuad(out: QuadMeshes, keys: QuadKeys, q: QuadDims, p: QuadPo
   const flexC = flex * kf, flexP = flex * kf;
   const yawC = p.bend * 0.5 + yawF + curl * (three ? 0.62 : 0.5) + look;
   const yawP = -p.bend * 0.5 + yawR - curl * (three ? 0.62 : 0.55) + p.wiggle - look * 0.5;
+  out.shadows.add(p.x, p.y, p.z, Math.abs(q.x) * 4.4 * s, Math.abs(q.zF - q.zR) * 1.7 * s, p.heading);
   compose(_W, p.x, p.y + p.bob, p.z, 0, p.heading, 0, s);
   compose(_Mid, sway, bodyH, 0, pitch, 0, roll + 0.35 * shk(p, 1.8));
   _F.multiplyMatrices(_Mid, compose(_T, 0, 0, jc, flexC, yawC, rollF + 0.45 * shk(p, 1.2)));

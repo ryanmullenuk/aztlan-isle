@@ -12,6 +12,7 @@ import { World } from '../world/World';
 import type { Colony } from '../ai/Colony';
 import type { Islander } from './Islander';
 import { BOAT_SCALE, Boats, HULL_BEAM, HULL_HALF, newRide, tradeShipGeometry, Vessel } from './Boats';
+import { hullShadow } from '../render/SoftShadows';
 import { Hull } from './fleet';
 
 /** What can go in the hold: stores (not Belief) and precious goods. */
@@ -404,10 +405,8 @@ export class Voyages {
   private makeShip(dock: Building): Ship {
     const mesh = new THREE.Group();
     const hull = new THREE.Mesh(this.hull, this.mat);
-    hull.castShadow = true;
     const deck = new THREE.Mesh(this.deck, this.mat);
-    deck.castShadow = true;
-    mesh.add(hull, deck);
+    mesh.add(hull, hullShadow(hull.geometry), deck);
     mesh.scale.setScalar(BOAT_SCALE * SHIP_SCALE);
     this.group.add(mesh);
     const at = this.berth(dock);

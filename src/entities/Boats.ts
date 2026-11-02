@@ -15,6 +15,7 @@ import { World } from '../world/World';
 import { Islander } from './Islander';
 import { CanoePassenger } from './CanoePassenger';
 import { School, Wildlife } from './Wildlife';
+import { hullShadow } from '../render/SoftShadows';
 import { giveWay, Hull, hullGap, pickSchool, stationOffset } from './fleet';
 
 /** Eased swell pose of a hull (so it settles gently rather than twitching). */
@@ -814,7 +815,6 @@ export class Boats {
     const mesh = new THREE.Group();
     const hullMat = this.hullMat;
     const hull = new THREE.Mesh(this.geos[sail ? 1 : 0], hullMat);
-    hull.castShadow = true;
     const rower = new THREE.Group();
     const seats = { m: new CanoePassenger('m', 0.62 / 1.8 / BOAT_SCALE, this.paddleGeo), f: new CanoePassenger('f', 0.62 / 1.8 / BOAT_SCALE, this.paddleGeo) };
     rower.add(seats.m, seats.f);
@@ -826,7 +826,7 @@ export class Boats {
     const floats = new THREE.Mesh(this.floatsGeo, this.hullMat);
     net.add(disc, floats);
     net.visible = false;
-    mesh.add(hull, rower);
+    mesh.add(hull, hullShadow(hull.geometry), rower);
     mesh.scale.setScalar(BOAT_SCALE * (sail?1.18:1));
     rower.scale.setScalar(sail?1/1.18:1);
     this.group.add(mesh, net);
@@ -1293,12 +1293,10 @@ export class Boats {
     const path = this.waterPath(sx, sz, lx, lz, true) ?? [{ x: lx, z: lz }];
     const mesh = new THREE.Group();
     const hull = new THREE.Mesh(this.geos[0], this.hullMat);
-    hull.castShadow = true;
-    mesh.add(hull);
+    mesh.add(hull, hullShadow(hull.geometry));
     const rowers: CanoePassenger[] = [];
     genders.forEach((gender, k) => {
       const r = new CanoePassenger(gender, (0.62 / 1.8) / (BOAT_SCALE * 1.1), this.paddleGeo);
-      r.castShadow = true;
       r.position.z = 0.35 - k * (0.7 / Math.max(1, genders.length - 1));
       mesh.add(r);
       rowers.push(r);
@@ -1385,13 +1383,12 @@ export class Boats {
             a.fading = [];
             a.mesh.traverse((o) => {
               const m = o as THREE.Mesh;
-              if (!m.isMesh) return;
+              if (!m.isMesh || m.name === 'softShadow') return;
               const mat = (m.material as THREE.Material).clone();
               mat.transparent = true;
               m.material = mat;
               a.fading!.push(mat);
             });
-            (a.mesh.children[0] as THREE.Mesh).castShadow = false;
           }
           for (const m of a.fading) m.opacity = Math.max(0, a.timer / FADE_SECONDS);
         }

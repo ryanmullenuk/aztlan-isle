@@ -639,7 +639,6 @@ export function createWhale(material: THREE.Material): WhaleRig {
   mesh.bind(new THREE.Skeleton(bones));
   // The animated body can reach outside the rest-pose bounds.
   mesh.frustumCulled = false;
-  mesh.castShadow = true;
   const point = (bone: number, x: number, y: number, z: number) => {
     const o = new THREE.Object3D();
     o.position.set(x, y, z);

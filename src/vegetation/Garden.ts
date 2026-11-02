@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { GeoBuilder, M, P, tube } from '../render/GeoBuilder';
 import { stylisedMaterial } from '../render/materials';
+import { followerShadows } from '../render/SoftShadows';
 import { Particles } from '../render/Particles';
 import { RNG } from '../world/rng';
 import { World } from '../world/World';
@@ -183,6 +184,8 @@ interface Plant {
 
 interface Batch {
   mesh: THREE.InstancedMesh;
+  /** Soft shadows under its plants (sharing its instance matrices). */
+  shadow: THREE.InstancedMesh;
   plants: Plant[];
 }
 
@@ -234,10 +237,11 @@ export class Garden {
       const mesh = new THREE.InstancedMesh(v.geo(), mat, 16);
       mesh.count = 0;
       mesh.frustumCulled = false;
-      mesh.castShadow = true;
       mesh.receiveShadow = true;
-      this.group.add(mesh);
-      return { mesh, plants: [] };
+      // No sun shadow: a soft shadow under each plant instead.
+      const shadow = followerShadows(mesh, mesh.geometry);
+      this.group.add(mesh, shadow);
+      return { mesh, shadow, plants: [] };
     });
     this.group.add(this.dust.points, this.flecks.points);
     this.group.name = 'garden';
@@ -397,7 +401,7 @@ export class Garden {
     if (b.plants.length >= b.mesh.instanceMatrix.count) this.grow(v);
     p.slot = b.plants.length;
     b.plants.push(p);
-    b.mesh.count = b.plants.length;
+    b.mesh.count = b.shadow.count = b.plants.length;
     this.plants.push(p);
     let list = this.grid.get(cell);
     if (!list) this.grid.set(cell, (list = []));
@@ -415,11 +419,12 @@ export class Garden {
     mesh.instanceMatrix.array.set(old.instanceMatrix.array as Float32Array);
     mesh.count = old.count;
     mesh.frustumCulled = false;
-    mesh.castShadow = true;
     mesh.receiveShadow = true;
-    this.group.remove(old);
+    this.group.remove(old, b.shadow);
     old.dispose();
-    this.group.add(mesh);
+    b.shadow.geometry.dispose();
+    b.shadow = followerShadows(mesh, mesh.geometry);
+    this.group.add(mesh, b.shadow);
     b.mesh = mesh;
   }
 
@@ -438,7 +443,7 @@ export class Garden {
       last.slot = p.slot;
       this.place(last);
     }
-    b.mesh.count = b.plants.length;
+    b.mesh.count = b.shadow.count = b.plants.length;
     b.mesh.instanceMatrix.needsUpdate = true;
     const i = this.plants.indexOf(p);
     if (i >= 0) {

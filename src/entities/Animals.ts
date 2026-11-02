@@ -5,6 +5,7 @@ import { FAUNA, SPECIES, SpeciesDef, SpeciesKey, WARRIOR, WILDLIFE } from '../co
 import { Building } from '../buildings/Buildings';
 import { penLayout } from '../buildings/models';
 import { peopleMaterial } from '../render/materials';
+import { SoftShadows } from '../render/SoftShadows';
 import { RNG } from '../world/rng';
 import { SpatialHash } from '../world/SpatialHash';
 import { World } from '../world/World';
@@ -339,6 +340,8 @@ export class Animals {
   private groups: Group[] = [];
   private rng: RNG;
   private meshes = new Map<string, { mesh: THREE.InstancedMesh; acc: THREE.InstancedBufferAttribute; n: number }>();
+  /** A soft shadow under each animal, in place of a sun shadow. */
+  private shadows = new SoftShadows(160);
   private pens = new Map<number, Pen>();
   private slaughter = new Map<number,{worker:Islander;source:Building}>();
   private leash: THREE.LineSegments;
@@ -358,6 +361,7 @@ export class Animals {
     this.leash = new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: 0xc9a86a, fog: true }));
     this.leash.frustumCulled = false;
     this.group.add(this.leash);
+    this.group.add(this.shadows.mesh);
   }
 
   // ---------------- Meshes ----------------
@@ -369,7 +373,6 @@ export class Animals {
       acc.setUsage(THREE.DynamicDrawUsage);
       geo.setAttribute('iAccent', acc);
       const mesh = new THREE.InstancedMesh(geo, mat, cap);
-      mesh.castShadow = true;
       mesh.frustumCulled = false;
       mesh.count = 0;
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -1644,6 +1647,7 @@ export class Animals {
   private draw(dt = 0.016): void {
     this.drawFrame++;
     for (const e of this.meshes.values()) e.n = 0;
+    this.shadows.begin();
     const lineArr = (this.leash.geometry.getAttribute('position') as THREE.BufferAttribute).array as Float32Array;
     let lines = 0;
     for (const a of this.list) {
@@ -1653,8 +1657,11 @@ export class Animals {
       if (!View.sees(a.x, a.y + 0.2 * a.scale, a.z, 0.5 * a.scale + 0.2)) continue;
       if (a.sp === 'chicken') this.drawChicken(a, dt);
       else this.drawQuad(a, dt);
+      const r = bodyR(a);
+      this.shadows.add(a.x, a.y, a.z, r * 2.4, r * (a.sp === 'chicken' ? 2.6 : 4), a.heading);
       if (this.leashLine(a, lineArr, lines)) lines++;
     }
+    this.shadows.end();
     this.leash.geometry.setDrawRange(0, lines * 4);
     (this.leash.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
     for (const e of this.meshes.values()) {

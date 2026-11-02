@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { characterModelKey, isElder, type CharacterModelKey } from './CharacterVariants';
 import { View } from '../render/View';
+import { SoftShadows } from '../render/SoftShadows';
 import { ISLANDER } from '../config';
 import { peopleMaterial, peopleSkinnedMaterial } from '../render/materials';
 import { Islander } from './Islander';
@@ -582,8 +583,8 @@ export class IslanderRig {
   private pawnBody: THREE.InstancedMesh;
   private pawnHead: THREE.InstancedMesh;
   /** Shadow-only stand-ins for the islanders drawn in full (a few dozen triangles each, not thousands). */
-  /** A soft dark patch on the ground under each islander's feet (the sun's shadow sits a little off them). */
-  private contact: THREE.InstancedMesh;
+  /** A soft shadow under each islander's feet, in place of a sun shadow. */
+  private contact = new SoftShadows(ISLANDER.max);
 
   constructor() {
     // Props (tools, headdresses, carried loads); the bodies are the two character models.
@@ -629,26 +630,8 @@ export class IslanderRig {
     };
     this.pawnBody = pawn(new THREE.CylinderGeometry(0.3, 0.32, 1.2, 6).translate(0, 0.6, 0));
     this.pawnHead = pawn(new THREE.IcosahedronGeometry(0.3, 0).translate(0, 1.45, 0));
-    // Islanders cast no sun shadow: each has a soft round shadow straight below, as if the sun were
-    // overhead, which keeps them on the ground at any hour (and spares the shadow pass a village).
-    const R = 32, fade = new Uint8Array(R * R * 4);
-    for (let y = 0; y < R; y++) for (let x = 0; x < R; x++) {
-      const d = Math.hypot(x + 0.5 - R / 2, y + 0.5 - R / 2) / (R / 2);
-      fade[(y * R + x) * 4 + 3] = Math.round(255 * Math.max(0, 1 - d * d) ** 1.5);
-    }
-    const fadeTex = new THREE.DataTexture(fade, R, R);
-    fadeTex.magFilter = fadeTex.minFilter = THREE.LinearFilter;
-    fadeTex.needsUpdate = true;
-    this.contact = new THREE.InstancedMesh(
-      new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
-      new THREE.MeshBasicMaterial({ color: 0x000000, map: fadeTex, transparent: true, opacity: 0.5, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
-      ISLANDER.max,
-    );
-    this.contact.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    this.contact.count = 0;
-    this.contact.frustumCulled = false;
-    this.contact.renderOrder = 4;
-    this.group.add(this.contact);
+    // Islanders cast no sun shadow: each has a soft round shadow straight below (see SoftShadows).
+    this.group.add(this.contact.mesh);
   }
 
   private addMesh(key: string, geo: THREE.BufferGeometry, cap: number): void {
@@ -850,12 +833,9 @@ export class IslanderRig {
     const M = this.m;
     const skinned = !!this.skins.m && !!this.skins.f;
     if (skinned) for (const set of new Set(Object.values(this.skins))) if (set) set.n = 0;
-    let pawns = 0, feet = 0;
-    const contact = (isl: Islander, sc: number) => {
-      const r = sc * 1.35;
-      this.tmp.makeScale(r, 1, r).setPosition(isl.x, isl.y + 0.012, isl.z);
-      this.contact.setMatrixAt(feet++, this.tmp);
-    };
+    let pawns = 0;
+    this.contact.begin();
+    const contact = (isl: Islander, sc: number) => this.contact.add(isl.x, isl.y, isl.z, sc * 1.35);
     const far2 = this.lodDist * this.lodDist;
     for (const isl of list) {
       if (isl.hidden) continue;
@@ -899,8 +879,7 @@ export class IslanderRig {
       this.upload(m.instanceMatrix, pawns);
       if (m.instanceColor) this.upload(m.instanceColor, pawns);
     }
-    this.contact.count = feet;
-    if (feet) this.upload(this.contact.instanceMatrix, feet);
+    this.contact.end();
     for (const [key, mesh] of this.meshes) {
       const n = this.count.get(key) ?? 0;
       mesh.count = n;

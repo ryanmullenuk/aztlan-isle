@@ -15,7 +15,6 @@ export class CanoePassenger extends THREE.Group {
     this.name = `Canoe passenger ${gender}`;
     if (prop) {
       const held = new THREE.Mesh(prop, stylisedMaterial());
-      held.castShadow = true;
       this.add(held);
     }
     loadIslanderModels().then((models) => {
@@ -42,7 +41,7 @@ export class CanoePassenger extends THREE.Group {
     this.material.needsUpdate = true;
     this.geometries.push(geo);
     const mesh = new THREE.Mesh(geo, this.material);
-    mesh.castShadow = mesh.receiveShadow = true;
+    mesh.receiveShadow = true;
     body.add(mesh);
   }
 

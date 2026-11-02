@@ -5,6 +5,7 @@ import { stylisedMaterial } from '../render/materials';
 import { RNG } from '../world/rng';
 import { SpatialHash } from '../world/SpatialHash';
 import { World } from '../world/World';
+import { hullShadow } from '../render/SoftShadows';
 import type { Islander } from './Islander';
 
 interface Shell {
@@ -108,8 +109,8 @@ export class BeachPearls {
       if (this.shells.some((o) => Math.hypot(o.x - x, o.z - z) < 6)) continue;
       const mesh = new THREE.Group();
       const m = new THREE.Mesh(this.geo, stylisedMaterial());
-      m.castShadow = true;
       m.scale.setScalar(1.6);
+      m.add(hullShadow(this.geo));
       mesh.add(m);
       const glint = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.tex, color: 0xfff6e8, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
       glint.scale.setScalar(0.3);
