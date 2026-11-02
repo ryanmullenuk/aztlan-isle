@@ -954,6 +954,7 @@ export class UI {
         <li><b>Weddings:</b> now and then a man and a woman <b>wish to marry</b> (at most one wedding every five days). The wish waits for a day in your <b>Requests</b>: grant it and the couple kneel at the temple (or the tribal fire) while the village gathers, then everyone dances, and the newlyweds make a home together (+Belief). Let a wish go ungranted and the couple are heartbroken and the gods displeased (−Belief).</li>
         <li><b>Requests:</b> islanders also wish for things like a Well or a Torch near their home. Build it in time for Belief and a happier islander.</li>
         <li>Some adults are <b>elders</b>, with grey hair and a walking staff. When a child comes of age, an elder (from their own home if one lives there) passes on their skills: the young adult is <b>skilled</b> and builds, farms, gathers and carves a quarter faster for life.</li>
+        <li>Elders don’t live for ever. After some weeks an elder passes away peacefully in their sleep, and the village gathers to lay them to rest near the temple (or the tribal fire). A grave with a carved stone and marigolds marks the spot; tap it to see who lies there. A small village (fewer than six grown islanders) keeps its elders a while longer.</li>
       </ul>
       <h4>Belief and the gods</h4><ul>
         <li>Belief comes from happy islanders, priests praying at temples, bonfire evenings, granted wishes, weddings, seasonal goals and celebrations. Spend it on god powers (<b>Power</b>, 6): rain, calming storms and the volcano, and more.</li>

@@ -96,6 +96,9 @@ export interface Islander {
   skilled?: boolean;
   /** The elder who taught them. */
   teacher?: string;
+  /** Elders: how many young islanders they taught, and game seconds of life left. */
+  taught?: number;
+  lifeLeft?: number;
   x: number;
   y: number;
   z: number;

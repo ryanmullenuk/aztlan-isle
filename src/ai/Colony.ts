@@ -932,6 +932,7 @@ export class Colony {
       if (teacher) {
         kid.skilled = true;
         kid.teacher = teacher.name;
+        teacher.taught = (teacher.taught ?? 0) + 1;
       }
       this.hooks.notify?.(teacher
         ? `${kid.name} has come of age, taught by the elder ${teacher.name}: they will work faster all their life.`

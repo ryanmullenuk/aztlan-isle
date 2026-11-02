@@ -48,6 +48,7 @@ export interface SaveData {
   weddings?: { next: number };
   seasonGoals?: unknown;
   raids?: unknown;
+  passings?: unknown;
   lanterns?: { held: number };
   volcano?: VolcanoSave;
   fires?: StormFireSave;
@@ -191,6 +192,7 @@ export function serialize(g: Game): SaveData {
     ...(g.weddings ? { weddings: g.weddings.save() } : {}),
     ...(g.seasonGoals ? { seasonGoals: g.seasonGoals.save() } : {}),
     ...(g.raids ? { raids: g.raids.save() } : {}),
+    ...(g.passings ? { passings: g.passings.save() } : {}),
     ...(g.lanternNight ? { lanterns: g.lanternNight.save() } : {}),
     ...(g.rareSales ? { rareSales: { day: g.rareSales.day, bought: { ...g.rareSales.bought } } } : {}),
     ...(g.volcano ? { volcano: g.volcano.save() } : {}),
@@ -225,6 +227,8 @@ export function serialize(g: Game): SaveData {
       ...(i.condition !== 'well' ? { condition: i.condition, conditionT: i.conditionT } : {}),
       ...(i.spouse !== undefined ? { spouse: i.spouse } : {}),
       ...(i.skilled ? { skilled: true, teacher: i.teacher } : {}),
+      ...(i.taught ? { taught: i.taught } : {}),
+      ...(i.lifeLeft !== undefined ? { lifeLeft: i.lifeLeft } : {}),
     })),
     schools: g.wildlife?.schools.map((s) => Math.round(s.stock * 10) / 10) ?? [],
     animals: g.wildlife?.animals.serialize() ?? [],
@@ -352,6 +356,7 @@ export function applyRest(g: Game, d: SaveData): void {
   g.weddings?.restore(d.weddings);
   g.seasonGoals?.restore(d.seasonGoals);
   g.raids?.restore(d.raids);
+  g.passings?.restore(d.passings);
   // Saved before marriages counted for children (nobody married yet): the men and women already
   // sharing a house are taken to be married, so the families that were growing keep growing.
   if (!d.islanders.some((i) => i.spouse !== undefined) && g.colony.marryHousemates) g.colony.marryHousemates();

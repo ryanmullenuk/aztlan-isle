@@ -57,3 +57,15 @@ test('raiders are deterred by defence, and take less when met on the beach', () 
   assert.ok(met.food < free.food && met.wood < free.wood);
   assert.deepEqual(plunder({ food: 1e5, wood: 1e5, stone: 1e5 }, false), RAID.carry, 'two canoes carry only so much');
 });
+
+test('elders live on for weeks of game days, and graves survive a reload (bad entries dropped)', async () => {
+  const { PASSING } = await import('../src/economy/Passings');
+  const { Graves } = await import('../src/render/Graves');
+  assert.ok(PASSING.life[0] >= 10, 'an elder is not lost within days of meeting them');
+  assert.ok(PASSING.minAdults >= 4, 'a small village keeps its elders');
+  const g = new Graves();
+  g.restore([{ name: 'Tlacael', x: 1, z: 2, y: 0.5, yaw: 0, day: 30 }, { name: 'bad', x: NaN }, null]);
+  assert.equal(g.list.length, 1);
+  assert.equal(g.near(1.2, 2.1)?.name, 'Tlacael');
+  assert.equal(g.near(5, 5), null);
+});

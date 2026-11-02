@@ -77,6 +77,7 @@ import { FAUNA, GREAT_HALL, SPECIES, TIME, FIREWORKS, GOODS, RARE_GOODS, WONDER_
 import { WeddingSystem } from './economy/Weddings';
 import { SeasonGoals } from './economy/SeasonGoals';
 import { Raids } from './economy/Raids';
+import { Passings } from './economy/Passings';
 import { LanternNight } from './economy/LanternNight';
 import { MONKEY_BASE } from './entities/Monkeys';
 import { DOG_BASE, Dogs } from './entities/Dogs';
@@ -261,6 +262,8 @@ export class Game {
   seasonGoals!: SeasonGoals;
   /** Rival raiders from other islands. */
   raids!: Raids;
+  /** Elders passing away, their funerals and graves. */
+  passings!: Passings;
   /** Lantern Night, once a year after the harvest. */
   lanternNight!: LanternNight;
   /** Firework displays over the village. */
@@ -527,6 +530,8 @@ export class Game {
     this.weddings = new WeddingSystem(this);
     this.seasonGoals = new SeasonGoals(this);
     this.raids = new Raids(this);
+    this.passings = new Passings(this);
+    this.scene.add(this.passings.graves.group);
     this.lanternNight = new LanternNight(this);
     this.scene.add(this.lanternNight.lanterns.points);
     const seaAngle = Math.atan2(this.world.seaDir.z, this.world.seaDir.x);
@@ -1766,6 +1771,12 @@ export class Game {
     }
     // A pearl oyster on the beach: tapping it finds the pearl.
     if (this.pearls.tap(this.rig.camera, x, y, rect)) return;
+    // A grave: who lies there.
+    const gp = this.pickGround(x, y), grave = gp && this.passings.graves.near(gp.x, gp.z, 0.45);
+    if (grave) {
+      this.ui.toast(`Here lies ${grave.name}, laid to rest on day ${grave.day}.`);
+      return;
+    }
     // The voyage ship (or a green orb over goods or bargains waiting): its Trade Dock's card.
     const vdock = this.voyage.pick(this.rig.camera, x, y, rect);
     if (vdock) {
@@ -3095,6 +3106,7 @@ export class Game {
     this.weddings.update(dt);
     this.seasonGoals.update();
     this.raids.update();
+    this.passings.update(dt);
     this.lanternNight.update(dt);
     // The Sun Stone's favour: a steady trickle of Belief.
     if (dt > 0 && this.wonder('sunstone')) this.eco.add('belief', (WONDER_EFFECT.beliefPerMinute * dt) / 60);
