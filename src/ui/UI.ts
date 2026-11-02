@@ -13,7 +13,7 @@ import { rareBlock, rareLeft } from '../economy/RareGoods';
 import { settingsMarkup, wireSettingsTabs } from './SettingsPanel';
 import { serialize } from '../world/Save';
 import { islandFile, parseIslandFile, downloadIsland, MAX_ISLAND_FILE_BYTES } from '../world/IslandFile';
-import { DEFENCE, DOGS, GOODS, GOOD_KEYS, GoodKey, VOYAGE, FAUNA, PATHS, BUILDINGS, BuildingKey, CAMERA, JETTY, MILESTONES, PresetName, SAVE, SPECIES, WARRIOR, FARM_TYPES, SMOKE, STONEMASON, BOAT_WORKSHOP, TRADE, TradeOffer, ResourceKey, FIREWORKS, RARE_GOODS, WONDER_KEYS, WONDERS, isWonder, DECREES, PALACE_RULES, type DecreeKey, RESEARCH, RESEARCH_UPGRADE_LABEL, OBSERVATORY, TIME, DECOR_KEYS } from '../config';
+import { DEFENCE, DOGS, GOODS, GOOD_KEYS, GoodKey, VOYAGE, FAUNA, PATHS, BUILDINGS, BuildingKey, CAMERA, JETTY, MILESTONES, PresetName, SAVE, SPECIES, WARRIOR, FARM_TYPES, SMOKE, TEST_TOOLS, type FixedTime, STONEMASON, BOAT_WORKSHOP, TRADE, TradeOffer, ResourceKey, FIREWORKS, RARE_GOODS, WONDER_KEYS, WONDERS, isWonder, DECREES, PALACE_RULES, type DecreeKey, RESEARCH, RESEARCH_UPGRADE_LABEL, OBSERVATORY, TIME, DECOR_KEYS } from '../config';
 import { MONKEY_BASE } from '../entities/Monkeys';
 import { DOG_BASE } from '../entities/Dogs';
 import { JAG_BASE } from '../entities/Jaguars';
@@ -210,7 +210,7 @@ export class UI {
   }
 
   private godOptionsUnlocked(): boolean {
-    return this.game.islandName.trim().toUpperCase() === GOD_NAME;
+    return TEST_TOOLS || this.game.islandName.trim().toUpperCase() === GOD_NAME;
   }
 
   private syncGodOptions(): void {
@@ -220,6 +220,10 @@ export class UI {
     const sandbox = this.settings?.querySelector<HTMLButtonElement>('[data-a="sandbox"]');
     if (instant) instant.disabled = !unlocked;
     if (sandbox) sandbox.disabled = !unlocked;
+    // The testing tools (god mode on this island, a held clock, extra islanders) are never shown in a release.
+    this.settings?.querySelectorAll('.testrow').forEach(row => row.classList.toggle('hidden', !TEST_TOOLS));
+    const god = this.settings?.querySelector<HTMLInputElement>('[data-t="god"]');
+    if (god) god.checked = !!this.game.eco?.godMode;
   }
 
   private buildTopLeft(): void {
@@ -802,7 +806,7 @@ export class UI {
         else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
       }
     });
-    const sel = card.querySelector('select') as HTMLSelectElement;
+    const sel = card.querySelector('select[data-k="preset"]') as HTMLSelectElement;
     sel.value = s.preset;
     sel.onchange = () => {
       s.preset = sel.value as PresetName;
@@ -853,6 +857,23 @@ export class UI {
         }
       };
     });
+    // Testing tools.
+    card.querySelector<HTMLInputElement>('[data-t="god"]')!.onchange = (e) => {
+      const on = (e.target as HTMLInputElement).checked;
+      this.game.setGodMode(on);
+      this.toast(on ? 'God mode on: unlimited resources.' : 'God mode off.');
+    };
+    const timeSel = card.querySelector<HTMLSelectElement>('[data-t="time"]')!;
+    timeSel.value = s.fixedTime ?? '';
+    timeSel.onchange = () => {
+      s.fixedTime = timeSel.value as FixedTime | '';
+      this.game.applySettings();
+    };
+    const count = card.querySelector<HTMLInputElement>('[data-t="count"]')!;
+    card.querySelector<HTMLButtonElement>('[data-t="add"]')!.onclick = () => {
+      const n = this.game.addTestIslanders(Math.min(100, parseInt(count.value, 10) || 0));
+      this.toast(n ? `${n} islander${n === 1 ? '' : 's'} added.` : 'The island is full.');
+    };
     card.querySelector<HTMLButtonElement>('[data-a="new"]')!.onclick = () => this.chooseIsland(false);
     card.querySelector<HTMLButtonElement>('[data-a="sandbox"]')!.onclick = () => {
       if (!this.godOptionsUnlocked()) return;

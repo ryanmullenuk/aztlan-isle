@@ -6,6 +6,16 @@
 
 export type PresetName = 'ultra' | 'high' | 'medium' | 'low';
 
+/**
+ * Testing tools in Settings (god mode, instant building, a fixed time of day, extra islanders) for
+ * play-testing and screenshots. Turn off for the App Store release.
+ */
+export const TEST_TOOLS = true;
+
+/** Times of day the testing tools can hold the clock at (clock hours). */
+export const FIXED_HOURS = { dawn: 6.3, day: 12, dusk: 18.6, night: 23 } as const;
+export type FixedTime = keyof typeof FIXED_HOURS;
+
 export const WORLD = {
   /** Grid cells along each side of the square map. */
   size: 200,

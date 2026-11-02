@@ -20,10 +20,10 @@ import { haptic, setHaptics } from './ui/Haptics';
 import { PathWorkerClient } from './ai/PathWorkerClient';
 import { RequestBoard, REQUESTS } from './economy/Requests';
 import type { Where } from './ui/where';
-import { WORLD, PATHS, BUILDINGS, BuildingKey, CAMERA, ISLANDER, MILESTONES, POWERS, PresetName, RENDER, SAVE, isFarm, SETTLERS, RESEARCH, RESEARCH_UPGRADE_LABEL } from './config';
+import { WORLD, PATHS, BUILDINGS, BuildingKey, CAMERA, ISLANDER, MILESTONES, POWERS, PresetName, RENDER, SAVE, isFarm, SETTLERS, RESEARCH, RESEARCH_UPGRADE_LABEL, TEST_TOOLS, FIXED_HOURS, type FixedTime } from './config';
 import { World } from './world/World';
 import { generateIsland, type IslandType } from './world/generator';
-import { GameTime } from './world/Time';
+import { GameTime, dayFraction } from './world/Time';
 import { RNG } from './world/rng';
 import { Outcrops } from './terrain/Outcrops';
 import { frameShadows, setupShadows } from './render/ShadowLayer';
@@ -167,8 +167,10 @@ export interface Settings {
   motion: boolean;
   /** Chunky pixel-art rendering. */
   pixel: boolean;
-  /** God mode only: buildings and upgrades finish the moment they are placed. */
+  /** Testing (or god mode): buildings and upgrades finish the moment they are placed. */
   instantBuild: boolean;
+  /** Testing: hold the clock at dawn, day, dusk or night (unset lets time run). */
+  fixedTime?: FixedTime | '';
   /** Share of the preset's resolution actually rendered (auto quality lowers it on slow devices). */
   renderScale: number;
   /** Draw at a lower resolution while the camera moves, sharpening the moment it stops. */
@@ -208,8 +210,8 @@ function requestBubbleMaterial(): THREE.SpriteMaterial {
 
 /** Away at least this long (seconds) before the welcome back card. */
 const WELCOME_AFTER = 300;
-/** Tilt-shift strength a new game starts with: 15% of the slider (0..2). */
-const NEW_GAME_DOF = 0.3;
+/** Tilt-shift strength a new game starts with: 5% of the slider (0..2). */
+const NEW_GAME_DOF = 0.1;
 /** Camera distance beyond which animals stop casting shadows. */
 const SMALL_SHADOWS_TO = 70;
 /** How far the camera closes in when it starts following an islander. */
@@ -524,7 +526,7 @@ export class Game {
     this.buildings.onComplete = (b) => this.onBuildingComplete(b);
     this.buildings.onRevealed = (b) => this.onBuildingRevealed(b);
     this.buildings.onLanded = (b) => this.onFoundationLanded(b);
-    this.buildings.instantBuild = () => this.islandName.toUpperCase() === GOD_NAME && this.settings.instantBuild;
+    this.buildings.instantBuild = () => (TEST_TOOLS || this.islandName.toUpperCase() === GOD_NAME) && this.settings.instantBuild;
 
     this.lighting = new Lighting(this.scene, cfg.shadowSize);
     this.skyBodies = new SkyBodies();
@@ -1109,6 +1111,34 @@ export class Game {
     this.ui.setHint('Choose where to light the <b>campfire</b>: this is where your village begins. Pick open, flat land with room to grow.');
   }
 
+  /** Testing: keep the clock at the chosen time of day (the day count stops too). */
+  private holdTime(): void {
+    const f = TEST_TOOLS ? this.settings?.fixedTime : '';
+    if (f) this.time.t = dayFraction(FIXED_HOURS[f]);
+  }
+
+  /** Testing: turn god mode (unlimited resources, no dangers) on or off for this island. */
+  setGodMode(on: boolean): void {
+    if (!TEST_TOOLS) return;
+    this.eco.godMode = on;
+    this.ui.updateIslandName();
+    this.save();
+  }
+
+  /** Testing: `n` grown islanders walk out from the campfire (or the meadow before there is one). */
+  addTestIslanders(n: number): number {
+    if (!TEST_TOOLS) return 0;
+    const at = this.buildings.of('campfire')[0] ?? this.world.meadow;
+    const room = Math.max(0, ISLANDER.max - this.colony.list.length);
+    const count = Math.min(Math.max(0, Math.floor(n)), room);
+    for (let k = 0; k < count; k++) {
+      const a = this.rng.next() * Math.PI * 2, r = 2 + this.rng.next() * 3;
+      const isl = this.colony.spawn(this.rng.next() < 0.5 ? 'm' : 'f', at.x + Math.cos(a) * r, at.z + Math.sin(a) * r);
+      this.colony.walkTo(isl, isl.x + Math.cos(a) * 2, isl.z + Math.sin(a) * 2);
+    }
+    return count;
+  }
+
   /** Canoes of new settlers come when there are free beds and spare food. */
   private updateSettlers(dt: number): void {
     if (!this.buildings.hasCampfire) return;
@@ -1154,6 +1184,7 @@ export class Game {
   applySettings(): void {
     const s = this.settings;
     setHaptics(s.haptics);
+    this.holdTime();
     if (this.preset !== s.preset) this.setPreset(s.preset);
     this.wildlife?.coral.setPreset(this.preset);
     this.tubeCoral?.setPreset(this.preset);
@@ -2889,6 +2920,7 @@ export class Game {
     const realDt = this.playing ? Math.min(rawDt, 0.1) : 0;
     if (this.playing) this.trackWorstFrame(rawDt);
     const dt = this.time.advance(realDt);
+    this.holdTime();
     const c0 = performance.now();
     this.update(realDt, dt);
     this.render(realDt);

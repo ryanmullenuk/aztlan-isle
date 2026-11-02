@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { UI } from '../src/ui/UI';
 import { Game } from '../src/Game';
-import { SAVE } from '../src/config';
+import { SAVE, TEST_TOOLS } from '../src/config';
 
 function setup() {
   const dom = new JSDOM('<body><button id="gear">Settings</button><div id="hud"></div></body>', {url:'https://aztlan.test'});
@@ -86,7 +86,14 @@ test('keyboard tabs, modal focus and Escape work without firing gameplay shortcu
 });
 
 
-test('Sandbox and Instant Build only unlock through the GODMODE island name',()=>{
+test('Testing tools show in Settings while they are switched on for play-testing',{skip:!TEST_TOOLS&&'release build'},()=>{
+ const {ui,game,q}=setup();ui.updateIslandName();
+ for(const k of ['god','time','add'])assert.equal(q(`[data-t="${k}"]`).closest('.godrow').classList.contains('hidden'),false,k);
+ let added=0;game.addTestIslanders=(n:number)=>(added=n);q('[data-t="count"]').value='12';q('[data-t="add"]').onclick();assert.equal(added,12);
+ game.setGodMode=(on:boolean)=>{game.eco.godMode=on;};const god=q('[data-t="god"]');god.checked=true;god.onchange({target:god});assert.equal(game.eco.godMode,true);
+});
+
+test('Sandbox and Instant Build only unlock through the GODMODE island name',{skip:TEST_TOOLS&&'testing tools unlock them'},()=>{
  const {ui,game,q}=setup(),sandbox=q('[data-a="sandbox"]'),instant=q('[data-k="instantBuild"]');
  const hidden=()=>sandbox.closest('.godrow').classList.contains('hidden')&&instant.closest('.godrow').classList.contains('hidden');
  assert.ok(hidden());assert.ok(sandbox.disabled&&instant.disabled);

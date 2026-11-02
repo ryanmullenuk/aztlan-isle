@@ -1376,3 +1376,12 @@ body.notice-showing .toasts { margin-top: min(130px, 21vw); }
 .lapse-row { display: flex; gap: 8px; justify-content: center; }
 .lapse-row .btn { min-height: 40px; min-width: 110px; }
 .lapse-note { text-align: center; margin: 8px 0 0; }
+
+/* Testing tools row: a count and an Add button. */
+.settings-add { display: flex; align-items: center; gap: 8px; }
+.settings-add input { width: 72px; min-height: 44px; padding: 6px; text-align: center; font-size: 16px; font-family: inherit; color: inherit; background: #232326; border: 1px solid #474448; border-radius: 8px; user-select: text; -webkit-user-select: text; }
+#hud#hud .settings-card .settings-add-btn { min-height: 44px; padding: 0 18px !important; border: 1px solid #d8b267 !important; border-radius: 8px; color: #dfb965 !important; }
+
+/* Menus sit still like an app's: only their lists scroll, up and down, and nothing drags the sheet itself sideways or past its edges. */
+.modal, .settings-card { touch-action: none; overscroll-behavior: none; overflow: hidden; }
+.settings-body { touch-action: pan-y; overflow-x: hidden; overscroll-behavior: none; }

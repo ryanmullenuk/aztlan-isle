@@ -14,7 +14,13 @@ export function settingsMarkup(): string {
       ${action('save', 'Save island', 'o_save')}${action('copy', 'Copy island', 'o_link')}${action('load', 'Load island', 'o_save')}
       <p class="settings-note">Progress autosaves. Copy island creates a file you can share or keep.</p>
       <h2>Help</h2>${action('help', 'How to play', 'o_help')}${action('tutorial', 'Tutorial', 'o_tutorial')}
-      <label class="settings-row settings-switch-row godrow hidden"><span>Instant building</span><input type="checkbox" role="switch" data-k="instantBuild"></label>
+      <div class="godrow hidden"><h2>Testing</h2>
+        <label class="settings-row settings-switch-row testrow"><span>God mode<small>Unlimited resources and no dangers on this island</small></span><input type="checkbox" role="switch" data-t="god"></label>
+        <label class="settings-row settings-switch-row"><span>Instant building</span><input type="checkbox" role="switch" data-k="instantBuild"></label>
+        <label class="settings-row settings-select-row testrow"><span>Time of day<small>Hold the clock for testing and screenshots</small></span><select data-t="time" aria-label="Time of day"><option value="">Normal</option><option value="dawn">Always dawn</option><option value="day">Always day</option><option value="dusk">Always dusk</option><option value="night">Always night</option></select></label>
+        <div class="settings-row testrow"><label for="settings-add-count">Add islanders</label><span class="settings-add"><input id="settings-add-count" type="number" inputmode="numeric" min="1" max="100" value="10" data-t="count" aria-label="How many islanders"><button type="button" class="settings-add-btn" data-t="add">Add</button></span></div>
+        <p class="settings-note testrow">Testing tools are for play-testing only and are not in the released game.</p>
+      </div>
       <details class="settings-disclosure settings-new"><summary>Start a new island<span aria-hidden="true">›</span></summary><div class="settings-details"><p class="settings-note">Starting again replaces your current island. Copy it first to keep it.</p>${action('new', 'Normal game', 'o_new')}<div class="godrow hidden">${action('sandbox', 'Sandbox · unlimited resources', 'o_new')}</div></div></details>
       <input type="file" data-a="island-file" accept=".json,application/json" hidden>
     </section>
