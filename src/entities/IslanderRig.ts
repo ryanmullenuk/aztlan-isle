@@ -12,6 +12,8 @@ import { CarryPose } from './CarryPose';
 
 /** World units per metre: islanders are modelled at ~1.8 m and stand ~0.62 units tall. */
 const S0 = 0.62 / 1.8;
+/** How far the shadow stand-ins slide toward the sun (world units): just past the sun shadow's depth bias. */
+const SHADOW_LIFT = 0.3;
 
 /**
  * Joint angles for one frame of animation (radians; metres for offsets). Conventions:
@@ -584,6 +586,8 @@ export class IslanderRig {
   private pawnHead: THREE.InstancedMesh;
   /** Shadow-only stand-ins for the islanders drawn in full (a few dozen triangles each, not thousands). */
   private shadowBody: THREE.InstancedMesh;
+  /** A soft dark patch on the ground under each islander's feet (the sun's shadow sits a little off them). */
+  private contact: THREE.InstancedMesh;
   private shadowHead: THREE.InstancedMesh;
 
   constructor() {
@@ -634,6 +638,26 @@ export class IslanderRig {
     this.shadowBody = pawn(this.pawnBody.geometry);
     this.shadowHead = pawn(this.pawnHead.geometry);
     for (const m of [this.shadowBody, this.shadowHead]) m.layers.set(SHADOW_LAYER);
+    // The sun's shadow is pushed a little off the feet (its normal bias), which leaves islanders
+    // looking as if they hover; a soft contact shadow under them sets them down on the ground.
+    const R = 32, fade = new Uint8Array(R * R * 4);
+    for (let y = 0; y < R; y++) for (let x = 0; x < R; x++) {
+      const d = Math.hypot(x + 0.5 - R / 2, y + 0.5 - R / 2) / (R / 2);
+      fade[(y * R + x) * 4 + 3] = Math.round(255 * Math.max(0, 1 - d * d) ** 1.5);
+    }
+    const fadeTex = new THREE.DataTexture(fade, R, R);
+    fadeTex.magFilter = fadeTex.minFilter = THREE.LinearFilter;
+    fadeTex.needsUpdate = true;
+    this.contact = new THREE.InstancedMesh(
+      new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: 0x000000, map: fadeTex, transparent: true, opacity: 0.55, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+      ISLANDER.max,
+    );
+    this.contact.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.contact.count = 0;
+    this.contact.frustumCulled = false;
+    this.contact.renderOrder = 4;
+    this.group.add(this.contact);
   }
 
   private addMesh(key: string, geo: THREE.BufferGeometry, cap: number): void {
@@ -782,6 +806,8 @@ export class IslanderRig {
     attribute.needsUpdate = true;
   }
 
+  /** Toward the sun (set by the game each frame), for the shadow stand-ins. */
+  readonly sunDir = new THREE.Vector3(0, 1, 0);
   /** Ground height under a world point (set by the game; flat ground when absent). */
   groundAt: ((x: number, z: number) => number) | null = null;
   /** Per islander: the last pose drawn, and a short blend from it when the activity changes. */
@@ -835,7 +861,12 @@ export class IslanderRig {
     const M = this.m;
     const skinned = !!this.skins.m && !!this.skins.f;
     if (skinned) for (const set of new Set(Object.values(this.skins))) if (set) set.n = 0;
-    let pawns = 0, shadows = 0;
+    let pawns = 0, shadows = 0, feet = 0;
+    const contact = (isl: Islander, sc: number) => {
+      const r = sc * 1.05;
+      this.tmp.makeScale(r, 1, r).setPosition(isl.x, isl.y + 0.012, isl.z);
+      this.contact.setMatrixAt(feet++, this.tmp);
+    };
     const far2 = this.lodDist * this.lodDist;
     for (const isl of list) {
       if (isl.hidden) continue;
@@ -846,6 +877,7 @@ export class IslanderRig {
         const sc = S0 * (isl.child ? ISLANDER.childScale : 1);
         const bob = isl.speed > 0.05 ? Math.abs(Math.sin(isl.x * 3.1 + isl.z * 2.7)) * 0.02 : 0;
         this.rot(M.base, isl.x, isl.y + bob, isl.z, 0, isl.heading, 0, 'XYZ', sc);
+        contact(isl, sc);
         this.pawnBody.setMatrixAt(pawns, M.base);
         this.pawnHead.setMatrixAt(pawns, M.base);
         this.pawnBody.setColorAt(pawns, this.accent.setHex(isl.cloth));
@@ -860,9 +892,16 @@ export class IslanderRig {
       this.accent.setHex(isl.cloth2);
       const sc = S0 * (isl.child ? ISLANDER.childScale : 1) * (g === 'f' ? 0.98 : 1);
       this.rot(M.base, isl.x, isl.y, isl.z, 0, isl.heading, 0, 'XYZ', sc);
+      if (!p.lying && !isl.sleeping) contact(isl, sc);
       if (skinned) {
-        this.shadowBody.setMatrixAt(shadows, M.base);
-        this.shadowHead.setMatrixAt(shadows++, M.base);
+        // Slid toward the sun: the same spot in the shadow map, but past the shadow's depth bias,
+        // which would otherwise start an islander's shadow well clear of their feet.
+        this.tmp2.copy(M.base);
+        this.tmp2.elements[12] += this.sunDir.x * SHADOW_LIFT;
+        this.tmp2.elements[13] += this.sunDir.y * SHADOW_LIFT;
+        this.tmp2.elements[14] += this.sunDir.z * SHADOW_LIFT;
+        this.shadowBody.setMatrixAt(shadows, this.tmp2);
+        this.shadowHead.setMatrixAt(shadows++, this.tmp2);
       }
       // The children's own models have their big heads built in; only the founding pair's would need enlarging.
       const hs = isl.child && !hasChildModel(this.skins) ? 1.22 : 1;
@@ -881,6 +920,8 @@ export class IslanderRig {
       this.upload(m.instanceMatrix, pawns);
       if (m.instanceColor) this.upload(m.instanceColor, pawns);
     }
+    this.contact.count = feet;
+    if (feet) this.upload(this.contact.instanceMatrix, feet);
     for (const m of [this.shadowBody, this.shadowHead]) {
       m.count = shadows;
       if (shadows) this.upload(m.instanceMatrix, shadows);
