@@ -63,6 +63,7 @@ import { Healers } from './ai/Healers';
 import { Wildlife } from './entities/Wildlife';
 import { Boats } from './entities/Boats';
 import { Marine } from './entities/Marine';
+import { Octopuses } from './entities/Octopuses';
 import { Powers } from './economy/Powers';
 import { AudioEngine } from './audio/Audio';
 import { SaveData, applyRest, applyWorld, islandTypeToLoad, readSave, writeSave } from './world/Save';
@@ -310,6 +311,8 @@ export class Game {
   private stormRecall = 0;
   boats: Boats;
   marine: Marine;
+  /** Octopuses in the shallows. */
+  octopuses!: Octopuses;
   encounters: WildlifeEncounters;
   powers: Powers;
   fires: StormFire;
@@ -591,6 +594,8 @@ export class Game {
     for (const i of this.seaArch.landCells()) this.veg.clearArea(i % this.world.N, (i / this.world.N) | 0, 1, 1);
     this.marine = new Marine(this.world, this.water);
     this.scene.add(this.marine.group);
+    this.octopuses = new Octopuses(this.world);
+    this.scene.add(this.octopuses.group);
     this.waterBirds = new WaterBirds(this.world, this.veg.plants.filter((p) => p.kind === 'searock').map((p) => ({ x: p.x, z: p.z })));
     this.scene.add(this.waterBirds.meshes.group);
     this.butterflies = new Butterflies(this.world, this.veg.plants.filter((p) => p.kind === 'flowerbush' || p.kind === 'bush'), Math.round(110 * cfg.vegDensity), this.flowers.blooms());
@@ -991,6 +996,7 @@ export class Game {
       this.voyage.update(dt, this.time.elapsed);
       this.pearls.update(dt, this.time.elapsed, this.colony.grid);
       this.marine.update(dt, this.rig.target);
+      this.octopuses.update(dt, this.boats.traffic());
       this.encounters?.update(dt > 0 ? realDt : 0, this.settings.wildlifeAlerts);
       this.powers.update(dt, realDt, this.rig.target);
       this.fires.update(dt, this.powers.state);
@@ -1424,6 +1430,11 @@ export class Game {
         id: `whale-${i}`, name: w.mother ? 'Humpback calf' : 'Humpback whale', distance: w.length * 3.5,
         position: () => position(w.x, w.root.position.y, w.z),
       })),
+      ...(this.octopuses?.list ?? []).map((o, i) => ({
+        id: `octopus-${i}`, name: 'Octopus', distance: 6,
+        behaviour: () => Octopuses.behaviour(o),
+        position: () => position(o.x, o.y + 0.2, o.z),
+      })),
       ...this.marine.dolphinSubjects.map((d, i) => ({
         behaviour: () => d.y > 0 ? 'Leaping above the waves' : 'Swimming with its pod',
         id: `dolphin-${i}`, name: 'Dolphin', distance: 14,
@@ -1771,6 +1782,14 @@ export class Game {
     }
     // A pearl oyster on the beach: tapping it finds the pearl.
     if (this.pearls.tap(this.rig.camera, x, y, rect)) return;
+    // An octopus: it jets away in a puff of ink.
+    const octo = this.octopuses.pick(this.rig.camera, x, y, rect);
+    if (octo) {
+      this.octopuses.startle(octo, this.rig.camera.position.x, this.rig.camera.position.z);
+      this.ui.toast('An octopus jets away in a cloud of ink!');
+      this.audio?.sfx('splash', octo.x, octo.z);
+      return;
+    }
     // A grave: who lies there.
     const gp = this.pickGround(x, y), grave = gp && this.passings.graves.near(gp.x, gp.z, 0.45);
     if (grave) {

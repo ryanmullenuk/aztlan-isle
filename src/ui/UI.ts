@@ -979,7 +979,7 @@ export class UI {
         <li><b>Seasonal goals:</b> each season sets the village a goal (more islanders in spring, wood and stone in summer, food before winter, good cheer through winter), shown with your objectives. Meet it by the season’s end for Belief and a happier village.</li>
         <li><b>Lantern Night:</b> on the last evening of autumn the village walks down to the shore and lets paper lanterns drift out over the sea (+Belief, a happier village).</li>
         <li>Rare events: an <b>eclipse</b> frightens the village until the priests hold a ritual, a <b>comet</b> crosses the night sky, and a <b>whale</b> may strand on a beach for your islanders to push back to sea.</li>
-        <li>Whales, turtles, dolphins, jellyfish, birds and fireflies live around the island. Tap a whale to bring it up.</li>
+        <li>Whales, turtles, dolphins, octopuses, jellyfish, birds and fireflies live around the island. Tap a whale to bring it up. Octopuses rest on the seabed in the shallows and swim from rock to rock; tap one, or row a canoe close, and it jets away in a cloud of ink.</li>
       </ul>
       <h4>Extras</h4><ul>
         <li><b>Photo Mode</b> (camera button) takes pictures, and its <b>Time-lapse</b> plays a picture from every day you’ve played as a video of your island growing.</li>
