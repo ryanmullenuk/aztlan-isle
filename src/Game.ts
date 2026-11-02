@@ -73,7 +73,7 @@ import { shapeWaterfall } from './world/waterfallSite';
 import { Bridges } from './buildings/Bridges';
 import { TradeFleet } from './entities/Trade';
 import { GOD_NAME, randomIslandName } from './world/names';
-import { FAUNA, GREAT_HALL, SPECIES, TIME, FIREWORKS, GOODS, RARE_GOODS, WONDER_EFFECT, type GoodKey, type WonderKey } from './config';
+import { FAUNA, GREAT_HALL, SPECIES, TIME, FIREWORKS, GOODS, RARE_GOODS, WONDER_EFFECT, isDecor, type GoodKey, type WonderKey } from './config';
 import { WeddingSystem } from './economy/Weddings';
 import { LanternNight } from './economy/LanternNight';
 import { MONKEY_BASE } from './entities/Monkeys';
@@ -828,6 +828,7 @@ export class Game {
       byId: (id) => this.colony.byId(id),
       alarm, danger, sfx,
       maul: (isl, killed) => this.colony.maul(isl, killed),
+      inVillage: (x, z) => this.inVillage(x, z),
       godMode: () => this.eco.godMode,
       arrived: (j) => this.ui?.toast('A jaguar has swum over from the mainland and come ashore to take the empty den.', 'warn', () => ({ x: j.x, z: j.z })),
     };
@@ -854,6 +855,7 @@ export class Game {
       people: this.colony.grid,
       dogs: () => this.dogs.list.map((d) => ({ id: d.id, x: d.x, z: d.z, puppy: d.puppy, dead: d.state === 'dead' })),
       bite: (isl, killed) => this.colony.maul(isl, killed, 'an alligator'),
+      inVillage: (x, z) => this.inVillage(x, z),
       biteDog: (id, x, z) => {
         const d = this.dogs.byId(id);
         if (d) this.dogs.lungedAt(d, { x, z }, false, 'an alligator');
@@ -1059,6 +1061,8 @@ export class Game {
     const m = this.world.meadow;
     this.awaitingFire = true;
     const land = this.boats.sendSettlers(['m', 'f'], m, (people) => {
+      // The founding pair: always a man and a woman, already husband and wife.
+      if (people.length === 2) this.colony.marry(people[0], people[1]);
       this.ui.toast('Your first villagers have landed. Choose a spot for the campfire to found your village.');
       // They walk a little way up the beach and wait.
       for (const p of people) this.colony.walkTo(p, p.x + (m.x - p.x) * 0.15, p.z + (m.z - p.z) * 0.15);
@@ -2580,6 +2584,19 @@ export class Game {
 
   buildBoat(b: Building): void {
     this.boatHandler?.(b);
+  }
+
+  /**
+   * Is (x, z) in the village: near the fire or within a few cells of any building (torches and
+   * banners aside)? Wild animals rarely attack there; out beyond it, islanders take their chances.
+   */
+  inVillage(x: number, z: number): boolean {
+    for (const b of this.buildings.list) {
+      if (b.key === 'torch' || isDecor(b.key)) continue;
+      const r = (b.key === 'campfire' ? 14 : 7) + Math.max(b.w, b.d) / 2;
+      if ((b.x - x) ** 2 + (b.z - z) ** 2 < r * r) return true;
+    }
+    return false;
   }
 
   /** A finished, standing wonder of this kind. */

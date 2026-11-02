@@ -197,6 +197,8 @@ export interface GatorHooks {
   dogs: () => { id: number; x: number; z: number; puppy: boolean; dead: boolean }[];
   /** A villager seized: injured or killed. */
   bite: (isl: Islander, killed: boolean) => void;
+  /** Is (x, z) in the village? Alligators very seldom strike there. */
+  inVillage?: (x: number, z: number) => boolean;
   biteDog: (id: number, fromX: number, fromZ: number) => void;
   splash: (x: number, z: number, n: number, speed: number, r: number, y: number) => void;
   sfx: (name: string, x: number, z: number) => void;
@@ -361,8 +363,10 @@ export class Alligators {
     const h = this.hooks!;
     if (g.cool > 0) return false;
     let best: Islander | null = null, bd = ALLIGATORS.lungeRange;
+    // Villagers among the houses are left alone, bar the very rare bold strike.
+    const bold = this.rng.chance(0.06);
     h.people.query(g.x, g.z, ALLIGATORS.lungeRange, (p) => {
-      if (p.hidden) return;
+      if (p.hidden || (!bold && h.inVillage?.(p.x, p.z))) return;
       const d = Math.hypot(p.x - g.x, p.z - g.z);
       if (d < bd) {
         bd = d;

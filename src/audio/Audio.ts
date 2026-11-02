@@ -12,8 +12,6 @@ import { canChatter, chatterGain, chatterPan, chatterPhrase, type ChatterCamera 
  */
 /** The island's theme (in public/, relative to the page). */
 const THEME_FILE = 'audio/island-theme.mp3';
-/** A tiny silent WAV, played in the unlocking tap. */
-const SILENCE = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=';
 
 export class AudioEngine {
   private ctx: AudioContext | null = null;
@@ -101,48 +99,56 @@ export class AudioEngine {
     this.applyVolumes();
   }
 
-  /** The island theme: a recorded track streamed through the music bus (so volume and moods apply). */
-  private theme: HTMLAudioElement | null = null;
+  /**
+   * The island theme: the recorded track decoded once into memory and looped through the music bus
+   * (so volume and the night and storm moods apply). Played by Web Audio rather than an <audio>
+   * element: the iPhone app's web view would not start an element unlocked before its track
+   * arrived, nor reliably route one through Web Audio, so the theme stayed silent there.
+   */
+  private themeSource: AudioBufferSourceNode | null = null;
   private themeFilter: BiquadFilterNode | null = null;
   private themeGain: GainNode | null = null;
-  private themeReady = false;
+  /** Fades the theme out while it can't be heard (muted, music at zero, or the game hidden). */
+  private themeGate: GainNode | null = null;
 
   private startTheme(ctx: AudioContext): void {
-    if (typeof Audio === 'undefined') return;
-    const el = new Audio();
-    el.loop = true;
-    el.preload = 'auto';
-    this.theme = el;
-    // Unlock the element in this tap (the track itself arrives a moment later): a blessed element
-    // may then start on its own on iPhone and in Safari.
-    el.src = SILENCE;
-    el.play().then(() => el.pause(), () => {});
     const filter = ctx.createBiquadFilter();
     filter.type = 'lowpass';
     filter.frequency.value = 18000;
-    const gain = ctx.createGain();
+    const gain = ctx.createGain(), gate = ctx.createGain();
+    gate.gain.value = 0;
+    filter.connect(gain).connect(gate).connect(this.musicBus);
     this.themeFilter = filter;
     this.themeGain = gain;
-    // Fetched whole (5 MB) and played from memory: no range requests to the app's own scheme.
+    this.themeGate = gate;
     fetch(new URL(THEME_FILE, document.baseURI).href)
-      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(`${r.status}`))))
-      .then((blob) => {
-        el.src = URL.createObjectURL(blob);
-        ctx.createMediaElementSource(el).connect(filter).connect(gain).connect(this.musicBus);
-        this.themeReady = true;
+      .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`${r.status}`))))
+      .then((data) => ctx.decodeAudioData(data))
+      .then((decoded) => {
+        // Folded down to mono: half the memory (the track is a gentle bed under the island).
+        const mono = ctx.createBuffer(1, decoded.length, decoded.sampleRate), out = mono.getChannelData(0);
+        for (let c = 0; c < decoded.numberOfChannels; c++) {
+          const ch = decoded.getChannelData(c);
+          for (let i = 0; i < ch.length; i++) out[i] += ch[i] / decoded.numberOfChannels;
+        }
+        const src = ctx.createBufferSource();
+        src.buffer = mono;
+        src.loop = true;
+        src.connect(filter);
+        src.start();
+        this.themeSource = src;
         this.syncTheme();
       })
       .catch((e) => console.warn('The island theme could not be loaded', e));
     document.addEventListener('visibilitychange', () => this.syncTheme());
   }
 
-  /** Playing only when it can be heard: not muted, music above zero, and the game in view. */
+  /** Heard only when it can be: not muted, music above zero, and the game in view. */
   private syncTheme(): void {
-    const el = this.theme;
-    if (!el || !this.themeReady) return;
+    const gate = this.themeGate;
+    if (!gate || !this.ctx || !this.themeSource) return;
     const audible = !this.muted && this.music > 0.001 && !document.hidden;
-    if (audible && el.paused) el.play().catch(() => {});
-    else if (!audible && !el.paused) el.pause();
+    gate.gain.setTargetAtTime(audible ? 1 : 0, this.ctx.currentTime, 0.4);
   }
 
   applyVolumes(): void {

@@ -307,6 +307,7 @@ export class UI {
       if (this.goalsOpen) { this.closeInventory(); this.villagePriorities.close(); this.moodPanel.close(); }
     };
     this.goalList.onclick = (e) => {
+      if ((e.target as HTMLElement).closest('[data-wed]')) { this.game.weddings?.grant(); this.game.audio?.sfx('click'); return; }
       const item = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-build]');
       if (!item) return;
       const key = item.dataset.build as BuildingKey;
@@ -344,7 +345,8 @@ export class UI {
     const hide = g.eco.godMode || next > TITLES.length || !this.tutorial.classList.contains('hidden') || this.zen;
     const items = hide ? [] : p.checklist(next).filter((i) => !(i.done && i.text.startsWith('Reach ')));
     const asks = hide ? [] : g.requests?.list ?? [];
-    const key = hide ? 'hidden' : `${next}|${this.goalsOpen}|${items.map((i) => `${i.done ? 1 : 0}${i.text}`).join('|')}|${asks.map((r) => r.id).join(',')}`;
+    const wed = hide ? null : g.weddings?.wishText ?? null;
+    const key = hide ? 'hidden' : `${next}|${this.goalsOpen}|${items.map((i) => `${i.done ? 1 : 0}${i.text}`).join('|')}|${asks.map((r) => r.id).join(',')}|${wed}`;
     if (key === this.goalShown) return;
     this.goalShown = key;
     this.goalToggle.classList.toggle('hidden', hide);
@@ -358,8 +360,10 @@ export class UI {
       return i.build && !i.done
         ? `<button type="button" class="goal-item" data-build="${i.build}">${mark}<span>${i.text}</span><span class="goal-go" aria-hidden="true">›</span></button>`
         : `<div class="goal-item${i.done ? ' done' : ''}">${mark}<span>${i.text}</span></div>`;
-    }).join('') + (asks.length ? `<div class="goal-head goal-asks">Requests</div>` + asks.map((r) =>
-      `<button type="button" class="goal-item ask" data-build="${r.key}"><span class="goal-mark ask">!</span><span>${r.text}</span><span class="goal-go" aria-hidden="true">›</span></button>`).join('') : '');
+    }).join('') + (asks.length || wed ? `<div class="goal-head goal-asks">Requests</div>` : '') +
+      (wed ? `<button type="button" class="goal-item ask" data-wed="1"><span class="goal-mark ask">♥</span><span>${wed}: tap to grant the wedding</span><span class="goal-go" aria-hidden="true">›</span></button>` : '') +
+      asks.map((r) =>
+      `<button type="button" class="goal-item ask" data-build="${r.key}"><span class="goal-mark ask">!</span><span>${r.text}</span><span class="goal-go" aria-hidden="true">›</span></button>`).join('');
   }
 
   private buildTopRight(): void {
@@ -911,7 +915,7 @@ export class UI {
     const card = el('div', 'panel card help');
     card.innerHTML = `
       <div class="card-head"><span>How to play</span></div>
-      <p>Guide your Aztec tribe as they settle the island. Keep them fed, housed and happy: happy islanders and temples create <b>Belief</b>, which pays for your god powers.</p>
+      <p>Guide your Aztec tribe as they settle the island. Keep them fed, housed and happy: happy islanders and temples create <b>Belief</b>, which pays for your god powers. Grow from a camp into the Capital of the Isle.</p>
       <div class="cols">
         <div><h4>Desktop</h4><ul>
           <li><b>Drag</b> (left or right) or <b>WASD</b>: pan</li>
@@ -928,28 +932,48 @@ export class UI {
           <li><b>Tap</b>: select or place</li>
         </ul></div>
       </div>
-      <h4>Tips</h4><ul>
-        <li>Buildings need flat land. Flatten terraces with the sculpt tools.</li>
-        <li>Select an islander, then click a building, tree, rock or fruit bush to give them that job.</li>
-        <li>A couple in any house may have one child, who plays around the village (children never work). The island holds up to 100 adults. Temples upgrade twice into the Great Pyramid.</li>
-        <li>A Jetty builds fishing boats. Fish stocks regrow slowly, so spread your fishing.</li>
-        <li>Across the strait to the east lies a wild island with thick jungle, more fruit and most of the game. Build a <b>Rope bridge</b> (Build menu) across the shallows to reach it.</li>
-        <li>New settlers arrive by canoe when you have spare beds and food.</li>
-        <li>Now and then someone falls sick, and jaguars and alligators maul people. Build a <b>Healing Centre</b> and cure them with food from its card before their time runs out, or they die.</li>
-        <li>A <b>Watchtower</b> near the jungle or the swamps guards the village by itself, day and night, with no villager needed (a torch burns on its roof after dark). Arrows fly from its windows at jaguars and alligators that come in range: wounded ones flee, and a few hits kill one. The island is never emptied of them, though: new jaguars swim over from beyond the map, and new alligators turn up in the swamps.</li>
-        <li>Plant a garden: open <b>Flora</b> (4), pick <b>Flowers</b>, <b>Bushes</b> or <b>Shrubs &amp; ferns</b> and hold and drag over open ground, like laying a path. Plants pop up as you go, each stroke in its own colours. <b>Dig up plants</b> clears them again. It's free, and just for looks. (No need to harvest: your islanders fell, mine and pick by themselves.)</li>
-        <li><b>Trees</b> (in Flora) plants real trees by dragging, for a little Belief each: they burst up out of the ground, grow wood for your woodcutters (and regrow from the stump), and fruit trees feed your gatherers.</li>
-        <li><b>Pearls</b> wash up on the beaches in open oysters (tap one, or a villager walking by picks it up), and fishers sometimes find one in their catch. A <b>daily chest</b> of pearls waits each day you play, growing with your streak. Spend pearls on a building's card to <b>finish it now</b> (one pearl per minute of work left).</li>
-        <li>A finished <b>Trade Dock</b> can build the great <b>voyage ship</b>. Tap the ship, load goods with − and + (pearls fetch the most), and set sail with two villagers. Out past the horizon it may meet storms (calm them with Belief from the dock's card in time!), raiders, good markets or a green island. It comes home with chickens, <b>herbs</b> (processed into medicine at a Herbalist’s Garden) and <b>spices</b> (which cure the sick and injured at a Healing Centre) and goods, and waits under a green orb for you to unload. Some voyages never come back. A green orb over a visiting trader's boat means bargains are on offer.</li>
-        <li>Idle villagers help build by day without being asked. Give them a job yourself and they keep to it.</li>
-        <li>Felled trees lie where they fall until woodcutters have carried all their wood home, a load at a time, then sink into the ground and later regrow from the stump.</li>
-        <li>Build an <b>Observatory</b> and its priests will warn you of storms and eruptions minutes before they come, and study ten tiers of research that unlock new buildings. Without one, watch the sky and the mountain yourself.</li>
-        <li>When the <b>volcano</b> starts smoking you have five minutes before it erupts. Tap it and use <b>Calm</b> (50 Belief) to settle it and reassure your people.</li>
-        <li>Light rain is fine and gentle; storms pour. Calm a storm for Belief.</li>
+      <h4>Your village</h4><ul>
+        <li>Light the <b>tribal fire</b> where your first two islanders land: a husband and wife. The <b>Objective</b> list (top left) shows what earns the next title, from Camp to <b>Capital of the Isle</b>; each title unlocks new buildings.</li>
+        <li>Buildings need flat land (flatten it with the Terrain tools). A <b>Stonemason’s Workshop</b> turns stone into <b>carved stone</b>, which every stone building needs; its upgrades unlock Temples, the Great Pyramid and the Great Temple.</li>
+        <li>Idle islanders help build by day without being asked. Select an islander, then tap a building, tree, rock or fruit bush to give them that job; they keep to it.</li>
+        <li>Stores hold your wood, stone and food. Felled trees lie where they fall until all their wood is carried home, then regrow from the stump. Plant more with <b>Flora → Trees</b>.</li>
+        <li>New settlers arrive by canoe when there are spare beds and food. The island holds up to 100 adults.</li>
+      </ul>
+      <h4>Islanders and families</h4><ul>
+        <li>Islanders need food, rest and a home. Their <b>Mood</b> (top left) shows how the village feels; badges over heads show who is hungry, tired, sick, afraid, wet, cold, homeless or unhappy, and hearts show the very happy. Happy islanders bring <b>Belief</b>.</li>
+        <li>Unhappy islanders with needs and nothing to do mope about; very happy ones sometimes break into a dance.</li>
+        <li><b>Only married couples have children</b>, and only a husband and wife living together (one child per house). Children play and never work.</li>
+        <li><b>Weddings:</b> now and then a man and a woman <b>wish to marry</b> (at most one wedding every five days). The wish waits for a day in your <b>Requests</b>: grant it and the couple kneel at the temple (or the tribal fire) while the village gathers, then everyone dances, and the newlyweds make a home together (+Belief). Let a wish go ungranted and the couple are heartbroken and the gods displeased (−Belief).</li>
+        <li><b>Requests:</b> islanders also wish for things like a Well or a Torch near their home. Build it in time for Belief and a happier islander.</li>
+        <li>Some adults are elders, with grey hair and a walking staff.</li>
+      </ul>
+      <h4>Belief and the gods</h4><ul>
+        <li>Belief comes from happy islanders, priests praying at temples, bonfire evenings, granted wishes, weddings and celebrations. Spend it on god powers (<b>Power</b>, 6): rain, calming storms and the volcano, and more.</li>
+        <li>Temples upgrade twice into the Great Pyramid. The Great Temple is built in four phases.</li>
+        <li><b>Wonders</b> (Capital of the Isle, one of each, built in four phases): the <b>Colossal Head</b> makes everyone a little happier, the <b>Sun Stone</b> brings a steady trickle of Belief, and the <b>Sky Tower</b> makes research half as fast again.</li>
+      </ul>
+      <h4>Health and danger</h4><ul>
+        <li>Now and then someone falls sick. Sick and hurt islanders limp along. Build a <b>Healing Centre</b> and cure them with food (or medicine and spices) before their time runs out.</li>
+        <li><b>Jaguars and alligators</b> attack islanders who venture <b>out beyond the village</b>; among the houses they are very rarely bold enough to strike. The freshly mauled crawl home. Dogs, warriors and a <b>Watchtower</b> (which shoots by itself, day and night) keep them off.</li>
+        <li>Anyone fleeing, or answering the Great Hall’s alarm bell, runs looking back over their shoulder.</li>
+        <li>When the <b>volcano</b> smokes you have five minutes: tap it and <b>Calm</b> it with Belief. An <b>Observatory</b> warns of storms and eruptions, and studies research that unlocks buildings.</li>
+      </ul>
+      <h4>Trade, pearls and fireworks</h4><ul>
+        <li><b>Pearls</b> wash up on the beaches (tap one, or a passer-by picks it up) and turn up in fishing catches; a <b>daily chest</b> waits each day you play. Spend them to finish a building now, or trade them.</li>
+        <li>A <b>Trade Dock</b> builds trade boats and the great <b>voyage ship</b>. Voyages meet storms (calm them in time), raiders, markets and green islands, and come home with chickens, herbs, spices and goods. Some never return.</li>
+        <li>Voyagers may bring home <b>gunpowder</b>, a rare discovery. After that the Trade Dock sells a few jars a day for pearls, and a <b>Firemaker’s Workshop</b> packs it into fireworks. Launch them from its card, or when a new title or a wedding is celebrated.</li>
+      </ul>
+      <h4>Seasons and events</h4><ul>
+        <li>Seasons change every few days. Storms pour (calm them with Belief); after rain, look for a rainbow.</li>
+        <li><b>Lantern Night:</b> on the last evening of autumn the village walks down to the shore and lets paper lanterns drift out over the sea (+Belief, a happier village).</li>
+        <li>Rare events: an <b>eclipse</b> frightens the village until the priests hold a ritual, a <b>comet</b> crosses the night sky, and a <b>whale</b> may strand on a beach for your islanders to push back to sea.</li>
+        <li>Whales, turtles, dolphins, jellyfish, birds and fireflies live around the island. Tap a whale to bring it up.</li>
+      </ul>
+      <h4>Extras</h4><ul>
+        <li><b>Photo Mode</b> (camera button) takes pictures, and its <b>Time-lapse</b> plays a picture from every day you’ve played as a video of your island growing.</li>
+        <li>Plant gardens with <b>Flora</b>: hold and drag over open ground. It’s free and just for looks.</li>
+        <li>Across the strait lies a wild island with thick jungle; build a <b>Rope bridge</b> to reach it.</li>
         <li>At night in first-person view, look up: the stars and the Milky Way are out on a clear night.</li>
-        <li>Birds and fish scatter from your cursor.</li>
-        <li>Humpback whales cruise the deep water and come up for air now and then, with a tall blow. Tap one to bring it up.</li>
-        <li>Swarms of pink jellyfish drift in the shallows off the beaches. Move the pointer near them and they scatter.</li>
       </ul>`;
     const close = el('button', 'ib small close', ICONS.close);
     close.onclick = () => this.toggle(this.help, false);

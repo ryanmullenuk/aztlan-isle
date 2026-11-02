@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { pickCouple, restoreWedding } from '../src/economy/Weddings';
+import { pickCouple, restoreWedding, WEDDING } from '../src/economy/Weddings';
 import { lanternDue, LANTERN } from '../src/economy/LanternNight';
 import { isPhased, isWonder, BUILDINGS, WONDER_KEYS } from '../src/config';
 import { BUILD_STAGE } from '../src/economy/Progression';
@@ -25,6 +25,8 @@ test('children, the married, the unwell, warriors and the miserable do not marry
 
 test('a saved wedding plan is read back; nonsense is ignored', () => {
   assert.deepEqual(restoreWedding({ next: 7 }), { next: 7 });
+  assert.deepEqual(restoreWedding({ next: 7, wish: { a: 3, b: 4, until: 900 } }), { next: 7, wish: { a: 3, b: 4, until: 900 } });
+  assert.deepEqual(restoreWedding({ next: 7, wish: { a: 'x' } }), { next: 7 });
   assert.equal(restoreWedding({ next: 'x' }), null);
   assert.equal(restoreWedding(null), null);
 });
@@ -47,4 +49,9 @@ test('the wonders are late, phased monuments', () => {
   }
   assert.ok(isPhased('greattemple') && !isWonder('greattemple'));
   assert.ok(!isPhased('temple'));
+});
+
+test('at most one wedding every five days; an ungranted wish costs Belief', () => {
+  assert.ok(WEDDING.gapMin >= 5);
+  assert.ok(WEDDING.refusedBelief > 0 && WEDDING.wishSecs > 0);
 });

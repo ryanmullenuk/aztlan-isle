@@ -17,7 +17,8 @@ const FIREFLY_VS = /* glsl */ `
     // Each blinks on its own beat: a slow swell, a bright pulse, then dark for a while.
     float b = fract(uTime * (0.22 + fract(aPhase * 7.1) * 0.18) + aPhase);
     vGlow = (0.15 + 0.85 * smoothstep(0.0, 0.1, b) * (1.0 - smoothstep(0.3, 0.55, b))) * uVis;
-    gl_PointSize = max(3.0, uPx * 0.38 * projectionMatrix[1][1] / max(-mv.z, 0.5) * (0.5 + vGlow * 0.7));
+    // Small: pinpricks of light, a few pixels across even close to the camera.
+    gl_PointSize = clamp(uPx * 0.15 * projectionMatrix[1][1] / max(-mv.z, 0.5) * (0.5 + vGlow * 0.7), 1.5, uPx * 0.012);
     gl_Position = projectionMatrix * mv;
   }`;
 
@@ -28,7 +29,7 @@ const FIREFLY_FS = /* glsl */ `
     float core = 1.0 - smoothstep(0.0, 0.22, d), halo = (1.0 - smoothstep(0.0, 1.0, d)) * 0.3;
     float a = (core + halo) * vGlow;
     if (a < 0.003) discard;
-    gl_FragColor = vec4(vec3(0.8, 1.0, 0.35) * a * 5.0, 1.0);
+    gl_FragColor = vec4(vec3(0.8, 1.0, 0.35) * a * 3.5, 1.0);
   }`;
 
 /**

@@ -913,23 +913,23 @@ export class Colony {
     }
   }
 
-  /** Dawn: a couple in a house without a child may have one (one child per house, huts too). */
+  /** Dawn: a married couple living in a house without a child may have one (one child per house, huts too). */
   private dawn(): void {
     for (const b of this.bld.list) {
       if (!buildingSafe(b) || (b.key !== 'hut' && b.key !== 'home')) continue;
       if (this.list.length >= ISLANDER.max) return;
       if (this.list.some((i) => i.child && i.home === b.id)) continue;
       const adults = b.residents.map((id) => this.byId(id)).filter((i): i is Islander => !!i && !i.child);
-      if (!adults.some((i) => i.gender === 'm') || !adults.some((i) => i.gender === 'f')) continue;
+      // Only a husband and wife living here together have children.
+      const mother = adults.find((a) => a.gender === 'f' && a.spouse !== undefined && adults.some((o) => o.id === a.spouse && o.gender === 'm'));
+      if (!mother) continue;
       if (this.eco.food < ISLANDER.birthFoodMin) continue;
-      // A married couple at home is twice as likely to have a child.
-      const wed = adults.some((a) => a.spouse !== undefined && adults.some((o) => o.id === a.spouse));
-      if (this.rnd() > ISLANDER.birthChancePerDay * (wed ? 2 : 1)) continue;
+      if (this.rnd() > ISLANDER.birthChancePerDay) continue;
       const g = this.rnd() < 0.5 ? 'm' : 'f';
       const kid = this.spawn(g, b.door.x, b.door.z, true);
       // The child lives here but takes no bed.
       kid.home = b.id;
-      const parent = adults.find((a) => a.gender === 'f')!;
+      const parent = mother;
       kid.skin = parent.skin;
       this.hooks.notify?.(`${kid.name} was born to ${parent.name}!`, () => (kid.hidden ? null : { x: kid.x, z: kid.z }));
       this.onBirth(kid);
@@ -2862,6 +2862,27 @@ export class Colony {
   }
 
   /** Remove an islander from the village for good. */
+  /** Marry two islanders (a man and a woman): they will share a home and may have children. */
+  marry(a: Islander, b: Islander): void {
+    if (a.gender === b.gender || a.child || b.child) return;
+    a.spouse = b.id;
+    b.spouse = a.id;
+  }
+
+  /**
+   * Saves from before weddings: each man and woman already sharing a house are taken to be married,
+   * so the families that were growing keep growing.
+   */
+  marryHousemates(): void {
+    for (const b of this.bld.list) {
+      if (b.key !== 'hut' && b.key !== 'home') continue;
+      // (By each islander's home: a loaded house's resident list is rebuilt later.)
+      const adults = this.list.filter((i) => i.home === b.id && !i.child && i.spouse === undefined);
+      const men = adults.filter((i) => i.gender === 'm'), women = adults.filter((i) => i.gender === 'f');
+      for (let k = 0; k < Math.min(men.length, women.length); k++) this.marry(men[k], women[k]);
+    }
+  }
+
   remove(isl: Islander): void {
     this.releaseTask(isl);
     for (const b of this.bld.list) {

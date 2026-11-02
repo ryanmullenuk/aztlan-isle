@@ -6,14 +6,16 @@ import type { Game } from '../Game';
 import { haptic } from '../ui/Haptics';
 
 export const WEDDING = {
-  /** First day a couple may ask, then game days between asks (min + up to spread). */
+  /** First day a couple may wish to marry; then at most one marriage (or wish) every five game days. */
   firstDay: 2,
-  gapMin: 3,
-  gapSpread: 3,
-  /** Hours of the day a couple asks in. */
+  gapMin: 5,
+  gapSpread: 1,
+  /** Hours of the day a couple voices the wish, and game seconds it stays open (a day). */
   hours: [9, 16] as [number, number],
-  /** Fewest adults before anyone thinks of marrying. */
-  minAdults: 6,
+  wishSecs: 600,
+  /** Belief lost, and the couple's sorrow, when a wish to marry goes ungranted. */
+  refusedBelief: 10,
+  refusedHappy: 0.25,
   /** Guests called, and seconds for each part: gathering, the vows, the dance. */
   guests: 10,
   gatherSecs: 30,
@@ -24,7 +26,7 @@ export const WEDDING = {
   belief: 15,
 };
 
-export interface WeddingSave { next: number }
+export interface WeddingSave { next: number; wish?: { a: number; b: number; until: number } }
 
 /**
  * The couple who'd marry next: an unmarried man and woman, grown and well, the happiest pair
@@ -42,13 +44,18 @@ export function pickCouple(list: Islander[], rnd: () => number): [Islander, Isla
 /** Read a saved plan back (anything malformed starts afresh). */
 export function restoreWedding(d: unknown): WeddingSave | null {
   const o = d as Partial<WeddingSave> | null;
-  return o && typeof o === 'object' && Number.isFinite(o.next) ? { next: Number(o.next) } : null;
+  if (!o || typeof o !== 'object' || !Number.isFinite(o.next)) return null;
+  const w = o.wish;
+  const wish = w && Number.isFinite(w.a) && Number.isFinite(w.b) && Number.isFinite(w.until) ? { a: Number(w.a), b: Number(w.b), until: Number(w.until) } : undefined;
+  return { next: Number(o.next), ...(wish ? { wish } : {}) };
 }
 
 type Phase = 'gather' | 'vows' | 'dance';
 
 /**
- * Weddings. Every few days an unmarried couple asks to marry; the player holds the wedding (or not).
+ * Weddings. Only married couples have children. Now and then (at most once every five days) an
+ * unmarried man and woman wish to marry: the wish waits in the Requests list for a day, and the
+ * player grants it (or lets it lapse, which grieves the couple and costs Belief).
  * At the temple (or, before there is one, the tribal fire) the pair kneel at the steps while the
  * village gathers behind them; after the vows everyone dances; then the newlyweds set up home
  * together (and, being married, are more likely to have a child). The village is cheered, the gods
@@ -56,6 +63,8 @@ type Phase = 'gather' | 'vows' | 'dance';
  */
 export class WeddingSystem {
   private next: number = WEDDING.firstDay;
+  /** A couple's open wish to marry: their ids, and when (game seconds) it lapses. */
+  wish: { a: number; b: number; until: number } | null = null;
   private active: { a: number; b: number; phase: Phase; t: number; couple: Gathering; guests: Gathering } | null = null;
 
   constructor(private game: Game) {}
@@ -66,12 +75,30 @@ export class WeddingSystem {
   }
 
   save(): WeddingSave {
-    return { next: this.next };
+    return { next: this.next, ...(this.wish ? { wish: { ...this.wish } } : {}) };
   }
 
   restore(d: unknown): void {
     const r = restoreWedding(d);
-    if (r) this.next = r.next;
+    if (!r) return;
+    this.next = r.next;
+    this.wish = r.wish ?? null;
+  }
+
+  /** The couple who wish to marry, by name (for the Requests list), or null. */
+  get wishText(): string | null {
+    const c = this.game.colony, w = this.wish;
+    const a = w && c.byId(w.a), b = w && c.byId(w.b);
+    return a && b ? `${a.name} and ${b.name} wish to marry` : null;
+  }
+
+  /** Grant the open wish: the wedding begins. */
+  grant(): void {
+    const w = this.wish;
+    if (!w || this.active) return;
+    this.wish = null;
+    this.game.ui?.dialog.forget((d) => d.kicker === 'A wish to marry');
+    this.begin(w.a, w.b);
   }
 
   /** Where weddings are held: the nearest working temple to the fire, or the fire itself. */
@@ -86,24 +113,41 @@ export class WeddingSystem {
     const g = this.game;
     if (this.active) return this.run(dt);
     const t = g.time;
-    if (t.day < this.next || t.hour < WEDDING.hours[0] || t.hour > WEDDING.hours[1] || g.eco.godMode) return;
-    this.next = t.day + WEDDING.gapMin + Math.floor(Math.random() * (WEDDING.gapSpread + 1));
-    if (g.colony.list.filter((i) => !i.child).length < WEDDING.minAdults || !this.venue()) return;
+    if (this.wish) return this.waitOnWish();
+    if (t.day < this.next || t.hour < WEDDING.hours[0] || t.hour > WEDDING.hours[1] || g.eco.godMode || !this.venue()) return;
     const pair = pickCouple(g.colony.list, Math.random);
     if (!pair) return;
     const [a, b] = pair;
+    this.wish = { a: a.id, b: b.id, until: t.elapsed + WEDDING.wishSecs };
     const at = this.venue()!;
     g.ui?.dialog.push({
-      icon: 'star', kicker: 'A proposal', important: true,
+      icon: 'ask', kicker: 'A wish to marry', important: true,
       title: `${a.name} and ${b.name} wish to marry`,
-      body: `They ask for a wedding at the ${at.key === 'campfire' ? 'tribal fire' : at.label}. The village will gather to watch, then dance.`,
-      benefit: `A happier village · +${WEDDING.belief} Belief · they’ll make a home together`,
+      body: `They ask for a wedding at the ${at.key === 'campfire' ? 'tribal fire' : at.label}. Only married couples have children. The wish waits in your Requests for a day; if it goes ungranted, they will grieve and the gods will be displeased.`,
+      benefit: `A happier village · +${WEDDING.belief} Belief · a home of their own, and children`,
       actions: [
-        { label: 'Hold the wedding', primary: true, run: () => this.begin(a.id, b.id) },
-        { label: 'Not now' },
+        { label: 'Grant the wedding', primary: true, run: () => this.grant() },
+        { label: 'Later' },
       ],
     });
     g.audio?.sfx('select');
+  }
+
+  /** An open wish: still wanted, or lapsing ungranted (which grieves the couple and costs Belief). */
+  private waitOnWish(): void {
+    const g = this.game, w = this.wish!, a = g.colony.byId(w.a), b = g.colony.byId(w.b);
+    if (!a || !b || a.spouse !== undefined || b.spouse !== undefined) {
+      this.wish = null;
+      return;
+    }
+    if (g.time.elapsed < w.until) return;
+    this.wish = null;
+    this.next = g.time.day + WEDDING.gapMin;
+    g.ui?.dialog.forget((d) => d.kicker === 'A wish to marry');
+    g.eco.res.belief = Math.max(0, g.eco.res.belief - WEDDING.refusedBelief);
+    a.happy = Math.max(0, a.happy - WEDDING.refusedHappy);
+    b.happy = Math.max(0, b.happy - WEDDING.refusedHappy);
+    g.ui?.toast(`${a.name} and ${b.name}’s wish to marry went ungranted. They are heartbroken, and the gods are displeased (−${WEDDING.refusedBelief} Belief).`, 'warn', { x: a.x, z: a.z });
   }
 
   private begin(aId: number, bId: number): void {
@@ -162,8 +206,8 @@ export class WeddingSystem {
       g.ui?.toast('The wedding could not go ahead. Perhaps another day.');
       return;
     }
-    a.spouse = b.id;
-    b.spouse = a.id;
+    c.marry(a, b);
+    this.next = g.time.day + WEDDING.gapMin;
     a.happy = b.happy = 1;
     c.moodBoost += WEDDING.mood;
     g.eco.add('belief', WEDDING.belief);

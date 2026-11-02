@@ -340,6 +340,9 @@ export function applyRest(g: Game, d: SaveData): void {
   g.rare?.restore(d.rare);
   g.rareSales = restoreSales(d.rareSales);
   g.weddings?.restore(d.weddings);
+  // Saved before marriages counted for children (nobody married yet): the men and women already
+  // sharing a house are taken to be married, so the families that were growing keep growing.
+  if (!d.islanders.some((i) => i.spouse !== undefined) && g.colony.marryHousemates) g.colony.marryHousemates();
   g.lanternNight?.restore(d.lanterns);
   if (g.research) {
     if (d.research) g.research.restore(d.research);

@@ -39,6 +39,8 @@ export interface Jaguar {
   fightDog: number;
   lungeT: number;
   noticed: boolean;
+  /** Bold enough this hunt to come into the village (rare); otherwise it only takes those out beyond it. */
+  bold?: boolean;
   /** Driven off (rather than done hunting): waits longer before trying again. */
   driven: boolean;
   color: THREE.Color;
@@ -66,6 +68,8 @@ export interface JaguarHooks {
   godMode: () => boolean;
   /** A villager (or dog) has spotted the jaguar: warn the player (throttled by the game). */
   danger: (j: Jaguar, by: 'dogs' | 'villagers') => void;
+  /** Is (x, z) in the village (among its buildings), where jaguars rarely dare to come? */
+  inVillage?: (x: number, z: number) => boolean;
   sfx: (name: string, x: number, z: number) => void;
   /** A new jaguar has swum over from beyond the map and come ashore (optional). */
   arrived?: (j: Jaguar) => void;
@@ -230,8 +234,10 @@ export class Jaguars {
   private pickTarget(j: Jaguar, maxD: number): Islander | null {
     let best: Islander | null = null, bs = Infinity;
     for (const i of this.hooks!.villagers()) {
-      // Indoors, asleep, or sheltering in the Great Hall: out of reach.
+      // Indoors, asleep, or sheltering in the Great Hall: out of reach. Among the houses: safe,
+      // unless this jaguar is a rare bold one.
       if (i.hidden || i.sleeping || i.safe) continue;
+      if (!j.bold && this.hooks!.inVillage?.(i.x, i.z)) continue;
       const d = Math.hypot(i.x - j.x, i.z - j.z);
       if (d > maxD) continue;
       // Stragglers are easier prey than villagers among the dogs and warriors.
@@ -292,6 +298,7 @@ export class Jaguars {
       case 'prowl': {
         j.hunt -= dt * (night ? 2 : 1);
         if (j.hunt <= 0 && center) {
+          j.bold = this.rng.chance(JAGUARS.boldChance);
           const t = this.pickTarget(j, 130);
           if (t) {
             j.state = 'stalk';
@@ -318,7 +325,8 @@ export class Jaguars {
       case 'stalk':
       case 'charge': {
         let t = tgt;
-        if (!t || t.hidden || t.safe) {
+        // Lost its prey (indoors, or back among the houses where it dares not follow).
+        if (!t || t.hidden || t.safe || (!j.bold && h.inVillage?.(t.x, t.z))) {
           t = this.pickTarget(j, j.state === 'charge' ? 12 : 60) ?? undefined;
           if (!t) {
             this.retreat(j, false);
