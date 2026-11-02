@@ -33,6 +33,9 @@ import { Water } from './water/Water';
 import { Lighting } from './render/Lighting';
 import { SkyBodies } from './render/SkyBodies';
 import { Rainbow } from './render/Rainbow';
+import { Fireworks } from './render/Fireworks';
+import { buildingOperational } from './buildings/BuildingCondition';
+import { buyRare, foundFlag, type RareSales } from './economy/RareGoods';
 import { chestFor, dayKey, loadChest, saveChest } from './economy/DailyChest';
 import { PostFX } from './render/PostFX';
 import { CameraRig } from './render/CameraRig';
@@ -70,7 +73,7 @@ import { shapeWaterfall } from './world/waterfallSite';
 import { Bridges } from './buildings/Bridges';
 import { TradeFleet } from './entities/Trade';
 import { GOD_NAME, randomIslandName } from './world/names';
-import { FAUNA, GREAT_HALL, SPECIES, TIME } from './config';
+import { FAUNA, GREAT_HALL, SPECIES, TIME, FIREWORKS, GOODS, RARE_GOODS, type GoodKey } from './config';
 import { MONKEY_BASE } from './entities/Monkeys';
 import { DOG_BASE, Dogs } from './entities/Dogs';
 import { JAG_BASE, Jaguar, Jaguars } from './entities/Jaguars';
@@ -248,6 +251,10 @@ export class Game {
   private rainbow = new Rainbow();
   /** Eclipses, comets and stranded whales. */
   rare!: RareEventSystem;
+  /** Firework displays over the village. */
+  readonly fireworks = new Fireworks();
+  /** Rare goods bought from the traders today (saved). */
+  rareSales: RareSales = { day: -1, bought: {} };
   /** Badges over the islanders saying how they feel. */
   private moodMarkers = new MoodMarkers();
   private moodIds: { id: number; kind: MoodKind }[] = [];
@@ -488,7 +495,8 @@ export class Game {
     this.scene.add(this.rig3d.group);
     this.sculptor = new Sculptor(this.world, this.terrain, this.water, this.veg, this.eco);
     this.buildings.earnedWorkshopTier = () => this.progression.workshopTier;
-    this.buildings.progressionRequirement = key => this.progression.requirement(key) || this.research.requirement(key);
+    this.buildings.progressionRequirement = key => this.progression.requirement(key) || this.research.requirement(key) ||
+      (key === 'firemaker' && !this.found('gunpowder') ? 'Rare discovery: voyagers must first bring gunpowder home' : '');
     this.buildings.progressionUpgrade = b => this.progression.upgradeRequirement(b) ||
       (b.key === 'temple' ? this.research.upgradeRequirement('templeUpgrade') : b.key === 'boatworkshop' && b.tier === 2 ? this.research.upgradeRequirement('tradeBoats') : '');
     this.buildings.recordProgress = event => this.progression.record(event);
@@ -500,7 +508,8 @@ export class Game {
 
     this.lighting = new Lighting(this.scene, cfg.shadowSize);
     this.skyBodies = new SkyBodies();
-    this.scene.add(this.skyBodies.group, this.rainbow.mesh, this.moodMarkers.group);
+    this.scene.add(this.skyBodies.group, this.rainbow.mesh, this.moodMarkers.group, this.fireworks.points);
+    this.fireworks.onSound = (n, x, z) => this.audio?.sfx(n, x, z);
     this.rare = new RareEventSystem(this);
     const seaAngle = Math.atan2(this.world.seaDir.z, this.world.seaDir.x);
     this.lighting.eveningAzimuth = seaAngle + Math.PI;
@@ -756,6 +765,8 @@ export class Game {
       notify: (m, kind, at) => this.ui?.toast(m, kind ?? 'info', at),
       sfx: (n, x, z) => this.audio?.sfx(n, x, z),
       addChicken: (x, z) => this.wildlife.animals.addChicken(x, z),
+      found: (k) => this.found(k),
+      discover: (k, n, from) => this.discover(k, n, from),
       visitorOrbs: () => this.trade.visitors.filter((v) => v.state === 'moored' && v.deals.some((d) => !d.taken)).map((v) => ({ x: v.x, z: v.z, dock: v.dock })),
     };
     // Pearls: found on the beaches, or in an oyster in a fishing catch.
@@ -2497,7 +2508,7 @@ export class Game {
     cam.layers.mask = this.rig.camera.layers.mask;
     cam.updateMatrixWorld();
     // Things that belong to the player's own view stay out of the picture.
-    const hide = [this.moodMarkers.group, this.requestMarkers, this.rainbow.mesh, this.rare.comet.mesh, this.brush, this.skyBodies.group];
+    const hide = [this.fireworks.points, this.moodMarkers.group, this.requestMarkers, this.rainbow.mesh, this.rare.comet.mesh, this.brush, this.skyBodies.group];
     const was = hide.map((o) => o.visible);
     hide.forEach((o) => (o.visible = false));
     const fog = this.scene.fog as THREE.Fog, near = fog.near, far = fog.far;
@@ -2560,6 +2571,87 @@ export class Game {
 
   buildBoat(b: Building): void {
     this.boatHandler?.(b);
+  }
+
+  // ---------------- Rare goods and fireworks ----------------
+
+  /** Has this rare good been discovered (always, in sandbox)? */
+  found(k: GoodKey): boolean {
+    return this.eco.godMode || this.milestones.has(foundFlag(k));
+  }
+
+  /** Voyagers bring a rare good home for the first time: it stays unlocked for good. */
+  discover(k: GoodKey, n: number, from: string): void {
+    if (this.milestones.has(foundFlag(k))) return;
+    this.milestones.add(foundFlag(k));
+    if (k !== 'gunpowder') return;
+    this.ui?.dialog.push({
+      icon: 'star', kicker: 'Rare discovery', important: true, always: true,
+      title: 'Rare Discovery: Gunpowder!',
+      body: `Your voyagers have returned with a mysterious new resource: ${n} jar${n === 1 ? '' : 's'} of black powder from ${from || 'a distant shore'}.`,
+      benefit: 'Unlocked: the Firemaker’s Workshop, and gunpowder for pearls at the Trade Dock',
+    });
+    this.audio?.sfx('milestone');
+    this.audio?.flourish();
+    haptic('success');
+  }
+
+  /** Buy `n` of a rare good for pearls at a Trade Dock; returns what happened. */
+  buyRareGood(k: GoodKey, n = 1): string {
+    const o = RARE_GOODS.find((x) => x.key === k);
+    if (!o) return 'Not on offer.';
+    const why = buyRare(this.eco, this.rareSales, this.time.day, o, this.found(k), n);
+    if (why) return why + '.';
+    this.audio?.sfx('drop');
+    return `Bought ${n} ${n === 1 ? GOODS[k].one : GOODS[k].name.toLowerCase()} for ${o.pearls * n} pearls.`;
+  }
+
+  /** The nearest finished, working Firemaker's Workshop to (x, z), if any. */
+  firemaker(x = this.rig.target.x, z = this.rig.target.z): Building | null {
+    let best: Building | null = null, bd = Infinity;
+    for (const b of this.buildings.list) {
+      if (b.key !== 'firemaker' || !buildingOperational(b)) continue;
+      const d = (b.x - x) ** 2 + (b.z - z) ** 2;
+      if (d < bd) { bd = d; best = b; }
+    }
+    return best;
+  }
+
+  /** Why fireworks can't go up from this workshop now ('' if they can). */
+  fireworksBlock(b: Building | null): string {
+    if (!b || !buildingOperational(b)) return 'Needs a finished Firemaker’s Workshop';
+    if (this.fireworks.active) return 'A display is already lighting up the sky';
+    if (!this.eco.godMode && this.eco.goods.fireworks < FIREWORKS.perShow) return `Needs ${FIREWORKS.perShow} fireworks`;
+    return '';
+  }
+
+  /** Send up a display from the workshop's yard; the village loves it. */
+  launchFireworks(b: Building | null = this.firemaker(), focus = false): string {
+    const why = this.fireworksBlock(b);
+    if (why || !b) return why + '.';
+    if (!this.eco.godMode) this.eco.goods.fireworks -= FIREWORKS.perShow;
+    const [x, z] = b.local(-0.2, 1.0);
+    if (focus) this.focusAt({ x: b.x, z: b.z });
+    // Stand back a little to watch (closer in, the display is scaled down to fit).
+    this.rig.goal.dist = Math.max(this.rig.goal.dist, 34);
+    this.fireworks.show(x, this.world.groundY(x, z), z, FIREWORKS.perShow * FIREWORKS.rocketsPer);
+    this.colony.moodBoost += FIREWORKS.mood;
+    haptic('medium');
+    return this.lighting.state.night > 0.5 ? 'Fireworks light up the night sky!' : 'Fireworks burst over the village (they look their best after dark).';
+  }
+
+  /** A moment worth celebrating: offer a display if there are fireworks to spare. */
+  offerCelebration(what: string): void {
+    const b = this.firemaker();
+    if (this.eco.godMode || this.fireworksBlock(b)) return;
+    this.ui?.dialog.push({
+      icon: 'star', kicker: 'Celebrate', title: `Fireworks for ${what}?`, important: true,
+      body: `The firemaker has ${Math.floor(this.eco.goods.fireworks)} fireworks ready. A display uses ${FIREWORKS.perShow}.`,
+      actions: [
+        { label: 'Launch fireworks', primary: true, run: () => this.ui?.toast(this.launchFireworks(this.firemaker(), true)) },
+        { label: 'Not now' },
+      ],
+    });
   }
   boatList(): { x: number; z: number }[] {
     return this.boatListHandler?.() ?? [];
@@ -2874,6 +2966,7 @@ export class Game {
     // The sun and moon in the sky (seen when the view looks up: free-roam, or tilted low).
     this.skyBodies.update(this.rig.camera, ls, this.lighting.overcast, this.settings.dayNight ? this.time.t : RENDER.fixedTimeOfDay, t, this.rare.cover);
     this.rainbow.update(realDt, this.rig.camera, this.rig.target, ls, this.lighting.overcast);
+    this.fireworks.update(realDt, this.rig.camera, this.renderer.domElement.height, ls.night);
 
     const ws = this.water.shared;
     ws.uSunDir.value.copy(ls.sunDir);
@@ -3063,6 +3156,7 @@ export class Game {
     const title = TITLES[stage - 1];
     const opens = Object.entries(BUILD_STAGE).filter(([, s]) => s === stage).map(([k]) => BUILDINGS[k as BuildingKey].name);
     this.ui.notice({ title: `${this.islandName} is now a ${title}`, line: STAGES[stage - 1], benefit: opens.length ? `New: ${opens.slice(0, 4).join(', ')}${opens.length > 4 ? '…' : ''}` : null, icon: 'tick', important: true, kicker: 'A new title' });
+    this.offerCelebration(`the new ${title}`);
     this.audio?.sfx('milestone');
     this.audio?.flourish();
     haptic('success');
@@ -3087,6 +3181,7 @@ export class Game {
         this.ui.milestone(m.id);
         this.audio?.sfx('milestone');
         haptic('medium');
+        this.offerCelebration('this milestone');
       }
     }
   }

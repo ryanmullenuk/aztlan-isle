@@ -4442,3 +4442,111 @@ function eagleBanner(b: GeoBuilder, m: THREE.Matrix4, w: number, h: number): voi
   for (let k = 0; k < 4; k++) b.add(P.cyl(0.004, 0.013, 0.07, 5), { color: k % 2 ? K.red : BANNER.gold, sway, leaf: CLOTH }, top.clone().multiply(M.t(-w * 0.375 + k * w * 0.25, -h - 0.03, z(-w * 0.375 + k * w * 0.25))));
   b.add(P.cyl(0.014, 0.014, w * 1.1, 6), { color: BANNER.timber }, top.clone().multiply(M.t(0, 0.008, 0, 0, 0, Math.PI / 2)));
 }
+
+// ---------------- Firemaker's Workshop ----------------
+
+/**
+ * The Firemaker's Workshop: a tapering cut-stone kiln with a fire glowing in its arched mouth, a red
+ * fret frieze and a sun banner, and beside it a thatched lean-to over the workbench, stacked with
+ * striped rockets, paper rolls and pots of black powder. A fire bowl on a fretted pedestal stands
+ * at the corner and a banner pole at the back.
+ */
+export function firemakerModel(): BuildingModel {
+  const b = new GeoBuilder(), rng = new RNG(4471);
+  const torches: THREE.Vector3[] = [];
+  // Flagstone floor on a low plinth, with a step at the front.
+  b.add(P.box(3.7, 0.1, 2.8), { color: CUT.stoneDark }, M.t(0, 0.05, 0));
+  flagstones(b, -1.8, -1.35, 9, 6, 0.4, 0.1, (i, j) => ((i * 5 + j * 3) % 4 === 0 ? CUT.stoneDark : (i + j) % 2 ? CUT.stone : CUT.stoneLight));
+  b.add(P.box(1.4, 0.06, 0.22), { color: CUT.stone }, M.t(-0.95, 0.03, 1.48));
+
+  // The kiln: a cut-stone block that steps in toward a fretted cap and a little chimney.
+  const kx = -0.92, kz = -0.42;
+  stoneBlock(b, 1.6, 1.15, 1.6, kx, 0.1, kz, false);
+  b.add(P.box(1.36, 0.32, 1.36), { color: CUT.stoneLight }, M.t(kx, 1.4, kz));
+  for (let k = 0; k < 6; k++) b.add(P.box(1.38 / 6 - 0.01, 0.1, 1.39), { color: k % 2 ? AD.cream : K.red }, M.t(kx - 0.69 + (k + 0.5) * (1.38 / 6), 1.5, kz));
+  b.add(P.box(1.1, 0.12, 1.1), { color: CUT.stone }, M.t(kx, 1.62, kz));
+  b.add(P.box(0.3, 0.26, 0.3), { color: CUT.stoneDark }, M.t(kx + 0.1, 1.81, kz - 0.1));
+  b.add(P.box(0.36, 0.06, 0.36), { color: K.terracotta }, M.t(kx + 0.1, 1.96, kz - 0.1));
+  // Painted bands across the front: the red key fret, and a turquoise stripe above.
+  fretBand(b, M.t(kx, 0.98, kz + 0.807), 1.56, 0.13, K.red, AD.cream);
+  b.add(P.box(1.58, 0.06, 0.012), { color: BANNER.teal }, M.t(kx, 1.12, kz + 0.807));
+  fretBand(b, M.t(kx + 0.807, 0.98, kz, 0, Math.PI / 2, 0), 1.56, 0.13, K.red, AD.cream);
+  // The kiln mouth: a deep dark arch with a timber lintel and the fire inside.
+  const mz = kz + 0.8;
+  b.add(P.box(0.62, 0.66, 0.05), { color: K.door }, M.t(kx, 0.45, mz));
+  b.add(new THREE.CylinderGeometry(0.31, 0.31, 0.05, 10, 1, false, Math.PI / 2, Math.PI), { color: K.door }, M.t(kx, 0.78, mz, Math.PI / 2, 0, 0));
+  b.add(P.box(0.8, 0.09, 0.12), { color: K.timberDark }, M.t(kx, 0.86, mz + 0.03));
+  for (const s of [-1, 1]) b.add(P.box(0.08, 0.72, 0.1), { color: K.timber }, M.t(kx + s * 0.37, 0.46, mz + 0.03));
+  glowSink?.push({ x: kx, y: 0.45, z: mz + 0.01, w: 0.58, h: 0.62, d: 0.04 });
+  torches.push(fireBowl(b, kx, 0.12, mz - 0.02, 1.3));
+  // A sun banner on the kiln's side wall, toward the yard.
+  sunBanner(b, M.t(kx - 0.81, 0.82, kz + 0.05, 0, -Math.PI / 2, 0), 0.5, 0.62);
+
+  // The lean-to: four posts, a thatched roof sloping to the front, and the workbench beneath.
+  const lx0 = 0.12, lx1 = 1.72, zb = -1.05, zf = 0.78, hb = 1.42, hf = 1.05;
+  for (const [x, z, h] of [[lx0, zb, hb], [lx1, zb, hb], [lx0, zf, hf], [lx1, zf, hf]] as const) {
+    b.add(P.box(0.09, h, 0.09), { color: K.timber }, M.t(x, 0.1 + h / 2, z));
+    b.add(P.box(0.11, 0.05, 0.11), { color: K.rope }, M.t(x, 0.1 + h - 0.16, z));
+  }
+  for (const [z, h] of [[zb, hb], [zf, hf]] as const) b.add(P.box(lx1 - lx0 + 0.2, 0.08, 0.09), { color: K.timberDark }, M.t((lx0 + lx1) / 2, 0.1 + h - 0.03, z));
+  const tilt = Math.atan2(hb - hf, zf - zb), len = Math.hypot(zf - zb, hb - hf) + 0.36;
+  const roof = M.t((lx0 + lx1) / 2, 0.1 + (hb + hf) / 2 + 0.06, (zb + zf) / 2 + 0.04, tilt, 0, 0);
+  // Golden straw laid in overlapping courses, each ending in a shaggy fringe of bundles.
+  const straw = [c(0xd9ac52), c(0xc6953e), c(0xe3bb62)], rw = lx1 - lx0 + 0.42, tiers = 4;
+  b.add(P.box(rw, 0.05, len), { color: c(0xb3863a), leaf: 0.2 }, roof);
+  for (let t = 0; t < tiers; t++) {
+    const z0 = -len / 2 + (t / tiers) * len, d = len / tiers + 0.12;
+    const tier = roof.clone().multiply(M.t(0, 0.05 + t * 0.012, z0 + d / 2, -0.05, 0, 0));
+    b.add(P.box(rw + 0.02, 0.07, d), { color: straw[t % 3], leaf: 0.2 }, tier);
+    const n = 13;
+    for (let k = 0; k < n; k++) {
+      const fx = -rw / 2 + ((k + 0.5) / n) * rw + rng.range(-0.02, 0.02);
+      // Hanging off the course's lower edge, pointing on down the slope.
+      const h = 0.2 + rng.range(-0.03, 0.05);
+      b.add(P.cone(0.1, h, 4), { color: k % 2 ? straw[(t + 1) % 3] : c(0xb5843a), leaf: 0.2 }, tier.clone().multiply(M.t(fx, -0.03 - h * 0.18, d / 2 + h * 0.4, Math.PI / 2 + 0.4, 0, rng.range(-0.15, 0.15))));
+    }
+  }
+  // Bundled ridge along the top.
+  b.add(P.cyl(0.07, 0.07, rw + 0.04, 7), { color: c(0xa77a34), leaf: 0.2 }, roof.clone().multiply(M.t(0, 0.07, -len / 2 + 0.05, 0, 0, Math.PI / 2)));
+  // Workbench: a plank top on trestles.
+  const bx = 0.92, bz = 0.38;
+  b.add(P.box(1.3, 0.06, 0.5), { color: c(0xa77b4f) }, M.t(bx, 0.6, bz));
+  for (const s of [-1, 1]) b.add(P.box(0.07, 0.48, 0.42), { color: K.timberDark }, M.t(bx + s * 0.55, 0.35, bz));
+  b.add(P.box(1.1, 0.05, 0.05), { color: K.timberDark }, M.t(bx, 0.28, bz));
+  // Striped rockets standing on the bench, finned and capped.
+  const stripe = [K.red, BANNER.teal, K.red, AD.cream];
+  for (let k = 0; k < 4; k++) {
+    const x = bx + 0.12 + k * 0.11, z = bz - 0.06 + (k % 2) * 0.08, h = 0.3 + (k % 2) * 0.05;
+    b.add(P.cyl(0.04, 0.04, h, 7), { color: (p) => ((p.y * 26) % 1 < 0.35 ? AD.cream : stripe[k]) }, M.t(x, 0.63 + h / 2, z));
+    b.add(P.cone(0.05, 0.11, 7), { color: K.red }, M.t(x, 0.63 + h + 0.055, z));
+    b.add(P.box(0.11, 0.06, 0.012), { color: K.timberDark }, M.t(x, 0.66, z));
+  }
+  // Paper rolls and a pot of black powder on the bench.
+  for (let k = 0; k < 3; k++) b.add(P.cyl(0.035, 0.035, 0.34, 7), { color: k === 1 ? c(0xd8c49a) : AD.cream }, M.t(bx - 0.35, 0.67 + (k === 2 ? 0.06 : 0), bz - 0.05 + (k === 2 ? 0.035 : k * 0.07), 0, 0.25, Math.PI / 2));
+  b.add(P.box(0.02, 0.075, 0.075), { color: K.red }, M.t(bx - 0.35, 0.68, bz));
+  frettedPot(b, bx - 0.05, 0.63, bz + 0.02, 0.7, 0xc98a5a);
+  b.add(P.sphere(0.055, 0), { color: c(0x26221f) }, M.t(bx - 0.05, 0.84, bz + 0.02, 0, 0, 0, 1, 0.45, 1));
+  // A basket of charcoal and big painted pots under and beside the bench.
+  heapBasket(b, bx + 0.2, 0.1, bz + 0.62, 0.17, 0.2, [0x2a2522, 0x3a3430, 0x1f1b18], rng);
+  frettedPot(b, bx - 0.55, 0.1, bz + 0.6, 1.25);
+  frettedPot(b, lx1 - 0.08, 0.1, bz + 0.45, 1.0, 0xd57a48);
+  b.add(P.sphere(0.07, 0), { color: c(0x2a2522) }, M.t(lx1 - 0.08, 0.4, bz + 0.45, 0, 0, 0, 1, 0.4, 1));
+  barrel(b, lx1 - 0.15, 0.1, zb + 0.3, 1.2);
+  crate(b, lx0 + 0.35, 0.1, zb + 0.35, 0.42, 0.3, 0.34, undefined, 0.2);
+
+  // The fire bowl on a fretted stone pedestal at the front corner.
+  const px = -1.55, pz = 0.95;
+  b.add(P.box(0.42, 0.4, 0.42), { color: CUT.stone }, M.t(px, 0.3, pz));
+  fretBand(b, M.t(px, 0.3, pz + 0.215), 0.4, 0.1, K.red, AD.cream);
+  fretBand(b, M.t(px + 0.215, 0.3, pz, 0, Math.PI / 2, 0), 0.4, 0.1, K.red, AD.cream);
+  torches.push(fireBowl(b, px, 0.5, pz, 1.25));
+  // A sun banner on its pole at the back corner of the lean-to.
+  bannerPole(b, lx1 + 0.02, -1.25, 1.75, 0);
+
+  // Greenery round the edges: rocks, ferns and red flowers.
+  for (const [x, z, r] of [[-1.72, -1.25, 0.16], [1.75, 1.25, 0.14], [-0.2, 1.3, 0.1]] as const) b.add(P.sphere(r, 0), { color: c(0x8a8478) }, M.t(x, 0.1 + r * 0.4, z, 0, rng.range(0, 6), 0, 1, 0.7, 1));
+  fern(b, -0.15, 0.1, -1.2, 0.5, 31);
+  fern(b, 1.62, 0.1, 1.1, 0.42, 32);
+  blooms(b, -1.25, 0.1, 1.25, 4, 0.2, 0.08, 33);
+  return { finished: b.build(), torches, height: 2.0 };
+}

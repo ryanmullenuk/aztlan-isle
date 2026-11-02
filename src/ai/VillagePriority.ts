@@ -21,7 +21,7 @@ export function gatheringWeights(priority: VillagePriority, food: number, wood: 
   return { gatherer: food * foodBias, woodcutter: wood * materialBias, miner: stone * materialBias };
 }
 export function jobRank(priority: VillagePriority, role: Role, medicinal = false): number {
-  const normal: Partial<Record<Role, number>> = { builder: 0, mason: .5, farmer: 1, fisher: 2, butcher: 3, smoker: 3.5, priest: 4, merchant: 4.5 };
+  const normal: Partial<Record<Role, number>> = { builder: 0, mason: .5, farmer: 1, fisher: 2, butcher: 3, smoker: 3.5, priest: 4, merchant: 4.5, firemaker: 4.8 };
   if (priority === 'food') {
     if (role === 'farmer' && !medicinal) return 0;
     if (['fisher', 'butcher', 'smoker'].includes(role)) return 1;

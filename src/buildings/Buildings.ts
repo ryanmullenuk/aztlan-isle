@@ -1078,6 +1078,7 @@ export class BuildingSystem {
       case 'stonemason': return models.stonemasonModel(b.tier);
       case 'herbalgarden': return models.herbalGardenModel();
       case 'herbalist': return models.herbalistModel();
+      case 'firemaker': return models.firemakerModel();
       case 'healer': return models.healingCentreModel();
       case 'well': return models.wellModel();
       case 'butcher': return models.butcherModel(sw, sd);

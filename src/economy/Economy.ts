@@ -10,7 +10,7 @@ export const AWAY_PACE = 0.35;
 export class Economy {
   res: Record<ResourceKey, number> = { ...ECONOMY.start };
   /** Precious goods (no store limit): pearls for trading, herbs and spices for healing. */
-  goods: Record<GoodKey, number> = { pearls: 0, herbs: 0, spices: 0, medicine: 0, carvedstone: 0 };
+  goods: Record<GoodKey, number> = { pearls: 0, herbs: 0, spices: 0, medicine: 0, carvedstone: 0, gunpowder: 0, fireworks: 0 };
   woodCap = ECONOMY.baseWoodCap;
   foodCap = ECONOMY.baseFoodCap;
   beliefCap = ECONOMY.beliefBaseCap;

@@ -378,7 +378,7 @@ export class AudioEngine {
     if (!this.ready) return;
     const ctx = this.ctx!;
     const now = ctx.currentTime;
-    const minGap: Record<string, number> = { chop: 0.12, mine: 0.12, build: 0.1, sculpt: 0.09, drop: 0.1, waterdrop: 0.08, flap: 0.15, mark: 0.05, splash: 0.2, bark: 0.12, growl: 0.5, yelp: 0.3, bell: 3 };
+    const minGap: Record<string, number> = { chop: 0.12, mine: 0.12, build: 0.1, sculpt: 0.09, drop: 0.1, waterdrop: 0.08, flap: 0.15, mark: 0.05, splash: 0.2, bark: 0.12, growl: 0.5, yelp: 0.3, bell: 3, fwlaunch: 0.1, fwbang: 0.06 };
     const lastT = this.last.get(name) ?? -Infinity;
     if (now - lastT < (minGap[name] ?? 0.03)) return;
     this.last.set(name, now);
@@ -450,6 +450,13 @@ export class AudioEngine {
         burst('bandpass', 1200, 1.5, 1.1, 0.3, undefined, 0.12);
         break;
       case 'blow': burst('bandpass', 900, 0.8, 0.9, 0.25, 400); break;
+      // Fireworks: a rising whistle with a rushing hiss as a rocket climbs; a boom, then crackle, as it bursts.
+      case 'fwlaunch': tone('sine', 700, 2100, 1.0, 0.05); burst('highpass', 2500, 0.7, 0.9, 0.12, 5000); break;
+      case 'fwbang':
+        burst('lowpass', 900, 0.7, 1.1, 0.75, 90);
+        tone('sine', 85, 38, 0.7, 0.55);
+        for (let k = 0; k < 7; k++) burst('highpass', 3200 + Math.random() * 2000, 1.2, 0.05, 0.16, undefined, 0.35 + k * 0.09 + Math.random() * 0.06);
+        break;
       case 'whale': {
         // Low, gliding humpback call.
         const o = ctx.createOscillator();

@@ -9,10 +9,11 @@ import { VillagePrioritiesPanel } from './VillagePrioritiesPanel';
 import { MoodPanel } from './MoodPanel';
 import { TimeLapseView } from './TimeLapseView';
 import { MOOD_LABEL, moodOf } from '../economy/Mood';
+import { rareBlock, rareLeft } from '../economy/RareGoods';
 import { settingsMarkup, wireSettingsTabs } from './SettingsPanel';
 import { serialize } from '../world/Save';
 import { islandFile, parseIslandFile, downloadIsland, MAX_ISLAND_FILE_BYTES } from '../world/IslandFile';
-import { DEFENCE, DOGS, GOODS, GOOD_KEYS, GoodKey, VOYAGE, FAUNA, PATHS, BUILDINGS, BuildingKey, CAMERA, JETTY, MILESTONES, PresetName, SAVE, SPECIES, WARRIOR, FARM_TYPES, SMOKE, STONEMASON, BOAT_WORKSHOP, TRADE, TradeOffer, ResourceKey, DECREES, PALACE_RULES, type DecreeKey, RESEARCH, RESEARCH_UPGRADE_LABEL, OBSERVATORY, TIME, DECOR_KEYS } from '../config';
+import { DEFENCE, DOGS, GOODS, GOOD_KEYS, GoodKey, VOYAGE, FAUNA, PATHS, BUILDINGS, BuildingKey, CAMERA, JETTY, MILESTONES, PresetName, SAVE, SPECIES, WARRIOR, FARM_TYPES, SMOKE, STONEMASON, BOAT_WORKSHOP, TRADE, TradeOffer, ResourceKey, FIREWORKS, RARE_GOODS, DECREES, PALACE_RULES, type DecreeKey, RESEARCH, RESEARCH_UPGRADE_LABEL, OBSERVATORY, TIME, DECOR_KEYS } from '../config';
 import { MONKEY_BASE } from '../entities/Monkeys';
 import { DOG_BASE } from '../entities/Dogs';
 import { JAG_BASE } from '../entities/Jaguars';
@@ -66,7 +67,7 @@ const HUD_OPEN_KEY = 'aztlan-hud-open';
 const GOALS_OPEN_KEY = 'aztlan-goals-open';
 
 const BUILD_ICON: Record<BuildingKey, string> = {
-  boatworkshop: 'b_boatworkshop', market: 'b_market', stonemason: 'b_stonemason', herbalist: 'b_herbalist', herbalgarden: 'b_herbalgarden',
+  boatworkshop: 'b_boatworkshop', market: 'b_market', stonemason: 'b_stonemason', herbalist: 'b_herbalist', herbalgarden: 'b_herbalgarden', firemaker: 'b_firemaker',
   campfire: 'belief', hut: 'b_hut', home: 'b_home', temple: 'b_temple', greattemple: 'b_greattemple', farm: 'b_farm', butcher: 'b_butcher',
   woodstore: 'b_woodstore', grainstore: 'b_grainstore', warroom: 'b_warroom', jetty: 'b_jetty',
   maizefarm: 'b_maize', chinampa: 'b_chinampa', smokehouse: 'b_smoke',
@@ -253,9 +254,10 @@ export class UI {
     const grid = el('div', 'panel resgrid inventory-panel hidden');
     grid.id = 'inventory-panel';
     grid.setAttribute('aria-label', 'Island inventory');
-    for (const k of ['people', 'wood', 'stone', 'grain', 'fruit', 'meat', 'fish', 'pearls', 'herbs', 'spices', 'medicine', 'carvedstone']) {
+    for (const k of ['people', 'wood', 'stone', 'grain', 'fruit', 'meat', 'fish', 'pearls', 'herbs', 'spices', 'medicine', 'carvedstone', 'gunpowder', 'fireworks']) {
       const r = el('div', 'res', icon(k));
-      r.title = k === 'people' ? 'Islanders (housed / total)' : k === 'pearls' ? 'Pearls: found on beaches and in fishing catches; worth a lot on a voyage' : k === 'herbs' ? 'Herbs: harvested at Herbal Gardens and delivered for processing into medicine' : k === 'medicine' ? 'Medicine: made by Herbalists; treats patients at Healing Centres' : k === 'spices' ? 'Spices: brought home by voyages; cure the sick and injured at a Healing Centre' : k[0].toUpperCase() + k.slice(1);
+      if (k === 'gunpowder' || k === 'fireworks') r.classList.add('hidden');
+      r.title = k === 'people' ? 'Islanders (housed / total)' : k === 'pearls' ? 'Pearls: found on beaches and in fishing catches; worth a lot on a voyage' : k === 'herbs' ? 'Herbs: harvested at Herbal Gardens and delivered for processing into medicine' : k === 'medicine' ? 'Medicine: made by Herbalists; treats patients at Healing Centres' : k === 'spices' ? 'Spices: brought home by voyages; cure the sick and injured at a Healing Centre' : k === 'gunpowder' ? 'Gunpowder: a rare find from voyages, bought for pearls at a Trade Dock; packed into fireworks' : k === 'fireworks' ? 'Fireworks: made at a Firemaker’s Workshop; launch them to celebrate' : k[0].toUpperCase() + k.slice(1);
       const v = el('span', 'v');
       r.appendChild(v);
       this.resEls[k] = v;
@@ -1083,11 +1085,18 @@ export class UI {
       <p class="muted small">Load a boat with spare goods and send it to trade. It sails over the horizon and returns with what you bargained for.</p>
       <div class="kv"><span>Boats</span><b>${status}</b></div>
       <div class="trows">${rows}</div>
+      ${this.rareGoodsHtml()}
       <p class="muted small">Traders speak of new goods soon: ${TRADE.comingSoon.join(', ')}.</p>
     </div>`;
     const close = el('button', 'ib small close', ICONS.close);
     close.onclick = () => this.toggle(m, false);
     m.querySelector('.card-head')!.appendChild(close);
+    m.querySelectorAll<HTMLButtonElement>('button[data-rare]').forEach((b) => {
+      b.onclick = () => {
+        this.toast(g.buyRareGood(b.dataset.rare as GoodKey, parseInt(b.dataset.k ?? '1', 10)));
+        this.renderTrade();
+      };
+    });
     m.querySelectorAll<HTMLButtonElement>('button[data-o]').forEach((b) => {
       b.onclick = () => {
         const o = TRADE.offers.find((x) => x.id === b.dataset.o)!;
@@ -1097,6 +1106,22 @@ export class UI {
         this.renderTrade();
       };
     });
+  }
+
+  /** The Trade Dock's Rare Goods: bought outright for pearls, a few a day, once discovered. */
+  private rareGoodsHtml(): string {
+    const g = this.game, day = g.time.day;
+    const rows = RARE_GOODS.map((o) => {
+      const found = g.found(o.key);
+      if (!found) return `<div class="trow rare locked"><span class="tgive">${icon(o.key)} <b>???</b></span><span class="muted small">Undiscovered: voyagers may find it in distant markets.</span></div>`;
+      const left = rareLeft(g.rareSales, day, o);
+      const btn = (k: number) => {
+        const why = rareBlock(g.eco, g.rareSales, day, o, true, k);
+        return `<button class="btn small" data-rare="${o.key}" data-k="${k}" ${why ? 'disabled' : ''} title="${why}">×${k}</button>`;
+      };
+      return `<div class="trow rare"><span class="tgive"><span class="tg">${icon('pearls')} ${o.pearls}</span></span><span class="tarrow">→</span><span class="tget"><span class="tg">${icon(o.key)} 1</span> <span class="muted small">${GOODS[o.key].name} · ${left} left today</span></span><span class="tbtns">${btn(1)}${btn(Math.min(3, o.perDay))}</span></div><p class="muted small rare-note">${o.note}</p>`;
+    }).join('');
+    return `<div class="sec-h">Rare goods</div><p class="muted small">Paid for in pearls (you have ${Math.floor(g.eco.goods.pearls)}). The traders bring only a little each day.</p><div class="trows">${rows}</div>`;
   }
 
   closeModals(): boolean {
@@ -1356,6 +1381,8 @@ export class UI {
     this.resEls.stone.textContent = `${fmt(e.res.stone)}`;
     for (const k of ['grain', 'fruit', 'meat', 'fish'] as const) this.resEls[k].textContent = fmt(e.res[k]);
     for (const k of GOOD_KEYS) this.resEls[k].textContent = fmt(e.goods[k]);
+    const powder = this.game.found('gunpowder');
+    for (const k of ['gunpowder', 'fireworks']) this.resEls[k].parentElement?.classList.toggle('hidden', !powder);
     this.resEls.wood.parentElement!.title = `Wood ${Math.floor(e.res.wood)} / ${e.woodCap}`;
     this.resEls.stone.parentElement!.title = `Stone ${Math.floor(e.res.stone)} / ${e.woodCap}`;
     this.resEls.grain.parentElement!.title = `Food ${Math.floor(e.food)} / ${e.foodCap}`;
@@ -1595,7 +1622,7 @@ export class UI {
         <div class="actions"><button class="btn small" data-a="capture" ${free && (!d.needsPen || hasPen) ? '' : 'disabled'}>${ICONS.harvest} ${label}</button></div>
         <p class="muted small">Tip: select an islander first, then tap an animal to send them after it.</p>`;
     } else if (b) {
-      key = `b${b.id}|${['pigpen','chickenpen'].includes(b.key) ? g.wildlife.penCount(b)+'/'+g.buildings.of('butcher',true).filter(buildingOperational).length : ''}|${Math.round(b.integrity * 100)}:${b.fire > 0}:${b.ruined}:${b.repairing}:${Math.round(b.repairProgress * 100)}:${g.powers.state}:${g.fires.status(b)}:${g.eco.canAfford(g.buildings.repairCost(b))}|${Math.floor(g.eco.goods.carvedstone)}|${g.progression.summary}|${g.buildings.boatRequirement(3)}|${g.buildings.constructionRequirement('home')}|${g.buildings.list.filter(x=>x.key==='stonemason' && x.complete).map(x=>x.tier).join(',')}|${Math.floor(g.eco.food)}|${b.key === 'tradedock' || b.key === 'market' ? g.trade.visitKey(b) + '|' + g.voyage.key() + '|' + JSON.stringify(g.eco.goods) : ''}|${b.key === 'greathall' ? JSON.stringify(g.colony.hallCount(b)) : ''}|${b.key === 'palace' ? b.decree ?? '' : ''}|${b.key === 'observatory' ? this.observatoryKey() : ''}|${b.key === 'healer' ? g.colony.patients(b).map((p) => `${p.id}:${p.condition}:${Math.ceil(p.conditionT / 60)}:${p.task?.slot}:${g.colony.canCure(p)}`).join(',') + JSON.stringify(g.eco.goods) : ''}|${b.key === 'watchtower' ? `${g.defence.stats(b).shots}|${g.defence.stats(b).kills}|` : ''}${b.key === 'kennel' ? `${g.dogs.alive.length}|${g.dogs.alive.filter((d) => d.puppy).length}|${Math.ceil(b.breedT)}|${Math.ceil(b.breedCool / 5)}|${b.dogRole}|${Math.floor(g.eco.food / 4)}|` : ''}${b.key === 'market' ? JSON.stringify(b.marketStock) : ''}|${b.key === 'herbalist' || b.key === 'stonemason' ? JSON.stringify(g.eco.goods) : ''}|${b.complete}|${Math.round(b.progress * 50)}|${b.tier}|${b.residents.length}|${b.upgrading}|${Math.round(b.growth * 20)}|${b.boats.length}|${b.boatBuild > 0}|${b.training.length}|${Math.floor(g.eco.res.wood / 5)}|${Math.floor(g.eco.res.stone / 5)}|${Math.floor(g.eco.res.belief / 5)}|${Math.floor(g.eco.goods.pearls)}`;
+      key = `b${b.id}|${['pigpen','chickenpen'].includes(b.key) ? g.wildlife.penCount(b)+'/'+g.buildings.of('butcher',true).filter(buildingOperational).length : ''}|${Math.round(b.integrity * 100)}:${b.fire > 0}:${b.ruined}:${b.repairing}:${Math.round(b.repairProgress * 100)}:${g.powers.state}:${g.fires.status(b)}:${g.eco.canAfford(g.buildings.repairCost(b))}|${Math.floor(g.eco.goods.carvedstone)}|${g.progression.summary}|${g.buildings.boatRequirement(3)}|${g.buildings.constructionRequirement('home')}|${g.buildings.list.filter(x=>x.key==='stonemason' && x.complete).map(x=>x.tier).join(',')}|${Math.floor(g.eco.food)}|${b.key === 'tradedock' || b.key === 'market' ? g.trade.visitKey(b) + '|' + g.voyage.key() + '|' + JSON.stringify(g.eco.goods) : ''}|${b.key === 'greathall' ? JSON.stringify(g.colony.hallCount(b)) : ''}|${b.key === 'palace' ? b.decree ?? '' : ''}|${b.key === 'observatory' ? this.observatoryKey() : ''}|${b.key === 'healer' ? g.colony.patients(b).map((p) => `${p.id}:${p.condition}:${Math.ceil(p.conditionT / 60)}:${p.task?.slot}:${g.colony.canCure(p)}`).join(',') + JSON.stringify(g.eco.goods) : ''}|${b.key === 'watchtower' ? `${g.defence.stats(b).shots}|${g.defence.stats(b).kills}|` : ''}${b.key === 'kennel' ? `${g.dogs.alive.length}|${g.dogs.alive.filter((d) => d.puppy).length}|${Math.ceil(b.breedT)}|${Math.ceil(b.breedCool / 5)}|${b.dogRole}|${Math.floor(g.eco.food / 4)}|` : ''}${b.key === 'market' ? JSON.stringify(b.marketStock) : ''}|${b.key === 'herbalist' || b.key === 'stonemason' || b.key === 'firemaker' ? JSON.stringify(g.eco.goods) : ''}${b.key === 'firemaker' ? `${g.fireworks.active}|${g.colony.list.map((i) => i.task?.kind === 'firework' && i.task.target === b.id ? `${i.id}:${i.task.stage}:${Math.ceil(i.task.timer / 3)}` : '').join('')}` : ''}|${b.complete}|${Math.round(b.progress * 50)}|${b.tier}|${b.residents.length}|${b.upgrading}|${Math.round(b.growth * 20)}|${b.boats.length}|${b.boatBuild > 0}|${b.training.length}|${Math.floor(g.eco.res.wood / 5)}|${Math.floor(g.eco.res.stone / 5)}|${Math.floor(g.eco.res.belief / 5)}|${Math.floor(g.eco.goods.pearls)}`;
       html = this.buildingHtml(b);
     }
     if (!force && key === this.infoKey) return;
@@ -1632,6 +1659,11 @@ export class UI {
     if(b.key==='boatworkshop' && b.complete)body+=`<p>Research level ${b.tier}/3 · ${b.tier===1?'Canoes':b.tier===2?'Canoes and larger fishing boats':'All boats, including trade boats'}</p><p class="muted small">Build vessels at your jetties and docks. Larger fishing boats carry 50% more fish.</p>`;
     if (b.key === 'stonemason' && b.complete) body += `<div class="kv"><span>Carved stone in store</span><b>${Math.floor(g.eco.goods.carvedstone)}</b></div><p class="muted small">Each stonemason turns 4 raw stone into 2 carved stone per minute of work. Workshop upgrade ${b.tier - 1} / 3. ${b.tier === 1 ? 'Houses and village buildings unlocked.' : b.tier === 2 ? 'Temples unlocked.' : b.tier === 3 ? 'Great Pyramid upgrades unlocked.' : 'Great Temple unlocked.'}</p>`;
     if (b.key === 'herbalist' && b.complete) body += this.bar('Making medicine', b.growth, 'good') + `<div class="kv"><span>Delivered herb bundles</span><b>${Math.floor(g.eco.goods.herbs)}</b></div><div class="kv"><span>Medicine in store</span><b>${Math.floor(g.eco.goods.medicine)}</b></div><p class="muted small">One herb bundle → one medicine every three game minutes. ${b.stock > 0 ? 'Processing a herb bundle.' : g.eco.goods.medicine >= 40 ? 'Medicine store full.' : 'Waiting for herbs from a Herbal Garden.'}</p>`;
+    if (b.key === 'firemaker' && b.complete) {
+      const maker = g.colony.list.find((i) => i.task?.kind === 'firework' && i.task.target === b.id && i.task.stage >= 2);
+      const progress = maker?.task ? 1 - Math.max(0, maker.task.timer) / FIREWORKS.batchSeconds : 0;
+      body += this.bar('Packing fireworks', progress, 'good') + `<div class="kv"><span>Gunpowder</span><b>${Math.floor(g.eco.goods.gunpowder)} jar${Math.floor(g.eco.goods.gunpowder) === 1 ? '' : 's'}</b></div><div class="kv"><span>Fireworks</span><b>${Math.floor(g.eco.goods.fireworks)} / ${FIREWORKS.cap}</b></div><p class="muted small">One jar of gunpowder → ${FIREWORKS.perJar} fireworks. ${maker ? `${maker.name} is at the workbench.` : g.eco.goods.gunpowder < 1 ? 'Waiting for gunpowder: buy it for pearls at a Trade Dock, or send a voyage.' : g.eco.goods.fireworks > FIREWORKS.cap - FIREWORKS.perJar ? 'The fireworks store is full.' : 'Waiting for a firemaker.'} A display uses ${FIREWORKS.perShow} fireworks and cheers the village.</p>`;
+    }
     if (b.key === 'herbalgarden' && b.complete) body += `<p class="muted small">Farmers harvest these beds and deliver herbs to a completed Herbalist’s Garden.${g.buildings.of('herbalist').length ? '' : ' Build a Herbalist’s Garden to receive the harvest.'}</p>`;
     if (b.key === 'healer' && b.complete) body += `<p class="muted small">Medicine treatment: 60 seconds for sickness, 90 seconds for wounds. One medicine per patient; treatment pauses when medicine runs out.</p>`;
     if (b.key === 'smokehouse' && b.complete) body += `<div class="kv"><span>Smoking</span><b>${b.tendTimer > 0 ? 'Fire lit, racks full' : g.eco.res.fish >= SMOKE.input || g.eco.res.meat >= SMOKE.input ? 'Waiting for a keeper' : 'Needs raw fish or meat'}</b></div><p class="muted small">${SMOKE.input} raw fish or meat + ${SMOKE.wood} wood → ${SMOKE.output} smoked.</p>`;
@@ -1744,6 +1776,10 @@ export class UI {
       const canBoat = !boatLock && !b.boatBuild && g.trade.of(b).length + (b.boatBuild > 0 ? 1 : 0) < TRADE.maxBoats && g.eco.canAfford(c);
       actions += `<button class="btn small" data-a="trade">${ICONS.boat} Trade goods</button>`;
       actions += `<button class="btn small" data-a="tradeboat" ${canBoat ? '' : 'disabled'}>${ICONS.boat} Build trade boat <span class="c">${icon('wood')}${c.wood} ${icon('stone')}${c.stone}</span></button>`;
+    }
+    if (b.key === 'firemaker' && b.complete) {
+      const why = g.fireworksBlock(b);
+      actions += `<button class="btn small" data-a="fireworks" ${why ? 'disabled' : ''} title="${why}">${icon('fireworks')} Launch fireworks <span class="c">${icon('fireworks')}${FIREWORKS.perShow}</span></button>`;
     }
     if (b.key === 'kennel' && b.complete) {
       const ok = g.dogs.canBreed(b);
@@ -1880,6 +1916,7 @@ export class UI {
         g.select(null);
       }
       if (a === 'boat') g.buildBoat(b);
+      if (a === 'fireworks') this.toast(g.launchFireworks(b));
       if (a === 'largeboat') {if(g.boats.order(b,true))this.toast('Work begins on a larger fishing boat.');}
       if (a === 'tradeboat') this.toast(g.trade.orderBoat(b));
       if (a.startsWith('visit')) this.toast(g.trade.accept(b, parseInt(a.slice(5), 10)));

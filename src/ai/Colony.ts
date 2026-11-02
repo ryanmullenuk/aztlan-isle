@@ -2,10 +2,11 @@ import { buildingOperational, buildingSafe } from '../buildings/BuildingConditio
 import type { FireJob } from '../buildings/StormFire';
 import { gatheringWeights, jobRank, specialistShare, villagePriority, type VillagePriority } from './VillagePriority';
 import { marketBatch } from '../economy/Market';
+import { packFireworks } from '../economy/RareGoods';
 import { needsSelfCare } from './GroupSelection';
 import * as THREE from 'three';
 import type { Where } from '../ui/where';
-import { ECONOMY, FARM, FOOD_KEYS, ISLANDER, JETTY, NAMES, OBSERVATORY, ResourceKey, TEMPLE, WARRIOR, FARM_TYPES, isFarm, SMOKE, COMFORTS, PATHS, GREAT_HALL, HEALTH, HERBALIST, STONEMASON, TIME } from '../config';
+import { ECONOMY, FARM, FOOD_KEYS, ISLANDER, JETTY, NAMES, OBSERVATORY, ResourceKey, TEMPLE, WARRIOR, FARM_TYPES, isFarm, SMOKE, COMFORTS, PATHS, GREAT_HALL, HEALTH, HERBALIST, STONEMASON, TIME, FIREWORKS } from '../config';
 import { Building, BuildingSystem, doorStep } from '../buildings/Buildings';
 import { HALL, HEAL, OBS } from '../buildings/models';
 import { Economy } from '../economy/Economy';
@@ -606,7 +607,7 @@ export class Colony {
       isl.workplace = b.id;
       return `${isl.name} will help build the ${b.label}.`;
     }
-    const map: Partial<Record<string, Role>> = { farm: 'farmer', maizefarm: 'farmer', chinampa: 'farmer', herbalgarden: 'farmer', temple: 'priest', greattemple: 'priest', observatory: 'priest', jetty: 'fisher', butcher: 'butcher', smokehouse: 'smoker', stonemason: 'mason', market: 'merchant', woodstore: 'woodcutter', grainstore: 'gatherer' };
+    const map: Partial<Record<string, Role>> = { farm: 'farmer', maizefarm: 'farmer', chinampa: 'farmer', herbalgarden: 'farmer', temple: 'priest', greattemple: 'priest', observatory: 'priest', jetty: 'fisher', butcher: 'butcher', smokehouse: 'smoker', stonemason: 'mason', firemaker: 'firemaker', market: 'merchant', woodstore: 'woodcutter', grainstore: 'gatherer' };
     if (b.key === 'warroom') {
       isl.manualRole = false;
       return this.trainWarrior(b, this.rnd() < 0.5 ? 'jaguar' : 'eagle', isl) ? `${isl.name} is training as a warrior.` : 'Not enough resources to train a warrior.';
@@ -617,7 +618,7 @@ export class Colony {
       return `Nothing to do at the ${b.label}.`;
     }
     isl.role = role;
-    isl.workplace = isFarm(b.key) || ['temple', 'greattemple', 'observatory', 'jetty', 'butcher', 'smokehouse', 'stonemason', 'market', 'watchtower'].includes(b.key) ? b.id : -1;
+    isl.workplace = isFarm(b.key) || ['temple', 'greattemple', 'observatory', 'jetty', 'butcher', 'smokehouse', 'stonemason', 'firemaker', 'market', 'watchtower'].includes(b.key) ? b.id : -1;
     return `${isl.name} now works as a ${role}.`;
   }
 
@@ -695,6 +696,8 @@ export class Colony {
       else if (isFarm(b.key)) slots.push({ b, role: 'farmer', n: b.def.workers });
       else if (b.key === 'market') slots.push({ b, role: 'merchant', n: b.def.workers });
       else if (b.key === 'stonemason') slots.push({ b, role: 'mason', n: b.def.workers });
+      // A firemaker only while there is gunpowder to pack and room in the store.
+      else if (b.key === 'firemaker') slots.push({ b, role: 'firemaker', n: this.eco.goods.gunpowder >= 1 && this.eco.goods.fireworks <= FIREWORKS.cap - FIREWORKS.perJar ? b.def.workers : 0 });
       else if (b.key === 'smokehouse') slots.push({ b, role: 'smoker', n: b.def.workers });
       else if (b.key === 'temple' || b.key === 'greattemple' || b.key === 'observatory') slots.push({ b, role: 'priest', n: b.def.workers });
       else if (b.key === 'butcher') slots.push({ b, role: 'butcher', n: b.def.workers });
@@ -1272,6 +1275,14 @@ export class Colony {
         this.setTask(isl, 'mason', b.id, x, z);
         return true;
       }
+      case 'firemaker': {
+        const b = this.bld.byId(isl.workplace);
+        if (!b || !buildingOperational(b) || this.eco.goods.gunpowder < 1 || this.eco.goods.fireworks > FIREWORKS.cap - FIREWORKS.perJar) return false;
+        // At the workbench under the thatch.
+        const [x, z] = b.local(0.75, 0.95);
+        this.setTask(isl, 'firework', b.id, x, z);
+        return true;
+      }
       case 'smoker': {
         const b = this.bld.byId(isl.workplace);
         if (!b) return false;
@@ -1451,7 +1462,7 @@ export class Colony {
   private runTask(isl: Islander, dt: number): void {
     const t = isl.task!;
     const w = this.world;
-    if (['farm','pray','mason','smoke','butcher','market','train','fish','bonfire','eat','deliver'].includes(t.kind)) {
+    if (['farm','pray','mason','firework','smoke','butcher','market','train','fish','bonfire','eat','deliver'].includes(t.kind)) {
       const b = this.bld.byId(t.target);
       if (b && !buildingOperational(b) && !(t.kind === 'fish' && t.stage >= 3)) return this.releaseTask(isl);
       if (t.kind === 'market' && !buildingOperational(this.bld.byId(t.building ?? -1))) return this.releaseTask(isl);
@@ -1694,6 +1705,26 @@ export class Colony {
           this.eco.goods.carvedstone += STONEMASON.output;
           this.hooks.sfx?.('build', isl.x, isl.z);
         }
+        this.releaseTask(isl);
+        break;
+      }
+      case 'firework': {
+        const b = this.bld.byId(t.target);
+        if (!b || !b.complete || b.upgrading) return this.releaseTask(isl);
+        isl.tool = 'none';
+        if (t.stage < 2) {
+          const r = this.travel(isl, dt, t.x, t.z, { allowBuilding: b.id, goalRadius: 0.3 });
+          if (r === 'failed') return this.fail(isl);
+          if (r !== 'arrived') return;
+          t.stage = 2;
+          t.timer = FIREWORKS.batchSeconds;
+        }
+        const [bx, bz] = b.local(0.75, 0.4);
+        this.faceTo(isl, bx - isl.x, bz - isl.z, dt);
+        isl.anim = 'build';
+        t.timer -= dt;
+        if (t.timer > 0) return;
+        if (packFireworks(this.eco)) this.hooks.sfx?.('build', isl.x, isl.z);
         this.releaseTask(isl);
         break;
       }
@@ -2424,7 +2455,7 @@ export class Colony {
   evacuateBuilding(b: Building): void {
     for (const isl of this.list) {
       const t = isl.task;
-      if (!t || t.target !== b.id || !['sleep','flee','hall','heal','family','farm','pray','observe','mason','smoke','butcher','build','train','bonfire'].includes(t.kind)) continue;
+      if (!t || t.target !== b.id || !['sleep','flee','hall','heal','family','farm','pray','observe','mason','firework','smoke','butcher','build','train','bonfire'].includes(t.kind)) continue;
       const inside = isl.hidden || isl.sleeping || isl.floorY !== null;
       this.releaseTask(isl); isl.hidden = false; isl.sleeping = false; isl.safe = false; isl.floorY = null;
       if (inside) { isl.x = b.door.x; isl.z = b.door.z; isl.y = this.world.groundY(isl.x, isl.z); }
@@ -3077,6 +3108,7 @@ export class Colony {
       case 'farm': return b && (b.growth >= 1 || b.stock > 0) ? `Harvesting ${(FARM_TYPES[b.key]?.label ?? 'crops').toLowerCase()}` : b?.key === 'chinampa' ? 'Tending the chinampa beds' : 'Tending the fields';
       case 'market': return 'Collecting surplus goods for the Market Square';
       case 'mason': return 'Carving stone at the Stonemason’s Workshop';
+      case 'firework': return 'Packing gunpowder into fireworks';
       case 'smoke': return 'Smoking fish and meat';
       case 'pray': return 'Praying at the temple';
       case 'observe': return t.phase === 1 ? 'Watching the night sky from the Observatory' : 'Keeping the count of days at the Observatory';

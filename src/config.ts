@@ -254,7 +254,7 @@ export const ECONOMY = {
   varietyHappiness: 0.05,
 };
 
-export type BuildingKey = 'boatworkshop' | 'campfire' | 'hut' | 'home' | 'temple' | 'greattemple' | 'farm' | 'maizefarm' | 'chinampa' | 'butcher' | 'smokehouse' | 'woodstore' | 'grainstore' | 'warroom' | 'jetty' | 'torch' | 'bonfire' | 'firepit' | 'well' | 'tradedock' | 'kennel' | 'greathall' | 'pigpen' | 'chickenpen' | 'healer' | 'herbalist' | 'herbalgarden' | 'stonemason' | 'market' | 'watchtower' | 'palace' | 'observatory' | 'fishhut' | DecorKey;
+export type BuildingKey = 'boatworkshop' | 'campfire' | 'hut' | 'home' | 'temple' | 'greattemple' | 'farm' | 'maizefarm' | 'chinampa' | 'butcher' | 'smokehouse' | 'woodstore' | 'grainstore' | 'warroom' | 'jetty' | 'torch' | 'bonfire' | 'firepit' | 'well' | 'tradedock' | 'kennel' | 'greathall' | 'pigpen' | 'chickenpen' | 'healer' | 'herbalist' | 'herbalgarden' | 'stonemason' | 'market' | 'watchtower' | 'palace' | 'observatory' | 'fishhut' | 'firemaker' | DecorKey;
 
 /** Placeable decorations: Aztec banners and flags (no workers, islanders walk past them). */
 export type DecorKey = 'bannersun' | 'bannereagle' | 'bannerteal' | 'pennants' | 'featherbanner' | 'flagstring';
@@ -297,6 +297,7 @@ export const BUILDINGS: Record<BuildingKey, BuildingDef> = {
   tradedock: { key: 'tradedock', name: 'Trade Dock', description: 'A long pier and trading house on the shore, facing open water. Build trade boats here and send them to trade your spare goods for what you need.', size: [2, 2], cost: { wood: 40, stone: 20, belief: 0 }, buildTime: 300, builders: 3, workers: 0, placeable: true },
   torch: { key: 'torch', name: 'Torch', description: 'A tall torch on a post. Place it along paths or anywhere to light the village at night. Villagers can walk past it.', size: [1, 1], cost: { wood: 3, stone: 0, belief: 0 }, buildTime: 15, builders: 1, workers: 0, placeable: true },
   bonfire: { key: 'bonfire', name: 'Bonfire', description: 'A great stone-ringed fire with towering orange flames. In the evenings villagers gather here to sing and tell stories: they grow happier and the tribe gains Belief.', size: [3, 3], cost: { wood: 20, stone: 6, belief: 0 }, buildTime: 90, builders: 2, workers: 0, placeable: true },
+  firemaker: { key: 'firemaker', name: 'Firemaker’s Workshop', description: 'A stone kiln and a thatched workbench stacked with rockets. A firemaker packs gunpowder into fireworks, three from each jar. Launch them from here to celebrate. Unlocked once voyagers bring gunpowder home.', size: [4, 3], cost: { wood: 30, stone: 20, belief: 0 }, buildTime: 240, builders: 3, workers: 1, placeable: true },
   firepit: { key: 'firepit', name: 'Cooking Firepit', description: 'A large stone hearth with roaring flames. Islanders gather and dance here at night; roasted meat also makes meals more filling.', size: [2, 2], cost: { wood: 12, stone: 8, belief: 0 }, buildTime: 75, builders: 2, workers: 0, placeable: true },
   well: { key: 'well', name: 'Well', description: 'Provides fresh water for the village and supplies islanders fighting building fires. Keep a well nearby and accessible to help protect your buildings.', size: [2, 2], cost: { wood: 6, stone: 20, belief: 0 }, buildTime: 120, builders: 2, workers: 0, placeable: true },
   observatory: { key: 'observatory', name: 'Observatory', description: 'Priests observe the sky and volcanic signs to warn of approaching storms and eruptions. Staff the Observatory to receive forecasts and research new village developments.', size: [3, 3], cost: { wood: 30, stone: 16, belief: 0 }, buildTime: 240, builders: 3, workers: 2, placeable: true },
@@ -457,15 +458,47 @@ export const TRADE = {
 };
 
 /** Precious goods kept apart from the stores: pearls for trading, herbs and spices for healing. */
-export type GoodKey = 'pearls' | 'herbs' | 'spices' | 'medicine' | 'carvedstone';
-export const GOOD_KEYS: GoodKey[] = ['pearls', 'herbs', 'spices', 'medicine', 'carvedstone'];
+export type GoodKey = 'pearls' | 'herbs' | 'spices' | 'medicine' | 'carvedstone' | 'gunpowder' | 'fireworks';
+export const GOOD_KEYS: GoodKey[] = ['pearls', 'herbs', 'spices', 'medicine', 'carvedstone', 'gunpowder', 'fireworks'];
 export const GOODS: Record<GoodKey, { name: string; one: string; value: number }> = {
   pearls: { name: 'Pearls', one: 'pearl', value: 14 },
   herbs: { name: 'Herbs', one: 'bundle of herbs', value: 6 },
   carvedstone: { name: 'Carved Stone', one: 'carved stone block', value: 4 },
   medicine: { name: 'Medicine', one: 'dose of medicine', value: 10 },
   spices: { name: 'Spices', one: 'pouch of spices', value: 8 },
+  gunpowder: { name: 'Gunpowder', one: 'jar of gunpowder', value: 30 },
+  fireworks: { name: 'Fireworks', one: 'firework', value: 12 },
 };
+
+/**
+ * Gunpowder and fireworks. Voyagers may bring home gunpowder from abroad (rarely, and only once
+ * they have sailed a few times); after that it can be bought for pearls at a Trade Dock, a few jars
+ * a day, and a Firemaker's Workshop turns it into fireworks for celebrations.
+ */
+export const FIREWORKS = {
+  /** Chance a returning voyage carries gunpowder before it is discovered, and after. */
+  findFirst: 0.2,
+  findAgain: 0.08,
+  /** Jars brought home the first time, and on later finds. */
+  firstJars: 3,
+  againJars: [1, 2] as [number, number],
+  /** Seconds of work to pack one jar of gunpowder into fireworks, and how many it makes. */
+  batchSeconds: 90,
+  perJar: 3,
+  /** Most fireworks kept in store. */
+  cap: 30,
+  /** Fireworks used by one display, and rockets sent up for each. */
+  perShow: 3,
+  rocketsPer: 4,
+  /** A display cheers the village a little. */
+  mood: 0.05,
+};
+
+/** Rare goods sold for pearls at a Trade Dock, each once it has been discovered. More can join later. */
+export interface RareOffer { key: GoodKey; pearls: number; perDay: number; note: string }
+export const RARE_GOODS: RareOffer[] = [
+  { key: 'gunpowder', pearls: 6, perDay: 3, note: 'Black powder from distant shores. A Firemaker packs it into fireworks.' },
+];
 
 /** Pearls: oyster shells washed up on the beaches (picked up by villagers or tapped), and now and then one in a fishing catch. */
 export const PEARLS = {

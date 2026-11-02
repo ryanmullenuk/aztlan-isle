@@ -2,6 +2,7 @@ import { buildingOperational } from '../buildings/BuildingCondition';
 import * as THREE from 'three';
 import type { Where } from '../ui/where';
 import { GOODS, GOOD_KEYS, GoodKey, ResourceKey, TRADE, VOYAGE } from '../config';
+import { voyageGunpowder } from '../economy/RareGoods';
 import { Building, BuildingSystem } from '../buildings/Buildings';
 import { Economy } from '../economy/Economy';
 import { GeoBuilder, M, P } from '../render/GeoBuilder';
@@ -132,6 +133,9 @@ export interface VoyageHooks {
   addChicken: (x: number, z: number) => boolean;
   /** Moored visitors with bargains still on offer (for their orbs). */
   visitorOrbs: () => { x: number; z: number; dock: number }[];
+  /** Whether a rare good has been discovered, and the moment voyagers first bring one home. */
+  found?: (k: GoodKey) => boolean;
+  discover?: (k: GoodKey, n: number, from: string) => void;
 }
 
 interface Ship extends Vessel {
@@ -530,6 +534,9 @@ export class Voyages {
     s.ride.init = false;
     s.mesh.visible = true;
     this.haul = voyageHaul(this.hold, this.mult, this.rng, this.eco.res, this.bonus);
+    // Now and then, gunpowder from a far market (rarely, until it has been discovered).
+    const jars = voyageGunpowder(!!this.hooks?.found?.('gunpowder'), () => this.rng.next());
+    if (jars) this.haul.goods.gunpowder = (this.haul.goods.gunpowder ?? 0) + jars;
     this.hold = {};
     this.state = 'back';
     this.hooks?.notify('A great sail on the horizon: the voyage ship is coming home!', 'info', { x: dock.x, z: dock.z });
@@ -623,6 +630,8 @@ export class Voyages {
     this.log.push(`Home from ${this.place}.`);
     this.hooks?.notify(`The voyage ship is home from ${this.place}${back.length ? ` with ${back.join(' and ')}` : ''}, carrying ${this.haul ? haulText(this.haul) : 'nothing'}. Tap the ship (the green orb) to unload.`, 'info', { x: dock.x, z: dock.z });
     this.hooks?.sfx('complete', dock.x, dock.z);
+    const jars = this.haul?.goods.gunpowder ?? 0;
+    if (jars && !this.hooks?.found?.('gunpowder')) this.hooks?.discover?.('gunpowder', jars, this.place);
   }
 
   // ---------------- Orbs: goods or bargains waiting ----------------
@@ -713,7 +722,7 @@ function holdText(h: Hold): string {
 function cleanHold(h: any): Hold {
   const out: Hold = {};
   if (!h || typeof h !== 'object') return out;
-  for (const k of [...CARGO_KEYS, 'belief']) {
+  for (const k of new Set([...CARGO_KEYS, ...GOOD_KEYS, 'belief'])) {
     const n = Number(h[k]);
     if (Number.isFinite(n) && n > 0) (out as Record<string, number>)[k] = Math.round(n);
   }
