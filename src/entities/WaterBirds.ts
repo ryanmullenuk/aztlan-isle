@@ -11,8 +11,9 @@ import { QuadMeshes } from './quadRig';
 import { RFish } from './ReefFish';
 import {
   HER, HERON_WING, PEL, PELICAN_WING, heldFish, heronBody, heronFoot, heronHead, heronLegLower, heronLegUpper, heronNeck,
-  pelicanBody, pelicanFoot, pelicanHead, pelicanJaw, pelicanLeg, pelicanNeck,
+  pelicanBody, pelicanFoot, pelicanHead, pelicanJaw, pelicanLeg, pelicanNeck, pelicanFold, heronFold,
 } from './waterBirdModels';
+import { TUCKED } from './birdForms';
 
 /** A heron's foot: planted in the world, or swinging (p 0..1 from p0) from where it lifted (sx, sy, sz). */
 interface Foot {
@@ -202,6 +203,7 @@ export class WaterBirds {
     this.meshes.add('pLeg', pelicanLeg(), P * 2);
     this.meshes.add('pFoot', pelicanFoot(), P * 2);
     wingParts(PELICAN_WING).forEach((g, k) => this.meshes.add(`pW${k}`, g, P));
+    this.meshes.add('pWFold', pelicanFold(), P);
     this.meshes.add('hBody', heronBody(), H);
     this.meshes.add('hNeck0', heronNeck(0), H);
     this.meshes.add('hNeck1', heronNeck(1), H);
@@ -211,6 +213,7 @@ export class WaterBirds {
     this.meshes.add('hLegL', heronLegLower(), H * 2);
     this.meshes.add('hFoot', heronFoot(), H * 2);
     wingParts(HERON_WING).forEach((g, k) => this.meshes.add(`hW${k}`, g, H));
+    this.meshes.add('hWFold', heronFold(), H);
     this.meshes.add('fish', heldFish(), P + H);
   }
 
@@ -939,6 +942,11 @@ export class WaterBirds {
   }
 
   private wings(prefix: string, root: [number, number, number], spec: typeof PELICAN_WING, b: Bird, sea: number): void {
+    // At rest the wings lie folded along the flanks: the sculpted pair, not the flight wings bent up.
+    if (b.fold > TUCKED && b.dv < 0.01 && b.stretchE < 0.01 && b.flare < 0.01) {
+      this.meshes.put(`${prefix}Fold`, _b, WHITE);
+      return;
+    }
     flapPose(b.flap, b.amp, _fp, b.kind === 'pelican' ? 0.05 : 0.15, 0.22);
     // Landing: braking beats around raised, cupped wings.
     if (b.flare > 0.001) mixPose(_fp, FLARE, b.flare * 0.7, _fp);

@@ -8,6 +8,7 @@ import { World } from '../world/World';
 import { Islander } from './Islander';
 import { FLARE, FOLDED, GULL_WING, TOUCAN_WING, WingPose, WingSpec, flapPose, mixPose, pose, trimPose, wingMatrices, wingParts } from './birdWings';
 import { QuadMeshes } from './quadRig';
+import { TUCKED, foldedWings } from './birdForms';
 
 type V3 = [number, number, number];
 
@@ -265,31 +266,31 @@ function gullBody(): THREE.BufferGeometry {
   // Pale grey mantle and back (where the folded wings lie), brilliant white head, breast and belly.
   const bodyCol: ColorFn = (p, n) => (n.y > 0.45 && p.z < 0.045 && p.z > -0.1 ? G_BACK : p.y < -0.01 ? G_BELLY : G_WHITE).clone();
   // Deep chest tapering to a slim rump, then the short neck rising to the head.
-  b.add(P.sphere(0.06, 1), { color: bodyCol }, M.t(0, 0, 0.008, 0, 0, 0, 0.72, 0.68, 1.3));
+  b.add(P.sphere(0.06, 2), { color: bodyCol }, M.t(0, 0, 0.008, 0, 0, 0, 0.72, 0.68, 1.3));
   b.add(P.cone(0.04, 0.085, 6), { color: bodyCol }, M.t(0, 0.006, -0.06, -Math.PI / 2, 0, 0, 1, 1, 0.78));
-  b.add(P.cyl(0.02, 0.03, 0.045, 6), C(0xfafaf6), M.t(0, 0.02, 0.055, 0.85, 0, 0));
-  return facet(b.build());
+  b.add(P.cyl(0.02, 0.03, 0.045, 14), C(0xfafaf6), M.t(0, 0.02, 0.055, 0.85, 0, 0));
+  return b.build();
 }
 
 function gullHead(): THREE.BufferGeometry {
   const b = new GeoBuilder();
   // Rounded head with a flattish crown, pivot at the base of the neck.
-  b.add(P.sphere(0.032, 1), C(0xfafaf6), M.t(0, 0.014, 0.018, 0, 0, 0, 0.9, 0.88, 1.15));
+  b.add(P.sphere(0.032, 2), C(0xfafaf6), M.t(0, 0.014, 0.018, 0, 0, 0, 0.9, 0.88, 1.15));
   b.add(P.sphere(0.024, 0), C(0xfafaf6), M.t(0, 0.004, 0.0, 0, 0, 0, 1, 1.1, 1));
   // Stout yellow bill with a hooked tip and the red gonys spot on the lower mandible.
   const bill: BillSpec = { z0: 0.042, y0: 0.008, len: 0.05, h0: 0.014, h1: 0.008, w0: 0.012, w1: 0.005, curve: 0.002, hook: 0.006, segs: 5 };
   b.add(billGeo(bill), { color: (p) => new THREE.Color(p.z > 0.075 && p.z < 0.088 && p.y < 0.004 ? 0xd8342a : 0xf2c030) });
   for (const x of [-1, 1]) {
     // Pale yellow iris, black pupil, thin red eye ring.
-    b.add(P.sphere(0.0062, 0), C(0xc8342a), M.t(x * 0.0235, 0.023, 0.03));
-    b.add(P.sphere(0.0052, 0), C(0xf0e070), M.t(x * 0.0255, 0.023, 0.031));
-    b.add(P.sphere(0.0026, 0), C(0x101010), M.t(x * 0.029, 0.0235, 0.033));
+    b.add(P.sphere(0.0055, 1), C(0xc8342a), M.t(x * 0.0222, 0.023, 0.03, 0, 0, 0, 0.6, 1, 1));
+    b.add(P.sphere(0.0044, 1), C(0xf0e070), M.t(x * 0.0238, 0.023, 0.0305, 0, 0, 0, 0.6, 1, 1));
+    b.add(P.sphere(0.0022, 1), C(0x101010), M.t(x * 0.0262, 0.0233, 0.0315));
   }
-  return facet(b.build());
+  return b.build();
 }
 
 function gullTail(left: boolean): THREE.BufferGeometry {
-  const g = tailHalf(0.07, 0.014, 0.026, 0.008);
+  const g = tailHalf(0.066, 0.014, 0.025, 0.0045);
   const b = new GeoBuilder();
   // White tail with a narrow black subterminal band.
   b.add(left ? mirrorGeo(g) : g, { color: (p) => new THREE.Color(p.z < -0.05 && p.z > -0.062 ? 0x1c1c1e : 0xf4f5f2) });
@@ -311,24 +312,24 @@ const T_BLACK = 0x121214;
 
 function toucanBody(): THREE.BufferGeometry {
   const b = new GeoBuilder();
-  b.add(P.sphere(0.05, 1), { color: (_p, n) => new THREE.Color(n.y > 0.5 ? 0x18181e : T_BLACK) }, M.t(0, 0, 0, 0, 0, 0, 0.85, 0.9, 1.25));
+  b.add(P.sphere(0.05, 2), { color: (_p, n) => new THREE.Color(n.y > 0.5 ? 0x18181e : T_BLACK) }, M.t(0, 0, 0, 0, 0, 0, 0.85, 0.9, 1.25));
   // Bright yellow bib bordered with red below, and red undertail coverts.
   b.add(P.sphere(0.034, 1), C(0xf6d42a), M.t(0, 0.014, 0.04, 0, 0, 0, 1.05, 1.05, 0.62));
   b.add(P.sphere(0.03, 0), C(0xc8201e), M.t(0, -0.014, 0.036, 0, 0, 0, 1.05, 0.32, 0.62));
   b.add(P.sphere(0.02, 0), C(0xd02820), M.t(0, -0.026, -0.045, 0, 0, 0, 1, 0.7, 1.2));
-  b.add(P.cyl(0.024, 0.032, 0.03, 6), C(T_BLACK), M.t(0, 0.026, 0.03, 0.5, 0, 0));
-  return facet(b.build());
+  b.add(P.cyl(0.024, 0.032, 0.03, 14), C(T_BLACK), M.t(0, 0.026, 0.03, 0.5, 0, 0));
+  return b.build();
 }
 
 function toucanHead(): THREE.BufferGeometry {
   const b = new GeoBuilder();
-  b.add(P.sphere(0.033, 1), C(T_BLACK), M.t(0, 0.012, 0.008, 0, 0, 0, 0.92, 0.95, 1.05));
+  b.add(P.sphere(0.033, 2), C(T_BLACK), M.t(0, 0.012, 0.008, 0, 0, 0, 0.92, 0.95, 1.05));
   // Yellow face and throat running down into the bib.
   b.add(P.sphere(0.027, 1), C(0xf6d42a), M.t(0, -0.002, 0.022, 0, 0, 0, 1.08, 0.85, 0.72));
   for (const x of [-1, 1]) {
     // Lime-green bare skin around the eye.
-    b.add(P.sphere(0.011, 0), C(0x9ad84a), M.t(x * 0.026, 0.018, 0.02, 0, 0, 0, 0.55, 1, 1.1));
-    b.add(P.sphere(0.0045, 0), C(0x0c0c0c), M.t(x * 0.031, 0.019, 0.022));
+    b.add(P.sphere(0.011, 1), C(0x9ad84a), M.t(x * 0.0245, 0.018, 0.02, 0, 0, 0, 0.45, 1, 1.1));
+    b.add(P.sphere(0.0042, 1), C(0x0c0c0c), M.t(x * 0.0285, 0.019, 0.0215));
   }
   // The huge banded bill: green upper mandible with an orange band, blue lower mandible, red tip,
   // and a dark line at its base.
@@ -344,7 +345,7 @@ function toucanHead(): THREE.BufferGeometry {
       return new THREE.Color(0x8cc63e);
     },
   });
-  return facet(b.build());
+  return b.build();
 }
 
 function toucanTail(): THREE.BufferGeometry {
@@ -352,7 +353,7 @@ function toucanTail(): THREE.BufferGeometry {
   const g = tailHalf(0.1, 0.017, 0.019, 0.009);
   b.add(g, C(T_BLACK));
   b.add(mirrorGeo(g), C(T_BLACK));
-  return facet(b.build());
+  return b.build();
 }
 
 // ---------------- Tuning ----------------
@@ -402,6 +403,9 @@ export class Birds {
     ms.add('gTailL', gullTail(true), G);
     // Jointed wings: panels 0–2 right (arm, forearm, hand), 3–5 left.
     wingParts(GULL_WING).forEach((g, k) => ms.add(`gW${k}`, g, G));
+    // At rest: grey wings folded along the back, black tips with white spots crossing over the tail.
+    ms.add('gWFold', foldedWings({ z0: 0.05, z1: -0.15, x: 0.03, y: 0.024, depth: 0.022, thick: 0.008, inward: 0.11, droop: -0.006,
+      covert: 0xb2bac2, flight: 0xa2aab2, tip: 0x1c1c1e, edge: 0xf4f4f0 }), G);
     ms.add('gLegU', legSeg(GULL.legU, 0.0058, 0.0042, (p) => new THREE.Color(p.y > -GULL.legU * 0.45 ? 0xf2f2ee : 0xf0a038)), G * 2);
     ms.add('gLegL', legSeg(GULL.legL, 0.0036, 0.0032, 0xf0a038), G * 2);
     ms.add('gFoot', webbedFoot(0.026, 0.0028, 0xe89430, 0xe08a2a), G * 2);
@@ -409,6 +413,8 @@ export class Birds {
     ms.add('tHead', toucanHead(), T);
     ms.add('tTail', toucanTail(), T);
     wingParts(TOUCAN_WING).forEach((g, k) => ms.add(`tW${k}`, g, T));
+    ms.add('tWFold', foldedWings({ z0: 0.035, z1: -0.068, x: 0.034, y: 0.014, depth: 0.026, thick: 0.009, inward: 0.08, droop: 0.006,
+      covert: 0x18181e, flight: 0x121216, tip: 0x0c0c0e, edge: 0x30303a }), T);
     ms.add('tLegU', legSeg(TOU.legU, 0.0055, 0.0042, 0x4a5a7a), T * 2);
     ms.add('tLegL', legSeg(TOU.legL, 0.0042, 0.0038, 0x5a6a92), T * 2);
     ms.add('tFoot', perchFoot(0.018, 0.003, 0x4e5e84), T * 2);
@@ -825,7 +831,9 @@ export class Birds {
     mixPose(_fp, FOLDED, g.fold, _wp);
     if (g.stretch > 0.001) mixPose(_wp, FLARE, g.stretch * 0.85, _wp);
     const glide = (1 - g.fold) * clamp01(1 - g.amp * 2.5);
-    this.wings('gW', GULL.wing, GULL_WING, _wp, bank, this.time + g.speedMul * 9, glide);
+    // On the ground the wings lie folded along the back (the sculpted pair, not the flight wings bent up).
+    if (g.fold > TUCKED && g.flare < 0.01 && g.stretch < 0.01) this.meshes.put('gWFold', _b, WHITE);
+    else this.wings('gW', GULL.wing, GULL_WING, _wp, bank, this.time + g.speedMul * 9, glide);
     // ---- Legs and feet (toes flat on the ground, curled in flight) ----
     const splay = 0.06 + g.flare * 0.08;
     for (let s = 0; s < 2; s++) {
@@ -900,7 +908,8 @@ export class Birds {
     flapPose(b.wph, b.amp, _fp, 0, 0.12);
     if (b.flare > 0.001) mixPose(_fp, FLARE, b.flare * 0.65, _fp);
     mixPose(_fp, FOLDED, b.fold, _wp);
-    this.wings('tW', TOU.wing, TOUCAN_WING, _wp, b.bank, this.time + b.seed,(1 - b.fold) * clamp01(1 - b.amp * 2.5));
+    if (b.fold > TUCKED && b.flare < 0.01) this.meshes.put('tWFold', _b, WHITE);
+    else this.wings('tW', TOU.wing, TOUCAN_WING, _wp, b.bank, this.time + b.seed,(1 - b.fold) * clamp01(1 - b.amp * 2.5));
     for (let s = 0; s < 2; s++) {
       const side = s === 0 ? 1 : -1;
       this.leg('t', side, TOU.hip, TOU.legU, TOU.legL, u, l, lerp(-(b.pitch + u + l), 1.0, b.tuck), 0.1);
