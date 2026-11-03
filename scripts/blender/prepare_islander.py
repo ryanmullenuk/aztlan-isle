@@ -10,9 +10,11 @@ on a phone:
 - keeps only the colour texture, scaled down to TEX px and stored as JPEG (the game's lighting
   stands in for the normal and metal/roughness maps);
 - drops the finger and toe animation (the game folds those bones into the hands and feet);
-- names the clips by their length (the same seven clips in every file from the artist).
+- names the clips by their length (the same seven clips in every file from the artist);
+- adds the clips from a second file on the same skeleton, if given (the artist's later batch),
+  named by their length too.
 
-Usage: Blender -b --factory-startup --python prepare_islander.py -- in.glb out.glb TARGET_TRIS TEX
+Usage: Blender -b --factory-startup --python prepare_islander.py -- in.glb out.glb TARGET_TRIS TEX [more_clips.glb]
 """
 import sys
 import bpy
@@ -22,6 +24,10 @@ src, dst, target, tex = argv[0], argv[1], int(argv[2]), int(argv[3])
 
 # Clip lengths (seconds) and the names the game plays them by.
 CLIPS = [(15.2, 'twerk'), (6.0, 'idle'), (5.13, 'zombie_crawl'), (2.8, 'sad_idle'), (2.57, 'jog'), (2.23, 'run_look_back'), (0.63, 'injured_run')]
+# The second batch: walking, running, a forward roll, a twirl, turning to look round, dances, a
+# punching combo (the man's) and talking with the hands.
+EXTRA = [(1.27, 'walk'), (1.07, 'run'), (1.0, 'roll'), (3.23, 'spin'), (4.03, 'turn'), (4.47, 'arms_dance'), (4.5, 'punch'),
+         (7.0, 'talk'), (8.77, 'chat'), (11.97, 'dance_sway'), (13.77, 'dance_long')]
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.import_scene.gltf(filepath=src)
@@ -69,6 +75,16 @@ for img in bpy.data.images:
         print('texture', img.name, tuple(img.size), '->', tex)
         img.scale(tex, tex)
 
+# The second file's clips: import it, keep its actions (bone for bone the same skeleton) and drop
+# its own armature and mesh.
+first = set(bpy.data.actions)
+if len(argv) > 4:
+    keep = set(bpy.context.scene.objects)
+    bpy.ops.import_scene.gltf(filepath=argv[4])
+    for o in list(bpy.context.scene.objects):
+        if o not in keep:
+            bpy.data.objects.remove(o, do_unlink=True)
+
 # Finger and toe animation goes (folded into the hands and feet in the game).
 def curve_sets(act):
     """An action's F-curve collections: one in older Blender, one per slot in layered actions."""
@@ -83,7 +99,8 @@ for act in bpy.data.actions:
             if any(k in fc.data_path for k in ('HandThumb', 'HandIndex', 'HandMiddle', 'HandRing', 'HandPinky', 'ToeBase', 'Toe_End')):
                 curves.remove(fc)
     secs = (act.frame_range[1] - act.frame_range[0]) / bpy.context.scene.render.fps
-    length, name = min(CLIPS, key=lambda c: abs(c[0] - secs))
+    length, name = min(CLIPS if act in first else EXTRA, key=lambda c: abs(c[0] - secs))
+    act.use_fake_user = True
     print('clip', act.name, f'{secs:.2f}s', '->', name)
     act.name = name
 

@@ -45,7 +45,8 @@ export interface GlbModel {
 }
 
 /** Animation clips a character model can carry (see islanderModels.ts). */
-export type ClipName = 'idle' | 'sad_idle' | 'twerk' | 'injured_run' | 'run_look_back' | 'jog' | 'zombie_crawl';
+export type ClipName = 'idle' | 'sad_idle' | 'twerk' | 'injured_run' | 'run_look_back' | 'jog' | 'zombie_crawl'
+  | 'walk' | 'run' | 'roll' | 'spin' | 'turn' | 'arms_dance' | 'punch' | 'talk' | 'chat' | 'dance_sway' | 'dance_long';
 
 /**
  * A clip sampled at `fps` into `count` frames of the rig's 19 bone frames (model space, metres;

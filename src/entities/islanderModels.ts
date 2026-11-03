@@ -117,7 +117,8 @@ export function paintFor(p: THREE.Vector3, n: THREE.Vector3, bone: string, J: Re
 // ---------------- Loading ----------------
 
 /** The clip names in the file. */
-const CLIPS: ClipName[] = ['idle', 'sad_idle', 'twerk', 'injured_run', 'run_look_back', 'jog', 'zombie_crawl'];
+const CLIPS: ClipName[] = ['idle', 'sad_idle', 'twerk', 'injured_run', 'run_look_back', 'jog', 'zombie_crawl',
+  'walk', 'run', 'roll', 'spin', 'turn', 'arms_dance', 'punch', 'talk', 'chat', 'dance_sway', 'dance_long'];
 /** Samples per second stored for each clip (played back with interpolation). */
 const FPS = 30;
 

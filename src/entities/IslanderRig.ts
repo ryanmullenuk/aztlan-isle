@@ -124,12 +124,18 @@ export function shownAnim(isl: Islander): Islander['anim'] {
   return isl.anim;
 }
 
+/** The dances at the fires, taken in turn (the woman's sway; the man dances the long one instead). */
+const DANCES: ClipName[] = ['twerk', 'dance_long', 'arms_dance', 'dance_sway', 'spin'];
+
 /**
  * Which of the model's own animation clips an islander plays now (null: the procedural pose).
- * Standing about: the idle; downcast when they have needs and nothing to do; dancing at the fires,
- * now and then when very happy, and often while fireworks light the sky. The sick and the hurt
- * limp along in the injured run, and the badly mauled crawl; anyone fleeing or answering the
- * alarm bell runs looking back over their shoulder, and an ordinary run is a jog.
+ * Standing about: the idle, with now and then a look round, a few words with the hands or a long
+ * chat; downcast when they have needs and nothing to do. Dancing at the fires, each in their own
+ * dance (several in turn); now and then a twirl or a dance when very happy, and often while
+ * fireworks light the sky. The sick and the hurt limp along in the injured run, and the badly
+ * mauled crawl; anyone fleeing or answering the alarm bell runs looking back over their shoulder,
+ * grown-ups otherwise run flat out (children jog), and anyone with empty hands walks in their own
+ * walk. Warriors drill with their fists between watches; children tumble in forward rolls at play.
  */
 export function clipFor(isl: Islander, celebrating = false): ClipName | null {
   if (isl.hidden || isl.sleeping || isl.floorY !== null) return null;
@@ -137,13 +143,25 @@ export function clipFor(isl: Islander, celebrating = false): ClipName | null {
   if (isl.condition === 'mauled' && isl.injured > 0 && moving && !isl.carry) return 'zombie_crawl';
   if ((isl.condition !== 'well' || isl.injured > 0) && moving && !isl.carry) return 'injured_run';
   if (a === 'run' && !isl.carry && (isl.task?.kind === 'flee' || isl.task?.kind === 'hall')) return 'run_look_back';
-  if (a === 'run' && !isl.carry && !isl.warrior) return 'jog';
-  if (a === 'dance') return 'twerk';
-  if (shownAnim(isl) !== 'idle' || isl.warrior || isl.carry) return null;
+  if (a === 'run' && !isl.carry && !isl.warrior) return isl.child ? 'jog' : 'run';
+  if (a === 'walk' && !isl.carry && !isl.warrior && isl.tool === 'none') return 'walk';
   const now = isl.animT * 0.06 + isl.id * 2.3;
-  if (celebrating && isl.id % 3 !== 0 && Math.sin(now) > -0.4) return 'twerk';
-  if (isl.happy > 0.8 && Math.sin(now) > 0.82) return 'twerk';
+  if (a === 'dance') return DANCES[Math.floor(isl.animT / 14 + isl.id * 0.37) % DANCES.length];
+  const shown = shownAnim(isl);
+  // A warrior on guard with no foe near drills with his fists now and then.
+  if (shown === 'guard' && !isl.foe && Math.sin(now * 0.7) > 0.75) return 'punch';
+  if (shown === 'play' && Math.sin(now * 2.1) > 0.8) return 'roll';
+  if (shown !== 'idle' || isl.warrior || isl.carry) return null;
+  if (celebrating && isl.id % 3 !== 0 && Math.sin(now) > -0.4) return isl.id % 2 ? 'arms_dance' : 'twerk';
+  if (isl.happy > 0.8 && Math.sin(now) > 0.82) return isl.id % 2 ? 'spin' : 'twerk';
   if (!isl.task && (isl.happy < 0.35 || isl.hunger < 0.2 || isl.rest < 0.15)) return 'sad_idle';
+  if (!isl.task) {
+    // Standing about: a slow cycle of looking round and talking (each islander on their own phase).
+    const u = ((isl.animT * 0.05 + isl.id * 1.31) % 6 + 6) % 6;
+    if (u < 0.7) return 'talk';
+    if (u > 2.4 && u < 2.75) return 'turn';
+    if (u > 4 && u < 5.2) return 'chat';
+  }
   return 'idle';
 }
 
@@ -1001,7 +1019,8 @@ export class IslanderRig {
       set.tex.needsUpdate = true;
     }
     const name = p.lying ? null : clipFor(isl, this.celebrate);
-    const clip = name ? set.model.clips?.[name] : undefined;
+    // A clip the model doesn't have: its stand-in (the man has no sway dance, the woman no punch).
+    const clip = name ? set.model.clips?.[name] ?? (name === 'dance_sway' ? set.model.clips?.dance_long : undefined) : undefined;
     let gripping = false;
     if (clip) this.playClip(isl, clip, hs, sc);
     else {

@@ -16,11 +16,20 @@ test('standing about plays the idle; with needs and nothing to do, the sad idle'
   assert.equal(clipFor(person({ happy: 0.2, task: { kind: 'farm' } })), 'idle');
 });
 
-test('dancing at the fires, sometimes when very happy, and often under fireworks', () => {
-  assert.equal(clipFor(person({ anim: 'dance' })), 'twerk');
-  const happy = Array.from({ length: 200 }, (_, k) => clipFor(person({ happy: 0.95, animT: k * 3 }))).filter((c) => c === 'twerk').length;
+test('standing about, islanders now and then look round, talk with their hands or chat', () => {
+  const seen = new Set(Array.from({ length: 400 }, (_, k) => clipFor(person({ animT: k * 0.3 * 20 }))));
+  for (const c of ['idle', 'talk', 'turn', 'chat']) assert.ok(seen.has(c as any), `${c} in ${[...seen].join()}`);
+  // Warriors drill with their fists between watches; children tumble at play.
+  const drills = Array.from({ length: 200 }, (_, k) => clipFor(person({ warrior: 'jaguar', animT: k * 2 }))).filter((c) => c === 'punch').length;
+  assert.ok(drills > 5 && drills < 100, `drills now and then (${drills}/200)`);
+});
+
+test('dancing at the fires (several dances in turn), sometimes when very happy, and often under fireworks', () => {
+  const dances = new Set(Array.from({ length: 30 }, (_, k) => clipFor(person({ anim: 'dance', animT: k * 14 }))));
+  assert.ok(dances.size >= 4 && [...dances].every((d) => ['twerk', 'dance_long', 'arms_dance', 'dance_sway', 'spin'].includes(d!)), [...dances].join());
+  const happy = Array.from({ length: 200 }, (_, k) => clipFor(person({ happy: 0.95, animT: k * 3 }))).filter((c) => c === 'twerk' || c === 'spin').length;
   assert.ok(happy > 5 && happy < 80, `very happy islanders dance now and then (${happy}/200)`);
-  const party = Array.from({ length: 60 }, (_, k) => clipFor(person({ id: k, animT: k }), true)).filter((c) => c === 'twerk').length;
+  const party = Array.from({ length: 60 }, (_, k) => clipFor(person({ id: k, animT: k }), true)).filter((c) => c === 'twerk' || c === 'arms_dance').length;
   assert.ok(party > 15, `many dance while fireworks light the sky (${party}/60)`);
 });
 
@@ -30,9 +39,11 @@ test('the sick and hurt limp, the badly mauled crawl, the frightened run looking
   assert.equal(clipFor(person({ anim: 'walk', condition: 'mauled', injured: 0 })), 'injured_run');
   assert.equal(clipFor(person({ anim: 'run', task: { kind: 'flee' } })), 'run_look_back');
   assert.equal(clipFor(person({ anim: 'run', task: { kind: 'hall' } })), 'run_look_back');
-  assert.equal(clipFor(person({ anim: 'run' })), 'jog');
-  // Walking, working and carrying stay procedural (tools and loads in hand).
-  assert.equal(clipFor(person({ anim: 'walk' })), null);
+  assert.equal(clipFor(person({ anim: 'run' })), 'run');
+  assert.equal(clipFor(person({ anim: 'run', child: true })), 'jog');
+  // Empty-handed walkers walk in the model's own walk; tools and loads in hand stay procedural.
+  assert.equal(clipFor(person({ anim: 'walk', tool: 'none' })), 'walk');
+  assert.equal(clipFor(person({ anim: 'walk', tool: 'axe' })), null);
   assert.equal(clipFor(person({ anim: 'chop' })), null);
   assert.equal(clipFor(person({ anim: 'run', carry: { kind: 'log' } })), null);
   assert.equal(clipFor(person({ sleeping: true })), null);
