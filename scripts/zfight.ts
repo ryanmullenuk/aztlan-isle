@@ -17,7 +17,7 @@ GeoBuilder.prototype.add = function (this: GeoBuilder, ...args: Parameters<typeo
 
 const key = process.argv[2] ?? 'palace', gap = Number(process.argv[3] ?? 0.004);
 const make: Record<string, () => models.BuildingModel> = {
-  palace: models.palaceModel, olmechead: models.colossalHeadModel, greathall: models.greatHallModel, market: models.marketSquareModel,
+  well: models.wellModel, palace: models.palaceModel, olmechead: models.colossalHeadModel, greathall: models.greatHallModel, market: models.marketSquareModel,
   temple3: () => models.templeModel(3), greattemple: models.greatTempleModel, observatory: models.observatoryModel, healer: () => models.healingCentreModel(4),
 };
 const m = make[key]();

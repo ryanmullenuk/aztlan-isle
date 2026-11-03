@@ -216,28 +216,36 @@ export function firepitModel(): BuildingModel {
 /** Well: a round stone well with a timber frame, rope and bucket under a little tiled roof. */
 export function wellModel(): BuildingModel {
   const b = new GeoBuilder();
-  b.add(P.box(1.9, 0.04, 1.9), { color: CUT.stoneDark }, M.t(0, 0.02, 0));
+  // The paving's slab sits below the flagstones (level with them, the two flicker).
+  b.add(P.box(1.9, 0.03, 1.9), { color: CUT.stoneDark }, M.t(0, 0.015, 0));
   flagstones(b, -0.9, -0.9, 6, 6, 0.3, 0.02, (i, j) => ((i * 3 + j * 5) % 4 === 0 ? c(0xc9b494) : (i + j) % 2 ? c(0xdcc8a4) : c(0xd0bb95)));
-  b.add(P.cyl(0.46, 0.5, 0.5, 12), { color: (p) => ((Math.floor(p.y * 8) + Math.floor(Math.atan2(p.z, p.x) * 3)) % 2 ? CUT.stone : CUT.stoneDark).clone() }, M.t(0, 0.25, 0));
-  b.add(P.cyl(0.5, 0.5, 0.06, 12), { color: K.red }, M.t(0, 0.36, 0));
-  b.add(P.cyl(0.52, 0.52, 0.06, 12), { color: CUT.stoneLight }, M.t(0, 0.52, 0));
-  b.add(P.cyl(0.08, 0.065, 0.1, 8), { color: K.timber }, M.t(0.42, 0.6, 0.18));
+  // A hollow shaft: the stone wall outside, its dark inner face, and water far down inside.
+  const ring = (p: THREE.Vector3) => ((Math.floor(p.y * 8) + Math.floor(Math.atan2(p.z, p.x) * 3)) % 2 ? CUT.stone : CUT.stoneDark).clone();
+  b.add(P.cyl(0.46, 0.5, 0.5, 16, true), { color: ring }, M.t(0, 0.25, 0));
+  b.add(P.cyl(0.36, 0.36, 0.5, 16, true), { color: (p) => c(0x6e5a44).lerp(c(0x2a2219), 1 - Math.min(1, Math.max(0, (p.y - 0.05) / 0.5))) }, M.t(0, 0.25, 0, 0, 0, 0, -1, 1, 1));
+  b.add(P.cyl(0.36, 0.36, 0.01, 16), { color: c(0x1d4a5e) }, M.t(0, 0.1, 0));
+  b.add(P.cyl(0.505, 0.505, 0.06, 16, true), { color: K.red }, M.t(0, 0.36, 0));
+  // The coping: a flat ring of light stone round the mouth of the well, lipped inside and out.
+  b.add(new THREE.RingGeometry(0.34, 0.54, 20, 1).rotateX(-Math.PI / 2), { color: CUT.stoneLight }, M.t(0, 0.535, 0));
+  b.add(P.cyl(0.54, 0.54, 0.05, 20, true), { color: CUT.stoneLight }, M.t(0, 0.51, 0));
+  b.add(P.cyl(0.34, 0.34, 0.05, 20, true), { color: CUT.stoneDark }, M.t(0, 0.51, 0, 0, 0, 0, -1, 1, 1));
+  b.add(P.cyl(0.08, 0.065, 0.1, 8), { color: K.timber }, M.t(0.44, 0.59, 0.18));
   frettedPot(b, -0.72, 0.04, -0.6, 0.7);
-  b.add(P.cyl(0.36, 0.36, 0.02, 12), { color: c(0x1f5a78) }, M.t(0, 0.4, 0));
   for (const x of [-0.52, 0.52]) b.add(P.cyl(0.035, 0.04, 1.05, 6), { color: K.timber }, M.t(x, 0.8, 0));
   b.add(P.cyl(0.04, 0.04, 1.14, 6), { color: K.timberDark }, M.t(0, 1.12, 0, 0, 0, Math.PI / 2));
   b.add(P.cyl(0.07, 0.07, 0.22, 8), { color: K.rope }, M.t(0, 1.12, 0, 0, 0, Math.PI / 2));
-  b.add(P.cyl(0.008, 0.008, 0.36, 3), { color: K.rope }, M.t(0, 0.92, 0));
-  b.add(P.cyl(0.08, 0.065, 0.12, 8), { color: K.timber }, M.t(0, 0.7, 0));
+  // The rope runs down into the shaft to the bucket, hanging just inside the mouth.
+  b.add(P.cyl(0.008, 0.008, 0.62, 3), { color: K.rope }, M.t(0, 0.8, 0));
+  b.add(P.cyl(0.08, 0.065, 0.12, 8), { color: K.timber }, M.t(0, 0.44, 0));
   b.add(P.box(0.04, 0.04, 0.2), { color: K.timberDark }, M.t(0.62, 1.12, 0.1));
   // Little roof.
   for (const s of [-1, 1]) b.add(P.box(1.3, 0.05, 0.62), { color: (p) => ((p.x * 8) % 1 < 0.5 ? K.terracotta : c(0x9a3a26)).clone() }, M.t(0, 1.42, s * 0.24, s * 0.62, 0, 0));
   b.add(P.box(1.34, 0.06, 0.06), { color: K.timberDark }, M.t(0, 1.58, 0));
-  // A flower pot and a trough.
+  // A flower pot and a trough (its water just below the rim).
   b.add(P.uvSphere(0.1, 8, 6), { color: K.terracotta }, M.t(0.7, 0.08, 0.55));
   b.add(P.sphere(0.1, 0), { color: c(0x4f8038), leaf: 1 }, M.t(0.7, 0.2, 0.55));
   b.add(P.box(0.5, 0.14, 0.2), { color: CUT.stone }, M.t(-0.55, 0.07, 0.62));
-  b.add(P.box(0.44, 0.02, 0.14), { color: c(0x2f7fa0) }, M.t(-0.55, 0.13, 0.62));
+  b.add(P.box(0.44, 0.02, 0.14), { color: c(0x2f7fa0) }, M.t(-0.55, 0.125, 0.62));
   return { finished: b.build(), torches: [], height: 1.7 };
 }
 

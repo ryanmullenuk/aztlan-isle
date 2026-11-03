@@ -15,6 +15,7 @@ import { Vegetation } from '../vegetation/Vegetation';
 import { World } from '../world/World';
 import { RNG } from '../world/rng';
 import * as models from './models';
+import { upgradeLooks } from './looks';
 import { hasUpgradePath, nextUpgrade, upgrades, upgradeSum } from './Upgrades';
 import { growthFactor } from './foodUpgrades';
 import { lightRange, upgraded } from './UpgradeEffects';
@@ -1150,8 +1151,9 @@ export class BuildingSystem {
     const model = models.collectGlows(() => this.modelOf(b));
     const n = upgrades(b);
     if (n > 0 && b.key !== 'torch') {
-      // Upgrades show by the front corners: a marker with a gold disc for each, a banner, a fire.
-      const extra = models.upgradeDressing(b.def.size[0], b.def.size[1], n);
+      // Each upgrade adds what it says (see looks/); a building without looks of its own shows a
+      // marker by its front corner with a gold disc for each upgrade, a banner and a fire.
+      const extra = upgradeLooks(b.key, n, b.def.size[0], b.def.size[1]) ?? models.upgradeDressing(b.def.size[0], b.def.size[1], n);
       const merged = mergeGeometries([model.finished, extra.geo]);
       if (merged) {
         merged.userData = model.finished.userData;
