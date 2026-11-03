@@ -1,4 +1,5 @@
-import { jobsAt } from '../buildings/Upgrades';
+import { FX, jobsAt, upgrades } from '../buildings/Upgrades';
+import { anyUpgraded, eveningFire, fireworksPerJar, upgraded, upgradeMood } from '../buildings/UpgradeEffects';
 import { buildingOperational, buildingSafe } from '../buildings/BuildingCondition';
 import { isElder } from '../entities/CharacterVariants';
 import type { FireJob } from '../buildings/StormFire';
@@ -701,7 +702,7 @@ export class Colony {
       else if (b.key === 'market') slots.push({ b, role: 'merchant', n: jobsAt(b) });
       else if (b.key === 'stonemason') slots.push({ b, role: 'mason', n: jobsAt(b) });
       // A firemaker only while there is gunpowder to pack and room in the store.
-      else if (b.key === 'firemaker') slots.push({ b, role: 'firemaker', n: this.eco.goods.gunpowder >= 1 && this.eco.goods.fireworks <= FIREWORKS.cap - FIREWORKS.perJar ? jobsAt(b) : 0 });
+      else if (b.key === 'firemaker') slots.push({ b, role: 'firemaker', n: this.eco.goods.gunpowder >= 1 && this.eco.goods.fireworks <= FIREWORKS.cap - fireworksPerJar(b, FIREWORKS.perJar) ? jobsAt(b) : 0 });
       else if (b.key === 'smokehouse') slots.push({ b, role: 'smoker', n: jobsAt(b) });
       else if (b.key === 'temple' || b.key === 'greattemple' || b.key === 'observatory') slots.push({ b, role: 'priest', n: jobsAt(b) });
       else if (b.key === 'butcher') slots.push({ b, role: 'butcher', n: jobsAt(b) });
@@ -944,6 +945,8 @@ export class Colony {
   /** Dawn: a married couple living in a house without a child may have one (one child per house, huts too). */
   private dawn(): void {
     this.growUp();
+    // The palace treasury: a pearl each day.
+    if (anyUpgraded(this.bld.list, 'palace', 2)) this.eco.goods.pearls += FX.palace.pearlsPerDay;
     for (const b of this.bld.list) {
       if (!buildingSafe(b) || (b.key !== 'hut' && b.key !== 'home')) continue;
       if (this.list.length >= ISLANDER.max) return;
@@ -989,6 +992,7 @@ export class Colony {
     const hx = home ? home.x : isl.x, hz = home ? home.z : isl.z;
     const r2 = COMFORTS.wellRadius * COMFORTS.wellRadius;
     if (this.bld.list.some((w) => w.key === 'well' && w.complete && (w.x - hx) ** 2 + (w.z - hz) ** 2 < r2)) target += COMFORTS.wellHappy;
+    target += upgradeMood(this.bld.list, hx, hz);
     target += this.moodBoost;
     isl.happy += (Math.min(1, Math.max(0, target)) - isl.happy) * 0.08;
 
@@ -1023,7 +1027,8 @@ export class Colony {
       for (const b of this.bld.list) {
         if (!['bonfire', 'firepit', 'campfire'].includes(b.key) || !buildingOperational(b)) continue;
         if (this.list.filter(o => o.task?.kind === 'bonfire' && o.task.target === b.id).length >= 12) continue;
-        const d = (b.x - isl.x) ** 2 + (b.z - isl.z) ** 2;
+        // Distance as the fire's pull sees it: an upgraded ring draws from further away.
+        const d = ((b.x - isl.x) ** 2 + (b.z - isl.z) ** 2) / eveningFire(b).range ** 2;
         if (d < fd) {
           fd = d;
           fire = b;
@@ -1334,7 +1339,7 @@ export class Colony {
       }
       case 'firemaker': {
         const b = this.bld.byId(isl.workplace);
-        if (!b || !buildingOperational(b) || this.eco.goods.gunpowder < 1 || this.eco.goods.fireworks > FIREWORKS.cap - FIREWORKS.perJar) return false;
+        if (!b || !buildingOperational(b) || this.eco.goods.gunpowder < 1 || this.eco.goods.fireworks > FIREWORKS.cap - fireworksPerJar(b, FIREWORKS.perJar)) return false;
         // At the workbench under the thatch.
         const [x, z] = b.local(0.75, 0.95);
         this.setTask(isl, 'firework', b.id, x, z);
@@ -1781,7 +1786,7 @@ export class Colony {
         isl.anim = 'build';
         t.timer -= dt;
         if (t.timer > 0) return;
-        if (packFireworks(this.eco)) this.hooks.sfx?.('build', isl.x, isl.z);
+        if (packFireworks(this.eco, fireworksPerJar(b, FIREWORKS.perJar))) this.hooks.sfx?.('build', isl.x, isl.z);
         this.releaseTask(isl);
         break;
       }
@@ -2083,8 +2088,9 @@ export class Colony {
         this.faceTo(isl, b.x - isl.x, b.z - isl.z, dt);
         isl.anim = Math.sin(t.timer * 0.18 + isl.id * 1.7) > -0.4 ? 'dance' : 'sit';
         isl.speed = 0;
-        isl.happy = Math.min(1, isl.happy + COMFORTS.bonfireHappy * dt);
-        this.eco.add('belief', COMFORTS.bonfireBelief * dt);
+        const fx = eveningFire(b);
+        isl.happy = Math.min(1, isl.happy + COMFORTS.bonfireHappy * fx.mood * dt);
+        this.eco.add('belief', COMFORTS.bonfireBelief * fx.belief * dt);
         t.timer -= dt;
         if (t.timer <= 0) this.releaseTask(isl);
         break;
@@ -2101,7 +2107,9 @@ export class Colony {
           if (meal !== isl.lastMeal) isl.happy = Math.min(1, isl.happy + 0.03);
           // Meat roasted at a firepit: more filling, and a treat.
           if (meal === 'meat' && this.bld.list.some((f) => f.key === 'firepit' && f.complete)) {
-            isl.hunger = Math.min(1, isl.hunger + COMFORTS.firepitMeal);
+            // A clay oven: the whole roasted meal goes a quarter further.
+            const oven = anyUpgraded(this.bld.list, 'firepit', 1) ? (FX.firepit.meal - 1) * (ECONOMY.mealRestore + COMFORTS.firepitMeal) : 0;
+            isl.hunger = Math.min(1, isl.hunger + COMFORTS.firepitMeal + oven);
             isl.happy = Math.min(1, isl.happy + COMFORTS.firepitHappy);
           }
           isl.lastMeal = meal;
@@ -2244,11 +2252,22 @@ export class Colony {
     return this.bld.list.filter((b) => b.key === 'greathall' && buildingSafe(b));
   }
 
+  /** Places packed in to shelter beyond the seats and standing room (the hall's More benches). */
+  hallCrowd(b: Building): number {
+    if (!upgraded(b, 1)) return 0;
+    return Math.min(HALL.crowd.length, Math.max(0, FX.greathall.seats[upgrades(b)] - HALL.seats.length - HALL.stands.length));
+  }
+
+  /** How far a hall's bell is heard: across the whole island from a bell tower. */
+  private bellReach(): number {
+    return this.halls().some((b) => upgraded(b, 2)) ? Infinity : GREAT_HALL.callRadius;
+  }
+
   /** A free place in a hall: a seat (index < seats), or standing room when sheltering. */
   private freeSlot(b: Building, standing: boolean): number {
     const taken = new Set<number>();
     for (const o of this.list) if (o.task?.kind === 'hall' && o.task.target === b.id && o.task.slot !== undefined) taken.add(o.task.slot);
-    const n = HALL.seats.length + (standing ? HALL.stands.length : 0);
+    const n = HALL.seats.length + (standing ? HALL.stands.length + this.hallCrowd(b) : 0);
     const free: number[] = [];
     for (let k = 0; k < n; k++) if (!taken.has(k)) free.push(k);
     if (!free.length) return -1;
@@ -2259,7 +2278,8 @@ export class Colony {
   }
 
   private slotPos(k: number): { x: number; z: number } {
-    return k < HALL.seats.length ? HALL.seats[k] : HALL.stands[k - HALL.seats.length];
+    const s = k - HALL.seats.length;
+    return s < 0 ? HALL.seats[k] : s < HALL.stands.length ? HALL.stands[s] : HALL.crowd[s - HALL.stands.length];
   }
 
   /** The nearest hall with room, within reach. */
@@ -2338,6 +2358,7 @@ export class Colony {
    */
   sanctuary(x: number, z: number, drill = false): number {
     let n = 0;
+    const reach = this.bellReach();
     for (const isl of this.list) {
       if (isl.hidden || isl.sleeping) continue;
       if (isl.warrior) {
@@ -2355,9 +2376,9 @@ export class Colony {
       }
       // Out at sea, or carried off somewhere: leave them be.
       if (isl.task?.kind === 'fish' && (isl.task.stage ?? 0) >= 2) continue;
-      if (!this.halls().some((b) => Math.hypot(b.door.x - isl.x, b.door.z - isl.z) < GREAT_HALL.callRadius)) continue;
+      if (!this.halls().some((b) => Math.hypot(b.door.x - isl.x, b.door.z - isl.z) < reach)) continue;
       this.cancelTask(isl);
-      if (this.shelter(isl, GREAT_HALL.callRadius)) n++;
+      if (this.shelter(isl, reach)) n++;
     }
     return n;
   }
@@ -2383,6 +2404,9 @@ export class Colony {
       r.push({ x: 0, z: p.z + 0.14 }, { x: p.x, z: p.z + 0.14 }, { x: p.x, z: p.z });
     } else {
       if (Math.abs(p.x) > 2) r.push({ x: Math.sign(p.x) * 2.25, z: top });
+      if (Math.abs(p.x) > 2.3) r.push({ x: Math.sign(p.x) * 2.25, z: p.z });
+      // Packed in among the benches: down the aisle (short of the dais), then across.
+      else if (Math.abs(p.x) <= 2 && p.z < top - 0.5) r.push({ x: 0, z: Math.max(p.z, -1.95) });
       r.push({ x: p.x, z: p.z });
     }
     return r;
@@ -3109,6 +3133,8 @@ export class Colony {
     }
     this.separate(dt);
     this.eco.add('belief', happy * ISLANDER.beliefPerHappyPerSecond * this.sacredFactor() * (this.bld.decreeFactor?.('gods') ?? 1) * dt);
+    // The Tribal Fire's eternal flame.
+    if (anyUpgraded(this.bld.list, 'campfire', 3)) this.eco.add('belief', (FX.campfire.beliefPerMinute / 60) * dt);
     void JETTY;
   }
 

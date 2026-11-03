@@ -2324,6 +2324,15 @@ export const HALL = {
     ...[-1.6, -0.95, 0.95, 1.6].map((x) => ({ x, z: 2.2 })),
     ...[-1.6, -0.55, 0.55, 1.6].flatMap((z) => [{ x: -2.25, z }, { x: 2.25, z }]),
   ],
+  /** More benches (an upgrade): packed in to shelter, down the aisle, round the edges and by the dais. */
+  crowd: [
+    ...Array.from({ length: 10 }, (_, row) => ({ x: 0, z: -1.65 + row * 0.39 })),
+    { x: 0, z: 2.2 }, { x: -0.4, z: 2.2 }, { x: 0.4, z: 2.2 },
+    ...[-1.3, -0.75, 0.75, 1.3].map((x) => ({ x, z: 2.5 })),
+    ...[-1.6, -1.05, -0.5, 0.5, 1.05, 1.6].flatMap((z) => [{ x: -2.6, z }, { x: 2.6, z }]),
+    { x: 0, z: -1.95 },
+    ...[-1, 1].flatMap((s) => [{ x: s * 0.75, z: -2.0 }, { x: s * 1.45, z: -2.05 }, { x: s * 1.45, z: -2.5 }, { x: s * 0.9, z: -2.55 }]),
+  ],
   /** Where the bell hangs from the front canopy beam (its pivot). */
   bell: new THREE.Vector3(0, 2.55, 2.48),
   /** Floor height at a local point: the platform top, the stair, else the ground. */

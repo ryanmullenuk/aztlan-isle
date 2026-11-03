@@ -54,9 +54,9 @@ export function restoreSales(d: unknown): RareSales {
 }
 
 /** One stretch of a firemaker's work: a jar of gunpowder into fireworks, if there's a jar and room. */
-export function packFireworks(eco: Economy): boolean {
-  if (eco.goods.gunpowder < 1 || eco.goods.fireworks > FIREWORKS.cap - FIREWORKS.perJar) return false;
+export function packFireworks(eco: Economy, perJar = FIREWORKS.perJar): boolean {
+  if (eco.goods.gunpowder < 1 || eco.goods.fireworks > FIREWORKS.cap - perJar) return false;
   eco.goods.gunpowder -= 1;
-  eco.goods.fireworks += FIREWORKS.perJar;
+  eco.goods.fireworks += perJar;
   return true;
 }
