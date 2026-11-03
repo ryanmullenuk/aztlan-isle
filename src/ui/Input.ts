@@ -12,6 +12,11 @@ export interface InputHandlers {
   wantsToolDrag(): boolean;
   wantsPlacementDrag?(): boolean;
   onPlacementDrag?(sx:number,sy:number):void;
+  /** Press and hold still while placing, then drag: the ghost turns to face the pointer. */
+  wantsHoldRotate?(): boolean;
+  onHoldRotateStart?(sx: number, sy: number): void;
+  onHoldRotate?(sx: number, sy: number): void;
+  onHoldRotateEnd?(): void;
   onToolDragStart(sx: number, sy: number): void;
   onToolDrag(sx: number, sy: number): void;
   onToolDragEnd(): void;
@@ -43,7 +48,8 @@ export class Input {
   clear(): void { this.keys.clear(); this.pointers.clear(); this.gesture = null; this.dragging = 'none'; this.hover.active = false; }
   private pointers = new Map<number, PointerInfo>();
   private keys = new Set<string>();
-  private dragging: 'none' | 'pan' | 'tool' | 'rotate' | 'orbit' | 'placement' = 'none';
+  private dragging: 'none' | 'pan' | 'tool' | 'rotate' | 'orbit' | 'placement' | 'spin' = 'none';
+  private holdTimer = 0;
   private gesture: { dist: number; angle: number; mx: number; my: number } | null = null;
   private moved = false;
   /** Latest pointer screen position (for cursor-reactive wildlife). */
@@ -107,8 +113,19 @@ export class Input {
         this.dragging = 'tool';
         this.h.onToolDragStart(e.clientX, e.clientY);
       } else this.dragging = 'pan';
-    }
+      clearTimeout(this.holdTimer);
+      if (e.button === 0 && (this.dragging === 'pan' || this.dragging === 'placement') && this.h.wantsHoldRotate?.()) {
+        this.holdTimer = window.setTimeout(() => {
+          if (this.pointers.size !== 1 || this.moved || !this.pointers.has(p.id)) return;
+          this.dragging = 'spin';
+          this.h.onHoldRotateStart?.(p.x, p.y);
+        }, Input.HOLD_MS);
+      }
+    } else clearTimeout(this.holdTimer);
   };
+
+  /** How long a press must stay still before it turns a building being placed. */
+  static readonly HOLD_MS = 380;
 
   private gestureState() {
     const [a, b] = [...this.pointers.values()];
@@ -148,6 +165,7 @@ export class Input {
       this.gesture = g;
       return;
     }
+    if (this.dragging === 'spin') { this.h.onHoldRotate?.(e.clientX, e.clientY); return; }
     if(this.dragging==='placement'){this.h.onPlacementDrag?.(e.clientX,e.clientY);return;}
     if (this.dragging === 'pan' && this.moved) this.rig.panPixels(dx, dy, this.el.clientHeight);
     else if (this.dragging === 'rotate' && this.moved) this.rig.rotate(-dx * CAMERA.dragRotateSpeed);
@@ -163,7 +181,14 @@ export class Input {
     const p = this.pointers.get(e.pointerId);
     if (!p) return;
     this.pointers.delete(e.pointerId);
+    clearTimeout(this.holdTimer);
     const quick = performance.now() - p.t < 450;
+    if (this.dragging === 'spin') {
+      this.h.onHoldRotateEnd?.();
+      this.dragging = 'none';
+      this.gesture = null;
+      return;
+    }
     if (this.pointers.size === 0) {
       if (this.dragging === 'tool') this.h.onToolDragEnd();
       if (e.type!=='pointercancel' && this.dragging!=='placement' && !this.moved && !this.gesture) {

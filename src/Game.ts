@@ -329,6 +329,8 @@ export class Game {
   tool: ToolId = 'select';
   placing: BuildingKey | null = null;
   private placeRot = 0;
+  /** Where a held press is turning the building being placed (its centre stays put meanwhile). */
+  private spinAt: THREE.Vector3 | null = null;
   explorer?: Explore;
   wildlifeView?: WildlifeView;
   selectedIslander = -1;
@@ -669,6 +671,10 @@ export class Game {
       onPress: (x, y) => { if (!this.photoMode) this.oceanPress(x, y); },
       wantsPlacementDrag: () => !!this.placing && !this.photoMode,
       onPlacementDrag: (x,y) => {this.touchPlacement=true;this.onHover(x,y);},
+      wantsHoldRotate: () => !!this.placing && !this.photoMode && this.placing !== 'jetty' && this.placing !== 'tradedock' && !!this.hoverPoint,
+      onHoldRotateStart: () => this.spinStart(),
+      onHoldRotate: (x, y) => this.spinTo(x, y),
+      onHoldRotateEnd: () => this.spinEnd(),
       onCancel: () => this.cancel(),
       wantsToolDrag: () => !this.photoMode && (this.tool === 'area' || this.tool === 'raise' || this.tool === 'lower' || this.tool === 'flatten' || this.tool === 'harvest' || PAINT_TOOLS.includes(this.tool)),
       onToolDragStart: (x, y) => this.toolDrag(x, y, true),
@@ -1573,6 +1579,35 @@ export class Game {
 
   get touchPlacementActive():boolean {return this.touchPlacement || (typeof matchMedia==='function' && matchMedia('(pointer: coarse)').matches);}
   confirmPlacement():void {if(this.placing && this.hoverPoint)this.onTap(0,0,this.hoverPoint.clone());}
+  /** Held still: the ghost stays where it is and turns to face the pointer. */
+  private spinStart(): void {
+    if (!this.placing || !this.hoverPoint) return;
+    this.spinAt = this.hoverPoint.clone();
+    haptic('light');
+    this.ui.setHint('Drag round to turn the building · its arrow shows the front · let go to set it');
+  }
+
+  private spinTo(x: number, y: number): void {
+    const a = this.spinAt, p = this.pickGround(x, y);
+    if (!a || !p || !this.placing) return;
+    const dx = p.x - a.x, dz = p.z - a.z;
+    if (Math.hypot(dx, dz) < 0.35) return;
+    // The front (local +z) turns toward the pointer; the footprint keeps to the nearest quarter turn.
+    const angle = Math.atan2(dx, dz);
+    const rot = ((Math.round(angle / (Math.PI / 2)) % 4) + 4) % 4;
+    if (rot !== this.placeRot) haptic('light');
+    this.placeRot = rot;
+    this.updateGhost(a);
+    this.buildings.spinGhost(angle);
+  }
+
+  private spinEnd(): void {
+    const a = this.spinAt;
+    this.spinAt = null;
+    this.buildings.spinGhost(null);
+    if (a && this.placing) { this.hoverPoint = a; this.updateGhost(a); }
+  }
+
   rotatePlacement():void {this.placeRot=(this.placeRot+1)%4;if(this.hoverPoint)this.updateGhost(this.hoverPoint);}
   cancelPlacement():void {this.cancel();}
   private initialiseTouchPreview():void {
@@ -1641,18 +1676,20 @@ export class Game {
     const w = rot % 2 ? sd : sw, d = rot % 2 ? sw : sd;
     const originalX = Math.round(p.x + this.world.half - w / 2), originalZ = Math.round(p.z + this.world.half - d / 2);
     this.placementFeedback = { ...res, slope: placementSlope(this.world, cx, cz, w, d), snapped: cx !== originalX || cz !== originalZ };
+    if (this.spinAt) return;
     if (this.touchPlacementActive) {
-      this.ui.setHint('Drag to position · two fingers move the view · Rotate turns 90°');
+      this.ui.setHint('Drag to position · hold still, then drag round to turn it · two fingers move the view');
       return;
     }
     if (!res.ok && res.reason) this.ui.setHint(`<b>${res.reason}</b> · R rotates · Esc cancels`);
     else if (this.moving) this.ui.setHint(`Tap to move the <b>${this.moving.label}</b> here · <b>R</b> rotates · right-click or Esc cancels`);
     else if (this.placing === 'campfire') this.ui.setHint('Tap to light the <b>campfire</b> here: your village will grow around it');
-    else this.ui.setHint(`Tap to place a <b>${BUILDINGS[this.placing].name}</b> · keep tapping to place more · <b>R</b> rotates · right-click or Esc to finish`);
+    else this.ui.setHint(`Tap to place a <b>${BUILDINGS[this.placing].name}</b> · keep tapping to place more · hold and drag or <b>R</b> to turn it · right-click or Esc to finish`);
   }
 
   private onHover(x: number, y: number): void {
     if (this.wildlifeView?.active) { this.cursorActive = false; return; }
+    if (this.spinAt) return;
     const p = this.pickGround(x, y);
     this.hoverPoint = p;
     this.cursorActive = !!p;
@@ -1832,6 +1869,22 @@ export class Game {
     const gp = this.pickGround(x, y), grave = gp && this.passings.graves.near(gp.x, gp.z, 0.45);
     if (grave) {
       this.ui.toast(`Here lies ${grave.name}, laid to rest on day ${grave.day}.`);
+      return;
+    }
+    // A rope bridge: offer to take it down.
+    const bi = gp ? this.world.cellIndexAt(gp.x, gp.z) : -1;
+    if (bi >= 0 && this.world.bridge[bi]) {
+      const cells = this.bridgeCells(bi), back = Math.floor((cells.length * PATHS.bridgeWood) / 2);
+      this.ui?.dialog.push({
+        icon: 'ask', kicker: 'Rope bridge', always: true,
+        title: `Rope bridge · ${cells.length} section${cells.length === 1 ? '' : 's'}`,
+        body: `Take the whole bridge down? Half its wood comes back (${back} wood).`,
+        actions: [
+          { label: 'Demolish', primary: true, run: () => this.demolishBridge(bi) },
+          { label: 'Keep it' },
+        ],
+      });
+      this.audio?.sfx('select', gp!.x, gp!.z);
       return;
     }
     // The voyage ship (or a green orb over goods or bargains waiting): its Trade Dock's card.
@@ -2104,6 +2157,37 @@ export class Game {
     }
     if (short) this.ui.setHint('<b>Not enough wood</b> to dig further');
     if (n) this.audio?.sfx('sculpt', p.x, p.z);
+  }
+
+  /** Every deck of the rope bridge that cell `i` is part of. */
+  private bridgeCells(i: number): number[] {
+    const w = this.world, seen = new Set([i]), todo = [i];
+    while (todo.length) {
+      const c = todo.pop()!, x = c % w.N, z = Math.floor(c / w.N);
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        if (!w.inBounds(x + dx, z + dz)) continue;
+        const n = w.idx(x + dx, z + dz);
+        if (w.bridge[n] && !seen.has(n)) { seen.add(n); todo.push(n); }
+      }
+    }
+    return [...seen];
+  }
+
+  /** Take a rope bridge down, with half its wood back. */
+  demolishBridge(i: number): number {
+    const w = this.world;
+    if (!w.bridge[i]) return 0;
+    const cells = this.bridgeCells(i);
+    for (const c of cells) w.bridge[c] = 0;
+    this.eco.add('wood', Math.floor((cells.length * PATHS.bridgeWood) / 2));
+    this.bridgeDirty = true;
+    this.pathDirty = true;
+    w.navigationVersion++;
+    const c = cells[0];
+    this.audio?.sfx('treefall', w.centerX(c % w.N), w.centerZ(Math.floor(c / w.N)));
+    this.ui?.toast('The rope bridge has been taken down.');
+    this.save();
+    return cells.length;
   }
 
   /** Lay rope bridge decks over shallow water under the brush, growing out from the shore. */

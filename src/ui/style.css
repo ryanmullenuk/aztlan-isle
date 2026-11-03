@@ -994,7 +994,7 @@ body.watching-wildlife #hud * { pointer-events: none !important; }
   #loading { padding: 0; }
   .splash-frame { position: absolute; inset: 0; width: auto; aspect-ratio: auto; isolation: isolate; }
   .splash-picture { position: absolute; inset: 0; display: block; }
-  .splash-art { object-fit: cover; object-position: 50% 50%; }
+  .splash-art { object-fit: cover; object-position: 30% 50%; }
   .splash-ui { left: 38%; right: 38%; top: auto; bottom: max(4%, var(--safe-b)); height: auto; gap: 12px; }
   .splash-ui .play { font-size: clamp(18px, 1.8vw, 26px); min-height: 48px; padding: 12px 44px; }
   .splash-ui .play.small { font-size: 14px; min-height: 44px; padding: 10px 20px; }
@@ -1009,7 +1009,7 @@ body.watching-wildlife #hud * { pointer-events: none !important; }
 @media (min-width: 1024px) and (min-aspect-ratio: 21/9) {
   .splash-frame::before {
     content: ''; position: absolute; inset: -24px; z-index: -1;
-    background: url('/splash-desktop.webp?v=1') center / cover no-repeat;
+    background: url('/splash-desktop.webp?v=2') center / cover no-repeat;
     filter: blur(12px) brightness(0.8);
   }
   .splash-art { object-fit: contain; }

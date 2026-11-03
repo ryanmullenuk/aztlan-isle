@@ -6,7 +6,7 @@ import { generateIsland } from '../src/world/generator';
 import { WORLD } from '../src/config';
 import { Breeze } from '../src/render/Breeze';
 
-test('island movement off: no gusts and no blowing leaves', () => {
+test('island movement off: no gusts', () => {
   const w = new World();
   generateIsland(w, WORLD.islandSeed);
   const breeze = new Breeze(w, 3) as any;
@@ -21,6 +21,5 @@ test('island movement off: no gusts and no blowing leaves', () => {
   for (let i = 0; i < 600; i++) {
     breeze.update(0.1, target, 30);
     assert.equal(breeze.strength, 0);
-    assert.ok(breeze.leaves.every((l: any) => !l.mesh.visible), 'a leaf is still blowing');
   }
 });

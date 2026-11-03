@@ -423,6 +423,16 @@ export class BuildingSystem {
   private ghostOutlineGeo: THREE.BufferGeometry | null = null;
   private ghostOutlineMat = new THREE.LineBasicMaterial({ color: 0x9df08a, depthTest: false, transparent: true, opacity: 0.95 });
   private ringGeo = new THREE.RingGeometry(0.5, 0.56, 4, 1).rotateX(-Math.PI / 2);
+  /** The ghost's front arrow: a flat chevron pointing out along +z, drawn over the ground. */
+  private ghostArrowGeo = (() => {
+    const s = new THREE.Shape();
+    s.moveTo(-0.11, 0); s.lineTo(0.11, 0); s.lineTo(0.11, 0.22); s.lineTo(0.26, 0.22);
+    s.lineTo(0, 0.5); s.lineTo(-0.26, 0.22); s.lineTo(-0.11, 0.22); s.closePath();
+    return new THREE.ShapeGeometry(s).rotateX(Math.PI / 2);
+  })();
+  private ghostArrowMat = new THREE.MeshBasicMaterial({ color: 0xf2c14e, depthTest: false, transparent: true, opacity: 0.95, side: THREE.DoubleSide });
+  /** While a held press turns the ghost: its angle, free of the quarter turns (null = follow rot). */
+  private ghostSpin: number | null = null;
   /** Footprint squares, the walkway ring and a hut's room to grow into a Home. */
   private spaceMesh = (() => {
     const geo = new THREE.PlaneGeometry(0.86, 0.86).rotateX(-Math.PI / 2);
@@ -1494,6 +1504,12 @@ export class BuildingSystem {
 
   // ------------- Ghost preview -------------
 
+  /** Turn the ghost freely while the player drags it round (null: back to its quarter turn). */
+  spinGhost(angle: number | null): void {
+    this.ghostSpin = angle;
+    if (this.ghost) this.ghost.rotation.y = angle ?? (this.ghostRot * Math.PI) / 2;
+  }
+
   showGhost(key: BuildingKey | null, cx = 0, cz = 0, rot = 0, moving?: Building): { ok: boolean; reason: string } {
     if (!key) {
       if (this.ghost) this.scene.remove(this.ghost);
@@ -1521,6 +1537,13 @@ export class BuildingSystem {
       const outline = new THREE.LineLoop(this.ghostOutlineGeo, this.ghostOutlineMat);
       outline.renderOrder = 22;
       this.ghost.add(outline);
+      // An arrow on the ground off the front edge: which way the building will face.
+      if (key !== 'jetty' && key !== 'tradedock') {
+        const arrow = new THREE.Mesh(this.ghostArrowGeo, this.ghostArrowMat);
+        arrow.position.set(0, 0.1, sd / 2 + 0.25);
+        arrow.renderOrder = 23;
+        this.ghost.add(arrow);
+      }
       this.scene.add(this.ghost);
       this.ghostKey = key;
       this.ghostRot = rot;
@@ -1532,9 +1555,10 @@ export class BuildingSystem {
     const layer = this.world.layerAt(cx, cz);
     const y = key === 'jetty' ? this.world.layerY(Math.max(1, layer)) : this.world.layerY(Math.max(1, layer));
     this.ghost!.position.set(cx + w / 2 - this.world.half, y + 0.02, cz + d / 2 - this.world.half);
-    this.ghost!.rotation.y = (rot * Math.PI) / 2;
+    this.ghost!.rotation.y = this.ghostSpin ?? (rot * Math.PI) / 2;
     this.ghostMat.color.setHex(res.ok ? 0x9df08a : 0xff7a5a);
     this.ghostOutlineMat.color.copy(this.ghostMat.color);
+    this.ghostArrowMat.color.setHex(res.ok ? 0xf2c14e : 0xff7a5a);
     this.showSpace(key, cx, cz, w, d, moving);
     return res;
   }

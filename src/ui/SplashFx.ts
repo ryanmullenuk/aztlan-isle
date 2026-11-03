@@ -205,8 +205,8 @@ function artRect(img: HTMLImageElement): { x: number; y: number; w: number; h: n
 
 /** Title lettering boxes in each artwork, as fractions of the image. */
 const TITLE = {
-  portrait: { x0: 0.09, x1: 0.89, y0: 0.165, y1: 0.29, mask: './ui/title-mask.png' },
-  desktop: { x0: 0.35, x1: 0.645, y0: 0.15, y1: 0.325, mask: './ui/title-mask-desktop.png' },
+  portrait: { x0: 0.11, x1: 0.89, y0: 0.157, y1: 0.26, mask: './ui/title-mask.png?v=2' },
+  desktop: { x0: 0.33, x1: 0.673, y0: 0.13, y1: 0.305, mask: './ui/title-mask-desktop.png?v=2' },
 };
 
 class TitleShimmer {

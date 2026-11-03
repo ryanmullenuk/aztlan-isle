@@ -22,12 +22,12 @@
       /* Inline so the studio splash covers the first paint, before the game bundle loads. */
       html.brand-open, html.brand-open body { margin: 0; background: #000; }
       #studio-splash {
+        /* The whole screen from the first paint: not the app height the game measures later. */
         position: fixed; inset: 0; z-index: 10000; background: #000;
         display: grid; place-items: center; opacity: 1;
         transition: opacity 900ms ease; touch-action: none;
       }
-      #studio-splash { height: var(--app-h, 100dvh); }
-      .studio-logo { position: relative; overflow: hidden; width: min(72vw, 48dvh, 460px); aspect-ratio: 800 / 780; }
+      .studio-logo { position: relative; overflow: hidden; width: min(72vw, 48vh, 460px); width: min(72vw, 48dvh, 460px); aspect-ratio: 800 / 780; }
       /* Frame only the supplied logo; discard the screenshot's empty margins and ghost UI. */
       #studio-splash img { position: absolute; display: block; width: 153.25%; max-width: none; height: auto; left: -27.5%; top: -117.9487%; }
       #studio-splash.leaving { opacity: 0; }
@@ -85,8 +85,8 @@
     <div id="loading">
       <div class="splash-frame">
         <picture class="splash-picture">
-          <source media="(min-width: 1024px) and (min-aspect-ratio: 4/3)" srcset="./splash-desktop.webp?v=1" type="image/webp" />
-          <img class="splash-art" src="./splash.webp?v=5" alt="Aztlan Isle" />
+          <source media="(min-width: 1024px) and (min-aspect-ratio: 4/3)" srcset="./splash-desktop.webp?v=2" type="image/webp" />
+          <img class="splash-art" src="./splash.webp?v=6" alt="Aztlan Isle" />
         </picture>
         <div class="splash-shimmer" aria-hidden="true"><i></i></div>
         <canvas class="splash-pollen" aria-hidden="true"></canvas>
