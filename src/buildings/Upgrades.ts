@@ -56,7 +56,7 @@ export const FX = {
   jetty: { boats: 1, catch: 1.25 },
   fishhut: { catch: 1.25 },
   woodstore: { fire: 0.5 },
-  grainstore: { spoil: 0.5 },
+  grainstore: { fire: 0.5 },
   herbalgarden: { dry: 1, double: 1 / 3 },
   herbalist: { seconds: 120, illness: 1.25, spread: 0.5 },
   firemaker: { perJar: 4, salvo: 1.5, mood: 1.5 },
@@ -69,7 +69,7 @@ export const FX = {
   kennel: { dogs: [3, 4, 4, 5] },
   greathall: { seats: [100, 150, 150, 150], mood: 0.03 },
   palace: { mood: 0.04, pearlsPerDay: 1 },
-  warroom: { warriors: 2, tough: 1.5, sight: 1.4 },
+  warroom: { train: 2, tough: 1.5, sight: 1.4 },
   watchtower: { range: [13, 16, 16, 16], reload: [2.4, 2.4, 1.8, 1.8], accuracy: [0.8, 0.8, 0.8, 0.9] },
   torch: { light: 1.6 },
 };
@@ -187,7 +187,7 @@ export const UPGRADES: Partial<Record<BuildingKey, UpgradeStep[]>> = {
   ]),
   kennel: priced('kennel', [
     { name: 'Bigger run', text: 'Room for 4 dogs' },
-    { name: 'Training yard', text: 'Dogs chase off jaguars that come near' },
+    { name: 'Training yard', text: 'Its dogs always drive off jaguars that come near' },
     { name: 'Second dog house', text: 'Room for 5 dogs' },
   ]),
   greathall: priced('greathall', [
@@ -201,9 +201,9 @@ export const UPGRADES: Partial<Record<BuildingKey, UpgradeStep[]>> = {
     { name: 'Second throne', text: 'Two decrees in force at once' },
   ]),
   warroom: priced('warroom', [
-    { name: 'Barracks', text: 'Two more warriors can be trained' },
-    { name: 'Training ground', text: 'Warriors are half as tough again' },
-    { name: 'Eagle perch', text: 'Warriors spot predators from further away' },
+    { name: 'Barracks', text: 'Warriors train in half the time' },
+    { name: 'Training ground', text: 'Warriors are half as tough again: jaguars back down sooner and seldom kill one' },
+    { name: 'Eagle perch', text: 'Warriors spot jaguars from further away' },
   ]),
   watchtower: priced('watchtower', [
     { name: 'Taller tower', text: 'Range 13 → 16 paces' },

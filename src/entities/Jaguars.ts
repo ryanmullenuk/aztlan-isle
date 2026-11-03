@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { View } from '../render/View';
 import { DEFENCE, JAGUARS } from '../config';
+import { FX } from '../buildings/Upgrades';
 import { RNG } from '../world/rng';
 import { World } from '../world/World';
 import type { Dog, Dogs } from './Dogs';
@@ -73,6 +74,8 @@ export interface JaguarHooks {
   sfx: (name: string, x: number, z: number) => void;
   /** A new jaguar has swum over from beyond the map and come ashore (optional). */
   arrived?: (j: Jaguar) => void;
+  /** Upgrades of the best working Warrior Lodge (optional). */
+  lodge?: () => number;
 }
 
 const STATE_TEXT: Record<JState, string> = {
@@ -337,8 +340,10 @@ export class Jaguars {
         const d = Math.hypot(t.x - j.x, t.z - j.z);
         // Villagers only see it when it's close.
         if (!j.noticed) {
+          // Warriors look out from an Eagle perch.
+          const sight = (h.lodge?.() ?? 0) >= 3 ? FX.warroom.sight : 1;
           for (const v of h.villagers()) {
-            if (!v.hidden && Math.hypot(v.x - j.x, v.z - j.z) < JAGUARS.villagerNotice) {
+            if (!v.hidden && Math.hypot(v.x - j.x, v.z - j.z) < JAGUARS.villagerNotice * (v.warrior ? sight : 1)) {
               j.noticed = true;
               h.alarm(j.x, j.z, 11);
               h.danger(j, 'villagers');
@@ -465,8 +470,9 @@ export class Jaguars {
     const dogs = this.dogs ? this.dogs.engaged(j, 3.4) : [];
     const warriors = this.hooks!.villagers().filter((v) => v.warrior && !v.hidden && Math.hypot(v.x - j.x, v.z - j.z) < 6).length;
     if (!dogs.length && !warriors) return false;
-    const nEff = dogs.length + warriors * JAGUARS.warriorAsDogs;
-    const pRetreat = Math.min(JAGUARS.retreatMax, JAGUARS.retreatBase + JAGUARS.retreatPerDog * nEff);
+    const nEff = dogs.length + warriors * JAGUARS.warriorAsDogs * this.tough();
+    // Dogs from a Training yard always see it off.
+    const pRetreat = dogs.some((d) => this.dogs!.trained(d)) ? 1 : Math.min(JAGUARS.retreatMax, JAGUARS.retreatBase + JAGUARS.retreatPerDog * nEff);
     j.resolved = true;
     j.recheck = 7;
     if (this.rng.next() < pRetreat) {
@@ -490,6 +496,11 @@ export class Jaguars {
     return false;
   }
 
+  /** How tough warriors are (a Warrior Lodge's Training ground). */
+  private tough(): number {
+    return (this.hooks?.lodge?.() ?? 0) >= 2 ? FX.warroom.tough : 1;
+  }
+
   /** Leaping on its prey: a dog may throw itself in the way; otherwise the villager is caught. */
   private pounce(j: Jaguar, t: Islander): void {
     const h = this.hooks!;
@@ -509,7 +520,7 @@ export class Jaguars {
       }
     }
     const guarded = (this.dogs?.nearCount(t.x, t.z, 6) ?? 0) > 0 || h.villagers().some((v) => v.warrior && Math.hypot(v.x - t.x, v.z - t.z) < 6);
-    const killed = !h.godMode() && this.rng.next() < JAGUARS.killChance * (guarded ? 0.5 : 1);
+    const killed = !h.godMode() && this.rng.next() < (JAGUARS.killChance * (guarded ? 0.5 : 1)) / (t.warrior ? this.tough() : 1);
     h.maul(t, killed);
     this.retreat(j, false);
   }

@@ -3,6 +3,7 @@ import { buildingNotice, QUIET_BUILDINGS } from './ui/buildingNotice';
 import { BuildingThumbs } from './render/BuildingThumb';
 import { fadeOceanShadows } from './render/OceanShadows';
 import { StormFire } from './buildings/StormFire';
+import { lodgeLevel } from './buildings/SafetyUpgrades';
 import { animalName } from './entities/Animals';
 import { buildingSafe } from './buildings/BuildingCondition';
 import { snapPlacement, placementSlope } from './buildings/Placement';
@@ -856,6 +857,7 @@ export class Game {
       inVillage: (x, z) => this.inVillage(x, z),
       godMode: () => this.eco.godMode,
       arrived: (j) => this.ui?.toast('A jaguar has swum over from the mainland and come ashore to take the empty den.', 'warn', () => ({ x: j.x, z: j.z })),
+      lodge: () => lodgeLevel(this.buildings.list),
     };
     const W = this.wildlife;
     this.waterBirds.hooks = {

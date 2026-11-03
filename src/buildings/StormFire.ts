@@ -8,6 +8,7 @@ import type { World } from '../world/World';
 import type { Vegetation } from '../vegetation/Vegetation';
 import { Building, BuildingSystem } from './Buildings';
 import { buildingOperational } from './BuildingCondition';
+import { strikeShare, wellReach } from './SafetyUpgrades';
 import { flameGeometry } from './models';
 import { fireMaterial } from '../render/materials';
 import { Particles } from '../render/Particles';
@@ -91,7 +92,9 @@ export class StormFire {
     const candidates = this.buildings.list.filter(b => b.complete && !b.ruined && b.fire <= 0 && b.key !== 'campfire');
     if (this.unlocked && candidates.length && this.rnd() < F.buildingChance) {
       const b = candidates[Math.min(candidates.length - 1, Math.floor(this.rnd() * candidates.length))];
-      this.onStrike(b.x, this.roofY(b), b.z); this.ignite(b); return;
+      // A roofed or raised store is set alight less often: the bolt comes down elsewhere.
+      const share = strikeShare(b);
+      if (share >= 1 || this.rnd() < share) { this.onStrike(b.x, this.roofY(b), b.z); this.ignite(b); return; }
     }
     // Random land point; bounded attempts avoid scanning vegetation or terrain each frame.
     for (let n = 0; n < 12; n++) {
@@ -148,13 +151,15 @@ export class StormFire {
       .sort((a, b) => Math.hypot(a.x - isl.x, a.z - isl.z) - Math.hypot(b.x - isl.x, b.z - isl.z));
     if (!fires.length) { this.dispatchIn = .25; return null; }
     for (const fire of fires) {
-      const wells = this.wells.filter(well => buildingOperational(well) && !this.failed.has(`${isl.id}:${well.id}:${fire.id}`))
+      const wells = this.wells.filter(well => buildingOperational(well) && this.reaches(well, fire) && !this.failed.has(`${isl.id}:${well.id}:${fire.id}`))
         .sort((a, b) => Math.hypot(a.door.x - isl.x, a.door.z - isl.z) + Math.hypot(a.door.x - fire.door.x, a.door.z - fire.door.z) -
           Math.hypot(b.door.x - isl.x, b.door.z - isl.z) - Math.hypot(b.door.x - fire.door.x, b.door.z - fire.door.z));
       if (wells[0]) { this.dispatchIn = 1; return { fire, well: wells[0] }; }
     }
     return null;
   }
+  /** Firefighters carry water from this well to that fire. */
+  reaches(well: Building, b: Building): boolean { return Math.hypot(well.x - b.x, well.z - b.z) <= wellReach(well); }
   routeFailed(isl: Islander, well: number, fire: number): void {
     this.failed.set(`${isl.id}:${well}:${fire}`, { until: this.clock + F.retrySeconds, version: this.world.navigationVersion });
   }
@@ -168,7 +173,8 @@ export class StormFire {
     if (b.fire > 0) {
       const count = this.colony.list.filter(p => p.task?.kind === 'firefight' && p.task.target === b.id).length;
       return count ? `${count} islander${count === 1 ? '' : 's'} fetching water and fighting the fire.` :
-        this.buildings.of('well').length ? 'Waiting for an available worker and a reachable water route.' : 'No working well: build or repair a well to supply water.';
+        !this.buildings.of('well').length ? 'No working well: build or repair a well to supply water.' :
+        this.buildings.of('well').some(w => this.reaches(w, b)) ? 'Waiting for an available worker and a reachable water route.' : 'No well near enough: build a well close by to supply water.';
     }
     return b.repairing ? `Repairing ${Math.round(b.repairProgress * 100)}%.` : 'Damaged: activity is suspended until repaired.';
   }
