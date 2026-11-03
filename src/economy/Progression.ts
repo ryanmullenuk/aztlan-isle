@@ -11,7 +11,7 @@ export const TOP_STAGE=STAGES.length;
  * The stage each building opens at. Food first, then health and learning, then the town's halls,
  * and only then worship: the temple (the big step up in Belief) comes once the village is established.
  */
-export const BUILD_STAGE:Partial<Record<BuildingKey,number>>={boatworkshop:1,jetty:1,woodstore:2,grainstore:2,fishhut:2,pigpen:2,chickenpen:2,firepit:2,stonemason:3,home:3,maizefarm:3,chinampa:3,smokehouse:3,butcher:3,bonfire:3,featherbanner:3,well:4,herbalgarden:4,herbalist:4,healer:4,observatory:3,market:5,greathall:5,kennel:5,watchtower:5,warroom:6,temple:6,tradedock:7,palace:7,greattemple:8,olmechead:8,sunstone:8,skytower:8};
+export const BUILD_STAGE:Partial<Record<BuildingKey,number>>={ceremony:4,graveyard:4,boatworkshop:1,jetty:1,woodstore:2,grainstore:2,fishhut:2,pigpen:2,chickenpen:2,firepit:2,stonemason:3,home:3,maizefarm:3,chinampa:3,smokehouse:3,butcher:3,bonfire:3,featherbanner:3,well:4,herbalgarden:4,herbalist:4,healer:4,observatory:3,market:5,greathall:5,kennel:5,watchtower:5,warroom:6,temple:6,tradedock:7,palace:7,greattemple:8,olmechead:8,sunstone:8,skytower:8};
 /** Game days a settlement must spend at a stage before it can move on to the next (indexed by the next stage). */
 export const SETTLE_DAYS=[0,0,0,1,1,1,2,2,3];
 /** One line of a stage's goals. */

@@ -688,7 +688,7 @@ export class BuildingSystem {
    * on the shoreline). Everything else keeps a one-square path clear all round.
    */
   private static open(key: BuildingKey): boolean {
-    return key === 'torch' || key === 'market' || isFarm(key) || key === 'jetty' || key === 'tradedock' || isDecor(key);
+    return key === 'torch' || key === 'market' || key === 'ceremony' || key === 'graveyard' || isFarm(key) || key === 'jetty' || key === 'tradedock' || isDecor(key);
   }
 
   /**
@@ -706,6 +706,23 @@ export class BuildingSystem {
     if (!W.inBounds(x, z)) return true;
     const i = W.idx(x, z);
     return !!W.occ[i] || W.layer[i] !== layer || !Number.isNaN(W.riverY[i]);
+  }
+
+  /** The sea within a few paces behind a footprint (the side away from its door), along most of that edge. */
+  seaBehind(cx: number, cz: number, w: number, d: number, rot: number): boolean {
+    const [fx, fz] = ROT_DIR[rot], W = this.world;
+    // The back edge's cells, and the way out from it.
+    const edge: [number, number][] = [];
+    if (fx) for (let z = cz; z < cz + d; z++) edge.push([fx > 0 ? cx : cx + w - 1, z]);
+    else for (let x = cx; x < cx + w; x++) edge.push([x, fz > 0 ? cz : cz + d - 1]);
+    let wet = 0;
+    for (const [x, z] of edge) {
+      for (let k = 1; k <= 4; k++) {
+        const nx = x - fx * k, nz = z - fz * k;
+        if (W.inBounds(nx, nz) && W.layer[W.idx(nx, nz)] <= 0) { wet++; break; }
+      }
+    }
+    return wet >= Math.ceil(edge.length * 0.6);
   }
 
   nearSea(cx:number,cz:number,w:number,d:number):boolean {
@@ -744,6 +761,7 @@ export class BuildingSystem {
     }
     if ((key === 'jetty' || key === 'tradedock') && this.jettyWater(cx, cz, rot) < JETTY.length - 2) return { ok: false, reason: `A ${key === 'jetty' ? 'jetty' : 'trade dock'} must face open water at the shore` };
     if (key === 'boatworkshop' && !this.nearSea(cx,cz,w,d)) return {ok:false,reason:'Build the Boat Workshop on dry land within 6 paces of the sea'};
+    if (key === 'ceremony' && !this.seaBehind(cx, cz, w, d, rot)) return { ok: false, reason: 'Build the platform on the beach with its back to the sea (turn it so the arch faces the water)' };
     if (key === 'chinampa' && this.waterAround(cx, cz, w, d) < 4) return { ok: false, reason: 'A chinampa must be built right beside water (river, pool or shore)' };
     // Room to grow and walk: a hut keeps the flat 3×3 it will become a Home on, and buildings keep
     // a clear square all round so islanders and animals can always get past (and upgrades fit).
@@ -947,7 +965,7 @@ export class BuildingSystem {
     if (paved) this.terrain.updateWear();
     const wood = this.veg.clearArea(cx, cz, b.w, b.d);
     this.eco.add('wood', wood);
-    if (key === 'torch' || key === 'market' || isDecor(key)) this.world.passableBuildings.add(b.id);
+    if (key === 'torch' || key === 'market' || key === 'ceremony' || key === 'graveyard' || isDecor(key)) this.world.passableBuildings.add(b.id);
     if (isFarm(key)) {
       this.world.passableBuildings.add(b.id);
       for (let z = cz; z < cz + b.d; z++) for (let x = cx; x < cx + b.w; x++) this.world.soil[this.world.idx(x, z)] = 1;
@@ -1110,7 +1128,7 @@ export class BuildingSystem {
       this.demolitions.push(demolition);
       this.group.add(demolition.group);
     } else clear();
-    if (b.key === 'torch' || b.key === 'market' || isDecor(b.key)) this.world.passableBuildings.delete(b.id);
+    if (b.key === 'torch' || b.key === 'market' || b.key === 'ceremony' || b.key === 'graveyard' || isDecor(b.key)) this.world.passableBuildings.delete(b.id);
     this.world.doorways.delete(b.id);
     if (isFarm(b.key)) {
       this.world.passableBuildings.delete(b.id);
@@ -1206,6 +1224,8 @@ export class BuildingSystem {
       case 'tradedock': return models.tradeDockModel(b.y, JETTY.length);
       case 'watchtower': return models.watchtowerModel();
       case 'fishhut': return models.fishHutModel(b.y);
+      case 'ceremony': return models.ceremonyModel(sw, sd);
+      case 'graveyard': return models.graveyardModel(sw, sd);
       default: return models.decorModel(b.key);
     }
   }

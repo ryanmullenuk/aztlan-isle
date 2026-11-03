@@ -4,6 +4,8 @@ import { Gathering } from '../ai/Gathering';
 import type { Islander } from '../entities/Islander';
 import type { Game } from '../Game';
 import { haptic } from '../ui/Haptics';
+import { CEREMONY } from '../buildings/models';
+import { isElder } from '../entities/CharacterVariants';
 
 export const WEDDING = {
   /** First day a couple may wish to marry; then at most one marriage (or wish) every five game days. */
@@ -56,8 +58,9 @@ type Phase = 'gather' | 'vows' | 'dance';
  * Weddings. Only married couples have children. Now and then (at most once every five days) an
  * unmarried man and woman wish to marry: the wish waits in the Requests list for a day, and the
  * player grants it (or lets it lapse, which grieves the couple and costs Belief).
- * At the temple (or, before there is one, the tribal fire) the pair kneel at the steps while the
- * village gathers behind them; after the vows everyone dances; then the newlyweds set up home
+ * On the Ceremonial Platform, if there is one, a priest marries the pair under the arch by the sea
+ * while the village fills the benches on the deck; otherwise at the temple (or, before there is
+ * one, the tribal fire) the pair kneel at the steps while the village gathers behind them; after the vows everyone dances; then the newlyweds set up home
  * together (and, being married, are more likely to have a child). The village is cheered, the gods
  * pleased, and if there are fireworks the firemaker offers a display.
  */
@@ -65,7 +68,7 @@ export class WeddingSystem {
   private next: number = WEDDING.firstDay;
   /** A couple's open wish to marry: their ids, and when (game seconds) it lapses. */
   wish: { a: number; b: number; until: number } | null = null;
-  private active: { a: number; b: number; phase: Phase; t: number; couple: Gathering; guests: Gathering } | null = null;
+  private active: { a: number; b: number; phase: Phase; t: number; couple: Gathering; guests: Gathering; priest?: Gathering; deck?: Building } | null = null;
 
   constructor(private game: Game) {}
 
@@ -101,9 +104,11 @@ export class WeddingSystem {
     this.begin(w.a, w.b);
   }
 
-  /** Where weddings are held: the nearest working temple to the fire, or the fire itself. */
+  /** Where weddings are held: the Ceremonial Platform, else the nearest working temple to the fire, or the fire itself. */
   private venue(): Building | null {
     const g = this.game, fire = g.buildings.list.find((b) => b.key === 'campfire') ?? null;
+    const deck = g.buildings.list.find((b) => b.key === 'ceremony' && buildingOperational(b));
+    if (deck) return deck;
     const temples = g.buildings.list.filter((b) => (b.key === 'temple' || b.key === 'greattemple') && buildingOperational(b));
     if (!temples.length || !fire) return temples[0] ?? fire;
     return temples.sort((a, b) => (a.x - fire.x) ** 2 + (a.z - fire.z) ** 2 - ((b.x - fire.x) ** 2 + (b.z - fire.z) ** 2))[0];
@@ -153,6 +158,7 @@ export class WeddingSystem {
   private begin(aId: number, bId: number): void {
     const g = this.game, c = g.colony, a = c.byId(aId), b = c.byId(bId), at = this.venue();
     if (!a || !b || !at || this.active || a.spouse !== undefined || b.spouse !== undefined) return;
+    if (at.key === 'ceremony') return this.beginOnDeck(a, b, at);
     // The pair stand side by side before the steps, facing in; the guests in an arc behind them.
     const ux = at.door.x - at.x, uz = at.door.z - at.z, ul = Math.hypot(ux, uz) || 1, fx = ux / ul, fz = uz / ul;
     const px = at.door.x + fx * 0.7, pz = at.door.z + fz * 0.7;
@@ -172,11 +178,50 @@ export class WeddingSystem {
     g.ui?.toast(`The village gathers for the wedding of ${a.name} and ${b.name}.`);
   }
 
+  /**
+   * On the Ceremonial Platform: the couple before the arch facing the sea, a priest under it facing
+   * them, the guests along the benches and standing at the back, everyone up on the deck.
+   */
+  private beginOnDeck(a: Islander, b: Islander, at: Building): void {
+    const g = this.game, c = g.colony, P = (p: [number, number]) => at.local(p[0], p[1]);
+    const [ax, az] = P([0, -3]), [cx, cz] = P([0, -1.45]);
+    const couple = new Gathering(c, 'pray', ax, az);
+    const [p0x, p0z] = P(CEREMONY.couple[0]), [p1x, p1z] = P(CEREMONY.couple[1]);
+    couple.join(a, p0x, p0z);
+    couple.join(b, p1x, p1z);
+    // The priest: one who serves at the temple or the observatory, else an elder, else any free adult.
+    const priest = new Gathering(c, 'pray', cx, cz);
+    const free = (i: Islander) => i.id !== a.id && i.id !== b.id && !i.child && !i.npc && !i.hidden && !i.sleeping && i.condition === 'well' && !i.warrior;
+    const p = c.list.find((i) => free(i) && i.role === 'priest') ?? c.list.find((i) => free(i) && isElder(i)) ?? c.list.find(free);
+    if (p) { const [px, pz] = P(CEREMONY.priest); priest.join(p, px, pz); }
+    const guests = new Gathering(c, 'idle', cx, cz);
+    guests.call(WEDDING.guests + 4, CEREMONY.guests.map((q) => { const [x, z] = P(q); return { x, z }; }), (i) => i.id === a.id || i.id === b.id || i.id === p?.id || !!i.warrior);
+    this.active = { a: a.id, b: b.id, phase: 'gather', t: 0, couple, guests, priest, deck: at };
+    g.focusAt({ x: cx, z: cz });
+    g.ui?.toast(`The village gathers on the Ceremonial Platform for the wedding of ${a.name} and ${b.name}.`);
+  }
+
+  /** Those taking part stand on the deck (not sunk into it) while they are on it. */
+  private onDeck(): void {
+    const w = this.active, at = w?.deck;
+    if (!w || !at) return;
+    const c = this.game.colony, hx = at.def.size[0] / 2, hz = at.def.size[1] / 2;
+    for (const id of [...w.couple.ids, ...w.guests.ids, ...(w.priest?.ids ?? [])]) {
+      const i = c.byId(id);
+      if (!i || i.hidden) continue;
+      const [lx, lz] = at.toLocal(i.x, i.z);
+      const on = Math.abs(lx) < hx - 0.1 && Math.abs(lz) < hz - 0.05;
+      i.floorY = on ? at.y + CEREMONY.deck : null;
+    }
+  }
+
   private run(dt: number): void {
     const g = this.game, w = this.active!, c = g.colony;
     w.t += dt;
     w.couple.update();
     w.guests.update();
+    w.priest?.update();
+    this.onDeck();
     const a = c.byId(w.a), b = c.byId(w.b);
     if (!a || !b) return this.end(false);
     if (w.phase === 'gather') {
@@ -199,8 +244,11 @@ export class WeddingSystem {
 
   private end(wed: boolean): void {
     const g = this.game, w = this.active!, c = g.colony, a = c.byId(w.a), b = c.byId(w.b);
+    // Off the deck: everyone back to the ground.
+    if (w.deck) for (const id of [...w.couple.ids, ...w.guests.ids, ...(w.priest?.ids ?? [])]) { const i = c.byId(id); if (i && i.floorY !== null) i.floorY = null; }
     w.couple.release();
     w.guests.release();
+    w.priest?.release();
     this.active = null;
     if (!wed || !a || !b) {
       g.ui?.toast('The wedding could not go ahead. Perhaps another day.');

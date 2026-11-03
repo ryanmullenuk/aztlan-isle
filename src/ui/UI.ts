@@ -83,7 +83,7 @@ const BUILD_ICON: Record<BuildingKey, string> = {
   woodstore: 'b_woodstore', grainstore: 'b_grainstore', warroom: 'b_warroom', jetty: 'b_jetty',
   maizefarm: 'b_maize', chinampa: 'b_chinampa', smokehouse: 'b_smoke',
   tradedock: 'b_trade', torch: 'b_torch', bonfire: 'b_bonfire', firepit: 'b_firepit', well: 'b_well', kennel: 'b_kennel', greathall: 'b_greathall', palace: 'b_palace', observatory: 'b_observatory',
-  pigpen: 'b_pigpen', chickenpen: 'b_chickenpen', healer: 'b_healer', watchtower: 'b_tower', fishhut: 'b_fishhut',
+  ceremony: 'b_ceremony', graveyard: 'b_graveyard', pigpen: 'b_pigpen', chickenpen: 'b_chickenpen', healer: 'b_healer', watchtower: 'b_tower', fishhut: 'b_fishhut',
   bannersun: 'b_bannersun', bannereagle: 'b_bannereagle', bannerteal: 'b_bannerteal', pennants: 'b_pennants', featherbanner: 'b_featherbanner', flagstring: 'b_flagstring',
 };
 
@@ -983,6 +983,8 @@ export class UI {
         <li><b>Weddings:</b> now and then a man and a woman <b>wish to marry</b> (at most one wedding every five days). The wish waits for a day in your <b>Requests</b>: grant it and the couple kneel at the temple (or the tribal fire) while the village gathers, then everyone dances, and the newlyweds make a home together (+Belief). Let a wish go ungranted and the couple are heartbroken and the gods displeased (−Belief).</li>
         <li><b>Requests:</b> islanders also wish for things like a Well or a Torch near their home. Build it in time for Belief and a happier islander.</li>
         <li>Some adults are <b>elders</b>, with grey hair and a walking staff. When a child comes of age, an elder (from their own home if one lives there) passes on their skills: the young adult is <b>skilled</b> and builds, farms, gathers and carves a quarter faster for life.</li>
+        <li><b>Ceremonial Platform:</b> a wooden deck on the beach, its arch facing the sea. Once built, weddings are held there: a priest marries the couple under the arch while the guests fill the benches.</li>
+        <li><b>Graveyard:</b> once built, when an elder passes two islanders carry them there on a litter and a headstone is raised in the next plot, in neat rows either side of the path (sixteen in all).</li>
         <li>Elders don’t live for ever. After some weeks an elder passes away peacefully in their sleep, and the village gathers to lay them to rest near the temple (or the tribal fire). A grave with a carved stone and marigolds marks the spot; tap it to see who lies there. A small village (fewer than six grown islanders) keeps its elders a while longer.</li>
       </ul>
       <h4>Belief and the gods</h4><ul>

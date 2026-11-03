@@ -9,7 +9,7 @@ import type {Building} from './Buildings';
 /** Pure scenery: adds no occupancy, soil, navigation, harvestable plants or draw calls. */
 export function withBuildingGround(model:THREE.BufferGeometry,b:Building,w:World):THREE.BufferGeometry {
   if(!w||typeof b.local!=='function')return model;
-  if(['jetty','tradedock','chinampa','torch','campfire','bonfire','firepit','fishhut'].includes(b.key)||isDecor(b.key))return model;
+  if(['jetty','tradedock','chinampa','torch','campfire','bonfire','firepit','fishhut','ceremony'].includes(b.key)||isDecor(b.key))return model;
   const [sw,sd]=b.def.size,hw=sw/2,hd=sd/2;
   const rng=new RNG(w.seed+b.cx*7919+b.cz*104729+sw*97+sd*31),phase=rng.range(0,6.28);
   const valid=(x:number,z:number)=>{

@@ -32,11 +32,27 @@ function graveGeometry(): THREE.BufferGeometry {
   return b.build();
 }
 
+/**
+ * The dead carried to the graveyard: a body wrapped in a white shroud bound with red cords, on a
+ * litter of two poles (along +z, centred, poles at hand height for two bearers).
+ */
+function bierGeometry(): THREE.BufferGeometry {
+  const b = new GeoBuilder();
+  b.add(P.box(0.34, 0.03, 0.9), { color: 0x8a6040 }, M.t(0, 0, 0));
+  for (const x of [-0.19, 0.19]) b.add(P.cyl(0.02, 0.02, 1.6, 6), { color: 0x6e4a2e }, M.t(x, 0.0, 0, Math.PI / 2, 0, 0));
+  b.add(P.sphere(0.5, 1), { color: 0xf1ebdd }, M.t(0, 0.09, 0, 0, 0, 0, 0.26, 0.15, 0.82));
+  b.add(P.sphere(0.12, 1), { color: 0xf1ebdd }, M.t(0, 0.1, 0.36, 0, 0, 0, 1, 0.8, 1));
+  for (const z of [-0.2, 0.05, 0.28]) b.add(P.box(0.27, 0.025, 0.03), { color: 0xb23a2c }, M.t(0, 0.17, z));
+  return b.build();
+}
+
 /** The village's graves, drawn as one instanced mesh, each with a soft shadow. */
 export class Graves {
   readonly group = new THREE.Group();
   list: Grave[] = [];
   private mesh: THREE.InstancedMesh;
+  /** The body on its litter, lying where they passed or carried to the graveyard (hidden otherwise). */
+  readonly bier = new THREE.Mesh(bierGeometry(), stylisedMaterial());
   /** Their soft shadows, one draw for all. */
   private shadows = new SoftShadows(MAX);
 
@@ -45,7 +61,18 @@ export class Graves {
     this.mesh.count = 0;
     this.mesh.receiveShadow = true;
     this.mesh.name = 'graves';
-    this.group.add(this.mesh, this.shadows.mesh);
+    this.bier.visible = false;
+    this.bier.castShadow = true;
+    this.bier.scale.setScalar(0.8);
+    this.group.add(this.mesh, this.shadows.mesh, this.bier);
+  }
+
+  /** Show the bier at (x, y, z), its length along `yaw`; or hide it (null). */
+  showBier(at: { x: number; y: number; z: number; yaw: number } | null): void {
+    this.bier.visible = !!at;
+    if (!at) return;
+    this.bier.position.set(at.x, at.y, at.z);
+    this.bier.rotation.set(0, at.yaw, 0);
   }
 
   add(g: Grave): void {
@@ -78,6 +105,8 @@ export class Graves {
     });
     this.mesh.count = this.list.length;
     this.mesh.instanceMatrix.needsUpdate = true;
+    // Bounds round all the graves now (kept from the first draw, new ones far off would be culled).
+    this.mesh.computeBoundingSphere();
     // A soft shadow under each.
     this.shadows.begin();
     for (const g of this.list) this.shadows.add(g.x, g.y, g.z, 0.55, 0.8, g.yaw);

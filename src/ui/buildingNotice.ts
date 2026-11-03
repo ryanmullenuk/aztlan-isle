@@ -20,6 +20,8 @@ export interface FinishedBuilding {
 /** Short statements of what a building does once built, for those with no number to report. */
 const ROLE: Partial<Record<BuildingKey, string>> = {
   greathall: 'Shelters up to 100 islanders',
+  ceremony: 'Weddings are held here, by the sea',
+  graveyard: 'The village lays its elders to rest here',
   palace: 'Royal decrees can now be issued',
   observatory: 'Forecasts and research begin',
   kennel: 'Room for 3 village dogs',
