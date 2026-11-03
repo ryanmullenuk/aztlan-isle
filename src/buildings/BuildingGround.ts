@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {mergeGeometries} from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {COLORS,isDecor} from '../config';
-import {GeoBuilder,M,P} from '../render/GeoBuilder';
+import {GeoBuilder,M,P,lumpy} from '../render/GeoBuilder';
 import {RNG} from '../world/rng';
 import type {World} from '../world/World';
 import type {Building} from './Buildings';
@@ -20,11 +20,11 @@ export function withBuildingGround(model:THREE.BufferGeometry,b:Building,w:World
     }return true;
   };
   const height=(x:number,z:number)=>{const [wx,wz]=b.local(x,z);return w.groundY(wx,wz)-b.y+.018;};
-  const geometry=new GeoBuilder(),segments=40,soil=new THREE.Color(0x9d815b),grass=new THREE.Color(COLORS.grassOlive);
+  const geometry=new GeoBuilder(),segments=48,soil=new THREE.Color(0x8f7250),grass=new THREE.Color(COLORS.grassOlive);
   const ring=(k:number,outer:boolean)=>{
     const a=k/segments*Math.PI*2,ca=Math.cos(a),sa=Math.sin(a);
     // Rounded superellipse with unequal, wandering margins; no aligned rectangular perimeter.
-    const margin=outer?.28+.13*Math.sin(a*3+phase)+.08*Math.sin(a*7-phase):-.22;
+    const margin=outer?.36+.16*Math.sin(a*3+phase)+.09*Math.sin(a*7-phase)+.05*Math.sin(a*13+phase*2):-.22;
     const x=Math.sign(ca)*Math.pow(Math.abs(ca),.22)*(hw+margin),z=Math.sign(sa)*Math.pow(Math.abs(sa),.22)*(hd+margin);
     return new THREE.Vector3(x,height(x,z),z);
   };
@@ -33,6 +33,34 @@ export function withBuildingGround(model:THREE.BufferGeometry,b:Building,w:World
     if(!points.every(p=>valid(p.x,p.z)))continue;
     const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(points.flatMap(p=>[p.x,p.y,p.z]),3));g.setIndex([0,2,1,1,2,3]);g.computeVertexNormals();
     geometry.add(g,{color:p=>soil.clone().lerp(grass,Math.min(.85,Math.max(0,(Math.max(Math.abs(p.x)/hw,Math.abs(p.z)/hd)-.86)*3))).multiplyScalar(.94+.08*Math.sin(p.x*5+p.z*3))});g.dispose();
+  }
+  // Along the foot of the walls: trodden earth heaped against the base, pebbles and grass tufts, so
+  // no building stands on a ruler-straight edge. The front approach is left clear for the door.
+  const edge=(out:number):[number,number]|null=>{
+    const per=2*(sw+sd),t=rng.range(0,per);
+    let x:number,z:number;
+    if(t<sw){x=t-hw;z=hd+out;}else if(t<sw+sd){x=hw+out;z=t-sw-hd;}else if(t<2*sw+sd){x=t-sw-sd-hw;z=-hd-out;}else{x=-hw-out;z=t-2*sw-sd-hd;}
+    if(z>hd-.3&&Math.abs(x)<.75)return null;
+    return valid(x,z)?[x,z]:null;
+  };
+  const per=2*(sw+sd),earth=[0x7e6446,0x8f7250,0x9a7d58],stones=[0x8d8478,0xa59c8e,0x766c60,0xb5a890],blades=[COLORS.grassOlive,0x6f9440,0x88a64a];
+  for(let k=0;k<Math.round(per*1.1);k++){
+    const at=edge(rng.range(.03,.16));if(!at)continue;
+    const [x,z]=at,r=rng.range(.07,.12);
+    geometry.add(lumpy(P.sphere(r,1),.3,k+1,.42),{color:earth[k%3]},M.t(x,height(x,z)-.01,z,0,rng.range(0,6.28),0,rng.range(1.2,2),1,1));
+  }
+  for(let k=0;k<Math.round(per*1.4);k++){
+    const at=edge(rng.range(0,.32));if(!at)continue;
+    const [x,z]=at,n=rng.int(1,3);
+    for(let j=0;j<n;j++){
+      const r=rng.range(.03,.07),px=x+rng.range(-.08,.08),pz=z+rng.range(-.08,.08);
+      geometry.add(lumpy(P.sphere(r,0),.3,k*7+j,.55),{color:stones[(k+j)%4]},M.t(px,height(px,pz)+r*.25,pz,0,rng.range(0,6.28),0));
+    }
+  }
+  for(let k=0;k<Math.round(per*1.3);k++){
+    const at=edge(rng.range(-.02,.3));if(!at)continue;
+    const [x,z]=at,y=height(x,z),n=rng.int(3,5);
+    for(let j=0;j<n;j++)geometry.add(P.cone(.022,rng.range(.08,.2),3),{color:blades[(k+j)%3],leaf:1},M.t(x+rng.range(-.05,.05),y+.05,z+rng.range(-.05,.05),rng.range(-.25,.25),j*1.3,rng.range(-.25,.25)));
   }
   // Sparse edge clumps, leaving the front approach and adjacent paths open.
   for(let k=0;k<7;k++){

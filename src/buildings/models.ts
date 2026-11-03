@@ -4570,57 +4570,152 @@ function wonderPlaza(b: GeoBuilder, size: number): void {
   flagstones(b, -size / 2, -size / 2, n, n, cell, 0.18, (i, j) => ((i * 3 + j * 5) % 4 === 0 ? CUT.stoneDark : (i + j) % 2 ? CUT.stone : CUT.stoneLight));
 }
 
-/** Basalt, kept dark enough that the building skin reads it as carved rock, not laid stone blocks. */
-const BAS = { dark: c(0x3f4836), mid: c(0x56634a), light: c(0x6a7652), moss: c(0x5d7a46) };
+/** The Colossal Head's stone (grey enough that the building skin lays it in blocks), cream carving. */
+const HEAD = {
+  stone: c(0x948471), dark: c(0x6f6151), seam: c(0x55493d), cream: c(0xe0c9a2), creamDark: c(0xc4a982),
+  red: c(0xa8382c), gold: c(0xe7a52a), leaf: c(0x4f8a2e), leafLight: c(0x78ad3c), sand: c(0xdcb784), sandDark: c(0xc09a68),
+};
+
+/** A square spiral scroll in raised cream stone, facing +z (`dir` -1 mirrors it). */
+function stoneScroll(b: GeoBuilder, m: THREE.Matrix4, s: number, dir: number, col: THREE.Color): void {
+  const bar = (x: number, y: number, w: number, h: number) => b.add(P.box(w * s, h * s, 0.07 * s), { color: col }, m.clone().multiply(M.t(dir * x * s, y * s, 0)));
+  const t = 0.11;
+  bar(0, -0.39, 1, t); bar(0.445, -0.06, t, 0.55); bar(0.11, 0.17, 0.78, t);
+  bar(-0.22, -0.06, t, 0.35); bar(0.06, -0.18, 0.45, t); bar(0.22, -0.02, t, 0.2);
+}
+
+/** Leaves along a trailing vine, from `a` down to `z`, sagging as it goes. */
+function vine(b: GeoBuilder, a: THREE.Vector3, z: THREE.Vector3, n: number, seed: number): void {
+  const r = new RNG(seed);
+  for (let k = 0; k <= n; k++) {
+    const t = k / n, x = a.x + (z.x - a.x) * t, y = a.y + (z.y - a.y) * t - Math.sin(t * Math.PI) * 0.08, zz = a.z + (z.z - a.z) * t;
+    b.add(P.cyl(0.007, 0.007, 0.16, 3), { color: c(0x3d6a24) }, M.t(x, y, zz));
+    for (const sd of [-1, 1]) b.add(P.sphere(0.055, 0), { color: (r.next() < 0.5 ? HEAD.leaf : HEAD.leafLight).clone(), leaf: 1 },
+      M.t(x + sd * 0.045, y - 0.02, zz + 0.02, r.range(-0.4, 0.4), 0, sd * 0.6, 1, 0.35, 1.5));
+  }
+}
+
+/** A leafy clump with a red hibiscus or two in it. */
+function hibiscusClump(b: GeoBuilder, x: number, y: number, z: number, s: number, flowers: number, seed: number): void {
+  const r = new RNG(seed);
+  for (let k = 0; k < 9; k++) {
+    const a = (k / 9) * Math.PI * 2 + r.range(-0.2, 0.2), d = r.range(0.06, 0.2) * s;
+    b.add(P.sphere(0.09 * s, 0), { color: (k % 2 ? HEAD.leaf : HEAD.leafLight).clone(), leaf: 1 },
+      M.t(x + Math.cos(a) * d, y + 0.03 * s, z + Math.sin(a) * d, 0, -a, 0.3, 1.6, 0.3, 0.9));
+  }
+  for (let k = 0; k < flowers; k++) {
+    const fx = x + r.range(-0.1, 0.1) * s, fz = z + r.range(-0.1, 0.1) * s, fy = y + 0.08 * s;
+    for (let q = 0; q < 5; q++) {
+      const a = (q / 5) * Math.PI * 2;
+      b.add(P.sphere(0.05 * s, 0), { color: c(0xd72a26) }, M.t(fx + Math.cos(a) * 0.045 * s, fy, fz + Math.sin(a) * 0.045 * s, 0, -a, 0, 1.3, 0.3, 0.8));
+    }
+    b.add(P.sphere(0.02 * s, 0), { color: c(0xf2c230) }, M.t(fx, fy + 0.02 * s, fz));
+  }
+}
 
 /**
- * The Colossal Head: a ruler's face carved from one basalt boulder, in a close helmet with a brow
- * band and knobs, ear flaps and ear spools; broad nose, heavy-lidded eyes and thick lips, gazing
- * out (+z) over a flagstone plaza with offerings and fire bowls.
+ * The Colossal Head: a ruler's head of laid stone blocks on a stepped sandstone platform. A
+ * headdress with a red band, a gold sun on a red panel and cream fret scrolls; a row of studs on
+ * the brow ledge, gold-lidded eyes, a broad block nose, thick lips and octagonal ear spools. Vines
+ * and hibiscus grow over it. A stair with red balustrades climbs the platform between painted
+ * pots, and fire bowls burn on the corner pillars. Faces +z.
  */
 export function colossalHeadModel(): BuildingModel {
   const b = new GeoBuilder(), torches: THREE.Vector3[] = [];
   wonderPlaza(b, 4.6);
-  stoneBlock(b, 3.3, 0.32, 3.0, 0, 0.18, -0.35, false);
-  fretBand(b, M.t(0, 0.34, 1.16), 3.2, 0.16, K.red, AD.cream);
-  const y0 = 0.5, hz = -0.35;
-  const shade = (p: THREE.Vector3) => BAS.mid.clone().lerp(BAS.light, Math.min(1, Math.max(0, (p.y - y0) / 3)) * 0.45);
-  // Jaw, face and the helmet over it.
-  b.add(P.rbox(2.25, 1.15, 2.0, 0.2, 2), { color: shade }, M.t(0, y0 + 0.6, hz));
-  b.add(P.rbox(2.5, 1.25, 2.15, 0.22, 2), { color: shade }, M.t(0, y0 + 1.65, hz));
-  b.add(P.rbox(2.8, 1.05, 2.4, 0.32, 2), { color: BAS.dark }, M.t(0, y0 + 2.62, hz - 0.03));
-  // The helmet's brow band, with four knobs, and its ear flaps.
-  b.add(P.box(2.84, 0.24, 0.2), { color: BAS.dark }, M.t(0, y0 + 2.16, hz + 1.12));
-  for (const x of [-0.9, -0.3, 0.3, 0.9]) b.add(P.sphere(0.13, 0), { color: BAS.mid }, M.t(x, y0 + 2.4, hz + 1.16));
+  const sand = HEAD.sand;
+  // The stepped platform: a broad lower tier and a narrower upper one under the head.
+  const t1 = 0.18 + 0.36, t2 = t1 + 0.34;
+  b.add(P.box(4.2, 0.36, 3.7), { color: sand }, M.t(0, 0.18 + 0.18, -0.25));
+  b.add(P.box(3.3, 0.34, 2.9), { color: sand }, M.t(0, t1 + 0.17, -0.45));
+  for (const [y, w, z] of [[t1, 4.24, -0.25 + 1.86], [t2, 3.34, -0.45 + 1.46]] as const) b.add(P.box(w, 0.04, 0.06), { color: HEAD.sandDark }, M.t(0, y - 0.01, z));
+  // Red friezes with cream frets across both tiers' fronts, either side of the stair.
   for (const s of [-1, 1]) {
-    b.add(P.rbox(0.26, 1.45, 0.95, 0.08, 1), { color: BAS.dark }, M.t(s * 1.32, y0 + 1.75, hz));
-    b.add(P.cyl(0.21, 0.21, 0.12, 10), { color: BAS.light }, M.t(s * 1.47, y0 + 1.35, hz + 0.12, 0, 0, Math.PI / 2));
-    b.add(P.cyl(0.09, 0.09, 0.14, 8), { color: BAS.dark }, M.t(s * 1.48, y0 + 1.35, hz + 0.12, 0, 0, Math.PI / 2));
+    fretBand(b, M.t(s * 1.3, 0.18 + 0.2, -0.25 + 1.856), 1.25, 0.16, HEAD.red, HEAD.cream);
+    fretBand(b, M.t(s * 1.05, t1 + 0.18, -0.45 + 1.456), 0.85, 0.15, HEAD.red, HEAD.cream);
   }
-  // The face (front at z = fz): brow, almond eyes under heavy lids, broad nose, full cheeks, thick lips.
-  const fz = hz + 1.07;
-  b.add(P.box(1.9, 0.14, 0.14), { color: BAS.dark }, M.t(0, y0 + 1.98, fz));
+  // The stair: steps up the front of both tiers, between red balustrades.
+  const steps = 6, sw = 0.95;
+  for (let k = 0; k < steps; k++) {
+    const h = (t2 - 0.18) * (k + 1) / steps;
+    b.add(P.box(sw, h, 0.2), { color: (k % 2 ? HEAD.sand : HEAD.sandDark.clone().lerp(HEAD.sand, 0.5)).clone() }, M.t(0, 0.18 + h / 2, 1.95 - k * 0.2));
+  }
   for (const s of [-1, 1]) {
-    b.add(P.sphere(0.2, 1), { color: BAS.light }, M.t(s * 0.46, y0 + 1.74, fz, 0, 0, 0, 1.45, 0.55, 0.42));
-    b.add(P.box(0.5, 0.06, 0.12), { color: BAS.dark }, M.t(s * 0.46, y0 + 1.85, fz + 0.04, 0, 0, -s * 0.12));
-    b.add(P.sphere(0.065, 0), { color: c(0x1e211d) }, M.t(s * 0.44, y0 + 1.73, fz + 0.08));
-    b.add(P.sphere(0.4, 1), { color: shade }, M.t(s * 0.76, y0 + 1.08, fz - 0.06, 0, 0, 0, 1, 0.8, 0.45));
-    b.add(P.sphere(0.13, 0), { color: shade }, M.t(s * 0.26, y0 + 1.1, fz + 0.16));
+    const len = Math.hypot(1.2, t2 - 0.18), slope = Math.atan2(t2 - 0.18, 1.2);
+    b.add(P.box(0.16, 0.2, len), { color: HEAD.red }, M.t(s * (sw / 2 + 0.08), 0.18 + (t2 - 0.18) / 2 + 0.1, 1.45, slope, 0, 0));
+    b.add(P.box(0.18, 0.04, len), { color: HEAD.cream }, M.t(s * (sw / 2 + 0.08), 0.18 + (t2 - 0.18) / 2 + 0.21, 1.45, slope, 0, 0));
   }
-  b.add(P.box(0.62, 0.58, 0.34), { color: shade }, M.t(0, y0 + 1.33, fz + 0.12, -0.28, 0, 0));
-  b.add(P.rbox(0.98, 0.17, 0.24, 0.06, 1), { color: BAS.mid }, M.t(0, y0 + 0.8, fz + 0.05));
-  b.add(P.rbox(0.88, 0.2, 0.24, 0.06, 1), { color: BAS.mid }, M.t(0, y0 + 0.58, fz + 0.04));
-  b.add(P.box(0.82, 0.04, 0.06), { color: c(0x1e211d) }, M.t(0, y0 + 0.69, fz + 0.15));
-  // A little moss on the helmet, where the rain runs.
-  for (const [x, z, s] of [[-0.8, -0.6, 0.35], [0.5, -0.9, 0.3], [0.9, 0.2, 0.22]] as const) b.add(P.sphere(s, 0), { color: BAS.moss }, M.t(x, y0 + 3.1, hz + z, 0, 0, 0, 1, 0.18, 1));
-  // Offerings: flowers and painted pots before the face, fire bowls on posts at the corners.
-  blooms(b, 0, 0.18, 1.75, 10, 0.9, 0.2, 77);
+  // Corner pillars at the front with fire bowls on top.
   for (const s of [-1, 1]) {
-    frettedPot(b, s * 0.65, 0.18, 1.55, 1.1);
-    b.add(P.box(0.42, 0.62, 0.42), { color: CUT.stone }, M.t(s * 1.85, 0.49, 1.75));
-    torches.push(fireBowl(b, s * 1.85, 0.8, 1.75, 1.25));
+    const px = s * 1.82, pz = 1.42, ph = 1.0;
+    b.add(P.box(0.5, ph, 0.5), { color: sand }, M.t(px, 0.18 + ph / 2, pz));
+    b.add(P.box(0.54, 0.12, 0.54), { color: HEAD.red }, M.t(px, 0.18 + ph - 0.22, pz));
+    b.add(P.box(0.56, 0.06, 0.56), { color: HEAD.cream }, M.t(px, 0.18 + ph + 0.03, pz));
+    torches.push(fireBowl(b, px, 0.18 + ph + 0.06, pz, 1.2));
+    // Painted pots and little flowering plants beside the stair.
+    frettedPot(b, s * 0.85, t1, 1.15, 1.2, 0xd9772f);
+    hibiscusClump(b, s * 1.25, t1, 1.25, 0.8, 0, 11 + s);
+    blooms(b, s * 0.68, t1, 1.32, 3, 0.08, 0.06, 41 + s, 0.2);
   }
-  return { finished: b.build(), torches, height: 3.9 };
+
+  // The head: laid blocks, face to the front (fz).
+  const y0 = t2, hz = -0.5, fz = hz + 1.05;
+  const stone = HEAD.stone;
+  b.add(P.box(2.3, 1.75, 2.1), { color: stone }, M.t(0, y0 + 0.875, hz));
+  // The headdress: a rounded cap of blocks, a red band all round, a stepped crest on top.
+  b.add(P.rbox(2.6, 1.0, 2.4, 0.14, 2), { color: stone }, M.t(0, y0 + 2.25, hz - 0.02));
+  b.add(P.box(2.64, 0.17, 2.44), { color: HEAD.red }, M.t(0, y0 + 1.86, hz - 0.02));
+  b.add(P.box(0.34, 0.16, 0.3), { color: HEAD.cream }, M.t(0.75, y0 + 2.82, hz + 0.75));
+  b.add(P.box(0.16, 0.05, 0.12), { color: HEAD.seam }, M.t(0.75, y0 + 2.9, hz + 0.75));
+  // On the front of the cap: a red panel bearing a gold sun, between two fret scrolls.
+  const cz = hz + 1.2;
+  b.add(P.box(0.86, 0.78, 0.06), { color: HEAD.red }, M.t(0, y0 + 2.28, cz));
+  b.add(P.box(0.22, 0.2, 0.08), { color: HEAD.red }, M.t(0, y0 + 2.78, cz - 0.05));
+  b.add(P.cyl(0.17, 0.17, 0.06, 18), { color: HEAD.gold }, M.t(0, y0 + 2.25, cz + 0.05, Math.PI / 2, 0, 0));
+  b.add(P.cyl(0.09, 0.09, 0.07, 14), { color: c(0xf2bf45) }, M.t(0, y0 + 2.25, cz + 0.07, Math.PI / 2, 0, 0));
+  for (let k = 0; k < 8; k++) {
+    const a = (k / 8) * Math.PI * 2;
+    b.add(P.cone(0.06, 0.16, 4), { color: HEAD.gold }, M.t(Math.sin(a) * 0.25, y0 + 2.25 + Math.cos(a) * 0.25, cz + 0.05, 0, 0, -a));
+  }
+  for (const s of [-1, 1]) {
+    stoneScroll(b, M.t(s * 0.82, y0 + 2.28, cz + 0.02), 0.72, s, HEAD.cream);
+    // Scrolls carry on round the sides of the cap.
+    stoneScroll(b, M.t(s * 1.31, y0 + 2.3, hz + 0.25, 0, s * Math.PI / 2, 0), 0.55, -s, HEAD.cream);
+  }
+  // The brow ledge with its row of studs.
+  b.add(P.box(2.5, 0.26, 0.34), { color: HEAD.cream }, M.t(0, y0 + 1.66, fz + 0.12));
+  for (const x of [-0.9, -0.3, 0.3, 0.9]) b.add(P.box(0.24, 0.22, 0.2), { color: HEAD.cream }, M.t(x, y0 + 1.88, fz + 0.18));
+  // The face: heavy lids over gold eyes, a broad block nose, cheeks, and thick lips.
+  for (const s of [-1, 1]) {
+    b.add(P.box(0.62, 0.14, 0.18), { color: HEAD.dark }, M.t(s * 0.55, y0 + 1.45, fz + 0.08, 0, 0, s * 0.06));
+    b.add(P.box(0.56, 0.2, 0.08), { color: HEAD.gold }, M.t(s * 0.55, y0 + 1.31, fz + 0.04));
+    b.add(P.sphere(0.05, 0), { color: c(0x2a1e16) }, M.t(s * 0.5, y0 + 1.3, fz + 0.09));
+    b.add(P.box(0.5, 0.42, 0.14), { color: stone }, M.t(s * 0.78, y0 + 0.9, fz + 0.05));
+  }
+  b.add(P.box(0.5, 0.58, 0.36), { color: HEAD.cream }, M.t(0, y0 + 1.0, fz + 0.16));
+  b.add(P.box(0.02, 0.5, 0.37), { color: HEAD.creamDark }, M.t(0, y0 + 1.0, fz + 0.16));
+  b.add(P.box(0.62, 0.14, 0.3), { color: HEAD.creamDark }, M.t(0, y0 + 0.66, fz + 0.12));
+  b.add(P.box(0.95, 0.2, 0.3), { color: HEAD.cream }, M.t(0, y0 + 0.5, fz + 0.12));
+  b.add(P.box(0.82, 0.07, 0.22), { color: c(0x2a1e16) }, M.t(0, y0 + 0.37, fz + 0.1));
+  b.add(P.box(0.88, 0.18, 0.28), { color: HEAD.cream }, M.t(0, y0 + 0.24, fz + 0.1));
+  // Ears: octagonal spools, with a fret square below.
+  for (const s of [-1, 1]) {
+    const ex = s * 1.2;
+    b.add(P.cyl(0.36, 0.36, 0.12, 8), { color: HEAD.cream }, M.t(ex, y0 + 1.15, hz + 0.25, 0, 0, Math.PI / 2));
+    b.add(P.cyl(0.22, 0.22, 0.14, 8), { color: HEAD.creamDark }, M.t(ex + s * 0.01, y0 + 1.15, hz + 0.25, 0, 0, Math.PI / 2));
+    b.add(P.cyl(0.08, 0.08, 0.16, 8), { color: HEAD.cream }, M.t(ex + s * 0.02, y0 + 1.15, hz + 0.25, 0, 0, Math.PI / 2));
+    stoneScroll(b, M.t(ex, y0 + 0.6, hz + 0.25, 0, s * Math.PI / 2, 0), 0.3, -s, HEAD.cream);
+  }
+  // Vines and hibiscus over the headdress, trailing down its sides.
+  hibiscusClump(b, -0.5, y0 + 2.75, hz + 0.8, 2.4, 1, 21);
+  hibiscusClump(b, 0.75, y0 + 2.75, hz + 0.35, 2.6, 2, 22);
+  hibiscusClump(b, -0.85, y0 + 2.75, hz - 0.55, 1.8, 0, 23);
+  hibiscusClump(b, 0.2, y0 + 2.75, hz - 0.7, 1.5, 0, 24);
+  vine(b, new THREE.Vector3(1.32, y0 + 2.7, hz + 0.7), new THREE.Vector3(1.33, y0 + 1.5, hz + 0.95), 7, 31);
+  vine(b, new THREE.Vector3(1.31, y0 + 2.7, hz - 0.2), new THREE.Vector3(1.33, y0 + 1.0, hz - 0.1), 8, 32);
+  vine(b, new THREE.Vector3(-1.31, y0 + 2.7, hz + 0.9), new THREE.Vector3(-1.32, y0 + 1.8, hz + 1.1), 5, 33);
+  vine(b, new THREE.Vector3(-0.95, y0 + 2.72, cz + 0.03), new THREE.Vector3(-1.05, y0 + 2.1, cz + 0.05), 4, 34);
+  return { finished: b.build(), torches, height: y0 + 3.0 };
 }
 
 const SUN = { stone: c(0xcdb48a), dark: c(0xa98f66), ochre: c(0xd39b3a), red: c(0xb23a2c), teal: c(0x2f8f86) };

@@ -1681,8 +1681,8 @@ export class Game {
       this.ui.setHint('Drag to position · hold still, then drag round to turn it · two fingers move the view');
       return;
     }
-    if (!res.ok && res.reason) this.ui.setHint(`<b>${res.reason}</b> · R rotates · Esc cancels`);
-    else if (this.moving) this.ui.setHint(`Tap to move the <b>${this.moving.label}</b> here · <b>R</b> rotates · right-click or Esc cancels`);
+    if (!res.ok && res.reason) this.ui.setHint(`<b>${res.reason}</b> · hold and drag or R to turn · Esc cancels`);
+    else if (this.moving) this.ui.setHint(`Tap to move the <b>${this.moving.label}</b> here · hold and drag or <b>R</b> to turn · right-click or Esc cancels`);
     else if (this.placing === 'campfire') this.ui.setHint('Tap to light the <b>campfire</b> here: your village will grow around it');
     else this.ui.setHint(`Tap to place a <b>${BUILDINGS[this.placing].name}</b> · keep tapping to place more · hold and drag or <b>R</b> to turn it · right-click or Esc to finish`);
   }
