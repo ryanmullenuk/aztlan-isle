@@ -11,6 +11,7 @@ import { World } from '../world/World';
 import { BOAT_SCALE, BoatLook, Boats, boatGeometry, HULL_BEAM, HULL_HALF, newRide, tradeShipGeometry, Vessel } from './Boats';
 import { hullShadow } from '../render/SoftShadows';
 import { Hull, traderHome, VisitorDeal, visitorDeals } from './fleet';
+import { FX, upgrades } from '../buildings/Upgrades';
 
 /** A trade boat: docks at its Trade Dock, sails away over the horizon with goods, returns with others. */
 interface Ship extends Vessel {
@@ -39,13 +40,20 @@ interface Visitor extends Vessel {
   from: string;
   deals: VisitorDeal[];
   landing: {x:number; z:number; out:number; approach:{x:number;z:number}};
+  /** Berth at a Trade Dock (past the dock's own boats). */
+  slot: number;
 }
 
 /** Trade boats are bigger than canoes; visiting traders' boats bigger still. */
 const SHIP_SCALE = 1.35;
 const VISITOR_SCALE = 1.45;
-/** Visitors moor at the third berth, beside the dock's own two boats. */
+/** Visitors moor at the third berth, beside the dock's own two boats (the fourth beside three). */
 const VISITOR_SLOT = 2;
+
+/** A building's upgrades while it is operational (none while damaged or on fire). */
+export const workingUpgrades = (b: Building): number => (buildingOperational(b) ? upgrades(b) : 0);
+/** Trade boats a dock can moor: the Second berth adds one. */
+export const tradeBoatsAt = (dock: Building): number => TRADE.maxBoats + (workingUpgrades(dock) >= 1 ? FX.tradedock.boats : 0);
 
 /** Visiting traders: deep indigo hulls, blue sails with gold stripes and a teal band. */
 const VISITOR_LOOK: BoatLook = { hull: 0x1f4f63, keel: 0x163746, inner: 0x3a2a1c, deck: 0x6e4a2c, rim: 0xe0b43c, sail: 0x1d3f8f, stripe: 0xe0b43c, band: 0x138a8a };
@@ -91,11 +99,15 @@ export class TradeFleet {
   private visitIn = between(TRADE.visitors.every);
   /** The island's fame (its wonders and Great Temple; set by the game): traders come sooner and offer more. */
   fame: () => number = () => 0;
-  /** The visitors' terms, improved by fame. */
+  /** Upgrades of the best operational Market Square. */
+  private market(): number {
+    return this.bld.of('market').reduce((n, b) => Math.max(n, workingUpgrades(b)), 0);
+  }
+  /** The visitors' terms, improved by fame (and haggling at the Market Square). */
   private terms(): typeof TRADE.visitors {
-    const f = this.fame(), V = TRADE.visitors;
-    if (!f) return V;
-    const k = 1 + TRADE_FAME.rate * f;
+    const f = this.fame(), haggle = this.market() >= 3 ? FX.market.rate : 0, V = TRADE.visitors;
+    if (!f && !haggle) return V;
+    const k = 1 + TRADE_FAME.rate * f + haggle;
     return { ...V, rate: [V.rate[0] * k, V.rate[1] * k] as [number, number], deals: [V.deals[0], V.deals[1] + Math.floor(f / 2)] as [number, number] };
   }
   /** Seconds to the next visit: famous islands are visited more often. */
@@ -136,7 +148,7 @@ export class TradeFleet {
     if (!buildingOperational(dock)) return 'Repair the Trade Dock before building boats.';
     if (!dock.complete) return 'The Trade Dock is not finished yet.';
     if (dock.boatBuild > 0) return 'A trade boat is already being built.';
-    if (this.of(dock).length >= TRADE.maxBoats) return 'This dock already has all the boats it can moor.';
+    if (this.of(dock).length >= tradeBoatsAt(dock)) return 'This dock already has all the boats it can moor.';
     if (!this.eco.spend(TRADE.boatCost)) return 'Not enough resources for a trade boat.';
     dock.boatBuild = 0.001;
     return 'Shipwrights start work on a trade boat.';
@@ -164,21 +176,31 @@ export class TradeFleet {
     return { ok: true, reason: '' };
   }
 
+  /** What a boat brings home for this trade: the Warehouse adds half again. */
+  haul(dock: Building, offer: TradeOffer, times = 1): Partial<Record<ResourceKey, number>> {
+    const k = times * (workingUpgrades(dock) >= 2 ? FX.tradedock.cargo : 1);
+    return Object.fromEntries((Object.entries(offer.get) as [ResourceKey, number][]).map(([r, n]) => [r, Math.round(n * k)]));
+  }
+
+  /** Seconds a boat from this dock is away trading: the Beacon fire brings it home sooner. */
+  away(dock: Building): number {
+    return TRADE.voyageSeconds / (workingUpgrades(dock) >= 3 ? FX.tradedock.speed : 1);
+  }
+
   /** Load the goods and send a boat out to trade. */
   send(dock: Building, offer: TradeOffer, times = 1): string {
     const ok = this.canTrade(dock, offer, times);
     if (!ok.ok) return ok.reason;
     const ship = this.docked(dock)[0];
     for (const [k, n] of Object.entries(offer.give) as [ResourceKey, number][]) this.eco.res[k] -= n * times;
-    ship.cargo = {};
-    for (const [k, n] of Object.entries(offer.get) as [ResourceKey, number][]) ship.cargo[k] = n * times;
+    ship.cargo = this.haul(dock, offer, times);
     // Straight out from the dock, beyond the reef, then over the horizon.
     const at = this.berth(dock, this.of(dock).indexOf(ship));
     const far = this.boats.openSea(at.approach.x, at.approach.z, at.out);
     ship.path = [at.approach, ...(this.boats.waterPath(at.approach.x, at.approach.z, far.x, far.z, true) ?? [])];
     ship.idx = 0;
     ship.state = 'out';
-    return `A trade boat sets sail. It will be back in about ${Math.round(TRADE.voyageSeconds + 20)} seconds.`;
+    return `A trade boat sets sail. It will be back in about ${Math.round(this.away(dock) + 20)} seconds.`;
   }
 
   /** A demolished dock takes its boats (and any visitors) with it. */
@@ -233,7 +255,7 @@ export class TradeFleet {
           if (s.idx >= s.path.length) {
             if (s.state === 'out') {
               s.state = 'away';
-              s.timer = TRADE.voyageSeconds;
+              s.timer = this.away(dock);
               s.speed = 0;
               s.mesh.visible = false;
             } else s.mooring = true;
@@ -264,13 +286,13 @@ export class TradeFleet {
     this.updateVisitors(dt, time, traffic);
   }
 
-  /** Where a boat moors at its dock (slot 0 and 1: the dock's own boats; 2: visitors). */
+  /** Where a boat moors at its dock (the dock's own boats first, then visitors). */
   private berth(dock: Building, k: number) {
     return this.boats.berth(dock, Math.max(0, k), 1.3, 0.5, TRADE.berthOut);
   }
 
   private visitorBerth(v: Visitor, dock: Building) {
-    return dock.key === 'market' ? v.landing : this.berth(dock, VISITOR_SLOT);
+    return dock.key === 'market' ? v.landing : this.berth(dock, v.slot);
   }
 
   /** Find a shoreline once per visit; the cached landing avoids scanning the island each frame. */
@@ -296,7 +318,8 @@ export class TradeFleet {
   private updateVisitors(dt: number, time: number, traffic: Hull[]): void {
     const docks = [...this.bld.of('tradedock'), ...this.bld.of('market').filter(d=>Object.values(d.marketStock).some(n=>n!>=5))].filter((d) => d.complete);
     if (docks.length && !this.visitors.length) {
-      this.visitIn -= dt;
+      // A Canoe landing at the Market Square brings them sooner.
+      this.visitIn -= dt * (this.market() >= 2 ? FX.market.often : 1);
       if (this.visitIn <= 0) this.visitIn = this.sendVisitor(docks[Math.floor(Math.random() * docks.length)]) ? this.nextVisit() : TRADE.visitors.retry;
     }
     const half = HULL_HALF * VISITOR_SCALE, beam = HULL_BEAM * VISITOR_SCALE;
@@ -344,7 +367,8 @@ export class TradeFleet {
 
   /** A foreign boat appears out at sea and makes for the dock. False if there's no way in. */
   private sendVisitor(dock: Building): boolean {
-    const at = dock.key === 'market' ? this.marketLanding(dock) : this.berth(dock, VISITOR_SLOT);
+    const slot = Math.max(VISITOR_SLOT, tradeBoatsAt(dock), this.of(dock).length);
+    const at = dock.key === 'market' ? this.marketLanding(dock) : this.berth(dock, slot);
     if (!at) return false;
     if (!this.boats.open(at.x, at.z)) return false;
     const from = this.boats.openSea(at.approach.x, at.approach.z, at.out + (Math.random() - 0.5) * 1.4);
@@ -359,7 +383,7 @@ export class TradeFleet {
     const first = path[0] ?? at.approach;
     this.visitors.push({
       dock: dock.id, mesh, state: 'in', mooring: false, path, idx: 0, x: from.x, z: from.z, heading: Math.atan2(first.x - from.x, first.z - from.z), speed: 0,
-      ride: newRide(), wakeAcc: 0, timer: 0, from: traderHome(), deals: [], landing: at,
+      ride: newRide(), wakeAcc: 0, timer: 0, from: traderHome(), deals: [], landing: at, slot,
     });
     return true;
   }

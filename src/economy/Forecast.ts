@@ -1,4 +1,5 @@
 import { OBSERVATORY } from '../config';
+import { FX } from '../buildings/Upgrades';
 
 /** A storm the weather has already scheduled: its id, game seconds until it arrives, and how long it will last. */
 export interface StormOutlook { id: number; inSeconds: number; length: number }
@@ -18,6 +19,8 @@ export interface ForecastInput {
   speed: number;
   /** Observatory research completed (tier 3 warns of the volcano earlier, tier 10 tells a storm's length). */
   tier: number;
+  /** Upgrades of the best operational Observatory (the Taller platform warns earlier). */
+  upgrades?: number;
 }
 
 export type Hazard = 'storm' | 'volcano';
@@ -53,9 +56,19 @@ export class Forecaster {
   /** Whether an alert is up for each (a loaded save remembers the ids but shows no stale alert). */
   private up: Record<Hazard, boolean> = { storm: false, volcano: false };
 
+  /** How much earlier warnings come with this many Observatory upgrades. */
+  static early(upgrades = 0): number {
+    return upgrades >= 2 ? FX.observatory.warning : 1;
+  }
+
+  /** The warning window for storms (game seconds before one arrives). */
+  static stormWindow(upgrades = 0): number {
+    return OBSERVATORY.stormWindow * Forecaster.early(upgrades);
+  }
+
   /** The warning window for the volcano at this research tier (seconds before smoking). */
-  static volcanoWindow(tier: number): number {
-    return tier >= 3 ? OBSERVATORY.volcanoWindowEarly : OBSERVATORY.volcanoWindow;
+  static volcanoWindow(tier: number, upgrades = 0): number {
+    return (tier >= 3 ? OBSERVATORY.volcanoWindowEarly : OBSERVATORY.volcanoWindow) * Forecaster.early(upgrades);
   }
 
   stormText(s: StormOutlook, speed: number, tier: number): string {
@@ -76,7 +89,7 @@ export class Forecaster {
       out.push({ kind: 'withdraw', hazard: 'storm', reason: f.stormActive ? 'arrived' : 'cancelled' });
       this.up.storm = false;
     }
-    if (s && f.staffed && s.inSeconds <= OBSERVATORY.stormWindow && s.id !== this.storm) {
+    if (s && f.staffed && s.inSeconds <= Forecaster.stormWindow(f.upgrades) && s.id !== this.storm) {
       this.storm = s.id;
       this.up.storm = true;
       this.shown.storm = s.inSeconds / Math.max(1, f.speed);
@@ -96,7 +109,7 @@ export class Forecaster {
       out.push({ kind: 'withdraw', hazard: 'volcano', reason: f.volcanoActive ? 'arrived' : 'cancelled' });
       this.up.volcano = false;
     }
-    if (v && f.staffed && v.inSeconds <= Forecaster.volcanoWindow(f.tier) && v.cycle !== this.volcano) {
+    if (v && f.staffed && v.inSeconds <= Forecaster.volcanoWindow(f.tier, f.upgrades) && v.cycle !== this.volcano) {
       this.volcano = v.cycle;
       this.up.volcano = true;
       this.shown.volcano = v.inSeconds;
