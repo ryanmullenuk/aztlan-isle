@@ -415,7 +415,10 @@ export class Terrain {
     out.lerp(C.jungleFloor, clamp(forest * 0.6 * (0.6 + flat * 0.4), 0, 1));
     out.lerp(C.earth, (1 - flat) * 0.28);
     // Sand: wet at the waterline, cream to pale gold above.
-    const lowSand = 1 - smoothstep(0.35, 0.9, y);
+    let lowSand = 1 - smoothstep(0.35, 0.9, y);
+    // The willow glade is meadow to the lake's edge: only a thin wet margin at the waterline.
+    const gl = w.glade;
+    if (gl) lowSand *= 1 - (1 - smoothstep(gl.r + 12, gl.r + 17, Math.hypot(x - gl.x, z - gl.z))) * smoothstep(0.1, 0.2, y);
     const sandAmt = clamp(Math.max(sandy, lowSand * (1 - rocky)), 0, 1);
     if (sandAmt > 0) {
       tmpB.copy(C.sand).lerp(C.sandGold, clamp(0.5 + nz2 * 0.7, 0, 1));

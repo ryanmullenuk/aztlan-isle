@@ -43,9 +43,11 @@ function smax(a: number, b: number, k: number): number {
  *  - scattered rocky knolls, wide sandy beaches in the bays, large open grasslands between jungle,
  *  - rocky wooded islets out on the shelf, a lagoon and an open meadow for the tribe.
  */
-export function generateIsland(world: World, seed: number, type: IslandType = 'classic'): void {
+export function generateIsland(world: World, seed: number, type: IslandType = 'classic', gen = 1): void {
   world.seed = seed;
   world.islandType = type;
+  world.gen = gen;
+  world.glade = null;
   const shape = SHAPE[type];
   const N = world.N;
   const rng = new RNG(seed);
@@ -71,6 +73,15 @@ export function generateIsland(world: World, seed: number, type: IslandType = 'c
   ];
   // The island type: smaller or larger peninsulas and wild island (the village's body stays as it is).
   mainLobes.forEach((L, k) => { if (k) { L.rx *= shape.main; L.rz *= shape.main; L.x = -0.3 + (L.x + 0.3) * (0.6 + 0.4 * shape.main); L.z = 0.06 + (L.z - 0.06) * (0.6 + 0.4 * shape.main); } });
+  // Layout 2: a larger main island (more room to build), its body widened westward so the strait to
+  // the wild island stays open, the peninsulas larger and further out.
+  if (gen >= 2) mainLobes.forEach((L, k) => {
+    const f = k ? 1.16 : 1.2;
+    L.rx *= f; L.rz *= f;
+    if (k) { L.x = -0.3 + (L.x + 0.3) * 1.12; L.z = 0.06 + (L.z - 0.06) * 1.12; } else L.x -= 0.05;
+  });
+  /** Layout 2: the willow glade and its lake, on the main island's south-western lowland (map units). */
+  const glade = gen >= 2 ? { x: -0.53, z: 0.33 } : null;
   wildLobes.forEach((L) => {
     L.rx *= shape.wild; L.rz *= shape.wild; L.x = 0.55 + (L.x - 0.55) * shape.wild; L.z *= Math.min(1.15, shape.wild);
     // A bigger wild island must stay well inside the map (the sea fades out toward its edge).
@@ -93,7 +104,7 @@ export function generateIsland(world: World, seed: number, type: IslandType = 'c
     { x: 0.62, z: 0.14, r: 0.08, h: 0.45 },
     { x: 0.42, z: 0.2, r: 0.07, h: 0.35 },
     { x: 0.58, z: -0.3, r: 0.07, h: 0.4 },
-    { x: -0.62, z: 0.36, r: 0.06, h: 0.28 },
+    ...(glade ? [] : [{ x: -0.62, z: 0.36, r: 0.06, h: 0.28 }]),
     { x: 0.02, z: -0.36, r: 0.06, h: 0.26 },
     // Volcanic islands have craggy outcrops on the main island too.
     ...(type === 'volcanic' ? [{ x: -0.05, z: 0.32, r: 0.07, h: 0.4 }, { x: -0.48, z: 0.24, r: 0.06, h: 0.36 }, { x: 0.05, z: -0.15, r: 0.05, h: 0.3 }] : []),
@@ -327,6 +338,7 @@ export function generateIsland(world: World, seed: number, type: IslandType = 'c
 
   carveRivers(world, rng, v);
   carveLagoon(world, rng);
+  if (glade) carveGlade(world, glade);
 
   world.computeDistWater();
   // Cliffs: steep layer jumps become rock.
@@ -565,6 +577,41 @@ function carveRivers(world: World, rng: RNG, v: Float32Array): void {
     }
     world.rivers.push({ points });
   }
+}
+
+/**
+ * The willow glade (layout 2): a level, open meadow around a freshwater lake of three rounded pools,
+ * deep enough at the edge to fish from. Its willows, rocks, reeds and lilies come with the plants.
+ */
+function carveGlade(world: World, at: { x: number; z: number }): void {
+  const N = world.N, cx = Math.round(((at.x + 1) / 2) * N), cz = Math.round(((at.z + 1) / 2) * N);
+  if (!world.inBounds(cx, cz) || world.layer[world.idx(cx, cz)] < 1) return;
+  // Low and level, just above the water (the shore is fished from), rising again at the rim.
+  const base = 1;
+  const R = 6.5, open = 14;
+  const pools = [{ x: 0, z: 0, r: R }, { x: -5.2, z: -3.4, r: R * 0.62 }, { x: 4.6, z: -4.2, r: R * 0.5 }];
+  for (let dz = -open - 6; dz <= open + 6; dz++) {
+    for (let dx = -open - 6; dx <= open + 6; dx++) {
+      const nx = cx + dx, nz = cz + dz;
+      if (!world.inBounds(nx, nz)) continue;
+      const i = world.idx(nx, nz), d = Math.hypot(dx, dz);
+      if (world.layer[i] < 1 || !Number.isNaN(world.riverY[i])) continue;
+      const a = Math.atan2(dz, dx);
+      const wet = pools.some((p) => Math.hypot(dx - p.x, dz - p.z) <= p.r * (1 + 0.1 * Math.sin(a * 3 + p.x)));
+      if (wet) {
+        world.layer[i] = Math.hypot(dx, dz) < R * 0.6 ? -3 : -2;
+        world.forest[i] = 0; world.rocky[i] = 0; world.sandy[i] = 0;
+      } else if (d <= open) {
+        world.layer[i] = base;
+        world.forest[i] = 0; world.rocky[i] = 0; world.sandy[i] = 0;
+      } else if (d <= open + 6) {
+        // The ground climbs back a step at a time, and the woods thin out into the glade.
+        world.layer[i] = Math.min(world.layer[i], base + Math.ceil(d - open));
+        world.forest[i] *= (d - open) / 6;
+      }
+    }
+  }
+  world.glade = { x: world.centerX(cx), z: world.centerZ(cz), r: R };
 }
 
 function carveLagoon(world: World, rng: RNG): void {

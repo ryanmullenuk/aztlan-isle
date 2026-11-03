@@ -202,7 +202,7 @@ export class Vegetation {
     const d = (key: string, hi: THREE.BufferGeometry, lo: THREE.BufferGeometry | undefined, double: boolean, shadow = true, cull = 0) =>
       this.defs.set(key, { key, hi, lo, double, shadow, cull });
     for (let v = 0; v < 3; v++) d(`palm${v}`, palmGeometry(v, false, 11 + v), palmGeometry(v, true, 11 + v), true);
-    for (let v = 0; v < 8; v++) d(`broadleaf${v}`, treeGeometry(v, false, 21 + v), treeGeometry(v, true, 21 + v), false);
+    for (let v = 0; v < CANOPY.length; v++) d(`broadleaf${v}`, treeGeometry(v, false, 21 + v), treeGeometry(v, true, 21 + v), false);
     d('apple1', fruitTreeGeometry(false, 45), fruitTreeGeometry(true, 45), false);
     d('fruit_orange', orangeFruitGeometry(46), undefined, false, false, 1.4);
     d('fern0', fernGeometry(false, 31), fernGeometry(true, 31), true, false, 1.1);
@@ -219,7 +219,7 @@ export class Vegetation {
       FINE.on = true;
     };
     for (let v = 0; v < 3; v++) mid(`palm${v}`, () => palmGeometry(v, false, 11 + v));
-    for (let v = 0; v < 8; v++) mid(`broadleaf${v}`, () => treeGeometry(v, false, 21 + v));
+    for (let v = 0; v < CANOPY.length; v++) mid(`broadleaf${v}`, () => treeGeometry(v, false, 21 + v));
     mid('apple1', () => fruitTreeGeometry(false, 45));
     mid('bush0', () => bushGeometry(false, false, 41));
     mid('flowerbush0', () => bushGeometry(true, false, 42));
@@ -298,6 +298,43 @@ export class Vegetation {
     for (let cz = 1; cz < N - 1; cz++) {
       for (let cx = 1; cx < N - 1; cx++) this.populate(cx, cz, rng, noise, dens);
     }
+    if (this.world.glade) this.populateGlade(new RNG(this.world.seed * 41 + 313));
+  }
+
+  /**
+   * The willow glade (layout 2): weeping willows round the lake, boulders and reeds at its edge,
+   * flowering bushes and ferns in the grass, the rest of the glade left open.
+   */
+  private populateGlade(rng: RNG): void {
+    const g = this.world.glade!, w = this.world;
+    const dry = (x: number, z: number) => {
+      const i = w.cellIndexAt(x, z);
+      return i >= 0 && w.layer[i] >= 1 && Number.isNaN(w.riverY[i]) && this.flatEnough(x, z, 0.3, 0.3);
+    };
+    // Willows in a loose ring, leaning over the water.
+    const n = 9;
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * Math.PI * 2 + rng.range(-0.2, 0.2), d = g.r + rng.range(3.2, 6.5);
+      const x = g.x + Math.cos(a) * d, z = g.z + Math.sin(a) * d;
+      if (dry(x, z)) this.add('broadleaf', 8, x, z, rng.range(0, 6.28), rng.range(0.95, 1.3), rng);
+    }
+    // Boulders and reeds along the water's edge: walk out from the middle to the shore.
+    for (let k = 0; k < 64; k++) {
+      const a = (k / 64) * Math.PI * 2;
+      let d = 2;
+      while (d < g.r + 9 && w.layer[w.cellIndexAt(g.x + Math.cos(a) * d, g.z + Math.sin(a) * d)] < 1) d += 0.3;
+      const x = g.x + Math.cos(a) * (d + 0.35), z = g.z + Math.sin(a) * (d + 0.35);
+      if (!dry(x, z)) continue;
+      if (k % 4 === 0) this.add('rock', rng.int(0, 1), x, z, rng.range(0, 6.28), rng.range(0.55, 0.9), rng);
+      else if (k % 4 === 2) this.add('fern', 0, x + rng.range(-0.2, 0.2), z + rng.range(-0.2, 0.2), rng.range(0, 6.28), rng.range(0.8, 1.2), rng);
+      else if (rng.chance(0.5)) this.add('flowerbush', 0, x, z, rng.range(0, 6.28), rng.range(0.6, 0.9), rng);
+    }
+    // Flowers and bushes scattered through the glade's grass.
+    for (let k = 0; k < 18; k++) {
+      const a = rng.range(0, Math.PI * 2), d = g.r + rng.range(1.5, 7);
+      const x = g.x + Math.cos(a) * d, z = g.z + Math.sin(a) * d;
+      if (dry(x, z)) this.add(rng.chance(0.6) ? 'flowerbush' : 'bush', 0, x, z, rng.range(0, 6.28), rng.range(0.6, 1.0), rng);
+    }
   }
 
   /**
@@ -340,6 +377,8 @@ export class Vegetation {
     if (!Number.isNaN(w.riverY[i]) || w.occ[i] !== 0) return;
     const dm = Math.hypot(bx - w.meadow.x, bz - w.meadow.z);
     if (dm < w.meadow.r - 1) return;
+    // The willow glade is kept open (its plants come in populateGlade).
+    if (w.glade && Math.hypot(bx - w.glade.x, bz - w.glade.z) < w.glade.r + 8.5) return;
     const forest = w.forest[i];
     const sandy = w.sandy[i];
     const rocky = w.rocky[i];
@@ -370,6 +409,8 @@ export class Vegetation {
       // The wild island's jungle is rich in bananas and fruit trees.
       const fruitK = w.isle[i] === 2 ? 3.5 : 1;
       table = [['broadleaf', 0, 20], ['broadleaf', 1, 18], ['broadleaf', 5, river ? 30 : 14], ['broadleaf', 6, river ? 16 : 9], ['broadleaf', 3, 7], ['broadleaf', 4, 5], ['palm', -1, 14], ['banana', 0, 4 * fruitK], ['apple', 1, 3 * fruitK], ['apple', 0, fruitK > 1 ? 6 : 0]];
+      // On the newer islands, weeping willows by the rivers.
+      if (w.gen >= 2 && river) table.push(['broadleaf', 8, 22]);
     } else if (hills) {
       chance = 0.07 * (0.3 + cluster);
       table = [['broadleaf', 3, 35], ['broadleaf', 2, 30], ['broadleaf', 4, 20], ['palm', -1, 15]];
@@ -765,7 +806,7 @@ export class Vegetation {
     for (let i = 0; i + 5 < data.length; i += 6) {
       const kind = PLANTABLE[data[i]];
       if (!kind) continue;
-      const variant = Math.max(0, Math.min(kind === 'broadleaf' ? 7 : kind === 'palm' ? 2 : kind === 'apple' ? 1 : 0, data[i + 1] | 0));
+      const variant = Math.max(0, Math.min(kind === 'broadleaf' ? CANOPY.length - 1 : kind === 'palm' ? 2 : kind === 'apple' ? 1 : 0, data[i + 1] | 0));
       this.plantTree(kind, variant, data[i + 2] / 100, data[i + 3] / 100, data[i + 4] / 100, clamp(data[i + 5] / 100, 0.3, 2), null);
     }
   }

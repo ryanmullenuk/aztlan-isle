@@ -28,6 +28,8 @@ export interface SaveData {
   res: Record<ResourceKey, number>;
   /** Which kind of island (absent in saves from before island types: the original). */
   islandType?: IslandType;
+  /** Island layout version (see World.gen); saves from before it were layout 1. */
+  gen?: number;
   /** Islanders' open requests. */
   requests?: unknown[];
   /** Smoothed income per minute (what the village gathers while the player is away). */
@@ -153,6 +155,20 @@ export function islandTypeToLoad(): IslandType {
   }
 }
 
+/** The layout to generate: the saved island's (1 if it predates layouts), or the newest for a new game. */
+export function islandGenToLoad(): number {
+  try {
+    const raw = localStorage.getItem(SAVE.key);
+    if (raw) {
+      const g = (JSON.parse(raw) as SaveData).gen;
+      return g === 2 ? 2 : 1;
+    }
+  } catch {
+    return 1;
+  }
+  return 2;
+}
+
 /** Seed of whatever island is saved (used when the URL has no seed). */
 export function savedSeed(): number | null {
   try {
@@ -180,6 +196,7 @@ export function serialize(g: Game): SaveData {
     ...(g.progression ? {progression:{prayer:g.progression.prayer,sandbox:g.eco.godMode,reached:{...g.progression.reached}}} : {}),
     seed: w.seed,
     ...(w.islandType ? { islandType: w.islandType } : {}),
+    ...(w.gen > 1 ? { gen: w.gen } : {}),
     savedAt: Date.now(),
     time: { elapsed: g.time.elapsed, day: g.time.day, t: g.time.t, speed: g.time.speed },
     camera: { x: g.rig.goal.x, z: g.rig.goal.z, dist: g.rig.goal.dist, yaw: g.rig.goal.yaw },

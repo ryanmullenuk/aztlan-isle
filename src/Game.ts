@@ -69,7 +69,7 @@ import { Marine } from './entities/Marine';
 import { Octopuses } from './entities/Octopuses';
 import { Powers } from './economy/Powers';
 import { AudioEngine } from './audio/Audio';
-import { SaveData, applyRest, applyWorld, islandTypeToLoad, readSave, writeSave } from './world/Save';
+import { SaveData, applyRest, applyWorld, islandTypeToLoad, islandGenToLoad, readSave, writeSave } from './world/Save';
 import { finishSwamps, generateSwamps } from './world/swamp';
 import { growIslets } from './world/islets';
 import { softenMapEdge } from './world/mapEdge';
@@ -106,6 +106,7 @@ import type { Islander } from './entities/Islander';
 import { stripOverscan, viewportSize } from './render/AppViewport';
 import { warmLoads, warmShelf } from './render/WarmUp';
 import { showRestart } from './ui/Restart';
+import { lakeDressing } from './render/LilyPads';
 
 const _pathP = new THREE.Vector3();
 
@@ -414,7 +415,7 @@ export class Game {
     // One shadow pass a frame (not one per post-processing pass), and the shadow stand-in layer.
     setupShadows(this.renderer);
 
-    generateIsland(this.world, opts.seed, islandTypeToLoad());
+    generateIsland(this.world, opts.seed, islandTypeToLoad(), islandGenToLoad());
     // Plants are generated from the untouched island so saved plant states line up.
     this.veg = new Vegetation(this.world, this.preset);
     // Swamps come from the seed and the untouched island too; their pools are dug afterwards,
@@ -423,6 +424,9 @@ export class Game {
     // Then the outer islets grow into their current shape, with plants of their own.
     this.veg.growIslets(growIslets(this.world));
     this.veg.build();
+    // The willow glade's lake: lily pads, lotuses and cattails (newer islands).
+    const lake = lakeDressing(this.world);
+    if (lake) this.scene.add(lake);
     const save = readSave(opts.seed);
     if (typeof save?.wildlifeAlerts === 'boolean') this.settings.wildlifeAlerts = save.wildlifeAlerts;
     if (!save) {

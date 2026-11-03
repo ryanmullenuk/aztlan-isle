@@ -423,7 +423,11 @@ export const CANOPY: { mid: number; top: number; r: number }[] = [
   { mid: 4.3, top: 5.6, r: 2.0 },
   { mid: 3.0, top: 3.4, r: 2.0 },
   { mid: 1.9, top: 2.7, r: 1.0 },
+  { mid: 3.0, top: 3.9, r: 1.8 },
 ];
+
+/** The weeping willow's yellow-green leaves. */
+const WILLOW = { dark: c(0x6f9a22), light: c(0xa9d23c), tip: c(0xc6e35a) };
 
 export function treeGeometry(variant: number, lo: boolean, seed: number): THREE.BufferGeometry {
   if (variant < 2) return broadleafGeometry(variant, lo, seed);
@@ -498,6 +502,37 @@ export function treeGeometry(variant: number, lo: boolean, seed: number): THREE.
       if (!lo) for (let v = 0; v + 2 < pts.length; v += 2) {
         const a = pts[v], z = pts[v + 2];
         liana(b, new THREE.Vector3(a[0] * 0.8, a[1] - 0.45, a[2] * 0.8), new THREE.Vector3(z[0] * 0.8, z[1] - 0.45, z[2] * 0.8), dr.range(0.5, 1.0), dr, TREE.vine, TREE.deepLight);
+      }
+      break;
+    }
+    case 8: {
+      // weeping willow: a thick, leaning trunk, spreading arms under a domed crown, and curtains of
+      // slim yellow-green leaves falling almost to the ground all round
+      trunk(b, 1.7, 0.27, 0.17, lo, rng);
+      const arms = lo ? 3 : 5;
+      for (let k = 0; k < arms; k++) {
+        const a = (k / arms) * Math.PI * 2 + rng.next();
+        const px = Math.cos(a) * 1.25, pz = Math.sin(a) * 1.25, py = 2.85 + rng.next() * 0.3;
+        if (!lo) branch(b, new THREE.Vector3(0, 1.5, 0), new THREE.Vector3(px * 0.85, py - 0.15, pz * 0.85), 0.11, new RNG(seed * 59 + k), 1.7);
+        canopyBlob(b, px, py, pz, 0.78, lo, seed + k, WILLOW.dark, WILLOW.light, 0.55);
+      }
+      canopyBlob(b, 0, 3.35, 0, 1.0, lo, seed + 9, WILLOW.dark, WILLOW.light, 0.55);
+      if (lo) {
+        // From afar: an open bell of foliage hanging from the crown.
+        b.add(P.cyl(1.45, 1.75, 1.9, 10, true), { color: (p) => WILLOW.dark.clone().lerp(WILLOW.light, Math.min(1, Math.max(0, (p.y - 1) / 2))), leaf: 1, sway: (p) => 0.15 + Math.max(0, 3 - p.y) * 0.12 }, M.t(0, 2.05, 0));
+        break;
+      }
+      // Hanging strands: chains of narrow leaves from the crown's rim, swaying more toward their ends.
+      const strands = 38;
+      for (let s = 0; s < strands; s++) {
+        const a = (s / strands) * Math.PI * 2 + dr.range(-0.06, 0.06);
+        const rr = 1.45 + dr.range(-0.25, 0.25), y0 = 3.05 + dr.range(-0.25, 0.3), n = Math.round(dr.range(9, 13));
+        for (let j = 0; j < n; j++) {
+          const y = y0 - j * 0.17, out = rr + j * 0.025, u = j / n;
+          const col = WILLOW.light.clone().lerp(j % 3 === 0 ? WILLOW.tip : WILLOW.dark, 0.35 + u * 0.3);
+          b.add(P.sphere(0.075, 0), { color: col, leaf: 1, sway: 0.2 + u * 0.35 },
+            M.t(Math.cos(a) * out + dr.range(-0.03, 0.03), y, Math.sin(a) * out + dr.range(-0.03, 0.03), dr.range(-0.3, 0.3), -a, 0.25 * (j % 2 ? 1 : -1), 0.32, 1.7, 0.16));
+        }
       }
       break;
     }

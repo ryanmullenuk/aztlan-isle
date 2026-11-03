@@ -1202,7 +1202,9 @@ export class Colony {
     let best: { x: number; z: number; wx: number; wz: number } | null = null, bd = 45 * 45;
     for (let k = 0; k < spots.length; k++) {
       const s = spots[k];
-      const d = (s.x - isl.x) ** 2 + (s.z - isl.z) ** 2 + this.rnd() * 30;
+      // The glade's lake draws fishers from further off (its fish bite more readily).
+      const g = this.world.glade, lake = !!g && Math.hypot(s.x - g.x, s.z - g.z) < g.r + 4;
+      const d = ((s.x - isl.x) ** 2 + (s.z - isl.z) ** 2) * (lake ? 0.45 : 1) + this.rnd() * 30;
       // Spread out along the shore.
       if (d < bd && !this.list.some((o) => o !== isl && o.task?.kind === 'spearfish' && Math.hypot(o.task.x - s.x, o.task.z - s.z) < 2.5)) {
         bd = d;
@@ -1950,10 +1952,12 @@ export class Colony {
         t.timer -= dt;
         if (Math.floor(before / 1.7) !== Math.floor(t.timer / 1.7)) this.hooks.sfx?.('splash', isl.x + Math.sin(face) * 0.6, isl.z + Math.cos(face) * 0.6);
         if (t.timer > 0) return;
-        const caught = this.rnd() < 0.75;
+        // The glade's lake is well stocked with fresh fish: they bite more often there.
+        const g = this.world.glade, lake = !!g && Math.hypot(isl.x - g.x, isl.z - g.z) < g.r + 4;
+        const caught = this.rnd() < (lake ? 0.9 : 0.75);
         this.releaseTask(isl);
         if (caught) {
-          isl.carry = { kind: 'fish', res: 'fish', n: 2 + (this.rnd() < 0.3 ? 1 : 0) };
+          isl.carry = { kind: 'fish', res: 'fish', n: 2 + (lake ? 1 : 0) + (this.rnd() < 0.3 ? 1 : 0) };
           this.deliver(isl);
         }
         break;

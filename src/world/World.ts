@@ -79,6 +79,13 @@ export class World {
   rivers: RiverData[] = [];
   waterfall: WaterfallData | null = null;
   lagoon: { x: number; z: number; r: number } | null = null;
+  /**
+   * Layout version: 1 = the original island (kept for saves made on it); 2 = the larger main island
+   * with its willow glade.
+   */
+  gen = 1;
+  /** The willow glade's freshwater lake (world units), on islands of layout 2. */
+  glade: { x: number; z: number; r: number } | null = null;
   meadow = { x: 0, z: 0, r: WORLD.meadowRadius, layer: 3 };
   /** Direction (unit XZ) from the meadow towards the nearest sea. */
   seaDir = { x: 0, z: 1 };
