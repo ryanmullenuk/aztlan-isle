@@ -1,3 +1,4 @@
+import { jobsAt } from '../buildings/Upgrades';
 import { buildingOperational, buildingSafe } from '../buildings/BuildingCondition';
 import { isElder } from '../entities/CharacterVariants';
 import type { FireJob } from '../buildings/StormFire';
@@ -696,22 +697,22 @@ export class Colony {
       if (this.bld.waitingForMaterials?.(b)) continue;
       if (!b.complete || b.upgrading || b.repairing) slots.push({ b, role: 'builder', n: b.def.builders });
       else if (!buildingOperational(b)) continue;
-      else if (isFarm(b.key)) slots.push({ b, role: 'farmer', n: b.def.workers });
-      else if (b.key === 'market') slots.push({ b, role: 'merchant', n: b.def.workers });
-      else if (b.key === 'stonemason') slots.push({ b, role: 'mason', n: b.def.workers });
+      else if (isFarm(b.key)) slots.push({ b, role: 'farmer', n: jobsAt(b) });
+      else if (b.key === 'market') slots.push({ b, role: 'merchant', n: jobsAt(b) });
+      else if (b.key === 'stonemason') slots.push({ b, role: 'mason', n: jobsAt(b) });
       // A firemaker only while there is gunpowder to pack and room in the store.
-      else if (b.key === 'firemaker') slots.push({ b, role: 'firemaker', n: this.eco.goods.gunpowder >= 1 && this.eco.goods.fireworks <= FIREWORKS.cap - FIREWORKS.perJar ? b.def.workers : 0 });
-      else if (b.key === 'smokehouse') slots.push({ b, role: 'smoker', n: b.def.workers });
-      else if (b.key === 'temple' || b.key === 'greattemple' || b.key === 'observatory') slots.push({ b, role: 'priest', n: b.def.workers });
-      else if (b.key === 'butcher') slots.push({ b, role: 'butcher', n: b.def.workers });
-      else if (b.key === 'jetty') slots.push({ b, role: 'fisher', n: Math.min(b.def.workers, b.boats.length) });
+      else if (b.key === 'firemaker') slots.push({ b, role: 'firemaker', n: this.eco.goods.gunpowder >= 1 && this.eco.goods.fireworks <= FIREWORKS.cap - FIREWORKS.perJar ? jobsAt(b) : 0 });
+      else if (b.key === 'smokehouse') slots.push({ b, role: 'smoker', n: jobsAt(b) });
+      else if (b.key === 'temple' || b.key === 'greattemple' || b.key === 'observatory') slots.push({ b, role: 'priest', n: jobsAt(b) });
+      else if (b.key === 'butcher') slots.push({ b, role: 'butcher', n: jobsAt(b) });
+      else if (b.key === 'jetty') slots.push({ b, role: 'fisher', n: Math.min(jobsAt(b), b.boats.length) });
     }
     slots.sort((a, b) => jobRank(this.priority, a.role, a.b.key === 'herbalgarden') -
       jobRank(this.priority, b.role, b.b.key === 'herbalgarden'));
     // Priests only once the tribe can spare them; scarce food still reserves gatherers.
     for (const s of slots) if (s.role === 'priest') s.n = Math.min(s.n, s.b.key === 'observatory'
       // A small village can still spare one sky-watcher (two once it has eight workers).
-      ? (workers.length >= 8 ? 2 : workers.length >= 4 ? 1 : 0)
+      ? (workers.length >= 12 ? 3 : workers.length >= 8 ? 2 : workers.length >= 4 ? 1 : 0)
       : Math.max(0, Math.floor((workers.length - 4) / 3)));
     const lowFood = this.eco.food < this.list.length * 3;
     const maxSpecial = Math.max(1, Math.floor(pool.length * specialistShare(this.priority, lowFood)));

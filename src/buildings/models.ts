@@ -4697,3 +4697,37 @@ export function skyTowerModel(): BuildingModel {
   for (const s of [-1, 1]) bannerPole(b, s * 2.55, 2.3, 1.9, 0);
   return { finished: b.build(), torches, height: top + 1.8 };
 }
+
+/**
+ * What an upgraded building shows off: a carved marker by its front corner with a gold disc for each
+ * upgrade, then a sun banner on the other corner, then a fire bowl and a painted pot. Kept to the
+ * front corners of the footprint, clear of the door in the middle (door faces +z).
+ */
+export function upgradeDressing(w: number, d: number, upgrades: number): { geo: THREE.BufferGeometry; torches: THREE.Vector3[] } {
+  const b = new GeoBuilder(), torches: THREE.Vector3[] = [];
+  const x = w / 2 - 0.2, z = d / 2 - 0.2;
+  b.add(P.box(0.2, 0.06, 0.14), { color: CUT.stoneDark }, M.t(x, 0.03, z));
+  b.add(P.box(0.15, 0.46, 0.08), { color: CUT.stone }, M.t(x, 0.27, z));
+  b.add(P.box(0.155, 0.04, 0.085), { color: K.red }, M.t(x, 0.43, z));
+  b.add(P.box(0.16, 0.03, 0.09), { color: CUT.stoneLight }, M.t(x, 0.51, z));
+  for (let k = 0; k < upgrades; k++) b.add(P.cyl(0.035, 0.035, 0.012, 10), { color: K.gold }, M.t(x, 0.13 + k * 0.095, z + 0.044, Math.PI / 2, 0, 0));
+  if (upgrades >= 2) bannerPole(b, -x, z, 1.15);
+  if (upgrades >= 3) {
+    b.add(P.cyl(0.025, 0.035, 0.5, 6), { color: K.timberDark }, M.t(x - 0.26, 0.25, z));
+    torches.push(fireBowl(b, x - 0.26, 0.5, z, 0.8));
+    frettedPot(b, -x + 0.24, 0, z, 0.8);
+  }
+  return { geo: b.build(), torches };
+}
+
+/** The Torch's upgrade: a stone brazier on a stepped plinth with a wide bowl of fire. */
+export function brazierModel(): BuildingModel {
+  const b = new GeoBuilder();
+  b.add(P.box(0.5, 0.1, 0.5), { color: CUT.stoneDark }, M.t(0, 0.05, 0));
+  b.add(P.box(0.36, 0.1, 0.36), { color: CUT.stone }, M.t(0, 0.15, 0));
+  b.add(P.cyl(0.09, 0.12, 0.8, 8), { color: CUT.stone }, M.t(0, 0.6, 0));
+  b.add(P.cyl(0.125, 0.125, 0.05, 8), { color: K.red }, M.t(0, 0.9, 0));
+  b.add(P.cyl(0.26, 0.12, 0.16, 10), { color: c(0x8a7a68) }, M.t(0, 1.06, 0));
+  b.add(P.cyl(0.245, 0.245, 0.012, 10), { color: c(0x2a1c14) }, M.t(0, 1.14, 0));
+  return { finished: b.build(), torches: [new THREE.Vector3(0, 1.2, 0)], height: 1.4 };
+}

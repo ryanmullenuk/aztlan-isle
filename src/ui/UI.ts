@@ -20,6 +20,7 @@ import { JAG_BASE } from '../entities/Jaguars';
 import type { Game } from '../Game';
 import { Building } from '../buildings/Buildings';
 import { HALL, HEAL } from '../buildings/models';
+import { UPGRADES } from '../buildings/Upgrades';
 import { CONDITION_LABEL, ROLE_LABEL, type Islander } from '../entities/Islander';
 import { islanderLine } from './islanderLines';
 import { ISLAND_TYPES, type IslandType } from '../world/generator';
@@ -1724,7 +1725,7 @@ export class UI {
       body += `<div class="kv"><span>Child</span><b>${kid ? kid.name : 'None yet'}</b></div>`;
     }
     const workers = g.colony.list.filter((i) => i.workplace === b.id && b.complete);
-    if (b.complete && b.def.workers) body += `<div class="kv"><span>Workers</span><b>${workers.map((w) => w.name).join(', ') || 'None yet'}</b></div>`;
+    if (b.complete && b.jobs) body += `<div class="kv"><span>Workers</span><b>${workers.map((w) => w.name).join(', ') || 'None yet'}</b></div>`;
     if (b.key === 'market' && b.complete) {
       const stock = Object.entries(b.marketStock).filter(([,n]) => n > 0).map(([k,n]) => `${icon(k)} ${Math.floor(Math.min(n, g.eco.res[k as ResourceKey]))}`).join(' · ');
       body += `<div class="kv"><span>Goods displayed</span><b>${stock || 'Waiting for surplus deliveries'}</b></div><p class="muted small">Market keepers bring surplus from the stores. Visiting canoes offer exchanges at the nearest accessible shore; accept offers here. Displayed goods remain part of your village inventory.</p>`;
@@ -1834,6 +1835,17 @@ export class UI {
       actions += `<button class="btn small" data-a="upgrade" ${up.ok ? '' : 'disabled'} title="${up.reason}">${ICONS.upgrade} ${label} <span class="c">${c.wood ? icon('wood') + c.wood : ''} ${c.stone ? icon('stone') + c.stone : ''} ${c.belief ? icon('belief') + c.belief : ''} ${c.carvedStone ? icon('carvedstone') + c.carvedStone : ''} ${c.food ? icon('grain') + c.food + ' food' : ''}</span></button>`;
     }
     if(!up.ok && up.reason && ['hut','home','temple','stonemason','boatworkshop'].includes(b.key)) actions+=`<p class="muted small">${up.reason}</p>`;
+    const steps = UPGRADES[b.key];
+    if (steps && b.complete) {
+      const done = b.tier - 1, next = steps[done];
+      body += `<div class="sec-h">Upgrades ${done}/${steps.length}</div>` + steps.map((st, k) =>
+        `<div class="kv upg${k < done ? ' done' : ''}"><span>${k < done ? '✓' : k + 1}. ${st.name}</span><b>${st.text}</b></div>`).join('');
+      if (next && !b.upgrading) {
+        const c = up.cost;
+        actions += `<button class="btn small" data-a="upgrade" ${up.ok ? '' : 'disabled'} title="${up.reason}">${ICONS.upgrade} ${next.name} <span class="c">${c.wood ? icon('wood') + c.wood : ''} ${c.stone ? icon('stone') + c.stone : ''} ${c.belief ? icon('belief') + c.belief : ''} ${c.carvedStone ? icon('carvedstone') + c.carvedStone : ''}</span></button>`;
+        if (!up.ok && up.reason) actions += `<p class="muted small">${up.reason}</p>`;
+      }
+    }
     if (b.key === 'jetty' && b.complete) {
       const c = JETTY.boatCost;
       actions += `<button class="btn small" data-a="boat" ${!g.buildings.boatRequirement(1) && b.boats.length + (b.boatBuild > 0 ? 1 : 0) < JETTY.maxBoats && !b.boatBuild && g.eco.canAfford(c) ? '' : 'disabled'}>${ICONS.boat} Build canoe <span class="c">${icon('wood')}${c.wood}</span></button>`;
@@ -1971,7 +1983,9 @@ export class UI {
       if (a === 'upgrade') {
         const nb = g.buildings.upgrade(b);
         if (nb) {
-          if (nb.complete && !nb.upgrading) this.toast(nb.key === 'home' ? `The house is now level ${nb.tier + 1}.` : 'The temple rises a tier.');
+          const step = UPGRADES[b.key]?.[nb.upgrading ? nb.tier - 1 : nb.tier - 2];
+          if (step) this.toast(nb.upgrading ? `Work begins on the ${b.def.name}: ${step.name.toLowerCase()}.` : `${b.def.name}: ${step.name.toLowerCase()} done.`);
+          else if (nb.complete && !nb.upgrading) this.toast(nb.key === 'home' ? `The house is now level ${nb.tier + 1}.` : 'The temple rises a tier.');
           else this.toast(b.key === 'hut' ? 'The hut will be rebuilt as a level 2 Home.' : b.key === 'home' ? `The house is being extended to level ${b.tier + 2}.` : 'Temple upgrade started.');
           if (nb !== b) g.select({ building: nb.id });
         }

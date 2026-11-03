@@ -1,5 +1,6 @@
 import { needsStonemason, type BuildingKey } from '../config';
 import type { Building } from '../buildings/Buildings';
+import { hasUpgradePath, UPGRADE_STAGE } from '../buildings/Upgrades';
 
 export const STAGES=['First landing','Small settlement','Skilled village','Healthy village','Community','Worship','Prosperity','Monumental settlement'] as const;
 /** What the settlement is called at each stage, shown beside the island's name as it grows. */
@@ -59,7 +60,7 @@ export class Progression {
  requirement(key:BuildingKey){if(this.state().sandbox)return '';const stage=BUILD_STAGE[key]??1;if(stage<=this.stage)return '';return `${STAGES[stage-1]}: ${this.missing(stage).join(' · ')}`;}
  upgradeRequirement(b:Building){
   if(this.state().sandbox || (b.key==='stonemason'&&b.tier>=4) || (b.key==='temple'&&b.tier>=3) || (b.key==='home'&&b.tier>=4))return '';
-  const stage=b.key==='boatworkshop'?(b.tier===1?3:b.tier===2?7:1):b.key==='stonemason'?b.tier+5:b.key==='temple'?7:b.key==='home'?Math.min(7,b.tier+4):b.key==='hut'?3:1;
+  const stage=hasUpgradePath(b.key)?UPGRADE_STAGE[b.tier-1]??1:b.key==='boatworkshop'?(b.tier===1?3:b.tier===2?7:1):b.key==='stonemason'?b.tier+5:b.key==='temple'?7:b.key==='home'?Math.min(7,b.tier+4):b.key==='hut'?3:1;
   return stage<=this.stage?'':`${STAGES[stage-1]}: ${this.missing(stage).join(' · ')}`;
  }
  get summary(){if(this.state().sandbox)return 'Sandbox · All buildings unlocked';const s=this.stage;return `${STAGES[s-1]}${s<TOP_STAGE?' → '+(STAGES as readonly string[])[s]+': '+this.missing(s+1).join(' · '):' · All settlement stages earned'}`;}

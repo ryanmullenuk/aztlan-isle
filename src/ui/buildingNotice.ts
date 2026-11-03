@@ -1,3 +1,4 @@
+import { UPGRADES } from '../buildings/Upgrades';
 import { BOAT_WORKSHOP, BUILDINGS, ECONOMY, HOMES, STONEMASON, TEMPLE, type BuildingKey } from '../config';
 
 /** What a completion banner says: its heading, the building line and the benefit gained (if any). */
@@ -54,6 +55,8 @@ export function buildingNotice(b: FinishedBuilding): BuildingNoticeText {
   if (upgrade) {
     const to = b.tier, from = b.lastWork.fromTier;
     let benefit: string | null = null;
+    const step = UPGRADES[b.key]?.[to - 2];
+    if (step) return { title: 'Upgrade Complete', line: `${def.name}: ${step.name}`, benefit: step.text };
     if (b.key === 'home') benefit = `+${HOMES.housing[to - 1] - HOMES.housing[from - 1]} Islander Capacity`;
     else if (b.key === 'temple') benefit = `+${ECONOMY.beliefCapPerTempleTier} Belief Capacity`;
     else if (b.key === 'stonemason') benefit = `${STONEMASON.upgrades[to - 2]?.unlock ?? 'New work'} unlocked`;

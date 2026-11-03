@@ -14,6 +14,7 @@ import { Vegetation } from '../vegetation/Vegetation';
 import { World } from '../world/World';
 import { RNG } from '../world/rng';
 import * as models from './models';
+import { hasUpgradePath, nextUpgrade, upgrades, upgradeSum } from './Upgrades';
 
 /** Flame size per building; fires are visible only from dusk until dawn. */
 /** Triangles smaller than this (m²) are left out of a building's far-away model. */
@@ -189,7 +190,12 @@ export class Building {
   get housing(): number {
     if (!buildingSafe(this)) return 0;
     if (this.key === 'home') return HOMES.housing[Math.min(HOMES.housing.length, this.tier) - 1];
-    return this.def.housing ?? 0;
+    return (this.def.housing ?? 0) + upgradeSum(this, 'housing');
+  }
+
+  /** Jobs once complete, upgrades included. */
+  get jobs(): number {
+    return this.def.workers + upgradeSum(this, 'workers');
   }
 
   /** House level shown to the player (hut = 1, home tiers = 2–5). */
@@ -198,6 +204,7 @@ export class Building {
   }
 
   get label(): string {
+    if (hasUpgradePath(this.key) && this.tier > 1) return `${this.def.name} (level ${this.tier})`;
     if (this.key === 'temple') return this.tier === 3 ? 'Great Pyramid' : `Temple (tier ${this.tier})`;
     if (this.key === 'home') return `Home (level ${this.tier + 1})`;
     if (this.key === 'hut') return 'Hut (level 1)';
@@ -393,6 +400,7 @@ function setGlow(b: Building, windows: models.Glow[] | undefined): void {
 
 /** Seconds of work the current build (or upgrade) takes in all. */
 function buildSeconds(b: Building): number {
+  if (b.upgrading && hasUpgradePath(b.key)) return nextUpgrade(b)?.time ?? b.def.buildTime;
   return b.upgrading ? (b.key === 'boatworkshop' ? (BOAT_WORKSHOP.upgrades[b.tier-1]?.time ?? b.def.buildTime) : b.key === 'stonemason' ? (STONEMASON.upgrades[b.tier - 1]?.time ?? b.def.buildTime) : b.key === 'home' ? HOMES.upgradeTime[b.tier + 1] : TEMPLE.upgradeTime[b.tier + 1]) : b.def.buildTime;
 }
 
@@ -927,6 +935,12 @@ export class BuildingSystem {
       if (!next) return { ok: false, reason: 'Fully upgraded', cost: { wood: 0, stone: 0, belief: 0 } };
       return this.eco.canAfford(next.cost) ? { ok: true, reason: '', cost: next.cost } : { ok: false, reason: b.key==='boatworkshop'?'Not enough wood, stone, food or Belief':'Not enough wood, stone or food', cost: next.cost };
     }
+    if (hasUpgradePath(b.key)) {
+      const next = nextUpgrade(b);
+      if (!next) return { ok: false, reason: 'Fully upgraded', cost: { wood: 0, stone: 0, belief: 0 } };
+      if (!this.eco.godMode && next.cost.carvedStone && !(this.earnedWorkshopTier?.() || this.list.some(x => x.key === 'stonemason' && x.complete))) return { ok: false, reason: 'Complete a Stonemason’s Workshop first', cost: next.cost };
+      return this.eco.canAfford(next.cost) ? { ok: true, reason: '', cost: next.cost } : { ok: false, reason: 'Not enough resources', cost: next.cost };
+    }
     if (!this.eco.godMode && !(this.earnedWorkshopTier?.() || this.list.some(x => x.key === 'stonemason' && x.complete))) return { ok: false, reason: 'Complete a Stonemason’s Workshop first', cost: { wood: 0, stone: 0, belief: 0 } };
     if (b.key === 'temple') {
       if (b.tier >= (b.def.maxTier ?? 1)) return { ok: false, reason: 'Already the Great Pyramid', cost: { wood: 0, stone: 0, belief: 0 } };
@@ -957,7 +971,7 @@ export class BuildingSystem {
   upgrade(b: Building): Building | null {
     const chk = this.canUpgrade(b);
     if (!chk.ok) return null;
-    if (b.key === 'temple' || b.key === 'home' || b.key === 'stonemason' || b.key === 'boatworkshop') {
+    if (b.key === 'temple' || b.key === 'home' || b.key === 'stonemason' || b.key === 'boatworkshop' || hasUpgradePath(b.key)) {
       this.eco.spend(chk.cost);
       b.upgrading = true;
       b.progress = 0;
@@ -1089,7 +1103,21 @@ export class BuildingSystem {
   }
 
   private modelFor(b: Building): models.BuildingModel {
-    return models.collectGlows(() => this.modelOf(b));
+    const model = models.collectGlows(() => this.modelOf(b));
+    const n = upgrades(b);
+    if (n > 0 && b.key !== 'torch') {
+      // Upgrades show by the front corners: a marker with a gold disc for each, a banner, a fire.
+      const extra = models.upgradeDressing(b.def.size[0], b.def.size[1], n);
+      const merged = mergeGeometries([model.finished, extra.geo]);
+      if (merged) {
+        merged.userData = model.finished.userData;
+        model.finished.dispose();
+        model.finished = merged;
+        model.torches.push(...extra.torches);
+      }
+      extra.geo.dispose();
+    }
+    return model;
   }
 
   private modelOf(b: Building): models.BuildingModel {
@@ -1104,7 +1132,7 @@ export class BuildingSystem {
       case 'maizefarm': return models.farmModel(sw, sd, 'maize');
       case 'chinampa': return models.chinampaModel(sw, sd);
       case 'smokehouse': return models.smokehouseModel(sw, sd);
-      case 'torch': return models.torchModel();
+      case 'torch': return b.tier > 1 ? models.brazierModel() : models.torchModel();
       case 'bonfire': return models.bonfireModel();
       case 'firepit': return models.firepitModel();
       case 'kennel': return models.kennelModel();
@@ -1440,8 +1468,8 @@ export class BuildingSystem {
         wood += ECONOMY.baseWoodCap;
         food += ECONOMY.baseFoodCap;
       }
-      wood += b.def.woodCap ?? 0;
-      food += b.def.foodCap ?? 0;
+      wood += (b.def.woodCap ?? 0) + upgradeSum(b, 'woodCap');
+      food += (b.def.foodCap ?? 0) + upgradeSum(b, 'foodCap');
       if (b.key === 'temple') tiers += b.tier;
       if (b.key === 'greattemple') tiers += TEMPLE.greatBeliefCapTiers;
     }
