@@ -1171,7 +1171,7 @@ export class BuildingSystem {
     if (n > 0 && b.key !== 'torch') {
       // Each upgrade adds what it says (see looks/); a building without looks of its own shows a
       // marker by its front corner with a gold disc for each upgrade, a banner and a fire.
-      const extra = upgradeLooks(b.key, n, b.def.size[0], b.def.size[1]) ?? models.upgradeDressing(b.def.size[0], b.def.size[1], n);
+      const extra = upgradeLooks(b.key, n, b.def.size[0], b.def.size[1], b.y) ?? models.upgradeDressing(b.def.size[0], b.def.size[1], n);
       const merged = mergeGeometries([model.finished, extra.geo]);
       if (merged) {
         merged.userData = model.finished.userData;

@@ -13,11 +13,11 @@ import { SAFETY_LOOKS } from './safety';
 export const LOOKS: Looks = { ...FOOD_LOOKS, ...VILLAGE_LOOKS, ...SAFETY_LOOKS };
 
 /** The looks of a building's first `n` upgrades, or null when it has none of its own. */
-export function upgradeLooks(key: BuildingKey, n: number, w: number, d: number): { geo: THREE.BufferGeometry; torches: THREE.Vector3[] } | null {
+export function upgradeLooks(key: BuildingKey, n: number, w: number, d: number, landY?: number): { geo: THREE.BufferGeometry; torches: THREE.Vector3[] } | null {
   const looks = LOOKS[key];
   if (!looks?.length || n <= 0) return null;
   const b = new GeoBuilder(), torches: THREE.Vector3[] = [];
-  for (let k = 0; k < Math.min(n, looks.length); k++) looks[k](b, w, d, torches);
+  for (let k = 0; k < Math.min(n, looks.length); k++) looks[k](b, w, d, torches, landY);
   if (!b.vertexCount) return null;
   return { geo: b.build(), torches };
 }

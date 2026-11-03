@@ -4,9 +4,10 @@ import type { GeoBuilder } from '../../render/GeoBuilder';
 /**
  * What one upgrade adds to a building's model: drawn into the model's own builder (model-local,
  * door facing +z, footprint w × d centred on the origin, ground at y = 0). Push any new flames
- * (fire bowls, torches, lanterns) onto `torches`.
+ * (fire bowls, torches, lanterns) onto `torches`. `landY` is the building's ground height, for the
+ * parts that reach to the water (pier decks, stilt huts).
  */
-export type Look = (b: GeoBuilder, w: number, d: number, torches: THREE.Vector3[]) => void;
+export type Look = (b: GeoBuilder, w: number, d: number, torches: THREE.Vector3[], landY?: number) => void;
 
 /** Per building, one look for each of its upgrades in order (index 0 = the first upgrade). */
 export type Looks = Partial<Record<import('../../config').BuildingKey, Look[]>>;
