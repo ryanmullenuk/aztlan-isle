@@ -605,6 +605,8 @@ export class Game {
     ];
     this.tubeCoral = new TubeCoral(this.world, seaRocks);
     this.scene.add(this.tubeCoral.group);
+    // The sea stacks and arch block their cells now: clear the seabed decoration from under them.
+    this.wildlife.seabed.refresh(0, 0, this.world.N - 1, this.world.N - 1);
     this.sculptor.onTerrainChanged=(x0,z0,x1,z1)=>this.refreshHabitats(x0,z0,x1,z1);
     this.water.updateHeight(0, 0, this.world.N - 1, this.world.N - 1);
     for (const site of this.seaArch.surfSites()) this.seaStacks.addSurf(site);
@@ -1212,6 +1214,7 @@ export class Game {
     this.holdTime();
     if (this.preset !== s.preset) this.setPreset(s.preset);
     this.wildlife?.coral.setPreset(this.preset);
+    this.wildlife?.seabed.setPreset(this.preset);
     this.tubeCoral?.setPreset(this.preset);
     const ultra = this.preset === 'ultra';
     this.veg.ultra = ultra;
@@ -1584,8 +1587,9 @@ export class Game {
   }
   private refreshHabitats(x0:number,z0:number,x1:number,z1:number):void{
     this.wildlife.coral.refresh(x0,z0,x1,z1);
+    this.wildlife.seabed.refresh(x0,z0,x1,z1);
     this.tubeCoral.refresh(x0,z0,x1,z1);
-    this.wildlife.reef.setHabitats(this.wildlife.coral.hotspots());
+    this.wildlife.reef.setHabitats(this.wildlife.reefHotspots());
     this.wildlife.reef.refreshTerrain(x0,z0,x1,z1);
   }
 
@@ -3169,6 +3173,7 @@ export class Game {
     this.terrain.setDetail(this.rig.cur.dist);
     this.smallShadows(this.rig.cur.dist);
     this.wildlife.coral.cull(this.rig.camera.position);
+    this.wildlife.seabed.cull(this.rig.camera.position);
     this.tubeCoral.cull(this.rig.camera.position);
     this.breeze.update(realDt, this.rig.target, this.rig.viewRadius);
     // Volcano warnings use unpaused real play time, even at increased game speed.

@@ -58,7 +58,7 @@ test('the platform must stand with its back to the sea', () => {
   // Land at z < 60, sea beyond; the door faces +z at rot 0, so its back is toward -z.
   const N = 100, layer = new Int8Array(N * N);
   for (let z = 0; z < N; z++) for (let x = 0; x < N; x++) layer[z * N + x] = z >= 60 ? 1 : 0;
-  const sys = Object.assign(Object.create(BuildingSystem.prototype), { world: { inBounds: (x: number, z: number) => x >= 0 && z >= 0 && x < N && z < N, idx: (x: number, z: number) => z * N + x, layer } });
+  const sys = Object.assign(Object.create(BuildingSystem.prototype), { world: { inBounds: (x: number, z: number) => x >= 0 && z >= 0 && x < N && z < N, idx: (x: number, z: number) => z * N + x, layer, isSea: (i: number) => layer[i] <= 0 } });
   assert.ok(sys.seaBehind(40, 61, 6, 6, 0), 'arch toward the water');
   assert.ok(!sys.seaBehind(40, 61, 6, 6, 2), 'arch toward the land');
   assert.ok(!sys.seaBehind(40, 75, 6, 6, 0), 'too far inland');

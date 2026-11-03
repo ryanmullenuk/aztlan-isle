@@ -708,7 +708,7 @@ export class BuildingSystem {
     return !!W.occ[i] || W.layer[i] !== layer || !Number.isNaN(W.riverY[i]);
   }
 
-  /** The sea within a few paces behind a footprint (the side away from its door), along most of that edge. */
+  /** The open sea (not an inland lake) within a few paces behind a footprint (the side away from its door), along most of that edge. */
   seaBehind(cx: number, cz: number, w: number, d: number, rot: number): boolean {
     const [fx, fz] = ROT_DIR[rot], W = this.world;
     // The back edge's cells, and the way out from it.
@@ -719,7 +719,7 @@ export class BuildingSystem {
     for (const [x, z] of edge) {
       for (let k = 1; k <= 4; k++) {
         const nx = x - fx * k, nz = z - fz * k;
-        if (W.inBounds(nx, nz) && W.layer[W.idx(nx, nz)] <= 0) { wet++; break; }
+        if (W.inBounds(nx, nz) && W.isSea(W.idx(nx, nz))) { wet++; break; }
       }
     }
     return wet >= Math.ceil(edge.length * 0.6);

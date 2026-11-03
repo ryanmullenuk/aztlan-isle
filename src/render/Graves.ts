@@ -10,25 +10,33 @@ export interface Grave { name: string; x: number; z: number; y: number; yaw: num
 const MAX = 64;
 
 /**
- * One grave: a low earth mound with a carved stone at its head and a few marigolds (the flowers
- * of the dead), in the faceted style of the island. Model units, about a body's length.
+ * One grave: a raised mound of earth filling its plot, a pale headstone at its head carved with a
+ * square spiral, and flowers (marigolds and the odd red and pink bloom) along its sides, in the
+ * faceted style of the island. Model units, about a body's length.
  */
 function graveGeometry(): THREE.BufferGeometry {
   const b = new GeoBuilder();
-  const earth = 0x6b4a32, stone = 0x9a958a, dark = 0x7d786e, petal = 0xf0a020, leaf = 0x4f7a32;
+  const earth = 0x6b4a32, earthTop = 0x7d5838, stone = 0xc9c2b2, carve = 0x8e877a, leaf = 0x4f7a32;
   const box = (w: number, h: number, d: number, x: number, y: number, z: number, color: number) =>
     b.add(P.box(w, h, d), { color, facet: true }, M.t(x, y, z));
-  // The mound: a long, low rounded heap.
-  b.add(P.sphere(0.5, 1), { color: earth, facet: true }, M.t(0, 0, -0.04, 0, 0, 0, 0.26, 0.12, 0.42));
-  // The headstone: a slab with a stepped top, and its carved face.
-  box(0.34, 0.34, 0.12, 0, 0.17, 0.3, stone);
-  box(0.24, 0.07, 0.12, 0, 0.37, 0.3, stone);
-  box(0.18, 0.13, 0.012, 0, 0.19, 0.239, dark);
-  // Marigolds on the mound.
-  for (const [x, z] of [[-0.08, 0.06], [0.07, -0.05], [0.0, -0.18], [0.09, 0.12]] as const) {
-    box(0.02, 0.07, 0.02, x, 0.12, z, leaf);
-    box(0.06, 0.03, 0.06, x, 0.17, z, petal);
+  // The mound: a heap squared off by the kerb, rounded on top.
+  box(0.56, 0.08, 0.74, 0, 0.04, -0.06, earth);
+  b.add(P.sphere(0.5, 1), { color: earthTop, facet: true }, M.t(0, 0.07, -0.06, 0, 0, 0, 0.27, 0.09, 0.36));
+  // The headstone: a slab with a stepped top, a square spiral cut in its face.
+  box(0.32, 0.36, 0.1, 0, 0.18, 0.3, stone);
+  box(0.22, 0.07, 0.1, 0, 0.39, 0.3, stone);
+  box(0.36, 0.05, 0.14, 0, 0.025, 0.3, 0xb3ac9c);
+  const fz = 0.244;
+  for (const [w, h, x, y] of [[0.2, 0.02, 0, 0.29], [0.02, 0.2, -0.09, 0.2], [0.18, 0.02, -0.01, 0.11], [0.02, 0.14, 0.08, 0.17], [0.12, 0.02, 0.03, 0.23], [0.02, 0.07, -0.02, 0.2]] as const) {
+    box(w, h, 0.012, x, y, fz, carve);
   }
+  // Flowers along both sides of the mound.
+  const petals = [0xf0a020, 0xd8322a, 0xf2a6c8, 0xf0a020];
+  [[-0.24, 0.12], [0.24, -0.02], [-0.22, -0.22], [0.23, 0.16], [0.0, -0.36]].forEach(([x, z], k) => {
+    box(0.02, 0.08, 0.02, x, 0.1, z, leaf);
+    box(0.07, 0.015, 0.03, x, 0.08, z, leaf);
+    box(0.06, 0.03, 0.06, x, 0.15, z, petals[k % 4]);
+  });
   return b.build();
 }
 

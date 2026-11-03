@@ -4849,6 +4849,90 @@ export function brazierModel(): BuildingModel {
   return { finished: b.build(), torches: [new THREE.Vector3(0, 1.2, 0)], height: 1.4 };
 }
 
+// ---------------- Laid sandstone (ceremonial platform and graveyard) ----------------
+
+/** Sandstone block shades, the mortar behind them and the cream of the painted key pattern. */
+const SAND = [c(0xe4cfa6), c(0xd8c095), c(0xceb58a), c(0xeadab6)];
+const SAND_MORTAR = c(0xa48d6c), CREAM = c(0xefdfb8);
+
+/**
+ * A wall of laid sandstone blocks from (x0, z0) to (x1, z1): staggered courses over a mortar core,
+ * then a red course painted with the key pattern on both faces, more blocks, and capping stones.
+ * Returns the height of its top.
+ */
+function blockWall(b: GeoBuilder, x0: number, z0: number, x1: number, z1: number, rng: RNG, t = 0.26, below = 2, above = 1): number {
+  const ch = 0.15, bh = 0.14, len = Math.hypot(x1 - x0, z1 - z0);
+  const m = M.t((x0 + x1) / 2, 0, (z0 + z1) / 2, 0, Math.atan2(x1 - x0, z1 - z0) - Math.PI / 2, 0);
+  const H = (below + above) * ch + bh;
+  b.add(P.box(len - 0.03, H, t - 0.04), { color: SAND_MORTAR }, m.clone().multiply(M.t(0, H / 2, 0)));
+  let y = 0;
+  const course = (k: number) => {
+    let x = -len / 2, first = k % 2 ? 0.2 : 0;
+    while (x < len / 2 - 0.03) {
+      const L = Math.min(first || rng.range(0.3, 0.44), len / 2 - x);
+      first = 0;
+      b.add(P.box(L - 0.014, ch - 0.012, t + 0.02), { color: SAND[rng.int(0, 3)] }, m.clone().multiply(M.t(x + L / 2, y + ch / 2, 0)));
+      x += L;
+    }
+    y += ch;
+  };
+  for (let k = 0; k < below; k++) course(k);
+  b.add(P.box(len - 0.004, bh - 0.012, t), { color: K.red }, m.clone().multiply(M.t(0, y + bh / 2, 0)));
+  for (const f of [1, -1]) fretBand(b, m.clone().multiply(M.t(0, y + bh / 2, f * (t / 2 + 0.008))).multiply(M.t(0, 0, 0, 0, f > 0 ? 0 : Math.PI, 0)), len - 0.08, bh - 0.04, K.red, CREAM);
+  y += bh;
+  for (let k = 0; k < above; k++) course(k + below);
+  // Capping stones, a little proud of the faces.
+  let x = -len / 2;
+  while (x < len / 2 - 0.03) {
+    const L = Math.min(rng.range(0.45, 0.6), len / 2 - x);
+    b.add(P.box(L - 0.012, 0.07, t + 0.07), { color: SAND[3].clone().lerp(SAND[rng.int(0, 2)], 0.4) }, m.clone().multiply(M.t(x + L / 2, y + 0.035, 0)));
+    x += L;
+  }
+  return y + 0.07;
+}
+
+/** A square pillar of stacked blocks with a red band near the top and a capstone, `h` tall. */
+function blockPillar(b: GeoBuilder, x: number, z: number, h: number, w: number, rng: RNG, cap: THREE.Color | null = c(0x8a4a2c)): number {
+  const ch = 0.17, n = Math.max(2, Math.round((h - 0.2) / ch));
+  b.add(P.box(w - 0.05, h, w - 0.05), { color: SAND_MORTAR }, M.t(x, h / 2, z));
+  for (let k = 0; k < n; k++) {
+    const y = k * ch, red = k === n - 2;
+    b.add(P.box(w - (k % 2 ? 0.02 : 0), ch - 0.014, w - (k % 2 ? 0 : 0.02)), { color: red ? K.red : SAND[rng.int(0, 3)] }, M.t(x, y + ch / 2, z));
+  }
+  const top = n * ch;
+  b.add(P.box(w + 0.07, 0.08, w + 0.07), { color: SAND[3] }, M.t(x, top + 0.04, z));
+  if (!cap) return top + 0.08;
+  b.add(P.box(w * 0.5, 0.1, w * 0.5), { color: cap }, M.t(x, top + 0.13, z));
+  return top + 0.18;
+}
+
+/** A golden sun disc with a darker eye and rays, facing along the frame's +z, `r` to the ray tips. */
+function goldSun(b: GeoBuilder, m: THREE.Matrix4, r: number, rays = 12): void {
+  b.add(P.cyl(r * 0.62, r * 0.62, 0.06, 20), { color: K.gold }, m.clone().multiply(M.t(0, 0, 0, Math.PI / 2, 0, 0)));
+  b.add(P.cyl(r * 0.36, r * 0.36, 0.05, 16), { color: c(0xe7a52a) }, m.clone().multiply(M.t(0, 0, 0.012, Math.PI / 2, 0, 0)));
+  b.add(P.cyl(r * 0.14, r * 0.14, 0.04, 10), { color: c(0xc07a1a) }, m.clone().multiply(M.t(0, 0, 0.026, Math.PI / 2, 0, 0)));
+  for (let k = 0; k < rays; k++) {
+    const a = (k / rays) * Math.PI * 2, len = k % 2 ? r * 0.36 : r * 0.48;
+    b.add(P.cone(r * 0.16, len, 4), { color: K.gold }, m.clone().multiply(M.t(Math.sin(a) * (r * 0.62 + len * 0.42), Math.cos(a) * (r * 0.62 + len * 0.42), 0, 0, 0, -a, 1, 1, 0.45)));
+  }
+}
+
+/** Irregular flagstones over a mortar bed: rows of two or three stones of varied widths. */
+function pathStones(b: GeoBuilder, x0: number, x1: number, z0: number, z1: number, y: number, rng: RNG): void {
+  b.add(P.box(x1 - x0, 0.012, z1 - z0), { color: CUT.mortar }, M.t((x0 + x1) / 2, y + 0.006, (z0 + z1) / 2));
+  const shades = [c(0xd6c3a0), c(0xc9b48f), c(0xe0d0b0), c(0xbfa983)];
+  for (let z = z0; z < z1 - 0.05;) {
+    const dz = Math.min(rng.range(0.26, 0.4), z1 - z), n = rng.int(2, 3);
+    let x = x0;
+    for (let k = 0; k < n; k++) {
+      const dx = k === n - 1 ? x1 - x : (x1 - x0) / n * rng.range(0.75, 1.25);
+      b.add(P.plane(dx - 0.024, dz - 0.024), { color: shades[rng.int(0, 3)] }, M.t(x + dx / 2, y + 0.018 + rng.int(0, 2) * 0.002, z + dz / 2, -Math.PI / 2, 0, 0));
+      x += dx;
+    }
+    z += dz;
+  }
+}
+
 // ---------------- Ceremonial platform ----------------
 
 /** The wedding deck: its height and where the couple, the priest and the guests stand (model-local, door +z). */
@@ -4864,80 +4948,113 @@ export const CEREMONY = {
 };
 
 /**
- * Ceremonial platform: a wooden deck on the beach facing out to sea, reached by steps from the
- * land (+z). Benches line a red-and-cream aisle runner strewn with petals up to a round dais under
- * a timber archway at the seaward end, carved with a golden sun and hung with white drapes and
- * garlands of hibiscus. Flower pots, rope rails and fire bowls at the corners.
+ * Ceremonial platform: a paved sandstone platform by the sea, its plinth laid in blocks with red
+ * key-pattern panels, reached by stone steps from the land (+z). A red carpet with a golden sun
+ * runs between painted benches to a round dais carved with a spiral, under a stone archway hung
+ * with sun banners and garlands of hibiscus and crowned with a golden sun. Fire bowls burn on
+ * pedestals at the corners; rope rails run between wooden posts; pots of flowers flank the dais.
  */
 export function ceremonyModel(w: number, d: number): BuildingModel {
-  const b = new GeoBuilder(), torches: THREE.Vector3[] = [];
+  const b = new GeoBuilder(), torches: THREE.Vector3[] = [], rng = new RNG(311);
   const hw = w / 2 - 0.1, hd = d / 2 - 0.1, D = CEREMONY.deck;
-  const plank = [c(0x9a6f45), c(0x8a6038), c(0xa77a4c)];
-  // Bearers and joists under the deck, then the planks (running seaward, a hair apart).
-  for (const x of [-hw + 0.2, -hw / 3, hw / 3, hw - 0.2]) b.add(P.box(0.16, D - 0.03, 2 * hd), { color: K.timberDark }, M.t(x, (D - 0.03) / 2, 0));
-  const n = 13, pw = (2 * hw) / n;
-  for (let k = 0; k < n; k++) b.add(P.box(pw - 0.012, 0.03, 2 * hd), { color: plank[k % 3] }, M.t(-hw + pw * (k + 0.5), D - 0.015, 0));
-  b.add(P.box(2 * hw + 0.06, 0.05, 0.08), { color: K.timberDark }, M.t(0, D - 0.013, hd + 0.02));
-  b.add(P.box(2 * hw + 0.06, 0.05, 0.08), { color: K.timberDark }, M.t(0, D - 0.013, -hd - 0.02));
-  // Steps up from the land.
-  for (let k = 0; k < 2; k++) b.add(P.box(1.4, D * (k + 1) / 3, 0.22), { color: plank[k] }, M.t(0, D * (k + 1) / 6, hd + 0.33 - k * 0.2));
-  // The aisle runner: red with a cream fret border, strewn with petals.
+  // The plinth: laid blocks round the edge (sunk a little so the slope never shows under it), the
+  // key pattern painted along the sides and back.
+  b.add(P.box(2 * hw - 0.1, D + 0.005, 2 * hd - 0.1), { color: SAND_MORTAR }, M.t(0, (D - 0.075) / 2, 0));
+  const skirt = (x0: number, z0: number, x1: number, z1: number, fret: boolean) => {
+    const len = Math.hypot(x1 - x0, z1 - z0), m = M.t((x0 + x1) / 2, 0, (z0 + z1) / 2, 0, Math.atan2(x1 - x0, z1 - z0) - Math.PI / 2, 0);
+    let x = -len / 2;
+    while (x < len / 2 - 0.03) {
+      const L = Math.min(rng.range(0.34, 0.5), len / 2 - x);
+      b.add(P.box(L - 0.014, D + 0.07, 0.2), { color: SAND[rng.int(0, 3)] }, m.clone().multiply(M.t(x + L / 2, (D + 0.07) / 2 - 0.06, 0)));
+      x += L;
+    }
+    if (fret) fretBand(b, m.clone().multiply(M.t(0, D * 0.45, -0.108)).multiply(M.t(0, 0, 0, 0, Math.PI, 0)), len - 0.5, 0.07, K.red, CREAM);
+  };
+  skirt(-hw, -hd, hw, -hd, true);
+  skirt(hw, -hd + 0.2, hw, hd - 0.2, true);
+  skirt(-hw, hd - 0.2, -hw, -hd + 0.2, true);
+  skirt(hw, hd, 0.85, hd, false);
+  skirt(-0.85, hd, -hw, hd, false);
+  // The paving.
+  const pave = [c(0xd2c4a8), c(0xc4b496), c(0xdccfb4), c(0xbcaa8a)];
+  flagstones(b, -hw + 0.1, -hd + 0.1, Math.round((2 * hw - 0.2) / 0.48), Math.round((2 * hd - 0.2) / 0.48), (2 * hw - 0.2) / Math.round((2 * hw - 0.2) / 0.48), D - 0.03, (i, j) => pave[(i * 7 + j * 3 + ((i * j) % 5)) % 4]);
   const top = D + 0.004;
-  b.add(P.box(0.82, 0.008, 2 * hd - 1.6), { color: c(0xefdfb8) }, M.t(0, top, 0.55));
-  b.add(P.box(0.66, 0.008, 2 * hd - 1.7), { color: c(0xb23a2c) }, M.t(0, top + 0.01, 0.55));
-  for (let k = 0; k < 7; k++) b.add(P.box(0.3, 0.006, 0.12), { color: c(0xefdfb8) }, M.t(0, top + 0.016, 2.2 - k * 0.55));
-  const rng = new RNG(77);
-  for (let k = 0; k < 40; k++) b.add(P.box(0.035, 0.004, 0.035), { color: c(rng.next() < 0.7 ? 0xd72a26 : 0xf0a020) }, M.t(rng.range(-0.9, 0.9), top + 0.024, rng.range(-1.8, 2.4), 0, rng.range(0, 3), 0));
-  // Benches either side of the aisle, facing the arch.
+  // Steps up from the land.
+  for (let k = 0; k < 2; k++) {
+    const sh = D * (2 - k) / 3 + 0.03;
+    b.add(P.box(1.6, sh, 0.24), { color: SAND[k + 1] }, M.t(0, sh / 2 - 0.03 - k * 0.01, hd + 0.13 + k * 0.22));
+  }
+  // The red carpet: a cream fret border, a golden sun at its heart.
+  const cz0 = -hd + 1.75, cz1 = hd - 0.05, cl = cz1 - cz0, cm = (cz0 + cz1) / 2;
+  b.add(P.box(0.96, 0.01, cl), { color: c(0xd6a640) }, M.t(0, top + 0.005, cm));
+  b.add(P.box(0.86, 0.01, cl - 0.06), { color: c(0xb23a2c) }, M.t(0, top + 0.012, cm));
+  for (const s of [-1, 1]) fretBand(b, M.t(s * 0.36, top + 0.018, cm, -Math.PI / 2, 0, s > 0 ? Math.PI / 2 : -Math.PI / 2), cl - 0.2, 0.08, c(0xb23a2c), c(0xe9c46a));
+  const sun = M.t(0, top + 0.02, cm + 0.2, -Math.PI / 2, 0, 0);
+  b.add(P.cyl(0.2, 0.2, 0.004, 16), { color: c(0xe9c46a) }, sun.clone().multiply(M.t(0, 0, 0, Math.PI / 2, 0, 0)));
+  b.add(P.cyl(0.11, 0.11, 0.006, 14), { color: c(0xb23a2c) }, sun.clone().multiply(M.t(0, 0, 0.002, Math.PI / 2, 0, 0)));
+  b.add(P.cyl(0.06, 0.06, 0.008, 10), { color: c(0xe9c46a) }, sun.clone().multiply(M.t(0, 0, 0.004, Math.PI / 2, 0, 0)));
+  for (let k = 0; k < 12; k++) {
+    const a = (k / 12) * Math.PI * 2;
+    b.add(P.plane(0.05, 0.12), { color: c(0xe9c46a) }, sun.clone().multiply(M.t(Math.sin(a) * 0.27, Math.cos(a) * 0.27, 0.002, 0, 0, -a)));
+  }
+  // Benches either side of the aisle, facing the arch: a plank seat on red aprons painted with the key.
   for (const z of [1.6, 0.85, 0.1]) for (const s of [-1, 1]) {
     const x = s * 1.65;
-    b.add(P.box(1.5, 0.05, 0.26), { color: K.timber }, M.t(x, D + 0.24, z));
-    b.add(P.box(1.5, 0.22, 0.05), { color: K.timberDark }, M.t(x, D + 0.38, z + 0.13));
-    fretBand(b, M.t(x, D + 0.38, z + 0.158), 1.3, 0.1, K.red, c(0xefdfb8));
-    for (const lx of [-0.65, 0.65]) b.add(P.box(0.06, 0.22, 0.2), { color: K.timberDark }, M.t(x + lx, D + 0.11, z));
+    b.add(P.box(1.45, 0.06, 0.3), { color: K.timber }, M.t(x, D + 0.25, z));
+    b.add(P.box(1.45, 0.012, 0.02), { color: K.timberDark }, M.t(x, D + 0.284, z));
+    for (const f of [1, -1]) {
+      b.add(P.box(1.3, 0.14, 0.04), { color: K.red }, M.t(x, D + 0.15, z + f * 0.1));
+      fretBand(b, M.t(x, D + 0.15, z + f * 0.128).multiply(M.t(0, 0, 0, 0, f > 0 ? 0 : Math.PI, 0)), 1.2, 0.09, K.red, CREAM);
+    }
+    for (const lx of [-0.66, 0.66]) b.add(P.box(0.08, 0.2, 0.25), { color: K.timberDark }, M.t(x + lx, D + 0.1, z));
   }
-  // The dais and the archway at the seaward end.
-  const az = -hd + 0.55;
-  b.add(P.cyl(1.0, 1.05, 0.08, 24), { color: c(0xb08454) }, M.t(0, D + 0.04, az + 0.25));
-  b.add(P.cyl(1.0, 1.0, 0.012, 24), { color: c(0xd9b07c) }, M.t(0, D + 0.086, az + 0.25));
+  // The dais: two round tiers, a spiral of rings carved into the top.
+  const az = -hd + 0.55, dz = az + 0.3;
+  b.add(P.cyl(1.05, 1.1, 0.08, 28), { color: SAND[2] }, M.t(0, D + 0.04, dz));
+  b.add(P.cyl(0.95, 0.95, 0.05, 28), { color: SAND[3] }, M.t(0, D + 0.105, dz));
+  [0.78, 0.6, 0.42, 0.24].forEach((r, k) => b.add(P.cyl(r, r, 0.004, 24), { color: k % 2 ? SAND[3] : c(0xbca37c) }, M.t(0, D + 0.132 + k * 0.006, dz)));
+  b.add(P.cyl(0.08, 0.08, 0.004, 10), { color: c(0xbca37c) }, M.t(0, D + 0.158, dz));
+  // The archway: block posts, a lintel with a red key band, garlands, banners and the sun.
   for (const s of [-1, 1]) {
     const x = s * 1.15;
-    b.add(P.box(0.26, 0.12, 0.26), { color: CUT.stone }, M.t(x, D + 0.06, az));
-    b.add(P.box(0.2, 2.3, 0.2), { color: K.timber }, M.t(x, D + 1.27, az));
-    b.add(P.box(0.21, 0.12, 0.21), { color: K.red }, M.t(x, D + 0.6, az));
-    // Drapes falling from the lintel down each post.
-    b.add(P.box(0.32, 1.3, 0.04), { color: c(0xf4efe4) }, M.t(x - s * 0.14, D + 1.68, az + 0.13, 0, 0, s * 0.08));
-    hibiscusClump(b, x, D + 1.0, az + 0.15, 1.3, 1, 90 + s);
-    frettedPot(b, s * 2.2, D, az + 0.2, 1.3, 0xc4643a);
-    hibiscusClump(b, s * 2.2, D + 0.4, az + 0.2, 1.4, 2, 95 + s);
+    blockPillar(b, x, az, 2.35, 0.34, rng, null);
+    frettedPot(b, s * 2.15, D, az + 0.35, 1.35, s > 0 ? 0xb85a2e : 0xc4643a);
+    hibiscusClump(b, s * 2.15, D + 0.4, az + 0.35, 1.5, 2, 95 + s);
+    broadLeaf(b, s * 2.15, D + 0.38, az + 0.35, 1.1, 40 + s);
+    frettedPot(b, s * 1.62, D, az + 0.85, 1.0);
+    hibiscusClump(b, s * 1.62, D + 0.3, az + 0.85, 1.1, 1, 97 + s);
+    sunBanner(b, M.t(s * 1.55, D + 1.75, az + 0.02), 0.42, 1.2, true);
   }
-  b.add(P.box(2.9, 0.22, 0.26), { color: K.timberDark }, M.t(0, D + 2.48, az));
-  fretBand(b, M.t(0, D + 2.48, az + 0.136), 2.6, 0.16, K.red, c(0xefdfb8));
-  b.add(P.box(1.0, 0.18, 0.22), { color: K.timber }, M.t(0, D + 2.68, az));
-  // Swags of white cloth sagging between the posts, under the lintel.
-  for (let k = 0; k <= 10; k++) {
-    const u = k / 10 - 0.5;
-    b.add(P.box(0.24, 0.1, 0.03), { color: c(0xf4efe4) }, M.t(u * 2.2, D + 2.28 - 0.3 * (1 - (2 * u) ** 2), az + 0.15, 0, 0, -u * 0.9));
+  const ly = D + 2.45;
+  b.add(P.box(3.1, 0.3, 0.38), { color: SAND[1] }, M.t(0, ly + 0.15, az));
+  b.add(P.box(3.2, 0.06, 0.44), { color: SAND[3] }, M.t(0, ly + 0.33, az));
+  fretBand(b, M.t(0, ly + 0.15, az + 0.198), 2.9, 0.16, K.red, CREAM);
+  fretBand(b, M.t(0, ly + 0.15, az - 0.198, 0, Math.PI, 0), 2.9, 0.16, K.red, CREAM);
+  for (let k = 0; k < 7; k++) hibiscusClump(b, -1.35 + k * 0.45, ly + 0.36, az + (k % 2 ? 0.08 : -0.06), 1.1, (k + 1) % 2 + 1, 100 + k);
+  for (const s of [-1, 1]) for (let k = 0; k < 3; k++) hibiscusClump(b, s * (1.15 + 0.2), ly - 0.2 - k * 0.32, az + 0.17, 0.8, k % 2, 120 + k + s * 9);
+  b.add(P.box(0.9, 0.22, 0.3), { color: SAND[2] }, M.t(0, ly + 0.47, az));
+  goldSun(b, M.t(0, ly + 0.95, az), 0.5);
+  // Fire bowls on stone pedestals at the corners, rope rails between wooden posts.
+  for (const s of [-1, 1]) for (const z of [hd - 0.2, -hd + 0.2]) {
+    const x = s * (hw - 0.2), py = D + blockPillar(b, x, z, 0.62, 0.34, rng, null) - 0.06;
+    torches.push(fireBowl(b, x, py, z, 1.2));
   }
-  for (let k = 0; k < 5; k++) hibiscusClump(b, -1.0 + k * 0.5, D + 2.6, az + 0.12, 1.0, k % 2, 100 + k);
-  // The golden sun on top of the arch.
-  b.add(P.cyl(0.32, 0.32, 0.06, 20), { color: K.gold }, M.t(0, D + 3.0, az + 0.05, Math.PI / 2, 0, 0));
-  b.add(P.cyl(0.17, 0.17, 0.07, 16), { color: c(0xe7a52a) }, M.t(0, D + 3.0, az + 0.06, Math.PI / 2, 0, 0));
-  for (let k = 0; k < 10; k++) {
-    const a = (k / 10) * Math.PI * 2;
-    b.add(P.cone(0.07, 0.2, 4), { color: K.gold }, M.t(Math.sin(a) * 0.42, D + 3.0 + Math.cos(a) * 0.42, az + 0.05, 0, 0, -a));
-  }
-  // Rope rails along the sides, fire bowls at the corners.
-  for (const s of [-1, 1]) {
-    for (let k = 0; k < 6; k++) b.add(P.cyl(0.035, 0.04, 0.5, 6), { color: K.timberDark }, M.t(s * hw, D + 0.25, -hd + 0.4 + k * ((2 * hd - 0.8) / 5)));
-    b.add(P.box(0.03, 0.03, 2 * hd - 0.8), { color: K.rope }, M.t(s * hw, D + 0.44, 0));
-    for (const z of [hd - 0.15, -hd + 0.15]) {
-      b.add(P.box(0.3, 0.7, 0.3), { color: CUT.stone }, M.t(s * (hw - 0.05), D + 0.35, z));
-      b.add(P.box(0.32, 0.08, 0.32), { color: K.red }, M.t(s * (hw - 0.05), D + 0.62, z));
-      torches.push(fireBowl(b, s * (hw - 0.05), D + 0.7, z, 1.0));
+  const post = (x: number, z: number) => b.add(P.cyl(0.035, 0.045, 0.52, 6), { color: K.timberDark }, M.t(x, D + 0.26, z));
+  const rope = (x0: number, z0: number, x1: number, z1: number) => {
+    const len = Math.hypot(x1 - x0, z1 - z0), ry = Math.atan2(x1 - x0, z1 - z0), n = 4;
+    for (let k = 0; k < n; k++) {
+      const u0 = k / n, u1 = (k + 1) / n, sag = (u: number) => -0.08 * Math.sin(u * Math.PI);
+      const dy = sag(u1) - sag(u0), seg = Math.hypot(len / n, dy);
+      b.add(P.cyl(0.014, 0.014, seg, 4), { color: K.rope }, M.t(x0 + (x1 - x0) * (u0 + u1) / 2, D + 0.46 + (sag(u0) + sag(u1)) / 2, z0 + (z1 - z0) * (u0 + u1) / 2, 0, ry, 0).multiply(M.t(0, 0, 0, Math.PI / 2 - Math.atan2(dy, len / n), 0, 0)));
     }
+  };
+  for (const s of [-1, 1]) {
+    const x = s * (hw - 0.05), zs = [hd - 0.5, hd / 3 - 0.1, -hd / 3, -hd + 0.5];
+    zs.forEach((z, k) => { post(x, z); if (k) rope(x, zs[k - 1], x, z); });
+    post(s * 1.7, -hd + 0.05);
+    rope(x, -hd + 0.5, s * 1.7, -hd + 0.05);
   }
-  return { finished: b.build(), torches, height: D + 3.4 };
+  return { finished: b.build(), torches, height: D + 3.5 };
 }
 
 // ---------------- Graveyard ----------------
@@ -4948,85 +5065,90 @@ export const GRAVEYARD = {
 };
 
 /**
- * Graveyard: a walled garden of rest. A flagstone path runs from an arched gate crowned with a
- * golden sun up to a shrine against the back wall (a stepped altar under a carved sun, with pots,
- * candles and smoking incense). Stone-bordered plots line the path in neat rows on either side,
- * waiting for their headstones; fire bowls burn on the wall's pillars.
+ * Graveyard: a walled garden of rest in laid sandstone, a red band with the key pattern running
+ * round its walls and terracotta caps on its pillars. A flagstone path climbs steps through an
+ * arched gate crowned with a golden sun and runs between the plots (neat rows, each kerbed in pale
+ * stone) to a shrine against the back wall: a block altar under a great carved sun, with pots,
+ * offerings and candles. Ferns and flowers grow along the walls and between the graves.
  */
 export function graveyardModel(w: number, d: number): BuildingModel {
-  const b = new GeoBuilder(), torches: THREE.Vector3[] = [];
+  const b = new GeoBuilder(), torches: THREE.Vector3[] = [], rng = new RNG(523);
   const hw = w / 2 - 0.15, hd = d / 2 - 0.15;
-  const sand = c(0xdcc6a0), sandDark = c(0xbfa47c);
-  // Packed earth and grass inside the walls.
-  b.add(P.box(2 * hw - 0.3, 0.03, 2 * hd - 0.3), { color: c(0x7a8a46) }, M.t(0, 0.015, 0));
-  // The path from the gate to the shrine.
-  flagstones(b, -0.6, -hd + 1.0, 4, Math.round((2 * hd - 1.0) / 0.3), 0.3, 0.02, (i, j) => ((i * 3 + j * 5) % 4 === 0 ? c(0xc9b494) : (i + j) % 2 ? c(0xdcc8a4) : c(0xd0bb95)));
-  // Plots: a kerb of dark stones round a bed of earth.
+  // Grass inside the walls.
+  b.add(P.box(2 * hw - 0.2, 0.03, 2 * hd - 0.2), { color: c(0x7c9c48) }, M.t(0, 0.015, 0));
+  // The path from the gate to the shrine's steps.
+  pathStones(b, -0.62, 0.62, -hd + 1.25, hd + 0.05, 0.02, rng);
+  // Plots: pale kerbstones round a bed of greener grass.
+  const kerb = [c(0xcfc6b2), c(0xbdb4a0), c(0xd8d0bd)];
   for (const [x, z] of GRAVEYARD.plots) {
-    b.add(P.box(0.74, 0.03, 0.96), { color: c(0x6b4a32) }, M.t(x, 0.045, z));
+    b.add(P.box(0.66, 0.035, 0.88), { color: c(0x8aaa52) }, M.t(x, 0.03, z));
     for (const s of [-1, 1]) {
-      b.add(P.box(0.08, 0.08, 1.0), { color: c(0x7d786e) }, M.t(x + s * 0.4, 0.06, z));
-      b.add(P.box(0.92, 0.08, 0.08), { color: c(0x8d887e) }, M.t(x, 0.065, z + s * 0.52));
+      for (let k = 0; k < 3; k++) b.add(P.box(0.09, 0.09, 0.32), { color: kerb[(k + (s > 0 ? 1 : 0)) % 3] }, M.t(x + s * 0.38, 0.06, z - 0.33 + k * 0.33));
+      b.add(P.box(0.66, 0.09, 0.09), { color: kerb[s > 0 ? 2 : 0] }, M.t(x, 0.06, z + s * 0.49));
     }
   }
-  // The wall: sandstone with a red fret band, pillars at the corners and either side of the gate.
-  const wallH = 0.55, t = 0.24;
-  const wall = (x0: number, z0: number, x1: number, z1: number) => {
-    const len = Math.hypot(x1 - x0, z1 - z0), ry = Math.atan2(x1 - x0, z1 - z0) - Math.PI / 2;
-    const m = M.t((x0 + x1) / 2, 0, (z0 + z1) / 2, 0, ry, 0);
-    b.add(P.box(len, wallH, t), { color: sand }, m.clone().multiply(M.t(0, wallH / 2, 0)));
-    b.add(P.box(len + 0.02, 0.06, t + 0.04), { color: sandDark }, m.clone().multiply(M.t(0, wallH + 0.03, 0)));
-    for (const s of [-1, 1]) fretBand(b, m.clone().multiply(M.t(0, wallH * 0.55, s * (t / 2 + 0.008))).multiply(M.t(0, 0, 0, 0, s > 0 ? 0 : Math.PI, 0)), len - 0.1, 0.14, K.red, c(0xefdfb8));
-  };
-  wall(-hw, -hd, hw, -hd);
-  wall(-hw, -hd, -hw, hd);
-  wall(hw, -hd, hw, hd);
-  wall(-hw, hd, -0.85, hd);
-  wall(0.85, hd, hw, hd);
-  const pillar = (x: number, z: number, fire: boolean) => {
-    b.add(P.box(0.4, 0.8, 0.4), { color: sand }, M.t(x, 0.4, z));
-    b.add(P.box(0.42, 0.1, 0.42), { color: K.red }, M.t(x, 0.62, z));
-    b.add(P.box(0.46, 0.06, 0.46), { color: sandDark }, M.t(x, 0.83, z));
-    if (fire) torches.push(fireBowl(b, x, 0.86, z, 1.0));
-  };
-  for (const [x, z] of [[-hw, -hd], [hw, -hd], [-hw, hd], [hw, hd], [-hw, 0], [hw, 0]] as const) pillar(x, z, true);
-  // The gate: an arch of stepped red-and-sandstone blocks crowned with a golden sun.
-  for (const s of [-1, 1]) {
-    b.add(P.box(0.42, 1.5, 0.46), { color: sand }, M.t(s * 0.85, 0.75, hd));
-    b.add(P.box(0.44, 0.14, 0.48), { color: K.red }, M.t(s * 0.85, 0.55, hd));
-    b.add(P.box(0.32, 0.24, 0.5), { color: K.red }, M.t(s * 0.7, 1.62, hd));
+  // The walls and their pillars.
+  // (Each run stops just inside the pillars at its ends, so no two runs overlap.)
+  const wallTop = blockWall(b, -hw + 0.2, -hd, hw - 0.2, -hd, rng);
+  for (const x of [-hw, hw]) {
+    blockWall(b, x, -hd + 0.2, x, -0.2, rng);
+    blockWall(b, x, 0.2, x, hd - 0.2, rng);
   }
-  b.add(P.box(2.1, 0.22, 0.48), { color: sand }, M.t(0, 1.6, hd));
-  b.add(P.box(1.5, 0.22, 0.48), { color: K.red }, M.t(0, 1.82, hd));
-  b.add(P.box(0.9, 0.2, 0.48), { color: sand }, M.t(0, 2.03, hd));
-  b.add(P.cyl(0.3, 0.3, 0.06, 20), { color: K.gold }, M.t(0, 1.95, hd + 0.27, Math.PI / 2, 0, 0));
-  b.add(P.cyl(0.15, 0.15, 0.07, 16), { color: c(0xe7a52a) }, M.t(0, 1.95, hd + 0.28, Math.PI / 2, 0, 0));
-  for (let k = 0; k < 10; k++) {
-    const a = (k / 10) * Math.PI * 2;
-    b.add(P.cone(0.06, 0.18, 4), { color: K.gold }, M.t(Math.sin(a) * 0.4, 1.95 + Math.cos(a) * 0.4, hd + 0.27, 0, 0, -a));
-  }
-  b.add(P.box(1.0, 0.07, 0.24), { color: sandDark }, M.t(0, 0.035, hd + 0.35));
-  // The shrine at the back: a stepped altar against the wall under a carved sun.
-  const sz = -hd + 0.45;
-  b.add(P.box(2.2, 0.16, 0.9), { color: sandDark }, M.t(0, 0.08, sz));
-  b.add(P.box(1.6, 0.16, 0.7), { color: sand }, M.t(0, 0.24, sz - 0.05));
-  b.add(P.box(1.5, 1.4, 0.3), { color: sand }, M.t(0, 0.9, sz - 0.25));
-  b.add(P.box(1.0, 0.14, 0.32), { color: K.red }, M.t(0, 1.66, sz - 0.25));
-  b.add(P.box(0.6, 0.14, 0.32), { color: sand }, M.t(0, 1.8, sz - 0.25));
-  b.add(P.cyl(0.28, 0.28, 0.05, 20), { color: K.gold }, M.t(0, 1.0, sz - 0.08, Math.PI / 2, 0, 0));
+  blockWall(b, -hw + 0.2, hd, -1.2, hd, rng);
+  blockWall(b, 1.2, hd, hw - 0.2, hd, rng);
+  for (const [x, z] of [[-hw, -hd], [hw, -hd], [-hw, hd], [hw, hd], [-hw, 0], [hw, 0]] as const) blockPillar(b, x, z, wallTop + 0.22, 0.46, rng);
+  // The gate: block posts, a lintel, red blocks and the golden sun; steps down outside.
+  for (const s of [-1, 1]) blockPillar(b, s * 0.98, hd, 1.55, 0.5, rng, null);
+  b.add(P.box(2.5, 0.2, 0.5), { color: SAND[1] }, M.t(0, 1.6, hd));
+  b.add(P.box(2.6, 0.05, 0.56), { color: SAND[3] }, M.t(0, 1.725, hd));
+  for (const s of [-1, 1]) b.add(P.box(0.6, 0.2, 0.5), { color: K.red }, M.t(s * 0.7, 1.85, hd));
+  b.add(P.box(0.8, 0.26, 0.5), { color: SAND[0] }, M.t(0, 1.88, hd));
+  goldSun(b, M.t(0, 1.95, hd + 0.29), 0.42);
+  for (let k = 0; k < 2; k++) b.add(P.box(1.5 - k * 0.2, 0.07, 0.24), { color: SAND[k + 1] }, M.t(0, 0.035 - k * 0.02, hd + 0.3 + k * 0.22));
+  // The shrine at the back: a stepped platform, a block altar with a great sun, offerings and pots.
+  const sz = -hd + 0.55;
+  b.add(P.box(2.4, 0.12, 1.2), { color: SAND[2] }, M.t(0, 0.06, sz + 0.05));
+  b.add(P.box(1.9, 0.12, 0.9), { color: SAND[3] }, M.t(0, 0.18, sz - 0.05));
+  b.add(P.box(1.0, 0.07, 0.24), { color: SAND[1] }, M.t(0, 0.035, sz + 0.77));
+  const ty = 0.24, tz = sz - 0.22;
+  b.add(P.box(1.5, 1.45, 0.3), { color: SAND_MORTAR }, M.t(0, ty + 0.725, tz));
   for (let k = 0; k < 8; k++) {
-    const a = (k / 8) * Math.PI * 2;
-    b.add(P.cone(0.05, 0.14, 4), { color: K.gold }, M.t(Math.sin(a) * 0.36, 1.0 + Math.cos(a) * 0.36, sz - 0.08, 0, 0, -a));
+    const y = ty + k * 0.18, red = k === 7;
+    let x = -0.77, first = k % 2 ? 0.25 : 0;
+    while (x < 0.75) {
+      const L = Math.min(first || rng.range(0.34, 0.46), 0.77 - x);
+      first = 0;
+      b.add(P.box(L - 0.014, 0.166, 0.36), { color: red ? K.red : SAND[rng.int(0, 3)] }, M.t(x + L / 2, y + 0.083, tz));
+      x += L;
+    }
   }
-  b.add(P.box(0.7, 0.12, 0.3), { color: K.red }, M.t(0, 0.38, sz + 0.05));
-  frettedPot(b, -0.55, 0.32, sz + 0.05, 0.9);
-  frettedPot(b, 0.55, 0.32, sz + 0.05, 0.9, 0xb85a2e);
-  for (const x of [-0.22, 0.22]) {
-    b.add(P.cyl(0.03, 0.03, 0.12, 8), { color: c(0xf2ead6) }, M.t(x, 0.5, sz + 0.1));
-    torches.push(new THREE.Vector3(x, 0.6, sz + 0.1));
+  b.add(P.box(1.66, 0.08, 0.44), { color: SAND[3] }, M.t(0, ty + 1.48, tz));
+  for (const s of [-1, 1]) b.add(P.box(0.4, 0.16, 0.36), { color: K.red }, M.t(s * 0.5, ty + 1.6, tz));
+  b.add(P.box(0.52, 0.22, 0.36), { color: SAND[0] }, M.t(0, ty + 1.63, tz));
+  b.add(P.box(0.96, 0.96, 0.02), { color: c(0xb39a72) }, M.t(0, ty + 0.78, tz + 0.19));
+  goldSun(b, M.t(0, ty + 0.78, tz + 0.22), 0.42);
+  b.add(P.box(0.8, 0.16, 0.3), { color: K.red }, M.t(0, ty + 0.08, sz + 0.12));
+  b.add(P.box(0.86, 0.03, 0.34), { color: SAND[3] }, M.t(0, ty + 0.175, sz + 0.12));
+  for (const x of [-0.24, 0.24]) {
+    b.add(P.cyl(0.028, 0.028, 0.12, 8), { color: c(0xf2ead6) }, M.t(x, ty + 0.25, sz + 0.16));
+    torches.push(new THREE.Vector3(x, ty + 0.35, sz + 0.16));
   }
-  b.add(P.cyl(0.1, 0.07, 0.09, 10), { color: c(0x7a5a3a) }, M.t(0, 0.49, sz + 0.06));
-  // Ferns and flowers along the walls.
-  for (const [x, z, s] of [[-hw + 0.35, -1.0, 1.1], [hw - 0.35, 0.6, 1.0], [-hw + 0.35, 1.2, 0.9], [hw - 0.35, -1.6, 1.1], [-1.1, -hd + 0.4, 1.0], [1.1, -hd + 0.4, 1.0]] as const) hibiscusClump(b, x, 0.03, z, s, 1, Math.round(x * 13 + z * 7));
-  return { finished: b.build(), torches, height: 2.3 };
+  b.add(P.cyl(0.09, 0.06, 0.06, 10), { color: c(0x7a5a3a) }, M.t(0, ty + 0.22, sz + 0.12));
+  for (const [x, col] of [[-0.06, 0xf08a24], [0.05, 0xe8c040], [0.0, 0xd8322a]] as const) b.add(P.sphere(0.035, 0), { color: c(col) }, M.t(x, ty + 0.27, sz + 0.12 + (x ? 0 : 0.03)));
+  frettedPot(b, -0.72, ty, sz + 0.1, 1.1);
+  frettedPot(b, 0.72, ty, sz + 0.1, 1.1, 0xb85a2e);
+  // Ferns along the walls; flowers between the graves and round the shrine.
+  for (let k = 0; k < 6; k++) {
+    const z = -hd + 1.3 + k * ((2 * hd - 1.9) / 5);
+    fern(b, -hw + 0.32, 0.03, z, 1.2 + (k % 2) * 0.3, 200 + k);
+    fern(b, hw - 0.32, 0.03, z + 0.25, 1.1 + ((k + 1) % 2) * 0.3, 210 + k);
+  }
+  for (const s of [-1, 1]) {
+    fern(b, s * 1.6, 0.03, -hd + 0.4, 1.3, 230 + s);
+    hibiscusClump(b, s * 1.35, 0.03, sz + 0.75, 1.1, 2, 240 + s);
+    for (const z of [1.2, 0.1, -1.0]) blooms(b, s * 2.1, 0.03, z, 4, 0.08, 0.14, 250 + Math.round(z * 10) + s, 0.6);
+    fern(b, s * 1.3, 0.03, hd - 0.4, 1.0, 260 + s);
+    blooms(b, s * 0.82, 0.03, hd - 0.35, 3, 0.05, 0.1, 270 + s, 0.5);
+  }
+  return { finished: b.build(), torches, height: 2.5 };
 }

@@ -62,10 +62,18 @@ export class HabitatInstances {
       r.mesh.visible=!!r.mesh.userData.habitatAny&&(!sphere||cam.distanceTo(sphere.center)-sphere.radius<range);
     }
   }
-  readonly records:{mesh:THREE.InstancedMesh;homes:THREE.Matrix4[];top:number;radius:number}[]=[];
+  readonly records:{mesh:THREE.InstancedMesh;homes:THREE.Matrix4[];top:number;radius:number;ranks?:ArrayLike<number>;minFit?:number}[]=[];
+  /** Detail level (0..1): instances given a rank at or above it are left out (lower presets draw fewer). */
+  density=1;
   constructor(private world: World){}
-  add(mesh:THREE.InstancedMesh,homes:THREE.Matrix4[],top:number,radius=.3):void{mesh.userData.habitatColors=Array.from(mesh.instanceColor?.array??new Float32Array(homes.length*3).fill(1));
-    const record={mesh,homes,top,radius};this.records.push(record);this.refresh(0,0,this.world.N-1,this.world.N-1,record);}
+  /**
+   * `ranks` (0..1 per home) thin the instances out with `density`; `minFit` leaves an instance out
+   * rather than shrinking it below that fraction of its size to stay under the surface.
+   */
+  add(mesh:THREE.InstancedMesh,homes:THREE.Matrix4[],top:number,radius=.3,opts:{ranks?:ArrayLike<number>;minFit?:number}={}):void{mesh.userData.habitatColors=Array.from(mesh.instanceColor?.array??new Float32Array(homes.length*3).fill(1));
+    const record={mesh,homes,top,radius,...opts};this.records.push(record);this.refresh(0,0,this.world.N-1,this.world.N-1,record);}
+  /** Change the detail level, redoing every instance list when it changes. */
+  setDensity(d:number):void{if(d===this.density)return;this.density=d;for(const r of this.records)this.refresh(0,0,this.world.N-1,this.world.N-1,r);}
   refresh(x0=0,z0=0,x1=this.world.N-1,z1=this.world.N-1,only?:HabitatInstances['records'][number]):void{
     const color=new THREE.Color(),matrix=new THREE.Matrix4(),p=new THREE.Vector3(),q=new THREE.Quaternion(),s=new THREE.Vector3();
     const minX=x0-this.world.half-2,maxX=x1-this.world.half+3,minZ=z0-this.world.half-2,maxZ=z1-this.world.half+3;
@@ -73,9 +81,10 @@ export class HabitatInstances {
       if(!only&&!r.homes.some(m=>m.elements[12]>=minX&&m.elements[12]<=maxX&&m.elements[14]>=minZ&&m.elements[14]<=maxZ))continue;
       let count=0;
       for(let k=0;k<r.homes.length;k++){
+        if(r.ranks&&r.ranks[k]>=this.density)continue;
         r.homes[k].decompose(p,q,s);
         const fit=habitatFit(this.world,p.x,p.z,r.top*s.y,r.radius*Math.max(s.x,s.z));
-        if(fit<=0)continue;
+        if(fit<=0||fit<(r.minFit??0))continue;
         p.y=this.world.heightAt(p.x,p.z)-.02;s.multiplyScalar(fit);
         matrix.compose(p,q,s);r.mesh.setMatrixAt(count,matrix);r.mesh.setColorAt(count,color.fromArray(r.mesh.userData.habitatColors,k*3));count++;
       }

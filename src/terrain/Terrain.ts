@@ -6,6 +6,7 @@ import { World } from '../world/World';
 import { SHADOW_LAYER } from '../render/ShadowLayer';
 import { FX } from '../render/materials';
 import { groundDetailTexture } from './groundDetail';
+import { reefField } from '../entities/Seabed';
 
 const tmpA = new THREE.Color();
 const tmpB = new THREE.Color();
@@ -397,6 +398,8 @@ export class Terrain {
         const rk = this.noise.noise(x * 0.23 - 40, z * 0.23 + 12) * 0.75 + this.noise.noise(x * 0.8 + 3, z * 0.8) * 0.25;
         out.lerp(C.seagrass, smoothstep(0.25, 0.5, sg) * 0.85 * shelfK);
         out.lerp(C.reefRock, smoothstep(0.42, 0.62, rk) * 0.8 * shelfK);
+        // Reef rock under the seabed's big reef fields, so each reads as one area.
+        out.lerp(C.reefRock, reefField(this.noise, x, z) * 0.45 * shelfK);
       }
       out.multiplyScalar(0.95 + nz2 * 0.06);
       return { grass: 0, flat: 0, sand: 0, rock: 0, forest: 0 };

@@ -22,6 +22,7 @@ import { Monkeys } from './Monkeys';
 import { ReefFish } from './ReefFish';
 import { Sharks } from './Sharks';
 import { Coral } from './Coral';
+import { Seabed } from './Seabed';
 import { fishGeometry } from './animalModels';
 
 /** A deep-water fish school: the fishing boats' resource. */
@@ -77,6 +78,8 @@ export class Wildlife {
   readonly reef: ReefFish;
   readonly sharks: Sharks;
   readonly coral: Coral;
+  /** The richer sea floor: big reef fields, kelp forests, seagrass meadows, sponges and the like. */
+  readonly seabed: Seabed;
   /** Deep schools only: reef fish are decorative. */
   schools: School[] = [];
   private fish: Fish[] = [];
@@ -111,12 +114,13 @@ export class Wildlife {
     this.critters = new Critters(world);
     // Coral reefs first: the reef fish gather over them.
     this.coral = new Coral(world,veg.plants.filter(p=>p.kind==='reef'||p.kind==='searock').map(p=>({x:p.x,z:p.z})));
+    this.seabed = new Seabed(world);
     // Open sea only: an inland lake never gets reef fish.
-    const reefPts = [...this.coral.hotspots().map((p) => ({ x: p.x, z: p.z })), ...veg.plants.filter((p) => (p.kind === 'reef' || p.kind === 'searock') && world.isSeaAt(p.x, p.z)).map((p) => ({ x: p.x, z: p.z }))];
+    const reefPts = [...this.reefHotspots(), ...veg.plants.filter((p) => (p.kind === 'reef' || p.kind === 'searock') && world.isSeaAt(p.x, p.z)).map((p) => ({ x: p.x, z: p.z }))];
     this.reef = new ReefFish(world, reefPts);
     // Hammerhead sharks patrol the reefs and hunt the reef fish.
     this.sharks = new Sharks(world, this.coral.patches, this.reef);
-    this.group.add(this.animals.group, this.birds.group, this.monkeys.group, this.critters.group, this.reef.group, this.coral.group, this.sharks.group);
+    this.group.add(this.animals.group, this.birds.group, this.monkeys.group, this.critters.group, this.reef.group, this.coral.group, this.seabed.group, this.sharks.group);
     const fmat = fishMaterial(11);
     const cap = Math.max(1, WILDLIFE.schools * WILDLIFE.schoolFishShown);
     const mk = (g: THREE.BufferGeometry) => {
@@ -135,6 +139,16 @@ export class Wildlife {
     this.fishMeshLo = mk(fishGeometry('silver', 'lo'));
     this.spawnSchools();
     this.shownCount = new Int32Array(this.schools.length);
+  }
+
+  /** Where reef fish gather: the big reef fields first (two for every small coral patch or seagrass drift). */
+  reefHotspots(): { x: number; z: number }[] {
+    const big = this.seabed.hotspots(), small = this.coral.hotspots(), out: { x: number; z: number }[] = [];
+    for (let i = 0, j = 0; i < big.length || j < small.length;) {
+      for (let k = 0; k < 2 && i < big.length; k++, i++) out.push({ x: big[i].x, z: big[i].z });
+      if (j < small.length) { out.push({ x: small[j].x, z: small[j].z }); j++; }
+    }
+    return out;
   }
 
   // ---------------- Pens (delegated) ----------------
