@@ -167,6 +167,8 @@ export class Vegetation {
   private sinking = new Map<number, number>();
   /** Felled trees lying on the ground until their wood is all carried away. */
   private felled = new Map<number, Felled>();
+  /** Seconds since each stump was left (it rots away after VEG.stumpSeconds). */
+  private stumpAge = new Map<number, number>();
   /** Where felled trees have just hit the ground since last asked (for a puff of dust and leaves). */
   private landed: { x: number; y: number; z: number; r: number }[] = [];
   private plantRng = new RNG(977);
@@ -311,12 +313,15 @@ export class Vegetation {
       const i = w.cellIndexAt(x, z);
       return i >= 0 && w.layer[i] >= 1 && Number.isNaN(w.riverY[i]) && this.flatEnough(x, z, 0.3, 0.3);
     };
-    // Willows in a loose ring, leaning over the water.
-    const n = 9;
-    for (let k = 0; k < n; k++) {
-      const a = (k / n) * Math.PI * 2 + rng.range(-0.2, 0.2), d = g.r + rng.range(3.2, 6.5);
-      const x = g.x + Math.cos(a) * d, z = g.z + Math.sin(a) * d;
-      if (dry(x, z)) this.add('broadleaf', 8, x, z, rng.range(0, 6.28), rng.range(0.95, 1.3), rng);
+    if (w.gen >= 3) this.gladeWillows(rng, dry);
+    else {
+      // Willows in a loose ring, leaning over the water.
+      const n = 9;
+      for (let k = 0; k < n; k++) {
+        const a = (k / n) * Math.PI * 2 + rng.range(-0.2, 0.2), d = g.r + rng.range(3.2, 6.5);
+        const x = g.x + Math.cos(a) * d, z = g.z + Math.sin(a) * d;
+        if (dry(x, z)) this.add('broadleaf', 8, x, z, rng.range(0, 6.28), rng.range(0.95, 1.3), rng);
+      }
     }
     // Boulders and reeds along the water's edge: walk out from the middle to the shore.
     for (let k = 0; k < 64; k++) {
@@ -334,6 +339,32 @@ export class Vegetation {
       const a = rng.range(0, Math.PI * 2), d = g.r + rng.range(1.5, 7);
       const x = g.x + Math.cos(a) * d, z = g.z + Math.sin(a) * d;
       if (dry(x, z)) this.add(rng.chance(0.6) ? 'flowerbush' : 'bush', 0, x, z, rng.range(0, 6.28), rng.range(0.6, 1.0), rng);
+    }
+  }
+
+  /**
+   * Layout 3's glade willows: a stand of them mostly along the far side of the lake from the
+   * village, big old trees and young ones mixed, unevenly spaced, and a stray or two on the near side.
+   */
+  private gladeWillows(rng: RNG, dry: (x: number, z: number) => boolean): void {
+    const g = this.world.glade!, m = this.world.meadow;
+    const side = Math.atan2(g.z - m.z, g.x - m.x) + rng.range(-0.5, 0.5);
+    const placed: { x: number; z: number; r: number }[] = [];
+    const tryAt = (a: number, d: number, sc: number) => {
+      const x = g.x + Math.cos(a) * d, z = g.z + Math.sin(a) * d, r = 1.6 * sc;
+      if (!dry(x, z) || placed.some((p) => Math.hypot(p.x - x, p.z - z) < p.r + r)) return false;
+      placed.push({ x, z, r });
+      this.add('broadleaf', 8, x, z, rng.range(0, 6.28), sc, rng);
+      return true;
+    };
+    for (let k = 0, n = 0; k < 80 && n < 9; k++) {
+      // Big trees first, then a mix of small and middling ones.
+      const sc = n < 3 ? rng.range(1.25, 1.5) : rng.chance(0.5) ? rng.range(0.6, 0.85) : rng.range(0.9, 1.15);
+      const a = side + (rng.next() + rng.next() - 1) * 1.5, d = g.r + rng.range(1.5, 7.5);
+      if (tryAt(a, d, sc)) n++;
+    }
+    for (let k = 0, n = 0; k < 20 && n < 2; k++) {
+      if (tryAt(side + Math.PI + rng.range(-0.8, 0.8), g.r + rng.range(3, 6.5), rng.range(0.65, 1.0))) n++;
     }
   }
 
@@ -379,7 +410,9 @@ export class Vegetation {
     if (dm < w.meadow.r - 1) return;
     // The willow glade is kept open (its plants come in populateGlade).
     if (w.glade && Math.hypot(bx - w.glade.x, bz - w.glade.z) < w.glade.r + 8.5) return;
-    const forest = w.forest[i];
+    // Layout 3's marsh: willows, palms and jungle trees about its pools, ferns and flowers between.
+    const marsh = !!w.marsh && Math.hypot(bx - w.marsh.x, bz - w.marsh.z) < w.marsh.r + 2;
+    const forest = marsh ? 0.5 : w.forest[i];
     const sandy = w.sandy[i];
     const rocky = w.rocky[i];
     const edge = dm < w.meadow.r + 5;
@@ -401,7 +434,11 @@ export class Vegetation {
     type Pick = [PlantKind, number, number]; // kind, variant, weight
     let chance = 0;
     let table: Pick[] = [];
-    if (sandy > 0.5) {
+    if (marsh && sandy <= 0.5) {
+      // Open water between scattered trees, not a closed canopy over the pools.
+      chance = 0.06 * (0.5 + cluster);
+      table = [['broadleaf', 8, 30], ['broadleaf', 5, 8], ['palm', -1, 20], ['banana', 0, 4]];
+    } else if (sandy > 0.5) {
       chance = VEG.palmBeach * (0.5 + cluster);
       table = [['palm', -1, 20], ['broadleaf', 2, 1]];
     } else if (forest > 0.35) {
@@ -926,6 +963,11 @@ export class Vegetation {
     this.markers.instanceMatrix.needsUpdate = true;
   }
 
+  /** Has this stump rotted away (gone from view; a sapling still comes up there in time)? */
+  stumpGone(p: Plant): boolean {
+    return p.state === PlantState.Stump && (this.stumpAge.get(p.id) ?? 0) >= VEG.stumpSeconds;
+  }
+
   private plantMatrix(p: Plant, key: string, out: THREE.Matrix4): THREE.Matrix4 {
     const isStump = key === 'stump';
     const isFruit = key.startsWith('fruit_');
@@ -934,7 +976,7 @@ export class Vegetation {
     const felled = !isStump && !isFruit && p.state === PlantState.Stump ? this.felled.get(p.id) : undefined;
     if (felled) return this.felledMatrix(p, felled, out);
     if (isStump) {
-      if (p.state !== PlantState.Stump) return out.copy(ZERO);
+      if (p.state !== PlantState.Stump || this.stumpGone(p)) return out.copy(ZERO);
     } else {
       if (p.state === PlantState.Stump) return out.copy(ZERO);
       if (p.state === PlantState.Sapling) s *= 0.18 + 0.82 * p.growth;
@@ -1156,7 +1198,7 @@ export class Vegetation {
   private writeContact(): void {
     for (let i = 0; i < this.contactIds.length; i++) {
       const p = this.plants[this.contactIds[i]];
-      if (p.state === PlantState.Gone || (p.state === PlantState.Stump && p.kind !== 'broadleaf')) {
+      if (p.state === PlantState.Gone || (p.state === PlantState.Stump && (p.kind !== 'broadleaf' || this.stumpGone(p)))) {
         this.contact.setMatrixAt(i, ZERO);
         continue;
       }
@@ -1244,6 +1286,7 @@ export class Vegetation {
     const wood = Math.max(1, Math.round((p.kind === 'broadleaf' ? VEG.woodPerBroadleaf : VEG.woodPerPalm) * p.scale));
     p.state = PlantState.Stump;
     p.timer = VEG.stumpToSaplingSeconds * (0.7 + Math.random() * 0.6);
+    this.stumpAge.set(p.id, 0);
     p.marked = false;
     p.amount = wood;
     // Away from the axe, a little off true (each tree its own way).
@@ -1413,14 +1456,18 @@ export class Vegetation {
     // Regrowth timers (spread over frames for cheapness: only every ~0.5 s of game time per plant group).
     this.growAcc += dt;
     if (this.growAcc > 0.5) {
-      const step = this.growAcc * growthMul;
+      const real = this.growAcc, step = real * growthMul;
       this.growAcc = 0;
       for (const p of this.plants) {
         if (p.state === PlantState.Stump) {
+          const age = (this.stumpAge.get(p.id) ?? 0) + real;
+          this.stumpAge.set(p.id, age);
+          if (age >= VEG.stumpSeconds && age - real < VEG.stumpSeconds) this.touch(p);
           // A sapling only comes up once the fallen trunk has been cleared away.
           if (this.felled.has(p.id)) continue;
           p.timer -= step;
           if (p.timer <= 0) {
+            this.stumpAge.delete(p.id);
             p.state = PlantState.Sapling;
             p.growth = 0;
             p.amount = p.kind === 'broadleaf' ? VEG.woodPerBroadleaf : p.kind === 'palm' ? VEG.woodPerPalm : p.amount;

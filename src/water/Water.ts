@@ -747,6 +747,65 @@ export function makeSoftSprite(size = 64, inner = 'rgba(255,255,255,1)', outer =
  * Depth comes from a seabed height texture (terrain height per half-cell), so it works for
  * rivers above sea level as well as the ocean and needs no depth pre-pass.
  */
+/**
+ * A river's water: a grid over everything within the channel's half-width of its course, each
+ * vertex at the height of the nearest stretch (never rising downstream). Unlike a ribbon swept
+ * along the course, it can't fold or double over itself where a lowland river doubles back.
+ */
+export function riverSurface(points: { x: number; y: number; z: number }[]): THREE.BufferGeometry | null {
+  if (points.length < 3) return null;
+  const curve = new THREE.CatmullRomCurve3(points.map((p) => new THREE.Vector3(p.x, p.y, p.z)), false, 'centripetal');
+  const pts = curve.getSpacedPoints(points.length * 3);
+  for (let k = 1; k < pts.length; k++) pts[k].y = Math.min(pts[k].y, pts[k - 1].y);
+  const half = 1.35, step = 0.5;
+  let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
+  for (const p of pts) {
+    x0 = Math.min(x0, p.x); z0 = Math.min(z0, p.z);
+    x1 = Math.max(x1, p.x); z1 = Math.max(z1, p.z);
+  }
+  const pad = half + step * 2;
+  x0 = Math.floor((x0 - pad) / step) * step; z0 = Math.floor((z0 - pad) / step) * step;
+  const nx = Math.ceil((x1 + pad - x0) / step) + 1, nz = Math.ceil((z1 + pad - z0) / step) + 1;
+  const dist = new Float32Array(nx * nz).fill(Infinity), ys = new Float32Array(nx * nz);
+  // Distance from each vertex to the course, stretch by stretch (only near each stretch).
+  for (let k = 1; k < pts.length; k++) {
+    const a = pts[k - 1], b = pts[k];
+    const ex = b.x - a.x, ez = b.z - a.z, ll = ex * ex + ez * ez || 1;
+    const i0 = Math.max(0, Math.floor((Math.min(a.x, b.x) - pad - x0) / step)), i1 = Math.min(nx - 1, Math.ceil((Math.max(a.x, b.x) + pad - x0) / step));
+    const j0 = Math.max(0, Math.floor((Math.min(a.z, b.z) - pad - z0) / step)), j1 = Math.min(nz - 1, Math.ceil((Math.max(a.z, b.z) + pad - z0) / step));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const x = x0 + i * step, z = z0 + j * step;
+      const t = Math.max(0, Math.min(1, ((x - a.x) * ex + (z - a.z) * ez) / ll));
+      const d = Math.hypot(x - a.x - ex * t, z - a.z - ez * t);
+      const v = j * nx + i;
+      if (d < dist[v]) {
+        dist[v] = d;
+        ys[v] = a.y + (b.y - a.y) * t;
+      }
+    }
+  }
+  const pos: number[] = [], idx: number[] = [], map = new Int32Array(nx * nz).fill(-1);
+  const vert = (v: number) => {
+    if (map[v] < 0) {
+      map[v] = pos.length / 3;
+      pos.push(x0 + (v % nx) * step, ys[v], z0 + Math.floor(v / nx) * step);
+    }
+    return map[v];
+  };
+  for (let j = 0; j < nz - 1; j++) for (let i = 0; i < nx - 1; i++) {
+    const a = j * nx + i, b = a + 1, c = a + nx, d = c + 1;
+    if (Math.min(dist[a], dist[b], dist[c], dist[d]) > half) continue;
+    const va = vert(a), vb = vert(b), vc = vert(c), vd = vert(d);
+    idx.push(va, vc, vb, vb, vc, vd);
+  }
+  if (!idx.length) return null;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  g.computeBoundingSphere();
+  return g;
+}
+
 export class Water {
   readonly group = new THREE.Group();
   readonly oceanMat: THREE.ShaderMaterial;
@@ -836,7 +895,7 @@ export class Water {
       });
     this.oceanMat = make(0);
     this.oceanMat.uniforms.uSwash.value = 1;
-    this.riverMat = make(1);
+    this.riverMat = make(1, 0.5);
     this.canalMat = make(0.4, 0.7);
 
     const ocean = new THREE.Mesh(new THREE.PlaneGeometry(WORLD.oceanSize, WORLD.oceanSize, 1, 1).rotateX(-Math.PI / 2), this.oceanMat);
@@ -992,33 +1051,8 @@ export class Water {
   private buildRivers(): void {
     const w = this.world;
     for (const river of w.rivers) {
-      if (river.points.length < 3) continue;
-      const pts = river.points.map((p) => new THREE.Vector3(p.x, p.y, p.z));
-      const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
-      const samples = pts.length * 3;
-      const width = 2.7;
-      const pos: number[] = [];
-      const idx: number[] = [];
-      const p = new THREE.Vector3(), tng = new THREE.Vector3();
-      let lastY = Infinity;
-      for (let s = 0; s <= samples; s++) {
-        const u = s / samples;
-        curve.getPointAt(u, p);
-        curve.getTangentAt(u, tng);
-        const px = -tng.z, pz = tng.x;
-        const pl = Math.hypot(px, pz) || 1;
-        const y = Math.min(p.y, lastY);
-        lastY = y;
-        pos.push(p.x + (px / pl) * width * 0.5, y, p.z + (pz / pl) * width * 0.5);
-        pos.push(p.x - (px / pl) * width * 0.5, y, p.z - (pz / pl) * width * 0.5);
-        if (s > 0) {
-          const a = (s - 1) * 2;
-          idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
-        }
-      }
-      const g = new THREE.BufferGeometry();
-      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-      g.setIndex(idx);
+      const g = riverSurface(river.points);
+      if (!g) continue;
       const m = new THREE.Mesh(g, this.riverMat);
       m.renderOrder = 11;
       m.name = 'river';

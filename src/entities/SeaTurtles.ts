@@ -298,8 +298,17 @@ export class SeaTurtles {
       const i = w.idx(cx, cz);
       const x = w.centerX(cx), z = w.centerZ(cz);
       const h = w.heightAt(x, z);
-      if (w.isLandCell(i) && w.sandy[i] > 0.55 && w.distWater[i] <= 2 && h > this.sea + 0.02 && h < 0.45) this.beaches.push({ x, z });
+      if (w.isLandCell(i) && w.sandy[i] > 0.55 && w.distWater[i] <= 2 && h > this.sea + 0.02 && h < 0.45 && this.nearSea(cx, cz)) this.beaches.push({ x, z });
     }
+  }
+
+  /** Open sea within 2 cells (a lake shore is not a turtle beach). */
+  private nearSea(cx: number, cz: number): boolean {
+    const w = this.world;
+    for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) {
+      if (w.inBounds(cx + dx, cz + dz) && w.isSea(w.idx(cx + dx, cz + dz))) return true;
+    }
+    return false;
   }
 
   private spawn(): void {
@@ -329,7 +338,7 @@ export class SeaTurtles {
     }
   }
 
-  /** Sweep the whole turtle through submerged ground and fixed rocks. No route searches are needed. */
+  /** Sweep the whole turtle through submerged ground and fixed rocks (open sea only). No route searches are needed. */
   private waterClear(ax: number, az: number, bx: number, bz: number, scale: number): boolean {
     const radius = .32 * scale, distance = Math.hypot(bx - ax, bz - az);
     const steps = Math.max(1, Math.ceil(distance / .18));
@@ -338,7 +347,7 @@ export class SeaTurtles {
       for (const [dx, dz] of [[0, 0], [radius, 0], [-radius, 0], [0, radius], [0, -radius]]) {
         const px = x + dx, pz = z + dz, cell = this.world.cellIndexAt(px, pz);
         if (Math.abs(px) > WORLD.oceanSize / 2 - 2 || Math.abs(pz) > WORLD.oceanSize / 2 - 2 ||
-          this.world.heightAt(px, pz) >= -.35 || (cell >= 0 && this.world.blocked(cell))) return false;
+          this.world.heightAt(px, pz) >= -.35 || (cell >= 0 && (this.world.blocked(cell) || !this.world.isSea(cell)))) return false;
       }
     }
     return true;
@@ -457,13 +466,13 @@ export class SeaTurtles {
     }return null;
   }
 
-  /** A point in coastal water (shallow to moderately deep) near (x, z). */
+  /** A point in coastal water (shallow to moderately deep, open sea only) near (x, z). */
   private seaPoint(x: number, z: number, r: number): { x: number; z: number } | null {
     for (let k = 0; k < 20; k++) {
       const a = this.rng.range(0, 6.28), d = Math.sqrt(this.rng.next()) * r;
       const px = x + Math.cos(a) * d, pz = z + Math.sin(a) * d;
       const h = this.world.heightAt(px, pz);
-      if (h < -0.35 && h > -3.5) return { x: px, z: pz };
+      if (h < -0.35 && h > -3.5 && this.world.isSeaAt(px, pz)) return { x: px, z: pz };
     }
     return null;
   }

@@ -107,6 +107,7 @@ import { stripOverscan, viewportSize } from './render/AppViewport';
 import { warmLoads, warmShelf } from './render/WarmUp';
 import { showRestart } from './ui/Restart';
 import { lakeDressing } from './render/LilyPads';
+import { LakeFish } from './render/LakeFish';
 
 const _pathP = new THREE.Vector3();
 
@@ -427,6 +428,8 @@ export class Game {
     // The willow glade's lake: lily pads, lotuses and cattails (newer islands).
     const lake = lakeDressing(this.world);
     if (lake) this.scene.add(lake);
+    this.lakeFish = new LakeFish(this.world);
+    if (this.lakeFish.mesh) this.scene.add(this.lakeFish.mesh);
     const save = readSave(opts.seed);
     if (typeof save?.wildlifeAlerts === 'boolean') this.settings.wildlifeAlerts = save.wildlifeAlerts;
     if (!save) {
@@ -1013,6 +1016,7 @@ export class Game {
       this.wildlife.update(dt, { ray: calm ? null : cursorRay, ground: h.active && !calm && this.cursorActive ? this.cursorWorld : null, camTarget: this.rig.target }, this.colony.grid);
       void realDt;
       this.boats.update(dt, this.time.elapsed);
+      this.lakeFish.update(this.time.elapsed);
       this.trade.update(dt, this.time.elapsed);
       this.voyage.update(dt, this.time.elapsed);
       this.pearls.update(dt, this.time.elapsed, this.colony.grid);
@@ -1088,6 +1092,9 @@ export class Game {
     try { document.title = `${this.islandName} · Aztlan Isle`; } catch { /* no document */ }
     return {god:this.eco.godMode,changed:false};
   }
+
+  /** Freshwater fish circling in the willow glade's lake. */
+  private lakeFish!: LakeFish;
 
   /** Waiting for the player to choose the village site (no campfire yet). */
   awaitingFire = false;

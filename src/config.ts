@@ -199,6 +199,8 @@ export const VEG = {
   fruitRegrowSeconds: 240,
   saplingGrowSeconds: 900,
   stumpToSaplingSeconds: 200,
+  /** A felled tree's stump rots away this many seconds after it was cut. */
+  stumpSeconds: 60,
   windStrength: 1.0,
   /** Plants are drawn in chunks of the map (this many a side), each culled when off screen. */
   chunks: 6,

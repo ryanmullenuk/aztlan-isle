@@ -4,10 +4,10 @@ import { FX } from '../render/materials';
 import { PresetName } from '../config';
 import { SEA_SURFACE } from '../water/Water';
 
-/** Scale to fit a low, gently sloping seabed without breaking the water surface. */
+/** Scale to fit a low, gently sloping seabed without breaking the water surface (open sea only, never an inland lake). */
 export function habitatFit(w: World, x: number, z: number, height: number, radius = .3): number {
   const bed=w.heightAt(x,z),cell=w.cellIndexAt(x,z);
-  if(bed>-.35||bed<-3.2||cell<0||w.blocked(cell))return 0;
+  if(bed>-.35||bed<-3.2||cell<0||w.blocked(cell)||!w.isSea(cell))return 0;
   let low=bed,high=bed;
   for(const [dx,dz] of [[radius,0],[-radius,0],[0,radius],[0,-radius]]){
     const h=w.heightAt(x+dx,z+dz);low=Math.min(low,h);high=Math.max(high,h);

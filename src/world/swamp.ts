@@ -15,6 +15,8 @@ export function generateSwamps(w: World, seed: number): void {
   const N = w.N, m = w.meadow;
   // Candidate centres: flat, low jungle with water not far off.
   const cands: { x: number; z: number; s: number }[] = [];
+  // Layout 3's marsh comes first (its site is chosen with the island).
+  if (w.marsh) w.swamps.push({ ...w.marsh });
   for (let k = 0; k < 6000; k++) {
     const cx = rng.int(8, N - 9), cz = rng.int(8, N - 9);
     const i = w.idx(cx, cz);
@@ -47,6 +49,8 @@ export function generateSwamps(w: World, seed: number): void {
       if (!w.inBounds(cx, cz)) continue;
       const i = w.idx(cx, cz);
       if (!w.isLandCell(i) || w.layer[i] < 1 || w.rocky[i] > 0.4) continue;
+      // Layout 3: the beach stays sand, the swamp lying behind it.
+      if (w.gen >= 3 && w.distWater[i] <= 2) continue;
       const x = w.centerX(cx), z = w.centerZ(cz);
       // Irregular edges: the distance is bent by broad noise.
       const d = Math.hypot(x - sw.x, z - sw.z) / sw.r + nA.noise(x * 0.12, z * 0.12) * 0.35;

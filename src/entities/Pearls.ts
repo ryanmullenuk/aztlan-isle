@@ -233,7 +233,7 @@ export class BeachPearls {
     warmWith(new THREE.Mesh(this.clam.pearl, pearlMaterial()));
   }
 
-  /** Sand just above the waterline, all round the coasts. */
+  /** Sand just above the waterline, all round the coasts (by the open sea, not an inland lake). */
   private findSpots(): void {
     const w = this.world;
     for (let cz = 1; cz < w.N - 1; cz++) {
@@ -241,10 +241,19 @@ export class BeachPearls {
         const i = w.idx(cx, cz);
         if (!w.isLandCell(i) || w.sandy[i] < 0.5 || w.distWater[i] > 2 || w.occ[i] || w.blocked(i)) continue;
         const x = w.centerX(cx), z = w.centerZ(cz), y = w.heightAt(x, z);
-        if (y < 0.03 || y > 0.9) continue;
+        if (y < 0.03 || y > 0.9 || !this.bySea(cx, cz)) continue;
         this.spots.push({ x, z });
       }
     }
+  }
+
+  /** Open sea within 2 cells. */
+  private bySea(cx: number, cz: number): boolean {
+    const w = this.world;
+    for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) {
+      if (w.inBounds(cx + dx, cz + dz) && w.isSea(w.idx(cx + dx, cz + dz))) return true;
+    }
+    return false;
   }
 
   get count(): number {

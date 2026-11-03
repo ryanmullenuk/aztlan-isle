@@ -111,7 +111,8 @@ export class Wildlife {
     this.critters = new Critters(world);
     // Coral reefs first: the reef fish gather over them.
     this.coral = new Coral(world,veg.plants.filter(p=>p.kind==='reef'||p.kind==='searock').map(p=>({x:p.x,z:p.z})));
-    const reefPts = [...this.coral.hotspots().map((p) => ({ x: p.x, z: p.z })), ...veg.plants.filter((p) => p.kind === 'reef' || p.kind === 'searock').map((p) => ({ x: p.x, z: p.z }))];
+    // Open sea only: an inland lake never gets reef fish.
+    const reefPts = [...this.coral.hotspots().map((p) => ({ x: p.x, z: p.z })), ...veg.plants.filter((p) => (p.kind === 'reef' || p.kind === 'searock') && world.isSeaAt(p.x, p.z)).map((p) => ({ x: p.x, z: p.z }))];
     this.reef = new ReefFish(world, reefPts);
     // Hammerhead sharks patrol the reefs and hunt the reef fish.
     this.sharks = new Sharks(world, this.coral.patches, this.reef);
@@ -153,6 +154,11 @@ export class Wildlife {
 
   // ---------------- Deep schools ----------------
 
+  /** Deep open sea for a school (never an inland lake: boats sail out to schools). */
+  private deepSea(x: number, z: number): boolean {
+    return this.world.heightAt(x, z) < -1.8 && this.world.isSeaAt(x, z);
+  }
+
   private spawnSchools(): void {
     const w = this.world;
     for (let s = 0; s < WILDLIFE.schools; s++) {
@@ -160,7 +166,7 @@ export class Wildlife {
       for (let k = 0; k < 200 && !pos; k++) {
         const a = this.rng.range(0, Math.PI * 2), d = this.rng.range(w.half * 0.5, w.half * 0.9);
         const x = Math.cos(a) * d, z = Math.sin(a) * d;
-        if (w.heightAt(x, z) < -1.8) pos = { x, z };
+        if (this.deepSea(x, z)) pos = { x, z };
       }
       if (!pos) continue;
       this.schools.push({ x: pos.x, z: pos.z, tx: pos.x, tz: pos.z, stock: WILDLIFE.fishPerSchool, max: WILDLIFE.fishPerSchool, deep: true });
@@ -192,7 +198,7 @@ export class Wildlife {
       if (Math.hypot(s.tx - s.x, s.tz - s.z) < 1) {
         for (let k = 0; k < 10; k++) {
           const x = s.x + (this.rng.next() - 0.5) * 28, z = s.z + (this.rng.next() - 0.5) * 28;
-          if (w.heightAt(x, z) < -1.8) {
+          if (this.deepSea(x, z)) {
             s.tx = x;
             s.tz = z;
             break;
@@ -202,7 +208,7 @@ export class Wildlife {
       const d = Math.hypot(s.tx - s.x, s.tz - s.z) || 1;
       const nx = s.x + ((s.tx - s.x) / d) * 0.9 * dt, nz = s.z + ((s.tz - s.z) / d) * 0.9 * dt;
       s.vis = View.sees(s.x, -0.6, s.z, 6) && View.dist2(s.x, -0.6, s.z) < FISH_FAR2;
-      if (w.heightAt(nx, nz) < -1.8) {
+      if (this.deepSea(nx, nz)) {
         // Off-screen: the fish simply travel with their school (flocking resumes on screen).
         if (!s.vis) for (const f of this.fish) if (this.schools[f.school] === s) {
           f.x += nx - s.x;

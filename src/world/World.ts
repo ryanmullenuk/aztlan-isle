@@ -81,11 +81,13 @@ export class World {
   lagoon: { x: number; z: number; r: number } | null = null;
   /**
    * Layout version: 1 = the original island (kept for saves made on it); 2 = the larger main island
-   * with its willow glade.
+   * with its willow glade; 3 = larger again, the glade further out and a marsh on the west coast.
    */
   gen = 1;
-  /** The willow glade's freshwater lake (world units), on islands of layout 2. */
+  /** The willow glade's freshwater lake (world units), on islands of layout 2 and later. */
   glade: { x: number; z: number; r: number } | null = null;
+  /** The marsh behind the west coast's beach (layout 3): willows, reeds and murky pools. */
+  marsh: { x: number; z: number; r: number } | null = null;
   meadow = { x: 0, z: 0, r: WORLD.meadowRadius, layer: 3 };
   /** Direction (unit XZ) from the meadow towards the nearest sea. */
   seaDir = { x: 0, z: 1 };
@@ -165,6 +167,35 @@ export class World {
     const cx = Math.floor(x + this.half), cz = Math.floor(z + this.half);
     if (!this.inBounds(cx, cz)) return -1;
     return cz * this.N + cx;
+  }
+
+  private seaMask = new Uint8Array(0);
+  private seaVersion = -1;
+  /**
+   * Is this water joined to the open sea at the map's edge? Not the willow glade's freshwater lake,
+   * or any other water inland (the sea's creatures stay out of those).
+   */
+  isSea(i: number): boolean {
+    if (this.seaVersion !== this.version || this.seaMask.length !== this.N * this.N) {
+      const N = this.N, L = this.layer, sea = (this.seaMask = new Uint8Array(N * N)), stack: number[] = [];
+      for (let k = 0; k < N; k++) for (const j of [k, (N - 1) * N + k, k * N, k * N + N - 1]) {
+        if (L[j] <= 0 && !sea[j]) { sea[j] = 1; stack.push(j); }
+      }
+      while (stack.length) {
+        const j = stack.pop()!, cx = j % N, cz = (j / N) | 0;
+        if (cx > 0 && L[j - 1] <= 0 && !sea[j - 1]) { sea[j - 1] = 1; stack.push(j - 1); }
+        if (cx < N - 1 && L[j + 1] <= 0 && !sea[j + 1]) { sea[j + 1] = 1; stack.push(j + 1); }
+        if (cz > 0 && L[j - N] <= 0 && !sea[j - N]) { sea[j - N] = 1; stack.push(j - N); }
+        if (cz < N - 1 && L[j + N] <= 0 && !sea[j + N]) { sea[j + N] = 1; stack.push(j + N); }
+      }
+      this.seaVersion = this.version;
+    }
+    return i >= 0 && this.seaMask[i] === 1;
+  }
+
+  /** isSea at a world position (false off the map). */
+  isSeaAt(x: number, z: number): boolean {
+    return this.isSea(this.cellIndexAt(x, z));
   }
   centerX(cx: number): number {
     return cx - this.half + 0.5;

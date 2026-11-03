@@ -698,8 +698,6 @@ interface Arrival extends Vessel {
   idx: number;
   genders: ('m' | 'f')[];
   land: { x: number; z: number };
-  /** Where the empty canoe rests once pulled up the beach (just above the water's edge). */
-  rest?: { x: number; z: number };
   state: 'sail' | 'beached';
   timer: number;
   phase: number;
@@ -711,36 +709,12 @@ interface Arrival extends Vessel {
   stall?: number;
   /** Gliding straight in to the beach after getting stuck. */
   glide?: boolean;
-  /** Sand heaped up at the bow and along the sides as it runs up the beach. */
-  sand?: THREE.Mesh;
-  /** Its own copy of the hull and sand materials, made when it fades away. */
+  /** Its own copy of the hull materials, made when it fades away. */
   fading?: THREE.Material[];
 }
 
 /** Seconds an empty canoe rests on the beach, and how long it takes to fade away. */
 const BEACHED_SECONDS = 75, FADE_SECONDS = 3;
-
-/** A low heap of sand pushed up at a canoe's bow, with a ridge along each side (model space: bow toward +z). */
-function sandHeapGeometry(): THREE.BufferGeometry {
-  const parts = [
-    new THREE.SphereGeometry(1, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2).scale(0.42, 0.13, 0.3).translate(0, 0, 0.98),
-    new THREE.SphereGeometry(1, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2).scale(0.1, 0.07, 0.62).translate(0.33, 0, 0.32),
-    new THREE.SphereGeometry(1, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2).scale(0.1, 0.07, 0.62).translate(-0.33, 0, 0.32),
-  ];
-  const g = new THREE.BufferGeometry();
-  const pos: number[] = [], idx: number[] = [];
-  for (const p of parts) {
-    const P = p.getAttribute('position'), I = p.index!, base = pos.length / 3;
-    for (let i = 0; i < P.count; i++) pos.push(P.getX(i), P.getY(i), P.getZ(i));
-    for (let i = 0; i < I.count; i++) idx.push(base + I.getX(i));
-    p.dispose();
-  }
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setIndex(idx);
-  g.computeVertexNormals();
-  return g;
-}
-const SAND_HEAP = sandHeapGeometry();
 
 /** Canoes and fishing boats: built at jetties, crewed by fishers, sail to fish schools, net and return. */
 export class Boats {
@@ -1275,10 +1249,11 @@ export class Boats {
     const w = this.world;
     const N = w.N;
     this.refreshNav();
-    // Landing: the water cell next to a main-island beach closest to the destination.
+    // Landing: the water cell next to a main-island beach closest to the destination (on the sea,
+    // never an inland lake the canoe can't reach).
     let best = -1, bestLand = -1, bd = Infinity;
     for (let i = 0; i < N * N; i++) {
-      if (!this.nav[i]) continue;
+      if (!this.nav[i] || !w.isSea(i)) continue;
       const cx = i % N, cz = (i / N) | 0;
       for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
         if (!w.inBounds(cx + dx, cz + dz)) continue;
@@ -1295,16 +1270,20 @@ export class Boats {
     if (best < 0) return null;
     const lx = w.centerX(best % N), lz = w.centerZ((best / N) | 0);
     const land = { x: w.centerX(bestLand % N), z: w.centerZ((bestLand / N) | 0) };
-    // Start far out at sea, beyond the reef, on the side facing the landing.
-    let dx = lx - to.x, dz = lz - to.z;
-    const dl = Math.hypot(dx, dz) || 1;
-    dx /= dl;
-    dz /= dl;
-    let sx = lx + dx * 45, sz = lz + dz * 45;
-    const lim = w.half - 4;
-    sx = Math.max(-lim, Math.min(lim, sx));
-    sz = Math.max(-lim, Math.min(lim, sz));
-    const path = this.waterPath(sx, sz, lx, lz, true) ?? [{ x: lx, z: lz }];
+    // Start far out at sea, beyond the reef, on the side facing the landing: deep open water with
+    // a way through to the beach (never on another island, or the canoe would cross the land).
+    const head = Math.atan2(lx - to.x, lz - to.z), lim = w.half - 4;
+    let sx = lx + Math.sin(head) * 3, sz = lz + Math.cos(head) * 3, route: { x: number; z: number }[] | null = null;
+    seek: for (const da of [0, 0.4, -0.4, 0.8, -0.8, 1.3, -1.3, 1.9, -1.9, 2.6, -2.6, Math.PI]) {
+      for (const f of [45, 32, 20]) {
+        const tx = Math.max(-lim, Math.min(lim, lx + Math.sin(head + da) * f)), tz = Math.max(-lim, Math.min(lim, lz + Math.cos(head + da) * f));
+        const ti = w.cellIndexAt(tx, tz);
+        if (ti < 0 || !this.nav[ti] || !w.isSea(ti) || w.heightAt(tx, tz) > -1) continue;
+        route = this.waterPath(tx, tz, lx, lz, false);
+        if (route) { sx = tx; sz = tz; break seek; }
+      }
+    }
+    const path = this.stopAtEdge(route ?? [{ x: lx, z: lz }], land);
     const mesh = new THREE.Group();
     const hull = new THREE.Mesh(this.geos[0], raid ? this.raidHullMat : this.hullMat);
     mesh.add(hull, hullShadow(hull.geometry));
@@ -1322,15 +1301,26 @@ export class Boats {
     return { x: lx, z: lz };
   }
 
-  /** How far the canoe's hull reaches below its origin (model units). */
-  private keel = -1;
-  private keelDepth(): number {
-    if (this.keel < 0) {
-      const g = this.geos[0];
-      g.computeBoundingBox();
-      this.keel = Math.max(0, -(g.boundingBox?.min.y ?? 0));
+  /**
+   * End a landing course where the water is still deep enough to float the canoe, its bow just
+   * touching the shore, rather than at the last water cell (whose middle may already be sand).
+   */
+  private stopAtEdge(path: { x: number; z: number }[], land: { x: number; z: number }): { x: number; z: number }[] {
+    const w = this.world, afloat = (x: number, z: number) => w.heightAt(x, z) < SEA_SURFACE - 0.08;
+    const line = [...path, land];
+    // Back from the shore along the course: the first point the hull would float is the water's edge,
+    // and the canoe's middle stops a bow's length short of it.
+    let need = HULL_HALF * 1.1 * 0.8, found = false;
+    for (let k = line.length - 1; k > 0; k--) {
+      const a = line[k - 1], b = line[k], len = Math.hypot(b.x - a.x, b.z - a.z);
+      for (let s = len; s >= 0; s -= 0.05) {
+        const t = len > 0 ? s / len : 0, x = a.x + (b.x - a.x) * t, z = a.z + (b.z - a.z) * t;
+        if (!found) { found = afloat(x, z); continue; }
+        if ((need -= 0.05) > 0) continue;
+        return [...path.slice(0, k), { x, z }];
+      }
     }
-    return this.keel;
+    return path;
   }
 
   private stepArrivals(dt: number, time: number, traffic: Hull[]): void {
@@ -1360,18 +1350,10 @@ export class Boats {
           a.idx = this.sailPath(a, me, a.path, a.idx, 2.6, dt, traffic, false);
         }
         if (a.idx >= a.path.length) {
-          // Landed: the settlers step ashore; the canoe is pulled up on the sand.
+          // Landed: the canoe rests at the water's edge, bow to the shore, and the settlers step ashore.
           a.state = 'beached';
           a.heading = Math.atan2(a.land.x - a.x, a.land.z - a.z);
-          // Pulled a little way up the sand, not dragged inland.
-          const toLand = Math.hypot(a.land.x - a.x, a.land.z - a.z), up = Math.min(0.9, toLand * 0.5);
-          a.rest = { x: a.x + Math.sin(a.heading) * up, z: a.z + Math.cos(a.heading) * up };
           a.timer = BEACHED_SECONDS;
-          // The bow ploughs up a little sand as the canoe runs ashore.
-          a.sand = new THREE.Mesh(SAND_HEAP, new THREE.MeshStandardMaterial({ color: 0xd2b47e, roughness: 1 }));
-          a.sand.receiveShadow = true;
-          a.sand.scale.setScalar(0.01);
-          a.mesh.add(a.sand);
           a.speed = 0;
           this.sfx('splash', a.x, a.z);
           // Raiders stay with their canoe (they grab what they can and are gone).
@@ -1390,11 +1372,10 @@ export class Boats {
           for (const r of a.rowers) r.dispose();
           this.group.remove(a.mesh);
           for (const m of a.fading ?? []) m.dispose();
-          (a.sand?.material as THREE.Material | undefined)?.dispose();
           this.arrivals = this.arrivals.filter((x) => x !== a);
           continue;
         }
-        // Its work done, the canoe fades away (with the sand it pushed up).
+        // Its work done, the canoe fades away.
         if (a.timer < FADE_SECONDS) {
           if (!a.fading) {
             a.fading = [];
@@ -1410,32 +1391,8 @@ export class Boats {
           for (const m of a.fading) m.opacity = Math.max(0, a.timer / FADE_SECONDS);
         }
       }
-      if (a.state === 'sail') this.ride(a.mesh, a, time, dt, half, beam);
-      else {
-        // Ease the empty hull up onto the beach, then leave it resting on the sand: sat on the
-        // ground under its bow, middle and stern (afloat where that's still water), tilted to the slope.
-        const rest = a.rest ?? a.land;
-        const pull = 1 - Math.exp(-dt * 1.4);
-        a.x += (rest.x - a.x) * pull;
-        a.z += (rest.z - a.z) * pull;
-        const fx = Math.sin(a.heading), fz = Math.cos(a.heading), reach = half * 0.8;
-        const floor = (x: number, z: number) => Math.max(SEA_SURFACE - 0.02, this.world.heightAt(x, z));
-        const bow = floor(a.x + fx * reach, a.z + fz * reach), stern = floor(a.x - fx * reach, a.z - fz * reach), mid = floor(a.x, a.z);
-        const pitch = Math.atan2(bow - stern, reach * 2);
-        // On its keel, not sunk in the sand: the hull's bottom sits on the ground (bedded a touch,
-        // as a loaded canoe settles), and it floats as before where there is still water under it.
-        const keel = this.keelDepth() * a.mesh.scale.y;
-        const ground = Math.max(mid, (bow + stern) / 2);
-        a.mesh.position.set(a.x, Math.max(0.03, ground + keel * 0.82), a.z);
-        a.mesh.rotation.set(-pitch, a.heading, 0, 'YXZ');
-        if (a.sand) {
-          // Heaped up as it slides ashore, sat on the sand under the canoe (in its own scaled frame).
-          const shown = Math.min(1, 1 - Math.hypot(rest.x - a.x, rest.z - a.z) / 0.9 + 0.25);
-          const onSand = ground > SEA_SURFACE - 0.01 ? 1 : 0.4;
-          a.sand.scale.setScalar(Math.max(0.01, shown * onSand));
-          a.sand.position.set(0, -keel * 0.82 / a.mesh.scale.y + 0.01, 0);
-        }
-      }
+      // Afloat at the water's edge once landed, rocking gently.
+      this.ride(a.mesh, a, time, dt, half, beam, a.state === 'sail' ? 1 : 0.4);
       a.rowers.forEach((r, k) => (r.rotation.z = Math.sin(a.phase + k * 0.7) * 0.04 * (k % 2 ? -1 : 1)));
     }
   }

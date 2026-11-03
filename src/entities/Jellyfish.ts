@@ -278,7 +278,7 @@ export class Jellyfish {
     this.update(0.001, null);
   }
 
-  /** Swarm homes: open sea water a few cells off a beach, well apart and away from the map's edge. */
+  /** Swarm homes: open sea water (never an inland lake) a few cells off a beach, well apart and away from the map's edge. */
   private place(rng: RNG): void {
     const w = this.world, N = w.N, C = JELLYFISH;
     const dl = landDistance(w);
@@ -287,7 +287,7 @@ export class Jellyfish {
       for (let cx = 16; cx < N - 16; cx++) {
         const i = cz * N + cx;
         const L = w.layer[i];
-        if (!clearWaterMove(w, w.centerX(cx), w.centerZ(cz), w.centerX(cx), w.centerZ(cz), 0.5) || L > -2 || L < -5 || dl[i] < C.shore[0] || dl[i] > C.shore[1] || w.canal[i] || !Number.isNaN(w.riverY[i])) continue;
+        if (!clearWaterMove(w, w.centerX(cx), w.centerZ(cz), w.centerX(cx), w.centerZ(cz), 0.5) || L > -2 || L < -5 || !w.isSea(i) || dl[i] < C.shore[0] || dl[i] > C.shore[1] || w.canal[i] || !Number.isNaN(w.riverY[i])) continue;
         cands.push(i);
       }
     }

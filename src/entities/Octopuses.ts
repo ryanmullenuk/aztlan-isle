@@ -89,10 +89,10 @@ export class Octopuses {
     return Math.max(this.world.heightAt(x, z), -6.2);
   }
 
-  /** Clear shallow sea an octopus can live over. */
+  /** Clear shallow sea an octopus can live over (open sea, never an inland lake). */
   private shallows(x: number, z: number): boolean {
     const w = this.world, i = w.cellIndexAt(x, z);
-    if (i < 0 || !w.isSeaCell(i)) return false;
+    if (i < 0 || !w.isSea(i)) return false;
     const b = this.bed(x, z);
     return b >= OCTOPUS.depth[0] && b <= OCTOPUS.depth[1];
   }

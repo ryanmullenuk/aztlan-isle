@@ -510,17 +510,24 @@ export class Marine {
     return out;
   }
 
-  /** Seabed height (the dark ocean floor lies at -6.2 beyond the island's slopes). */
+  /** Seabed height (the dark ocean floor lies at -6.2 beyond the island's slopes; an inland lake reads as dry land). */
   private bedAt(x: number, z: number): number {
     const w = this.world;
     if (Math.abs(x) > w.half || Math.abs(z) > w.half) return -6.2;
+    if (this.inland(x, z)) return 0;
     return Math.max(w.heightAt(x, z), -6.2);
+  }
+
+  /** Water not joined to the open sea (the willow glade's lake): no sea life there. */
+  private inland(x: number, z: number): boolean {
+    const w = this.world, i = w.cellIndexAt(x, z);
+    return i >= 0 && w.layer[i] <= 0 && !w.isSea(i);
   }
 
   private deepEnough(x: number, z: number, bed = -2.6): boolean {
     const w = this.world;
     if (Math.abs(x) > w.half * 1.05 || Math.abs(z) > w.half * 1.05) return true;
-    return w.heightAt(x, z) < bed;
+    return w.heightAt(x, z) < bed && !this.inland(x, z);
   }
 
   /** Room to come up from here along a heading: deep water under the whole run, clear of any shallows. */

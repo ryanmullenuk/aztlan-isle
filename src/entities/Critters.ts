@@ -307,7 +307,8 @@ export class Critters {
       const cx = this.rng.int(2, w.N - 3), cz = this.rng.int(2, w.N - 3);
       const x = w.centerX(cx), z = w.centerZ(cz);
       const bed = w.heightAt(x, z);
-      if (bed > -0.45 || bed < -2.2) continue;
+      // Sea shallows only (not the glade's freshwater lake).
+      if (bed > -0.45 || bed < -2.2 || !w.isSeaAt(x, z)) continue;
       if (this.rays.some((r) => Math.hypot(r.x - x, r.z - z) < 6)) continue;
       this.rays.push({ x, z, y: bed + 0.25, heading: this.rng.range(0, 6.28), speed: this.rng.range(0.35, 0.6), turn: 0, phase: this.rng.range(0, 10), size: this.rng.range(0.8, 1.4), cx: x, cz: z, wave: this.rays.length * 1.3 });
     }
@@ -386,7 +387,7 @@ export class Critters {
     const ax = r.x + Math.sin(r.heading) * 1.5, az = r.z + Math.cos(r.heading) * 1.5;
     const bed = w.heightAt(ax, az);
     let want = Math.sin(r.phase * 0.2) * 0.4;
-    if (bed > -0.4 || bed < -2.6 || Math.hypot(ax - r.cx, az - r.cz) > 10) want = 1.4;
+    if (bed > -0.4 || bed < -2.6 || !w.isSeaAt(ax, az) || Math.hypot(ax - r.cx, az - r.cz) > 10) want = 1.4;
     if (cursor && Math.hypot(cursor.x - r.x, cursor.z - r.z) < CRITTERS.rayFleeRadius) {
       const away = Math.atan2(r.x - cursor.x, r.z - cursor.z);
       let d = away - r.heading;

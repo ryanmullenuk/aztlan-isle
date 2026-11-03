@@ -212,10 +212,12 @@ export class SwampView {
         const y = w.heightAt(x, z), wy = w.swampWaterY(x, z);
         const inPool = !Number.isNaN(wy) && wy - y > 0.12;
         const r = rng.next();
+        // The marsh (layout 3) has more lilies floating on its pools.
+        const lilies = w.marsh && Math.hypot(x - w.marsh.x, z - w.marsh.z) < w.marsh.r ? 0.1 : 0.03;
         if (!inPool && carve > 0.1 && sv > 0.3 && r < 0.6) put('reeds', x, Math.max(y, Number.isNaN(wy) ? y : wy - 0.12), z, rng.range(0, 6.28), rng.range(0.8, 1.3));
         else if (!inPool && sv < 0.7 && r < 0.3) put(r < 0.18 ? 'grass' : 'fern', x, y, z, rng.range(0, 6.28), rng.range(0.8, 1.3));
-        else if (inPool && r < 0.03) put('lily', x, wy + 0.004, z, rng.range(0, 6.28), rng.range(0.7, 1.4));
-        else if (inPool && r < 0.05) put('snag', x, y, z, rng.range(0, 6.28), rng.range(0.8, 1.2));
+        else if (inPool && r < lilies) put('lily', x, wy + 0.004, z, rng.range(0, 6.28), rng.range(0.7, 1.4));
+        else if (inPool && r < lilies + 0.02) put('snag', x, y, z, rng.range(0, 6.28), rng.range(0.8, 1.2));
         else if (!inPool && carve > 0.08 && r < 0.012) put('roots', x, y, z, rng.range(0, 6.28), rng.range(0.9, 1.4));
         else if (r > 0.994) put('log', x, Number.isNaN(wy) ? y + 0.04 : Math.max(y + 0.04, wy - 0.03), z, rng.range(0, 6.28), rng.range(0.8, 1.2), 0, rng.range(-0.08, 0.08));
       }

@@ -87,10 +87,10 @@ export class TubeCoral {
     this.instances=new HabitatInstances(world);
     const w = world;
     const rng = new RNG(w.seed * 53 + 29);
-    /** Sea floor depth that suits it, and the scale that keeps its tips under the water there. */
+    /** Sea floor depth that suits it (open sea only, never an inland lake), and the scale that keeps its tips under the water there. */
     const fit = (x: number, z: number, deep = -1.25): number => {
       const i = w.cellIndexAt(x, z);
-      if (i < 0 || w.layer[i] > 0 || !Number.isNaN(w.riverY[i]) || w.canal[i] || w.blockFixed[i]) return 0;
+      if (i < 0 || !w.isSea(i) || !Number.isNaN(w.riverY[i]) || w.canal[i] || w.blockFixed[i]) return 0;
       const bed = w.heightAt(x, z);
       if (bed > -0.3 || bed < deep) return 0;
       // Tips just under the surface, where the water hardly dulls their colour.

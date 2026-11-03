@@ -239,10 +239,10 @@ export class Sharks {
     this.group.add(this.mesh);
   }
 
-  /** Sea deep enough to swim in (open water, floor below `y`). */
+  /** Sea deep enough to swim in (open water, floor below `y`; never an inland lake). */
   private deep(x: number, z: number, y = -1.05): boolean {
     const w = this.world, i = w.cellIndexAt(x, z);
-    return i >= 0 && w.layer[i] <= 0 && Number.isNaN(w.riverY[i]) && !w.canal[i] && !w.blockFixed[i] && w.heightAt(x, z) < y;
+    return i >= 0 && w.isSea(i) && Number.isNaN(w.riverY[i]) && !w.canal[i] && !w.blockFixed[i] && w.heightAt(x, z) < y;
   }
 
   /** Conservative footprint includes the hammer, tail swing and rounded fins. */

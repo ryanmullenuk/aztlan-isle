@@ -33,10 +33,10 @@ export function findStrandSite(w: World, cx: number, cz: number): StrandSite | n
       const x = w.centerX(gx), z = w.centerZ(gz);
       const d = Math.hypot(x - cx, z - cz);
       if (d < 14 || d > 80) continue;
-      // Seaward: toward the sea cells round about.
+      // Seaward: toward the open sea cells round about (a lake shore never strands a whale).
       let sx = 0, sz = 0;
       for (let dz = -4; dz <= 4; dz++) for (let dx = -4; dx <= 4; dx++) {
-        if (!w.inBounds(gx + dx, gz + dz) || !w.isSeaCell(w.idx(gx + dx, gz + dz))) continue;
+        if (!w.inBounds(gx + dx, gz + dz) || !w.isSea(w.idx(gx + dx, gz + dz))) continue;
         sx += dx;
         sz += dz;
       }

@@ -12,6 +12,9 @@ export const ISLAND_TYPES: Record<IslandType, { name: string; about: string; res
   twin: { name: 'Twin Isles', about: 'Two islands of equal size across the strait: bridge it early and a whole second island is yours to settle.', resources: 'Twice the wild land · More to explore' },
   archipelago: { name: 'Archipelago', about: 'A small home island among many large islets on a wide reef. Farm the sea, sail and fish.', resources: 'Plenty of fish and pearls · Little land' },
 };
+/** The newest island layout (new games); older saves keep generating theirs (see World.gen). */
+export const LATEST_GEN = 3;
+export const isIslandGen = (g: unknown): g is number => Number.isInteger(g) && (g as number) >= 1 && (g as number) <= LATEST_GEN;
 export const isIslandType = (t: unknown): t is IslandType => typeof t === 'string' && t in ISLAND_TYPES;
 
 /** How each type bends the shared layout. */
@@ -22,6 +25,25 @@ const SHAPE: Record<IslandType, { main: number; wild: number; islet: number; ext
   twin: { main: 0.9, wild: 1.35, islet: 0.9, extraIslets: 0, knoll: 1, massif: 1, forest: 1, headland: 0.55 },
   archipelago: { main: 0.55, wild: 0.6, islet: 1.65, extraIslets: 6, knoll: 0.9, massif: 0.75, forest: 0.9, headland: 0.55 },
 };
+
+/** Layout 3's main island (map units): a broad body filling out to the strait, with five peninsulas. */
+const MAIN_LOBES_3 = [
+  { x: -0.24, z: 0.04, rx: 0.645, rz: 0.625, a: 0.1 },
+  { x: -0.62, z: 0.2, rx: 0.2, rz: 0.22, a: 0.3 },
+  { x: 0.24, z: 0.02, rx: 0.13, rz: 0.3, a: 0 },
+  { x: -0.4, z: 0.56, rx: 0.2, rz: 0.17, a: 0.2 },
+  { x: -0.42, z: -0.6, rx: 0.17, rz: 0.14, a: -0.3 },
+  { x: -0.66, z: -0.42, rx: 0.24, rz: 0.18, a: -0.6 },
+  { x: -0.66, z: 0.52, rx: 0.24, rz: 0.17, a: 0.7 },
+  { x: -0.16, z: 0.66, rx: 0.3, rz: 0.16, a: 1.4 },
+  { x: -0.08, z: -0.6, rx: 0.28, rz: 0.16, a: -1.1 },
+  { x: 0.2, z: -0.46, rx: 0.2, rz: 0.15, a: -0.4 },
+  { x: 0.18, z: 0.52, rx: 0.2, rz: 0.15, a: 0.5 },
+];
+const STRAIT_X_3 = 0.42, WILD_X_3 = 0.68;
+const GLADE_3 = { x: -0.3, z: 0.6 };
+/** Where layout 3's marsh lies: the west coast's lowland, opposite the glade from the village. */
+const MARSH_3 = { x: -0.76, z: 0.1, r: 14 };
 
 /** Smooth maximum (blends overlapping lobes into one natural coastline). */
 function smax(a: number, b: number, k: number): number {
@@ -48,6 +70,7 @@ export function generateIsland(world: World, seed: number, type: IslandType = 'c
   world.islandType = type;
   world.gen = gen;
   world.glade = null;
+  world.marsh = null;
   const shape = SHAPE[type];
   const N = world.N;
   const rng = new RNG(seed);
@@ -75,13 +98,24 @@ export function generateIsland(world: World, seed: number, type: IslandType = 'c
   mainLobes.forEach((L, k) => { if (k) { L.rx *= shape.main; L.rz *= shape.main; L.x = -0.3 + (L.x + 0.3) * (0.6 + 0.4 * shape.main); L.z = 0.06 + (L.z - 0.06) * (0.6 + 0.4 * shape.main); } });
   // Layout 2: a larger main island (more room to build), its body widened westward so the strait to
   // the wild island stays open, the peninsulas larger and further out.
-  if (gen >= 2) mainLobes.forEach((L, k) => {
+  if (gen === 2) mainLobes.forEach((L, k) => {
     const f = k ? 1.16 : 1.2;
     L.rx *= f; L.rz *= f;
     if (k) { L.x = -0.3 + (L.x + 0.3) * 1.12; L.z = 0.06 + (L.z - 0.06) * 1.12; } else L.x -= 0.05;
   });
-  /** Layout 2: the willow glade and its lake, on the main island's south-western lowland (map units). */
-  const glade = gen >= 2 ? { x: -0.53, z: 0.33 } : null;
+  // Layout 3: half as much land again on the main island. The map can't grow, so the island fills
+  // out its bays, reaches further north and south, and the strait moves east (the wild island a
+  // little narrower beyond it).
+  if (gen >= 3) {
+    mainLobes.splice(0, mainLobes.length, ...MAIN_LOBES_3.map((L) => ({ ...L })));
+    mainLobes.forEach((L, k) => { if (k) { L.rx *= shape.main; L.rz *= shape.main; L.x = -0.24 + (L.x + 0.24) * (0.6 + 0.4 * shape.main); L.z = 0.04 + (L.z - 0.04) * (0.6 + 0.4 * shape.main); } });
+    wildLobes.forEach((L) => { L.x = WILD_X_3 + (L.x - 0.55) * 0.8; L.z *= 0.92; L.rx *= 0.8; L.rz *= 0.92; });
+  }
+  /**
+   * The willow glade and its lake: layout 2 on the main island's south-western lowland; layout 3
+   * further out on its southern lowland, well away from the village (map units).
+   */
+  const glade = gen >= 3 ? GLADE_3 : gen === 2 ? { x: -0.53, z: 0.33 } : null;
   wildLobes.forEach((L) => {
     L.rx *= shape.wild; L.rz *= shape.wild; L.x = 0.55 + (L.x - 0.55) * shape.wild; L.z *= Math.min(1.15, shape.wild);
     // A bigger wild island must stay well inside the map (the sea fades out toward its edge).
@@ -92,7 +126,7 @@ export function generateIsland(world: World, seed: number, type: IslandType = 'c
     L.z = Math.max(-0.86 + reach, Math.min(0.86 - reach, L.z));
   });
   /** The shallow strait between the islands (a band around x = straitX, bridgeable). */
-  const straitX = 0.215, straitW = 0.035;
+  const straitX = gen >= 3 ? STRAIT_X_3 : 0.215, straitW = 0.035;
   const plain = { x: -0.22, z: 0.1, r: WORLD.meadowRadius / (N / 2) };
   // Mountain range on the north-west of the main island (rivers and the waterfall start there).
   const mc = { x: -0.5, z: -0.2 };
@@ -336,9 +370,16 @@ export function generateIsland(world: World, seed: number, type: IslandType = 'c
     }
   }
 
-  carveRivers(world, rng, v);
+  // Layout 3: hollows in the land below sea level aren't left as stranded pockets of sea (rivers
+  // ran into them and stopped); they're filled, so every river finds its way out to the sea.
+  if (gen >= 3) {
+    for (let i = 0; i < N * N; i++) if (world.layer[i] <= 0 && !world.isSea(i)) world.layer[i] = 1;
+    world.version++;
+  }
+  carveRivers(world, rng, v, gen);
   carveLagoon(world, rng);
   if (glade) carveGlade(world, glade);
+  if (gen >= 3) world.marsh = findMarsh(world, MARSH_3);
 
   world.computeDistWater();
   // Cliffs: steep layer jumps become rock.
@@ -388,7 +429,7 @@ function placeMeadow(world: World, plain: { x: number; z: number; r: number }, p
   world.seaDir = { x: bx / len, z: bz / len };
 }
 
-function carveRivers(world: World, rng: RNG, v: Float32Array): void {
+function carveRivers(world: World, rng: RNG, v: Float32Array, gen: number): void {
   const N = world.N;
   const H = world.H;
   world.rivers = [];
@@ -432,6 +473,10 @@ function carveRivers(world: World, rng: RNG, v: Float32Array): void {
         let s = world.layer[ni] * 1.0 + v[ni] * 2 + rng.next() * 0.35 - (dx * momentum[0] + dz * momentum[1]) * 0.25;
         if (dx !== 0 && dz !== 0) s += 0.08;
         if (inMeadow(nx, nz)) s += 3;
+        // Layout 3: across flat ground, the shortest way to the sea (not wandering about the lowland).
+        if (gen >= 3) s += world.distWater[ni] * 0.12;
+        // Layout 3: no doubling back alongside itself across flat lowland (one channel, not a mire).
+        if (gen >= 3 && dirs.some(([ex, ez]) => { if (!world.inBounds(nx + ex, nz + ez)) return false; const j = world.idx(nx + ex, nz + ez); return j !== cur && j !== path[path.length - 2] && visited.has(j); })) s += 4;
         if (s < bestS) {
           bestS = s;
           best = ni;
@@ -491,7 +536,9 @@ function carveRivers(world: World, rng: RNG, v: Float32Array): void {
       const p = path[k];
       const cx = p % N, cz = (p / N) | 0;
       const b = beds[k];
-      if (world.layer[p] <= 0) {
+      // At the sea. (Layout 3 asks the course: on low ground the channel just dug alongside sits at
+      // sea level too, and the older layouts' rivers stopped short there, in a dry hollow.)
+      if (gen >= 3 ? k === beds.length - 1 : world.layer[p] <= 0) {
         points.push({ x: world.centerX(cx), z: world.centerZ(cz), y: 0.0 });
         break;
       }
@@ -577,6 +624,24 @@ function carveRivers(world: World, rng: RNG, v: Float32Array): void {
     }
     world.rivers.push({ points });
   }
+}
+
+/**
+ * The marsh (layout 3): the low, level ground nearest `at` that lies a beach's width back from the
+ * sea, so its pools sit behind the sand rather than on it.
+ */
+function findMarsh(world: World, at: { x: number; z: number; r: number }): { x: number; z: number; r: number } | null {
+  const N = world.N, cx0 = Math.round(((at.x + 1) / 2) * N), cz0 = Math.round(((at.z + 1) / 2) * N);
+  let best = -1, bs = Infinity;
+  for (let dz = -16; dz <= 16; dz++) for (let dx = -16; dx <= 16; dx++) {
+    const cx = cx0 + dx, cz = cz0 + dz;
+    if (!world.inBounds(cx, cz)) continue;
+    const i = world.idx(cx, cz), dw = world.distWater[i];
+    if (world.isle[i] !== 1 || world.layer[i] < 1 || world.layer[i] > 2 || world.rocky[i] > 0.3 || dw < 6 || dw > 11 || !Number.isNaN(world.riverY[i])) continue;
+    const s = Math.hypot(dx, dz) + (world.layer[i] - 1) * 4 + Math.abs(dw - 8);
+    if (s < bs) { bs = s; best = i; }
+  }
+  return best < 0 ? null : { x: world.centerX(best % N), z: world.centerZ((best / N) | 0), r: at.r };
 }
 
 /**

@@ -137,8 +137,9 @@ export class ReefFish {
     return bed < -0.24 && bed > -2.8 && this.clearPoint(x,z);
   }
 
+  /** Open sea only (never an inland lake). */
   private clearPoint(x:number,z:number):boolean{
-    const i=this.world.cellIndexAt(x,z);return i>=0&&!this.world.blocked(i);
+    const i=this.world.cellIndexAt(x,z);return i>=0&&!this.world.blocked(i)&&this.world.isSea(i);
   }
   private clearSwim(x:number,z:number,nx:number,nz:number,radius:number):boolean{
     const steps=Math.max(1,Math.ceil(Math.hypot(nx-x,nz-z)/.2));

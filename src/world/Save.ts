@@ -1,4 +1,4 @@
-import { isIslandType, type IslandType } from './generator';
+import { LATEST_GEN, isIslandGen, isIslandType, type IslandType } from './generator';
 import type { RareSave } from '../economy/RareEvents';
 import { restoreSales, type RareSales } from '../economy/RareGoods';
 import { isHouseStyle } from '../buildings/models';
@@ -161,12 +161,12 @@ export function islandGenToLoad(): number {
     const raw = localStorage.getItem(SAVE.key);
     if (raw) {
       const g = (JSON.parse(raw) as SaveData).gen;
-      return g === 2 ? 2 : 1;
+      return isIslandGen(g) ? g : 1;
     }
   } catch {
     return 1;
   }
-  return 2;
+  return LATEST_GEN;
 }
 
 /** Seed of whatever island is saved (used when the URL has no seed). */

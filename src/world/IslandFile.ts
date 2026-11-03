@@ -1,4 +1,4 @@
-import { isIslandType } from './generator';
+import { isIslandGen, isIslandType } from './generator';
 import { isHouseStyle } from '../buildings/models';
 import { isVillagePriority } from '../ai/VillagePriority';
 import { BUILDINGS, DECREES, RESEARCH, TEMPLE, WORLD } from '../config';
@@ -45,7 +45,7 @@ export function parseIslandFile(raw: string): SaveData {
   if (d.forecast !== undefined && (!fields(d.forecast, ['storm', 'volcano']) || !Number.isInteger(d.forecast.storm) || !Number.isInteger(d.forecast.volcano))) return fail();
   if (d.villagePriority !== undefined && !isVillagePriority(d.villagePriority)) return fail();
   if (d.islandType !== undefined && !isIslandType(d.islandType)) return fail();
-  if (d.gen !== undefined && d.gen !== 1 && d.gen !== 2) return fail();
+  if (d.gen !== undefined && !isIslandGen(d.gen)) return fail();
   if (d.wildlifeAlerts !== undefined && typeof d.wildlifeAlerts !== 'boolean') return fail();
   if (d.encounters !== undefined) {
     const e = d.encounters;
