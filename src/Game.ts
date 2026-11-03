@@ -56,7 +56,7 @@ import { TubeCoral } from './entities/TubeCoral';
 import { SeaStacks } from './water/SeaStacks';
 import { Breeze } from './render/Breeze';
 import { Economy } from './economy/Economy';
-import { BuildingSystem, Building } from './buildings/Buildings';
+import { BuildingSystem, Building, turnsFreely } from './buildings/Buildings';
 import { FX as UPGRADE_FX } from './buildings/Upgrades';
 import { upgraded } from './buildings/UpgradeEffects';
 import { Pathfinder } from './ai/Pathfinder';
@@ -331,6 +331,8 @@ export class Game {
   private placeRot = 0;
   /** Where a held press is turning the building being placed (its centre stays put meanwhile). */
   private spinAt: THREE.Vector3 | null = null;
+  /** The free turn (within ±45° of the quarter turn) for pieces that can face any way. */
+  private placeYaw = 0;
   explorer?: Explore;
   wildlifeView?: WildlifeView;
   selectedIslander = -1;
@@ -1538,6 +1540,7 @@ export class Game {
     this.placementFeedback = null;
     this.moving = b;
     this.placeRot = b.rot;
+    this.placeYaw = b.yaw;
     this.ui.setHint(`Tap to move the <b>${b.label}</b> · <b>R</b> rotates · right-click or Esc cancels`);
     if (this.hoverPoint) this.updateGhost(this.hoverPoint);
     this.initialiseTouchPreview();
@@ -1597,6 +1600,7 @@ export class Game {
     const rot = ((Math.round(angle / (Math.PI / 2)) % 4) + 4) % 4;
     if (rot !== this.placeRot) haptic('light');
     this.placeRot = rot;
+    this.placeYaw = turnsFreely(this.placing) ? angle - (rot * Math.PI) / 2 : 0;
     this.updateGhost(a);
     this.buildings.spinGhost(angle);
   }
@@ -1619,6 +1623,7 @@ export class Game {
     this.audio?.sfx('click');
     this.tool = 'build';
     this.placing = key;
+    this.placeYaw = 0;
     this.placementFeedback = null;
     this.ui.setHint(`Place the <b>${BUILDINGS[key].name}</b> on flat land · <b>R</b> rotates · right-click or Esc cancels`);
     if (this.hoverPoint) this.updateGhost(this.hoverPoint);
@@ -1671,6 +1676,7 @@ export class Game {
   private updateGhost(p: THREE.Vector3): void {
     if (!this.placing) return;
     const [cx, cz, rot] = this.footprintAt(p, this.placing);
+    this.buildings.ghostYaw = this.placeYaw;
     const res = this.buildings.showGhost(this.placing, cx, cz, rot, this.moving ?? undefined);
     const [sw, sd] = BUILDINGS[this.placing].size;
     const w = rot % 2 ? sd : sw, d = rot % 2 ? sw : sd;
@@ -1754,7 +1760,7 @@ export class Game {
       if (this.moving) {
         // Moving an existing building: drop it at the new spot.
         const mb = this.moving;
-        const r = this.buildings.relocate(mb, cx, cz, rot);
+        const r = this.buildings.relocate(mb, cx, cz, rot, this.placeYaw);
         if (!r.ok) {
           this.ui.toast(r.reason, 'warn');
           this.audio?.sfx('deny');
@@ -1765,7 +1771,7 @@ export class Game {
         this.select({ building: mb.id });
         return;
       }
-      const b = this.buildings.place(this.placing, cx, cz, rot);
+      const b = this.buildings.place(this.placing, cx, cz, rot, false, this.placeYaw);
       // The foundation drops into place and lands with a thud (see onLanded); straight down with reduced motion.
       if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
         b.drop = 0;

@@ -35,6 +35,13 @@ import { GeoBuilder } from '../render/GeoBuilder';
 import { FireLights, FireSpot } from './FireLights';
 import { BATCHED_LAYER, BuildingShadows, batchingWorks } from './BuildingShadows';
 
+/**
+ * Round and square-plinthed pieces that can face any way: the model turns freely within its plot
+ * (the footprint, door and walkway keep to the nearest quarter turn).
+ */
+const FREE_TURN = new Set<BuildingKey>(['well', 'bonfire', 'firepit', 'torch', 'bannersun', 'bannereagle', 'bannerteal', 'pennants', 'featherbanner', 'olmechead', 'sunstone']);
+export const turnsFreely = (key: BuildingKey): boolean => FREE_TURN.has(key);
+
 /** Door direction per rotation (door faces +z at rot 0). */
 export const ROT_DIR: [number, number][] = [[0, 1], [1, 0], [0, -1], [-1, 0]];
 
@@ -68,6 +75,8 @@ export class Building {
   d: number;
   rot: number;
   layer: number;
+  /** A free turn on top of the quarter turns (radians, within ±45°), for pieces that turn freely. */
+  yaw = 0;
   x: number;
   z: number;
   y: number;
@@ -172,16 +181,21 @@ export class Building {
     return ROT_DIR[this.rot];
   }
 
+  /** The model's facing: its quarter turns plus any free turn. */
+  get angle(): number {
+    return (this.rot * Math.PI) / 2 + this.yaw;
+  }
+
   /** Model-local (x, z) to world (x, z), matching the group's rotation. */
   local(lx: number, lz: number): [number, number] {
-    const t = (this.rot * Math.PI) / 2;
+    const t = this.angle;
     const c = Math.cos(t), s = Math.sin(t);
     return [this.x + lx * c + lz * s, this.z - lx * s + lz * c];
   }
 
   /** World (x, z) to model-local (x, z): the inverse of local(). */
   toLocal(wx: number, wz: number): [number, number] {
-    const t = (this.rot * Math.PI) / 2;
+    const t = this.angle;
     const c = Math.cos(t), s = Math.sin(t);
     const dx = wx - this.x, dz = wz - this.z;
     return [dx * c - dz * s, dx * s + dz * c];
@@ -433,6 +447,8 @@ export class BuildingSystem {
   private ghostArrowMat = new THREE.MeshBasicMaterial({ color: 0xf2c14e, depthTest: false, transparent: true, opacity: 0.95, side: THREE.DoubleSide });
   /** While a held press turns the ghost: its angle, free of the quarter turns (null = follow rot). */
   private ghostSpin: number | null = null;
+  /** The free turn the ghost will be placed with (pieces that turn freely). */
+  ghostYaw = 0;
   /** Footprint squares, the walkway ring and a hut's room to grow into a Home. */
   private spaceMesh = (() => {
     const geo = new THREE.PlaneGeometry(0.86, 0.86).rotateX(-Math.PI / 2);
@@ -830,7 +846,7 @@ export class BuildingSystem {
    * Move (and/or turn) an existing building, finished or not, keeping everything about it: its
    * residents, workers, progress, stock and animals.
    */
-  relocate(b: Building, cx: number, cz: number, rot: number): { ok: boolean; reason: string } {
+  relocate(b: Building, cx: number, cz: number, rot: number, yaw = b.yaw): { ok: boolean; reason: string } {
     if (!this.canRelocate(b)) return { ok: false, reason: 'Docks are tied to their shore and cannot be moved' };
     const chk = this.canPlace(b.key, cx, cz, rot, b);
     if (!chk.ok) return chk;
@@ -845,6 +861,7 @@ export class BuildingSystem {
     b.cx = cx;
     b.cz = cz;
     b.rot = rot;
+    b.yaw = turnsFreely(b.key) ? yaw : 0;
     b.w = rot % 2 ? sd : sw;
     b.d = rot % 2 ? sw : sd;
     b.layer = w.layer[w.idx(cx, cz)];
@@ -865,8 +882,8 @@ export class BuildingSystem {
     this.setPen(b);
     if (b.finished) { const model=this.modelFor(b); replaceFinished(b, withBuildingGround(model.finished,b,this.world)); model.canopy?.dispose(); setGlow(b, model.windows); }
     b.group.position.set(b.x, b.y, b.z);
-    b.group.rotation.y = (rot * Math.PI) / 2;
-    const e = new THREE.Euler(0, (rot * Math.PI) / 2, 0);
+    b.group.rotation.y = b.angle;
+    const e = new THREE.Euler(0, b.angle, 0);
     for (const t of b.torches) t.pos.copy(t.flame.position).applyEuler(e).add(b.group.position);
     this.terrain.updateWear();
     w.navigationVersion++;
@@ -904,13 +921,14 @@ export class BuildingSystem {
     for (const b of this.list) this.markDoorway(b);
   }
 
-  place(key: BuildingKey, cx: number, cz: number, rot: number, instant = false): Building {
+  place(key: BuildingKey, cx: number, cz: number, rot: number, instant = false, yaw = 0): Building {
     const def = BUILDINGS[key], cost = this.costFor(key);
     if (!instant) {
       const reason = this.constructionRequirement(key);
       if (reason || !this.eco.canAfford(cost)) throw new Error(reason || 'Not enough resources');
     }
     const b = new Building(this.nextId++, key, cx, cz, rot, this.world.layer[this.world.idx(cx, cz)], this.world);
+    if (turnsFreely(key)) b.yaw = yaw;
     // Houses take the look of the district they are built in (a saved house keeps the one it had).
     if (key === 'hut' || key === 'home') b.style = this.restoreStyle ?? this.styleAt(b.x, b.z);
     if (!instant) this.eco.spend(cost);
@@ -1014,12 +1032,12 @@ export class BuildingSystem {
   }
 
   /** Recreate a building from a save without paying or re-running completion effects. */
-  restore(key: BuildingKey, cx: number, cz: number, rot: number, d: { complete: boolean; progress: number; tier: number; upgrading: boolean; growth: number; stock: number; bless: number; integrity?: number; fire?: number; ruined?: boolean; repairing?: boolean; repairProgress?: number; fireAlerted?: boolean; style?: string }): Building {
+  restore(key: BuildingKey, cx: number, cz: number, rot: number, d: { complete: boolean; progress: number; tier: number; upgrading: boolean; growth: number; stock: number; bless: number; integrity?: number; fire?: number; ruined?: boolean; repairing?: boolean; repairProgress?: number; fireAlerted?: boolean; style?: string; yaw?: number }): Building {
     const hook = this.onComplete;
     this.onComplete = () => {};
     this.restoring = true;
     this.restoreStyle = d.style ?? 'village';
-    const b = this.place(key, cx, cz, rot, true);
+    const b = this.place(key, cx, cz, rot, true, Number.isFinite(d.yaw) ? d.yaw : 0);
     this.restoreStyle = undefined;
     this.restoring = false;
     this.onComplete = hook;
@@ -1195,7 +1213,7 @@ export class BuildingSystem {
     const [sw, sd] = b.def.size;
     const model = this.modelFor(b);
     b.group.position.set(b.x, b.y, b.z);
-    b.group.rotation.y = (b.rot * Math.PI) / 2;
+    b.group.rotation.y = b.angle;
     model.finished = withBuildingGround(model.finished,b,this.world);
     b.finished = new THREE.Mesh(model.finished, mat);
     b.finishedHi = model.finished;
@@ -1295,7 +1313,7 @@ export class BuildingSystem {
       flame.position.copy(p);
       flame.scale.setScalar(flameScale(b));
       b.group.add(flame);
-      const pos = p.clone().applyEuler(new THREE.Euler(0, (b.rot * Math.PI) / 2, 0)).add(b.group.position);
+      const pos = p.clone().applyEuler(new THREE.Euler(0, b.angle, 0)).add(b.group.position);
       b.torches.push({ pos, flame, phase: Math.random() * 10 });
     }
   }
@@ -1507,7 +1525,7 @@ export class BuildingSystem {
   /** Turn the ghost freely while the player drags it round (null: back to its quarter turn). */
   spinGhost(angle: number | null): void {
     this.ghostSpin = angle;
-    if (this.ghost) this.ghost.rotation.y = angle ?? (this.ghostRot * Math.PI) / 2;
+    if (this.ghost) this.ghost.rotation.y = angle ?? (this.ghostRot * Math.PI) / 2 + (this.ghostKey && turnsFreely(this.ghostKey) ? this.ghostYaw : 0);
   }
 
   showGhost(key: BuildingKey | null, cx = 0, cz = 0, rot = 0, moving?: Building): { ok: boolean; reason: string } {
@@ -1555,7 +1573,7 @@ export class BuildingSystem {
     const layer = this.world.layerAt(cx, cz);
     const y = key === 'jetty' ? this.world.layerY(Math.max(1, layer)) : this.world.layerY(Math.max(1, layer));
     this.ghost!.position.set(cx + w / 2 - this.world.half, y + 0.02, cz + d / 2 - this.world.half);
-    this.ghost!.rotation.y = this.ghostSpin ?? (rot * Math.PI) / 2;
+    this.ghost!.rotation.y = this.ghostSpin ?? (rot * Math.PI) / 2 + (turnsFreely(key) ? this.ghostYaw : 0);
     this.ghostMat.color.setHex(res.ok ? 0x9df08a : 0xff7a5a);
     this.ghostOutlineMat.color.copy(this.ghostMat.color);
     this.ghostArrowMat.color.setHex(res.ok ? 0xf2c14e : 0xff7a5a);

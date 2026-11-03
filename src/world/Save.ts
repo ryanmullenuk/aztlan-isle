@@ -62,6 +62,8 @@ export interface SaveData {
   layout?: number;
   buildings: {
     id: number; key: BuildingKey; cx: number; cz: number; rot: number; complete: boolean; progress: number; tier: number;
+    /** A free turn (radians) for pieces that face any way. */
+    yaw?: number;
     upgrading: boolean; growth: number; stock: number; boats: number; bless: number;
     /** Kennel: litter timer, breeding rest, dog role (1 = guard). */
     breed?: number; cool?: number; guard?: number;
@@ -212,6 +214,7 @@ export function serialize(g: Game): SaveData {
         integrity: b.integrity, fire: b.fire, ruined: b.ruined, repairing: b.repairing,
         repairProgress: b.repairProgress, fireAlerted: b.fireAlerted,
       } : {}),
+      ...(b.yaw ? { yaw: Math.round(b.yaw * 1000) / 1000 } : {}),
       id: b.id, key: b.key, cx: b.cx, cz: b.cz, rot: b.rot, complete: b.complete, progress: b.progress, tier: b.tier,
       upgrading: b.upgrading, growth: b.growth, stock: b.stock, boats: b.key === 'tradedock' ? b.tradeBoats : b.boats.length, bless: b.blessTimer,
       ...(['jetty','tradedock'].includes(b.key) ? {boatBuild:b.boatBuild??0,boatSail:b.boatSail??false} : {}),

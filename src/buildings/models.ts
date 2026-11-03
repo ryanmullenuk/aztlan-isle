@@ -2748,7 +2748,8 @@ export function greatHallModel(): BuildingModel {
     for (let k = 0; k < bands; k++) {
       const z = -RL / 2 + (RL / bands) * (k + 0.5);
       const m = M.t(sx * RW / 2, CH + 0.1 + rise2 / 2, z, 0, 0, -sx * slope);
-      roof.add(P.box(Math.hypot(RW, rise2) + 0.02, 0.05, RL / bands + 0.002), { color: k % 2 ? K.white : K.red }, m);
+      // White stripes ride a hair above the red, so where neighbours overlap they never flicker.
+      roof.add(P.box(Math.hypot(RW, rise2) + 0.02, 0.05, RL / bands + 0.002), { color: k % 2 ? K.white : K.red }, m.multiply(M.t(0, k % 2 ? 0.006 : 0, 0)));
     }
     // Fascia board along the eave, studded with gold blocks.
     roof.add(P.box(0.06, 0.12, RL + 0.04), { color: c(0x9e2c22) }, M.t(sx * (RW + 0.01), CH + 0.08, 0));
@@ -2866,7 +2867,7 @@ const HC = {
 function sandBlock(b: GeoBuilder, w: number, h: number, d: number, x: number, y: number, z: number): void {
   b.add(P.rbox(w, h, d, 0.03), { color: (p) => HC.wall.clone().lerp(HC.wallLight, Math.min(1, Math.max(0, (p.y - y) / h)) * 0.5) }, M.t(x, y + h / 2, z));
   b.add(P.box(w + 0.02, 0.12, d + 0.02), { color: HC.band }, M.t(x, y + 0.06, z));
-  b.add(P.box(w + 0.03, 0.03, d + 0.03), { color: HC.dark }, M.t(x, y + h - 0.015, z));
+  b.add(P.box(w + 0.03, 0.03, d + 0.03), { color: HC.dark }, M.t(x, y + h - 0.008, z));
   const t = 0.08, ph = 0.13;
   b.add(P.box(w, ph, t), { color: HC.wallLight }, M.t(x, y + h + ph / 2, z + d / 2 - t / 2));
   b.add(P.box(w, ph, t), { color: HC.wallLight }, M.t(x, y + h + ph / 2, z - d / 2 + t / 2));
@@ -3598,15 +3599,16 @@ export function palaceModel(): BuildingModel {
         if (side === 0 && Math.abs(u) < 2.0) continue;
         const m = M.t(Math.sin(ry) * (out + 0.01), ty + tab / 2, CZ + Math.cos(ry) * (out + 0.01), 0, ry, 0).multiply(M.t(u, 0, 0));
         b.add(P.box(along / n - 0.2, tab * 0.62, 0.02), { color: S.plaster }, m);
-        b.add(P.box(along / n - 0.34, tab * 0.38, 0.026), { color: S.red }, m.clone().multiply(M.t(0, 0, 0.002)));
+        b.add(P.box(along / n - 0.34, tab * 0.38, 0.02), { color: S.red }, m.clone().multiply(M.t(0, 0, 0.012)));
       }
     }
     return ty + tab + 0.05;
   };
   const y1 = tier(11.7, 10.4, 0.07, 0.28, 0.3, 0.16);
   tier(11.0, 9.7, y1, 0.18, 0.26, 0.1);
-  // The floor of the palace: cream plaster over the whole top.
-  b.add(P.box(TW, 0.03, TD), { color: S.plaster }, M.t(0, H - 0.015, CZ));
+  // The floor of the palace: cream plaster over the whole top, just proud of the coping (level with
+  // it, the two flicker against each other).
+  b.add(P.box(TW, 0.03, TD), { color: S.plaster }, M.t(0, H - 0.007, CZ));
   const phases = [b.indexCount];
 
   // ---- Phase 2: the grand stair, its serpent balustrades and the plaza ----
@@ -3615,7 +3617,7 @@ export function palaceModel(): BuildingModel {
   for (let k = 0; k < steps; k++) {
     const h = H - k * rise, z = front + run * (k + 0.5);
     b.add(P.box(half * 2, h - 0.025, run + 0.01), { color: S.red }, M.t(0, (h - 0.025) / 2, z));
-    b.add(P.box(half * 2 + 0.02, 0.025, run + 0.02), { color: S.plaster }, M.t(0, h - 0.0125, z));
+    b.add(P.box(half * 2 + 0.02, 0.025, run + 0.02), { color: S.plaster }, M.t(0, h - 0.0045, z));
   }
   // Balustrades (alfardas): sloping stone cheeks with a turquoise stripe, a serpent head at the foot.
   const cheek = new THREE.ExtrudeGeometry(new THREE.Shape([
@@ -3701,7 +3703,7 @@ export function palaceModel(): BuildingModel {
       // Dark doorway with a stone lintel.
       const mid = (c0 + c1) / 2;
       b.add(P.box(axis === 'x' ? dw : T * 0.4, dh, axis === 'x' ? T * 0.4 : dw), { color: K.door }, axis === 'x' ? M.t(mid, y + dh / 2, at) : M.t(at, y + dh / 2, mid));
-      b.add(P.box(axis === 'x' ? dw + 0.16 : T + 0.06, 0.07, axis === 'x' ? T + 0.06 : dw + 0.16), { color: S.sand }, axis === 'x' ? M.t(mid, y + dh + 0.035, at) : M.t(at, y + dh + 0.035, mid));
+      b.add(P.box(axis === 'x' ? dw + 0.16 : T + 0.06, 0.07, axis === 'x' ? T + 0.06 : dw + 0.16), { color: S.sand }, axis === 'x' ? M.t(mid, y + dh + 0.023, at) : M.t(at, y + dh + 0.023, mid));
       u = c1;
     }
     piece(u, to, y, h);
@@ -3768,7 +3770,7 @@ export function palaceModel(): BuildingModel {
   const roofY = F + WH, roofT = 0.16;
   const slab = (x0: number, x1: number, z0: number, z1: number, y: number, t = roofT) => {
     b.add(P.box(x1 - x0, t, z1 - z0), { color: S.sand }, M.t((x0 + x1) / 2, y + t / 2, (z0 + z1) / 2));
-    b.add(P.box(x1 - x0 + 0.06, 0.04, z1 - z0 + 0.06), { color: S.sandDark }, M.t((x0 + x1) / 2, y + 0.02, (z0 + z1) / 2));
+    b.add(P.box(x1 - x0 + 0.06, 0.04, z1 - z0 + 0.06), { color: S.sandDark }, M.t((x0 + x1) / 2, y + 0.012, (z0 + z1) / 2));
   };
   slab(top.x0, top.x1, C.z1 - 0.1, top.z1 - 0.05, roofY);
   for (const sx of [-1, 1]) slab(sx > 0 ? C.x1 - 0.1 : top.x0, sx > 0 ? top.x1 : -C.x1 + 0.1, C.z0 - 0.15, C.z1 - 0.1, roofY);
@@ -3778,7 +3780,7 @@ export function palaceModel(): BuildingModel {
   const frieze = (x0: number, x1: number, y: number, z: number, face: 1 | -1, h = 0.26) => {
     const len = x1 - x0, m = (x: number, yy: number, w: number, hh: number, col: THREE.Color, dz = 0.012) =>
       b.add(P.box(w, hh, 0.02), { color: col }, M.t(x, yy, z + face * dz));
-    b.add(P.box(len, h, 0.03), { color: S.red }, M.t((x0 + x1) / 2, y, z));
+    b.add(P.box(len - 0.02, h, 0.03), { color: S.red }, M.t((x0 + x1) / 2, y, z));
     b.add(P.box(len + 0.04, 0.035, 0.05), { color: S.gold }, M.t((x0 + x1) / 2, y + h / 2 + 0.01, z));
     b.add(P.box(len + 0.04, 0.035, 0.05), { color: S.gold }, M.t((x0 + x1) / 2, y - h / 2 - 0.01, z));
     const u = 0.44, n = Math.floor(len / u);
@@ -3791,8 +3793,8 @@ export function palaceModel(): BuildingModel {
     }
   };
   // Lintel beams over the portico and the throne loggia, faced with the frieze.
-  b.add(P.box(TW, 0.3, 0.42), { color: S.sand }, M.t(0, roofY - 0.15, top.z1 - 0.23));
-  b.add(P.box(TW - 0.2, 0.3, 0.36), { color: S.sand }, M.t(0, hallY - 0.15, C.z0 - 0.2));
+  b.add(P.box(TW - 0.03, 0.3, 0.42), { color: S.sand }, M.t(0, roofY - 0.15, top.z1 - 0.23));
+  b.add(P.box(TW - 0.24, 0.3, 0.36), { color: S.sand }, M.t(0, hallY - 0.15, C.z0 - 0.2));
   frieze(top.x0 + 0.05, top.x1 - 0.05, roofY - 0.16, top.z1 - 0.005, 1);
   frieze(top.x0 + 0.1, top.x1 - 0.1, hallY - 0.16, C.z0 - 0.005, 1);
   // The back and the flanks: the fret frieze across the back, a red-and-gold band along the sides,
@@ -3867,7 +3869,7 @@ export function palaceModel(): BuildingModel {
     const x = sx * (top.x1 - 0.3);
     b.add(P.cyl(0.035, 0.04, 0.9, 6), { color: K.timberDark }, M.t(x, y + 0.45, z));
     b.add(P.box(0.32, 0.5, 0.02), { color: S.red }, M.t(x - sx * 0.17, y + 0.62, z));
-    b.add(P.box(0.32, 0.04, 0.03), { color: S.gold }, M.t(x - sx * 0.17, y + 0.88, z));
+    b.add(P.box(0.35, 0.04, 0.045), { color: S.gold }, M.t(x - sx * 0.17, y + 0.88, z));
     plumes(b, x, y + 0.9, z, 0.6);
   }
   // Rooftop braziers flanking the pavilion and on the throne hall.
@@ -3907,7 +3909,8 @@ function plumes(b: GeoBuilder, x: number, y: number, z: number, s: number): void
   b.add(P.cyl(0.05 * s, 0.07 * s, 0.08 * s, 8), { color: PAL.gold }, M.t(x, y + 0.04 * s, z));
   for (let k = 0; k < 7; k++) {
     const a = (k - 3) * 0.28;
-    b.add(P.box(0.06 * s, 0.5 * s, 0.015), { color: k % 2 ? PAL.plumeLight : PAL.plume, leaf: 1, sway: 0.5 }, M.t(x, y + 0.08 * s, z, 0, 0, a).multiply(M.t(0, 0.25 * s, 0)));
+    // Each feather sits a little behind the next (in one plane they flicker where they overlap).
+    b.add(P.box(0.06 * s, 0.5 * s, 0.015), { color: k % 2 ? PAL.plumeLight : PAL.plume, leaf: 1 }, M.t(x, y + 0.08 * s, z - Math.abs(k - 3) * 0.02, 0, 0, a).multiply(M.t(0, 0.25 * s, 0)));
   }
 }
 

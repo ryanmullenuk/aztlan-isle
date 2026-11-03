@@ -8,17 +8,21 @@ import type { World } from '../world/World';
 
 export const OCTOPUS = {
   count: 5,
-  /** World units per model metre: about a metre across the arms (the model is 3.45 m). */
-  scale: 0.26,
+  /** World units per model metre: about 60 cm across the arms (the model is 3.45 m). */
+  scale: 0.16,
   /** Seabed depths they keep to: the clear shallows, where they can be seen from above. */
   depth: [-2.2, -0.3] as [number, number],
   /** How far from home they roam, and their speeds (world units a second). */
-  roam: 4,
-  swim: 0.32,
+  roam: 7,
+  swim: 0.4,
   dash: 1.5,
   back: 0.18,
   /** Seconds resting on the bottom, jetting away, and backing into a crevice. */
-  rest: [6, 15] as [number, number],
+  rest: [4, 9] as [number, number],
+  /** Swims in a row before it settles, how high above the seabed it swims, and how often it settles by backing into a nook. */
+  legs: [2, 4] as [number, number],
+  swimLift: 0.45,
+  backChance: 0.15,
   dashSecs: 2.9,
   backSecs: 2.5,
   /** A boat or swimmer this close sends one jetting off in a puff of ink. */
@@ -37,6 +41,8 @@ export interface Octopus {
   target: { x: number; z: number };
   state: OctoState;
   timer: number;
+  /** Swims left before it settles on the bottom again. */
+  legs: number;
   root: THREE.Object3D;
   mixer: THREE.AnimationMixer | null;
   actions: Partial<Record<OctoClip, THREE.AnimationAction>>;
@@ -104,7 +110,7 @@ export class Octopuses {
     }
     this.list = spots.map((s) => ({
       x: s.x, z: s.z, y: this.bed(s.x, s.z), heading: rnd() * Math.PI * 2,
-      home: s, target: { ...s }, state: 'rest', timer: 2 + rnd() * 8,
+      home: s, target: { ...s }, state: 'rest', timer: 2 + rnd() * 8, legs: 0,
       root: new THREE.Group(), mixer: null, actions: {}, playing: null,
     }));
   }
@@ -196,7 +202,11 @@ export class Octopuses {
       let speed = 0, dir = o.heading;
       switch (o.state) {
         case 'rest':
-          if (o.timer <= 0) { this.wander(o); this.set(o, 'swim', 30); }
+          if (o.timer <= 0) {
+            o.legs = OCTOPUS.legs[0] + Math.floor(Math.random() * (OCTOPUS.legs[1] - OCTOPUS.legs[0] + 1));
+            this.wander(o);
+            this.set(o, 'swim', 30);
+          }
           break;
         case 'swim': {
           const dx = o.target.x - o.x, dz = o.target.z - o.z, d = Math.hypot(dx, dz);
@@ -207,9 +217,10 @@ export class Octopuses {
           o.heading += turn * Math.min(1, dt * 1.6);
           speed = OCTOPUS.swim * Math.max(0.2, Math.cos(turn));
           dir = o.heading;
-          if (d < 0.3 || o.timer <= 0) {
+          if ((d < 0.3 || o.timer <= 0) && --o.legs > 0) { this.wander(o); o.timer = 30; }
+          else if (d < 0.3 || o.timer <= 0) {
             // Now and then it settles by backing slowly into a nook.
-            if (Math.random() < 0.35) this.set(o, 'back', OCTOPUS.backSecs);
+            if (Math.random() < OCTOPUS.backChance) this.set(o, 'back', OCTOPUS.backSecs);
             else this.set(o, 'rest', OCTOPUS.rest[0] + Math.random() * (OCTOPUS.rest[1] - OCTOPUS.rest[0]));
           }
           break;
@@ -231,7 +242,7 @@ export class Octopuses {
         else { o.heading = Math.atan2(o.home.x - o.x, o.home.z - o.z); if (o.state === 'swim') o.target = { ...o.home }; }
       }
       // On the bottom when still; just above it on the move (never out of the water).
-      const lift = o.state === 'rest' ? 0.02 : o.state === 'dash' ? 0.3 : 0.14;
+      const lift = o.state === 'rest' ? 0.02 : o.state === 'back' ? 0.14 : o.state === 'dash' ? 0.3 : OCTOPUS.swimLift;
       const goal = Math.min(SEA_SURFACE - 0.25, this.bed(o.x, o.z) + lift);
       o.y += (goal - o.y) * Math.min(1, dt * 2);
       o.root.position.set(o.x, o.y, o.z);
