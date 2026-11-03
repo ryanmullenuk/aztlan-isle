@@ -80,7 +80,7 @@ let canopy: THREE.MeshStandardMaterial | null = null;
  */
 export function canopyMaterial(): THREE.MeshStandardMaterial {
   if (!canopy) {
-    canopy = patchSeeThrough(patchStylised(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0, side: THREE.DoubleSide, transparent: true })), 'canopy', 0.85, true);
+    canopy = patchSeeThrough(patchStylised(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0, side: THREE.DoubleSide, transparent: true }), 0.35, false), 'canopy-rigid', 0.85, true);
   }
   return canopy;
 }
@@ -134,7 +134,9 @@ export function treeMaterialDouble(): THREE.MeshStandardMaterial {
  *  - sunlight glowing through foliage from behind (`aVeg.y` = leaf flag),
  *  - a warm rim light on the tops of shapes (tree crowns, thatch, rock tops).
  */
-export function patchStylised(mat: THREE.MeshStandardMaterial, rim = 0.35): THREE.MeshStandardMaterial {
+export function patchStylised(mat: THREE.MeshStandardMaterial, rim = 0.35, sway = true): THREE.MeshStandardMaterial {
+  // Buildings hold still: their flags, crops and potted plants are part of the design.
+  if (!sway) mat.customProgramCacheKey = () => 'stylised-rigid';
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, FX);
     shader.uniforms.uRim = { value: rim };
@@ -151,7 +153,7 @@ export function patchStylised(mat: THREE.MeshStandardMaterial, rim = 0.35): THRE
         '#include <begin_vertex>',
         `#include <begin_vertex>
         vLeaf = aVeg.y;
-        if (aVeg.x > 0.0) {
+        if (${sway ? 'aVeg.x > 0.0' : 'false'}) {
           #ifdef USE_INSTANCING
             vec3 org = instanceMatrix[3].xyz;
           #else
@@ -438,14 +440,14 @@ function patchBuilding(mat: THREE.MeshStandardMaterial): THREE.MeshStandardMater
         }`
       );
   };
-  mat.customProgramCacheKey = () => 'building-handmade-v3';
+  mat.customProgramCacheKey = () => 'building-handmade-v4';
   return mat;
 }
 
 let building: THREE.MeshStandardMaterial | null = null;
 /** Stylised material for building meshes, with the hand-made surface skin (see patchBuilding). */
 export function buildingMaterial(): THREE.MeshStandardMaterial {
-  if (!building) building = patchBuilding(patchStylised(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0 })));
+  if (!building) building = patchBuilding(patchStylised(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0 }), 0.35, false));
   return building;
 }
 

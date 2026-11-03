@@ -456,7 +456,7 @@ export class BuildingSystem {
     // Store contents (baskets, log stacks) are too small to see from that far.
     for (const f of (b as Building).fills) f.layers.set(used ? BATCHED_LAYER : 0);
   },
-    patchStylised(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0 })));
+    patchStylised(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0 }), 0.35, false));
   /** A new foundation has just landed (for the thud and a haptic tap). */
   onLanded: (b: Building) => void = () => {};
   private smokeAcc = 0;
