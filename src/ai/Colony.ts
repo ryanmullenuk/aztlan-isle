@@ -4,6 +4,7 @@ import { buildingOperational, buildingSafe } from '../buildings/BuildingConditio
 import { isElder } from '../entities/CharacterVariants';
 import type { FireJob } from '../buildings/StormFire';
 import { butcherSeconds, catchesChickens, FARM_RUN, harvestFactor, harvestFish, meatFactor, nightFishing, penRoom, smokeSeconds, smokeWood } from '../buildings/foodUpgrades';
+import { healerBeds, lastLonger, loreSpread, rareHerbs, trainSeconds, wellRefill } from '../buildings/SafetyUpgrades';
 import { gatheringWeights, jobRank, specialistShare, villagePriority, type VillagePriority } from './VillagePriority';
 import { marketBatch } from '../economy/Market';
 import { packFireworks } from '../economy/RareGoods';
@@ -1748,7 +1749,7 @@ export class Colony {
           const n = Math.min(f.stock, ISLANDER.carryAmount * 2);
           f.stock -= n;
           if(n>0 && f.key!=='herbalgarden') this.bld.recordProgress?.('harvest');
-          isl.carry = f.key === 'herbalgarden' ? { kind: 'herbs', res: 'herbs', n } : { kind: 'grain', res: 'grain', n };
+          isl.carry = f.key === 'herbalgarden' ? { kind: 'herbs', res: 'herbs', n: rareHerbs(f, n, this.rnd) } : { kind: 'grain', res: 'grain', n };
           this.releaseTask(isl);
           this.deliver(isl);
         } else {
@@ -2080,7 +2081,7 @@ export class Colony {
           if (r === 'failed') return this.fail(isl);
           if (r !== 'arrived') return;
           t.stage = 2;
-          t.timer = WARRIOR.trainSeconds;
+          t.timer = trainSeconds(b);
           isl.hidden = true;
         }
         t.timer -= dt;
@@ -2599,7 +2600,7 @@ export class Colony {
         this.releaseTask(isl); isl.think = 2 + (isl.id % 8) * .2; return;
       }
       if (result !== 'arrived') return;
-      t.phase = phase + 1; t.timer = 2; t.stage = 2;
+      t.phase = phase + 1; t.timer = phase === 0 ? 2 / wellRefill(well!) : 2; t.stage = 2;
     } else {
       this.faceTo(isl, (phase === 1 ? well! : fire).x - isl.x, (phase === 1 ? well! : fire).z - isl.z, dt);
       isl.anim = 'harvest'; isl.speed = 0; t.timer -= dt;
@@ -2658,7 +2659,7 @@ export class Colony {
     if (this.list.length < HEALTH.minPopulation) return;
     const p = (HEALTH.sickChancePerDay * HEALTH.checkSeconds) / TIME.dayLength;
     const herbs = this.bld.list.some((b) => b.key === 'herbalist' && buildingOperational(b) && !b.upgrading);
-    const spread = (HEALTH.spreadChancePerDay * HEALTH.checkSeconds / TIME.dayLength) * (herbs ? HEALTH.herbalistSpread : 1);
+    const spread = (HEALTH.spreadChancePerDay * HEALTH.checkSeconds / TIME.dayLength) * (herbs ? HEALTH.herbalistSpread * loreSpread(this.bld.list) : 1);
     for (const isl of this.list) {
       if (isl.condition !== 'well' || isl.hidden) continue;
       let from: Islander | undefined;
@@ -2679,7 +2680,8 @@ export class Colony {
   private ail(isl: Islander, dt: number): boolean {
     if (this.eco.godMode) return false;
     const before = isl.conditionT;
-    isl.conditionT = Math.max(0, before - dt);
+    const t = isl.task, care = t?.kind === 'heal' && t.phase === 1 && t.stage >= 2 ? this.bld.byId(t.target) : undefined;
+    isl.conditionT = Math.max(0, before - dt / lastLonger(this.bld.list, care));
     const at = () => (isl.hidden ? null : { x: isl.x, z: isl.z });
     if (before > HEALTH.warnSeconds && isl.conditionT <= HEALTH.warnSeconds) {
       const left = `${isl.name} will die in ${Math.round(HEALTH.warnSeconds / 60)} minutes`;
@@ -2758,7 +2760,7 @@ export class Colony {
   private freeBed(b: Building): number {
     const taken = new Set<number>();
     for (const o of this.list) if (o.task?.kind === 'heal' && o.task.phase === 1 && o.task.target === b.id && (o.task.slot ?? -1) >= 0) taken.add(o.task.slot!);
-    for (let k = 0; k < HEAL.beds.length; k++) if (!taken.has(k)) return k;
+    for (let k = 0; k < healerBeds(b); k++) if (!taken.has(k)) return k;
     return -1;
   }
 

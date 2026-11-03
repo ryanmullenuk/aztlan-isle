@@ -1188,4 +1188,6 @@ export const BUILDING_FIRE = {
   // A healthy unattended building lasts ~60 game seconds in rain/storms (~49 when dry).
   initialStrength: .12, damagePerSecond: .026, wetDamageMultiplier: .85, dryGrowth: .03, wetGrowth: .022,
   waterReduction: .9, retrySeconds: 20,
+  // Firefighters carry water from a well to fires this far from it (paces).
+  wellReach: 40,
 };

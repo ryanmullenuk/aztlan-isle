@@ -23,6 +23,7 @@ import { HALL, HEAL } from '../buildings/models';
 import { UPGRADES } from '../buildings/Upgrades';
 import { jettyBoats, penRoom, smokeWood } from '../buildings/foodUpgrades';
 import { upgraded } from '../buildings/UpgradeEffects';
+import { healerBeds, medicineSeconds, towerRange } from '../buildings/SafetyUpgrades';
 import { CONDITION_LABEL, ROLE_LABEL, type Islander } from '../entities/Islander';
 import { islanderLine } from './islanderLines';
 import { ISLAND_TYPES, type IslandType } from '../world/generator';
@@ -1735,7 +1736,7 @@ export class UI {
     }
     if(b.key==='boatworkshop' && b.complete)body+=`<p>Research level ${b.tier}/3 · ${b.tier===1?'Canoes':b.tier===2?'Canoes and larger fishing boats':'All boats, including trade boats'}</p><p class="muted small">Build vessels at your jetties and docks. Larger fishing boats carry 50% more fish.</p>`;
     if (b.key === 'stonemason' && b.complete) body += `<div class="kv"><span>Carved stone in store</span><b>${Math.floor(g.eco.goods.carvedstone)}</b></div><p class="muted small">Each stonemason turns 4 raw stone into 2 carved stone per minute of work. Workshop upgrade ${b.tier - 1} / 3. ${b.tier === 1 ? 'Houses and village buildings unlocked.' : b.tier === 2 ? 'Temples unlocked.' : b.tier === 3 ? 'Great Pyramid upgrades unlocked.' : 'Great Temple unlocked.'}</p>`;
-    if (b.key === 'herbalist' && b.complete) body += this.bar('Making medicine', b.growth, 'good') + `<div class="kv"><span>Delivered herb bundles</span><b>${Math.floor(g.eco.goods.herbs)}</b></div><div class="kv"><span>Medicine in store</span><b>${Math.floor(g.eco.goods.medicine)}</b></div><p class="muted small">One herb bundle → one medicine every three game minutes. ${b.stock > 0 ? 'Processing a herb bundle.' : g.eco.goods.medicine >= 40 ? 'Medicine store full.' : 'Waiting for herbs from a Herbal Garden.'}</p>`;
+    if (b.key === 'herbalist' && b.complete) body += this.bar('Making medicine', b.growth, 'good') + `<div class="kv"><span>Delivered herb bundles</span><b>${Math.floor(g.eco.goods.herbs)}</b></div><div class="kv"><span>Medicine in store</span><b>${Math.floor(g.eco.goods.medicine)}</b></div><p class="muted small">One herb bundle → one medicine every ${medicineSeconds(b) / 60} game minutes. ${b.stock > 0 ? 'Processing a herb bundle.' : g.eco.goods.medicine >= 40 ? 'Medicine store full.' : 'Waiting for herbs from a Herbal Garden.'}</p>`;
     if (b.key === 'firemaker' && b.complete) {
       const maker = g.colony.list.find((i) => i.task?.kind === 'firework' && i.task.target === b.id && i.task.stage >= 2);
       const progress = maker?.task ? 1 - Math.max(0, maker.task.timer) / FIREWORKS.batchSeconds : 0;
@@ -1798,7 +1799,7 @@ export class UI {
     }
     if (b.key === 'healer' && b.complete) {
       const pts = g.colony.patients(b);
-      body += `<div class="kv"><span>Beds in use</span><b>${pts.filter((p) => (p.task?.slot ?? -1) >= 0).length} / ${HEAL.beds.length}</b></div><div class="sec-h">Patients</div>`;
+      body += `<div class="kv"><span>Beds in use</span><b>${pts.filter((p) => (p.task?.slot ?? -1) >= 0).length} / ${healerBeds(b)}</b></div><div class="sec-h">Patients</div>`;
       if (!pts.length) body += '<p class="muted small">Nobody is here. The sick and the injured come here to be cared for.</p>';
       for (const p of pts) {
         const cost = g.colony.cureCost(p);
@@ -1810,7 +1811,7 @@ export class UI {
     if (b.key === 'watchtower' && b.complete) {
       const st = g.defence.stats(b);
       body += `<div class="kv"><span>Arrows loosed</span><b>${st.shots}</b></div><div class="kv"><span>Predators brought down</span><b>${st.kills}</b></div>
-        <p class="muted small">Needs nobody to man it: arrows fly from its windows at jaguars and alligators within ${DEFENCE.range} paces, day and night. Wounded beasts flee; a few hits kill one, but others will come in from beyond the island in time.</p>`;
+        <p class="muted small">Needs nobody to man it: arrows fly from its windows at jaguars and alligators within ${towerRange(b)} paces, day and night. Wounded beasts flee; a few hits kill one, but others will come in from beyond the island in time.</p>`;
     }
     if (b.complete && (b.key === 'pigpen' || b.key === 'chickenpen')) {
       body += `<div class="kv"><span>Animals in pen</span><b>${g.wildlife.penCount(b)} / ${penRoom(b)}</b></div>`;

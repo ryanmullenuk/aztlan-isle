@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { COLORS } from '../config';
+import { FX as UPGRADE_FX } from './Upgrades';
 import { GeoBuilder, M, P, doubleSide, lumpy, outward, ribbon, tube } from '../render/GeoBuilder';
 import { RNG } from '../world/rng';
 
@@ -2828,8 +2829,8 @@ export const HEAL = {
   stairFoot: 2.25,
   /** The main hall's front wall (its doorway is at x = 0). */
   hallFront: -1.1,
-  /** Beds (lengthwise, head end at the back, z0) and the mattress top above the floor. */
-  beds: [-1.05, -0.45, 0.45, 1.05].map((x) => ({ x, z0: -0.3 })),
+  /** Beds (lengthwise, head end at the back, z0; a front row added by upgrades) and the mattress top above the floor. */
+  beds: [-1.05, -0.45, 0.45, 1.05].map((x) => ({ x, z0: -0.3 })).concat([-0.45, 0.45, -1.05, 1.05].map((x) => ({ x, z0: 0.75 }))),
   bedLen: 0.66,
   bedW: 0.3,
   bedTop: 0.17,
@@ -2890,7 +2891,7 @@ function clayJar(b: GeoBuilder, x: number, y: number, z: number, s = 1): void {
  * risers between planters of leafy plants and orange flowers, torches on the front corner posts and
  * a flagstone path out front.
  */
-export function healingCentreModel(): BuildingModel {
+export function healingCentreModel(tier = 1): BuildingModel {
   const b = new GeoBuilder();
   const rng = new RNG(1313);
   const H = HEAL.h, W = HEAL.half, BK = HEAL.back, F = HEAL.front, HF = HEAL.hallFront;
@@ -2975,8 +2976,8 @@ export function healingCentreModel(): BuildingModel {
     b.add(P.box(sw + 0.01, 0.05, 0.015), { color: K.red }, at(0, 0.54, sd * 0.96));
     for (const x of [-0.2, 0.2]) b.add(P.box(0.025, 0.025, 0.22), { color: HC.post }, at(x, 0.5, 0.1, -0.5));
   }
-  // Four low beds: wooden frames, cream mattresses, red pillows and folded red blankets.
-  for (const bed of HEAL.beds) {
+  // Low beds (four, more with upgrades): wooden frames, cream mattresses, red pillows and folded red blankets.
+  for (const bed of HEAL.beds.slice(0, UPGRADE_FX.healer.beds[Math.min(4, tier) - 1])) {
     const L = HEAL.bedLen, BW = HEAL.bedW, zc = bed.z0 + L / 2;
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.add(P.box(0.04, 0.09, 0.04), { color: HC.post }, M.t(bed.x + sx * (BW / 2 - 0.03), H + 0.045, zc + sz * (L / 2 - 0.03)));
     b.add(P.box(BW, 0.04, L), { color: K.timber }, M.t(bed.x, H + 0.1, zc));

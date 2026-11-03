@@ -5,6 +5,7 @@ import { villageFire, fireEmbers } from './VillageFire';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { processMedicine } from './Herbalist';
+import { seasonFloor } from './SafetyUpgrades';
 import { needsStonemason, masonryCost, STONEMASON, BOAT_WORKSHOP, DECREES, PALACE_RULES, type DecreeKey } from '../config';
 import { BUILDINGS, BUILD_RISE, BUILD_SITES, BuildingDef, BuildingKey, ECONOMY, FARM, HOMES, JETTY, TEMPLE, FARM_TYPES, isFarm, isDecor, isPhased, isWonder } from '../config';
 import { Economy, Cost } from '../economy/Economy';
@@ -1163,7 +1164,7 @@ export class BuildingSystem {
       case 'olmechead': return models.colossalHeadModel();
       case 'sunstone': return models.sunStoneModel();
       case 'skytower': return models.skyTowerModel();
-      case 'healer': return models.healingCentreModel();
+      case 'healer': return models.healingCentreModel(b.tier);
       case 'well': return models.wellModel();
       case 'butcher': return models.butcherModel(sw, sd);
       case 'pigpen': return models.pigpenModel(sw, sd);
@@ -1659,7 +1660,7 @@ export class BuildingSystem {
         b.blessTimer = Math.max(0, b.blessTimer - dt);
         b.tendTimer = Math.max(0, b.tendTimer - dt);
         if (b.growth < 1 && b.stock <= 0) {
-          const season = Math.max(ft.seasonFloor, FARM.seasonGrowth[seasonIndex]);
+          const season = Math.max(seasonFloor(b, ft.seasonFloor), FARM.seasonGrowth[seasonIndex]);
           let rate = ((season * ft.grow * growthFactor(b)) / FARM.growSeconds) * (b.tendTimer > 0 ? FARM.tendBoost : 0.5);
           if (b.blessTimer > 0) rate *= FARM.blessMultiplier;
           if (raining) rate *= 1.3;

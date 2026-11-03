@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { DEFENCE } from '../config';
 import type { Building, BuildingSystem } from '../buildings/Buildings';
 import { arrowGeometry, towerWindows } from '../buildings/models';
+import { towerAccuracy, towerRange, towerReload } from '../buildings/SafetyUpgrades';
 import { buildingMaterial } from '../render/materials';
 import { RNG } from '../world/rng';
 import type { World } from '../world/World';
@@ -123,7 +124,7 @@ export class Defence {
       if (!w) this.watch.set(b.id, (w = { reload: 1, shots: 0, kills: 0 }));
       w.reload = Math.max(0, w.reload - dt);
       // The nearest predator within range.
-      let best: (typeof quarry)[number] | null = null, bd = DEFENCE.range;
+      let best: (typeof quarry)[number] | null = null, bd = towerRange(b);
       for (const q of quarry) {
         const d = Math.hypot(q.ref.x - b.x, q.ref.z - b.z);
         if (d < bd) {
@@ -138,7 +139,7 @@ export class Defence {
       }
       if (w.reload <= 0 && this.arrows.length < MAX_ARROWS && h) {
         this.loose(b, best.kind, best.ref, best.aimY);
-        w.reload = DEFENCE.reload * this.rng.range(0.85, 1.2);
+        w.reload = towerReload(b) * this.rng.range(0.85, 1.2);
         w.shots++;
         h.sfx('bow', b.x, b.z);
       }
@@ -153,7 +154,7 @@ export class Defence {
     const d0 = Math.hypot(ref.x - from.x, aimY - from.y, ref.z - from.z);
     const T = Math.max(0.15, d0 / DEFENCE.arrowSpeed);
     const aim = new THREE.Vector3(ref.x + (l?.vx ?? 0) * T, aimY, ref.z + (l?.vz ?? 0) * T);
-    const good = this.rng.next() < DEFENCE.accuracy;
+    const good = this.rng.next() < towerAccuracy(b);
     if (!good) {
       // Wide of the mark: into the ground a pace or two off.
       const a = this.rng.range(0, Math.PI * 2), r = this.rng.range(0.9, 2.2);

@@ -1,4 +1,5 @@
 import { buildingOperational } from '../buildings/BuildingCondition';
+import { kennelDogs, upgraded } from '../buildings/SafetyUpgrades';
 import * as THREE from 'three';
 import type { Where } from '../ui/where';
 import { View } from '../render/View';
@@ -163,7 +164,13 @@ export class Dogs {
   }
 
   get capacity(): number {
-    return Math.min(DOGS.maxTotal, this.kennels().length * DOGS.perKennel);
+    return Math.min(DOGS.maxTotal, this.kennels().reduce((n, k) => n + kennelDogs(k), 0));
+  }
+
+  /** From a kennel with a Training yard: jaguars it reaches always back off. */
+  trained(d: Dog): boolean {
+    const k = this.bld.byId(d.kennel);
+    return k?.key === 'kennel' && upgraded(k, 2);
   }
 
   get alive(): Dog[] {
