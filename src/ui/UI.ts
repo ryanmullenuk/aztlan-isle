@@ -965,6 +965,7 @@ export class UI {
         <li><b>Titles come in order, and take time:</b> food first (Village), then health (Large Village: Well, Herbalist, Healing Centre), then the town’s halls (Town: Market, Great Hall, Watchtower), and only then worship (Temple Town: the <b>Temple</b>). From the Village on, a settlement must also settle in for a day or more at each title before it earns the next.</li>
         <li><b>Building costs rise:</b> after the first couple of each kind (a few more for huts, homes and farms), each further one costs a little more. Your builders can only work on a few buildings at once: two to start, one more for every six islanders.</li>
         <li>Buildings need flat land (flatten it with the Terrain tools). A <b>Stonemason’s Workshop</b> turns stone into <b>carved stone</b>, which every stone building needs; its upgrades unlock Temples, the Great Pyramid and the Great Temple.</li>
+        <li><b>Upgrades:</b> most buildings can be improved up to three times from their card (more jobs, more storage, faster work, happier islanders). The first upgrade is open from the start, the second from Healthy village, the third from Community. A carved marker by an upgraded building shows a gold disc for each upgrade.</li>
         <li>Idle islanders help build by day without being asked. Select an islander, then tap a building, tree, rock or fruit bush to give them that job; they keep to it.</li>
         <li>Stores hold your wood, stone and food. Felled trees lie where they fall until all their wood is carried home, then regrow from the stump. Plant more with <b>Flora → Trees</b>.</li>
         <li>New settlers arrive by canoe when there are spare beds and food. The island holds up to 100 adults.</li>
@@ -1839,7 +1840,7 @@ export class UI {
     if (steps && b.complete) {
       const done = b.tier - 1, next = steps[done];
       body += `<div class="sec-h">Upgrades ${done}/${steps.length}</div>` + steps.map((st, k) =>
-        `<div class="kv upg${k < done ? ' done' : ''}"><span>${k < done ? '✓' : k + 1}. ${st.name}</span><b>${st.text}</b></div>`).join('');
+        `<div class="kv upg${k < done ? ' done' : ''}"><span>${k < done ? '✓' : `${k + 1}.`} ${st.name}</span><b>${st.text}</b></div>`).join('');
       if (next && !b.upgrading) {
         const c = up.cost;
         actions += `<button class="btn small" data-a="upgrade" ${up.ok ? '' : 'disabled'} title="${up.reason}">${ICONS.upgrade} ${next.name} <span class="c">${c.wood ? icon('wood') + c.wood : ''} ${c.stone ? icon('stone') + c.stone : ''} ${c.belief ? icon('belief') + c.belief : ''} ${c.carvedStone ? icon('carvedstone') + c.carvedStone : ''}</span></button>`;

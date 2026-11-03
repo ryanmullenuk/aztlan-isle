@@ -1385,3 +1385,6 @@ body.notice-showing .toasts { margin-top: min(130px, 21vw); }
 /* Menus sit still like an app's: only their lists scroll, up and down, and nothing drags the sheet itself sideways or past its edges. */
 .modal, .settings-card { touch-action: none; overscroll-behavior: none; overflow: hidden; }
 .settings-body { touch-action: pan-y; overflow-x: hidden; overscroll-behavior: none; }
+/* Building upgrades: done steps in gold, the rest dimmed. */
+.kv.upg b { font-weight: 500; font-size: 12px; color: var(--muted); }
+.kv.upg.done span, .kv.upg.done b { color: var(--gold); }
