@@ -3,7 +3,8 @@
 # ~/.appstoreconnect/aztlan.env names a key whose .p8 is in ~/.appstoreconnect/private_keys/, so
 # uploads don't depend on an Apple Account signed in to Xcode. Otherwise ASC_AUTH is empty.
 ASC_AUTH=()
-if [[ -f ~/.appstoreconnect/aztlan.env ]]; then
+# ASC_NO_KEY=1 signs in with the Apple Account in Xcode instead (cloud signing needs an Admin key).
+if [[ -z "$ASC_NO_KEY" && -f ~/.appstoreconnect/aztlan.env ]]; then
   source ~/.appstoreconnect/aztlan.env
   KEY=~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
   if [[ -n "$ASC_KEY_ID" && -n "$ASC_ISSUER_ID" && -f "$KEY" ]]; then
