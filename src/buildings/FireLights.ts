@@ -10,6 +10,8 @@ export interface FireSpot {
   ground: number;
   /** Campfires, bonfires, fire pits and the hall's hearth: brighter and wider than a torch. */
   big: boolean;
+  /** Upgraded fires (the Eternal flame, a brazier): light reaches this much further, and a little brighter. */
+  range?: number;
 }
 
 /** How many fires get a real (lighting) point light. */
@@ -17,6 +19,8 @@ export const FIRE_LIGHTS = 8;
 const MAX_GLOWS = 256;
 /** Seconds for a real light to fade fully in or out. */
 const FADE = 0.35;
+/** A wider light burns a little brighter too (half as much again as it is wider). */
+const brighter = (range: number): number => 1 + (range - 1) * 0.5;
 
 /**
  * Firelight at night that holds steady however the camera moves:
@@ -29,7 +33,7 @@ const FADE = 0.35;
  */
 export class FireLights {
   readonly group = new THREE.Group();
-  readonly lights: { light: THREE.PointLight; key: string | null; level: number; want: boolean; big: boolean; phase: number }[] = [];
+  readonly lights: { light: THREE.PointLight; key: string | null; level: number; want: boolean; big: boolean; phase: number; bright: number }[] = [];
   readonly glow: THREE.InstancedMesh;
   private glowMat: THREE.ShaderMaterial;
   private timer = 0;
@@ -42,7 +46,7 @@ export class FireLights {
       const light = new THREE.PointLight(0xffa04a, 0, 8, 1.6);
       light.castShadow = false;
       this.group.add(light);
-      this.lights.push({ light, key: null, level: 0, want: false, big: false, phase: 0 });
+      this.lights.push({ light, key: null, level: 0, want: false, big: false, phase: 0, bright: 1 });
     }
     const geo = new THREE.PlaneGeometry(1, 1);
     geo.rotateX(-Math.PI / 2);
@@ -107,7 +111,7 @@ export class FireLights {
       const f = 1 + 0.07 * Math.sin(time * 2.1 + ph) + 0.05 * Math.sin(time * 3.3 + ph * 1.3) + 0.03 * Math.sin(time * 5.9 + ph * 0.7);
       // Only ever dimmed, never hidden: changing how many lights are visible makes every lit
       // material recompile its shader (a visible hitch at dusk and dawn).
-      l.light.intensity = dusk * l.level * (l.big ? 3.2 : 1.9) * f;
+      l.light.intensity = dusk * l.level * (l.big ? 3.2 : 1.9) * l.bright * f;
     }
   }
 
@@ -119,10 +123,11 @@ export class FireLights {
       // Torches high on a roof or tower light the ground below less.
       const lift = Math.max(0, f.pos.y - f.ground);
       const k = THREE.MathUtils.clamp(1 - lift / 4, 0.25, 1);
-      const r = (f.big ? 3.4 : 1.7) * (1 + lift * 0.15);
+      const s = f.range ?? 1;
+      const r = (f.big ? 3.4 : 1.7) * (1 + lift * 0.15) * s;
       this.m4.makeScale(r * 2, 1, r * 2).setPosition(f.pos.x, f.ground + 0.04, f.pos.z);
       this.glow.setMatrixAt(n, this.m4);
-      this.col.setRGB(1.0, 0.52, 0.18).multiplyScalar((f.big ? 0.32 : 0.28) * k);
+      this.col.setRGB(1.0, 0.52, 0.18).multiplyScalar((f.big ? 0.32 : 0.28) * k * brighter(s));
       this.glow.setColorAt(n, this.col);
       n++;
     }
@@ -150,7 +155,8 @@ export class FireLights {
       free.big = f.big;
       free.phase = f.pos.x * 1.7 + f.pos.z * 2.3;
       free.light.position.set(f.pos.x, f.pos.y + (f.big ? 0.45 : 0.25), f.pos.z);
-      free.light.distance = f.big ? 11 : 7;
+      free.light.distance = (f.big ? 11 : 7) * (f.range ?? 1);
+      free.bright = brighter(f.range ?? 1);
     }
   }
 }

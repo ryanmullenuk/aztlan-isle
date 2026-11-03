@@ -56,6 +56,8 @@ import { SeaStacks } from './water/SeaStacks';
 import { Breeze } from './render/Breeze';
 import { Economy } from './economy/Economy';
 import { BuildingSystem, Building } from './buildings/Buildings';
+import { FX as UPGRADE_FX } from './buildings/Upgrades';
+import { upgraded } from './buildings/UpgradeEffects';
 import { Pathfinder } from './ai/Pathfinder';
 import { Colony } from './ai/Colony';
 import { IslanderRig } from './entities/IslanderRig';
@@ -2748,8 +2750,9 @@ export class Game {
     if (focus) this.focusAt({ x: b.x, z: b.z });
     // Stand back a little to watch (closer in, the display is scaled down to fit).
     this.rig.goal.dist = Math.max(this.rig.goal.dist, 34);
-    this.fireworks.show(x, this.world.groundY(x, z), z, FIREWORKS.perShow * FIREWORKS.rocketsPer);
-    this.colony.moodBoost += FIREWORKS.mood;
+    // A rocket rack sends up more; coloured powders cheer the village more.
+    this.fireworks.show(x, this.world.groundY(x, z), z, Math.round(FIREWORKS.perShow * FIREWORKS.rocketsPer * (upgraded(b, 2) ? UPGRADE_FX.firemaker.salvo : 1)));
+    this.colony.moodBoost += FIREWORKS.mood * (upgraded(b, 3) ? UPGRADE_FX.firemaker.mood : 1);
     haptic('medium');
     return this.lighting.state.night > 0.5 ? 'Fireworks light up the night sky!' : 'Fireworks burst over the village (they look their best after dark).';
   }

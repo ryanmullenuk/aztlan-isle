@@ -67,6 +67,7 @@ export interface SaveData {
     breed?: number; cool?: number; guard?: number;
     monumentPaid?: number;
     decree?: DecreeKey;
+    decree2?: DecreeKey;
     boatBuild?: number;
     boatSail?: boolean;
     boatSails?: boolean[];
@@ -205,6 +206,7 @@ export function serialize(g: Game): SaveData {
     buildings: g.buildings.list.map((b) => ({
       ...(b.monumentPaid!==undefined ? {monumentPaid:b.monumentPaid} : {}),
       ...(b.decree ? { decree: b.decree } : {}),
+      ...(b.decree2 ? { decree2: b.decree2 } : {}),
       ...(b.style && b.style !== 'village' ? { style: b.style } : {}),
       ...((b.integrity < 1 || b.ruined || b.fire > 0 || b.repairing) ? {
         integrity: b.integrity, fire: b.fire, ruined: b.ruined, repairing: b.repairing,
@@ -304,6 +306,7 @@ export function applyRest(g: Game, d: SaveData): void {
     const nb = g.buildings.restore(b.key, b.cx, b.cz, b.rot, b);
     nb.monumentPaid = b.monumentPaid;
     if (b.decree && b.decree in DECREES) nb.decree = b.decree;
+    if (b.decree2 && b.decree2 in DECREES) nb.decree2 = b.decree2;
     nb.boatBuild = b.boatBuild??0;nb.boatSail=b.boatSail??false;
     idMap.set(b.id, nb.id);
     if (b.key === 'market') nb.marketStock = { ...(b.marketStock ?? {}) };

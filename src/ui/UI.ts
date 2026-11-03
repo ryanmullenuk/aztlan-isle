@@ -22,6 +22,7 @@ import { Building } from '../buildings/Buildings';
 import { HALL, HEAL } from '../buildings/models';
 import { UPGRADES } from '../buildings/Upgrades';
 import { jettyBoats, penRoom, smokeWood } from '../buildings/foodUpgrades';
+import { upgraded } from '../buildings/UpgradeEffects';
 import { CONDITION_LABEL, ROLE_LABEL, type Islander } from '../entities/Islander';
 import { islanderLine } from './islanderLines';
 import { ISLAND_TYPES, type IslandType } from '../world/generator';
@@ -1691,7 +1692,7 @@ export class UI {
         <div class="actions"><button class="btn small" data-a="capture" ${free && (!d.needsPen || hasPen) ? '' : 'disabled'}>${ICONS.harvest} ${label}</button></div>
         <p class="muted small">Tip: select an islander first, then tap an animal to send them after it.</p>`;
     } else if (b) {
-      key = `b${b.id}|${['pigpen','chickenpen'].includes(b.key) ? g.wildlife.penCount(b)+'/'+g.buildings.of('butcher',true).filter(buildingOperational).length : ''}|${Math.round(b.integrity * 100)}:${b.fire > 0}:${b.ruined}:${b.repairing}:${Math.round(b.repairProgress * 100)}:${g.powers.state}:${g.fires.status(b)}:${g.eco.canAfford(g.buildings.repairCost(b))}|${Math.floor(g.eco.goods.carvedstone)}|${g.progression.summary}|${g.buildings.boatRequirement(3)}|${g.buildings.constructionRequirement('home')}|${g.buildings.list.filter(x=>x.key==='stonemason' && x.complete).map(x=>x.tier).join(',')}|${Math.floor(g.eco.food)}|${b.key === 'tradedock' || b.key === 'market' ? g.trade.visitKey(b) + '|' + g.voyage.key() + '|' + JSON.stringify(g.eco.goods) : ''}|${b.key === 'greathall' ? JSON.stringify(g.colony.hallCount(b)) : ''}|${b.key === 'palace' ? b.decree ?? '' : ''}|${b.key === 'observatory' ? this.observatoryKey() : ''}|${b.key === 'healer' ? g.colony.patients(b).map((p) => `${p.id}:${p.condition}:${Math.ceil(p.conditionT / 60)}:${p.task?.slot}:${g.colony.canCure(p)}`).join(',') + JSON.stringify(g.eco.goods) : ''}|${b.key === 'watchtower' ? `${g.defence.stats(b).shots}|${g.defence.stats(b).kills}|` : ''}${b.key === 'kennel' ? `${g.dogs.alive.length}|${g.dogs.alive.filter((d) => d.puppy).length}|${Math.ceil(b.breedT)}|${Math.ceil(b.breedCool / 5)}|${b.dogRole}|${Math.floor(g.eco.food / 4)}|` : ''}${b.key === 'market' ? JSON.stringify(b.marketStock) : ''}|${b.key === 'herbalist' || b.key === 'stonemason' || b.key === 'firemaker' ? JSON.stringify(g.eco.goods) : ''}${b.key === 'firemaker' ? `${g.fireworks.active}|${g.colony.list.map((i) => i.task?.kind === 'firework' && i.task.target === b.id ? `${i.id}:${i.task.stage}:${Math.ceil(i.task.timer / 3)}` : '').join('')}` : ''}|${b.complete}|${Math.round(b.progress * 50)}|${b.tier}|${b.residents.length}|${b.upgrading}|${Math.round(b.growth * 20)}|${b.boats.length}|${b.boatBuild > 0}|${b.training.length}|${Math.floor(g.eco.res.wood / 5)}|${Math.floor(g.eco.res.stone / 5)}|${Math.floor(g.eco.res.belief / 5)}|${Math.floor(g.eco.goods.pearls)}`;
+      key = `b${b.id}|${['pigpen','chickenpen'].includes(b.key) ? g.wildlife.penCount(b)+'/'+g.buildings.of('butcher',true).filter(buildingOperational).length : ''}|${Math.round(b.integrity * 100)}:${b.fire > 0}:${b.ruined}:${b.repairing}:${Math.round(b.repairProgress * 100)}:${g.powers.state}:${g.fires.status(b)}:${g.eco.canAfford(g.buildings.repairCost(b))}|${Math.floor(g.eco.goods.carvedstone)}|${g.progression.summary}|${g.buildings.boatRequirement(3)}|${g.buildings.constructionRequirement('home')}|${g.buildings.list.filter(x=>x.key==='stonemason' && x.complete).map(x=>x.tier).join(',')}|${Math.floor(g.eco.food)}|${b.key === 'tradedock' || b.key === 'market' ? g.trade.visitKey(b) + '|' + g.voyage.key() + '|' + JSON.stringify(g.eco.goods) : ''}|${b.key === 'greathall' ? JSON.stringify(g.colony.hallCount(b)) : ''}|${b.key === 'palace' ? `${b.decree ?? ''}${b.decree2 ?? ''}` : ''}|${b.key === 'observatory' ? this.observatoryKey() : ''}|${b.key === 'healer' ? g.colony.patients(b).map((p) => `${p.id}:${p.condition}:${Math.ceil(p.conditionT / 60)}:${p.task?.slot}:${g.colony.canCure(p)}`).join(',') + JSON.stringify(g.eco.goods) : ''}|${b.key === 'watchtower' ? `${g.defence.stats(b).shots}|${g.defence.stats(b).kills}|` : ''}${b.key === 'kennel' ? `${g.dogs.alive.length}|${g.dogs.alive.filter((d) => d.puppy).length}|${Math.ceil(b.breedT)}|${Math.ceil(b.breedCool / 5)}|${b.dogRole}|${Math.floor(g.eco.food / 4)}|` : ''}${b.key === 'market' ? JSON.stringify(b.marketStock) : ''}|${b.key === 'herbalist' || b.key === 'stonemason' || b.key === 'firemaker' ? JSON.stringify(g.eco.goods) : ''}${b.key === 'firemaker' ? `${g.fireworks.active}|${g.colony.list.map((i) => i.task?.kind === 'firework' && i.task.target === b.id ? `${i.id}:${i.task.stage}:${Math.ceil(i.task.timer / 3)}` : '').join('')}` : ''}|${b.complete}|${Math.round(b.progress * 50)}|${b.tier}|${b.residents.length}|${b.upgrading}|${Math.round(b.growth * 20)}|${b.boats.length}|${b.boatBuild > 0}|${b.training.length}|${Math.floor(g.eco.res.wood / 5)}|${Math.floor(g.eco.res.stone / 5)}|${Math.floor(g.eco.res.belief / 5)}|${Math.floor(g.eco.goods.pearls)}`;
       html = this.buildingHtml(b);
     }
     if (!force && key === this.infoKey) return;
@@ -1786,13 +1787,14 @@ export class UI {
     if (b.key === 'observatory' && b.complete) body += this.observatoryHtml();
     if (b.key === 'palace' && b.complete) {
       const now = b.decree ?? PALACE_RULES.firstDecree;
-      body += `<div class="sec-h">${ICONS.b_palace} Royal decree</div><div class="kv"><span>In force</span><b>${DECREES[now].name}</b></div><p class="muted small">${DECREES[now].text}. One decree is in force across the island at a time; issuing a new one costs ${PALACE_RULES.decreeCost} Belief.</p>`;
+      body += `<div class="sec-h">${ICONS.b_palace} Royal decree</div><div class="kv"><span>In force</span><b>${DECREES[now].name}</b></div><p class="muted small">${DECREES[now].text}. ${upgraded(b, 3) ? 'With the second throne two decrees are in force at once' : 'One decree is in force across the island at a time'}; issuing a new one costs ${PALACE_RULES.decreeCost} Belief.</p>`;
+      if (upgraded(b, 3)) body += `<div class="kv"><span>Second throne</span><b>${b.decree2 && b.decree2 !== now ? DECREES[b.decree2].name : 'None yet'}</b></div>${b.decree2 && b.decree2 !== now ? `<p class="muted small">${DECREES[b.decree2].text}.</p>` : ''}`;
     }
     if (b.key === 'greathall' && b.complete) {
       const h = g.colony.hallCount(b);
       body += `<div class="kv"><span>Seats</span><b>100</b></div><div class="kv"><span>Resting</span><b>${h.resting}</b></div>
         <div class="kv"><span>Sheltering</span><b>${h.sheltering}</b></div>
-        <div class="kv"><span>Room for</span><b>${HALL.seats.length} seated, ${HALL.stands.length} standing</b></div>`;
+        <div class="kv"><span>Room for</span><b>${HALL.seats.length} seated, ${HALL.stands.length + g.colony.hallCrowd(b)} standing</b></div>`;
     }
     if (b.key === 'healer' && b.complete) {
       const pts = g.colony.patients(b);
@@ -1826,6 +1828,10 @@ export class UI {
       for (const k of Object.keys(DECREES) as DecreeKey[]) {
         if (k === now) continue;
         actions += `<button class="btn small" data-a="decree:${k}" ${g.eco.res.belief >= PALACE_RULES.decreeCost ? '' : 'disabled'} title="${DECREES[k].text}">${DECREES[k].name} <span class="c">${icon('belief')}${PALACE_RULES.decreeCost}</span></button>`;
+      }
+      if (upgraded(b, 3)) for (const k of Object.keys(DECREES) as DecreeKey[]) {
+        if (k === now || k === b.decree2) continue;
+        actions += `<button class="btn small" data-a="decree2:${k}" ${g.eco.res.belief >= PALACE_RULES.decreeCost ? '' : 'disabled'} title="Second throne: ${DECREES[k].text}">Also ${DECREES[k].name} <span class="c">${icon('belief')}${PALACE_RULES.decreeCost}</span></button>`;
       }
     }
     if (b.key === 'greathall' && b.complete) actions += `<button class="btn small" data-a="bell">${ICONS.bell} Ring the bell (drill)</button>`;
@@ -1976,6 +1982,11 @@ export class UI {
       if (a.startsWith('decree:')) {
         const k = a.slice(7) as DecreeKey;
         if (k in DECREES && g.buildings.setDecree(b, k)) this.toast(`The Tlatoani decrees ${DECREES[k].name}: ${DECREES[k].text.toLowerCase()}.`);
+        else this.toast(`Issuing a decree needs ${PALACE_RULES.decreeCost} Belief.`, 'warn');
+      }
+      if (a.startsWith('decree2:')) {
+        const k = a.slice(8) as DecreeKey;
+        if (k in DECREES && g.buildings.setDecree(b, k, true)) this.toast(`From the second throne, the Tlatoani also decrees ${DECREES[k].name}: ${DECREES[k].text.toLowerCase()}.`);
         else this.toast(`Issuing a decree needs ${PALACE_RULES.decreeCost} Belief.`, 'warn');
       }
       if (a === 'helpers') {

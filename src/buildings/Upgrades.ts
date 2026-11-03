@@ -44,7 +44,7 @@ function priced(key: BuildingKey, steps: Step[]): UpgradeStep[] {
 
 /** What each upgrade does, in numbers the building systems read. */
 export const FX = {
-  campfire: { beliefPerMinute: 1, lightRange: 1.5 },
+  campfire: { evening: 1.5, beliefPerMinute: 1, lightRange: 1.5 },
   farm: { growth: 1.25, yield: 1.25 },
   maizefarm: { yield: 1.25 },
   chinampa: { fish: 3, moodRange: 8, mood: 0.03 },
@@ -77,7 +77,7 @@ export const FX = {
 export const UPGRADES: Partial<Record<BuildingKey, UpgradeStep[]>> = {
   campfire: priced('campfire', [
     { name: 'Stone hearth ring', text: 'Stores more of everything', woodCap: 40, foodCap: 40 },
-    { name: 'Storytelling circle', text: 'Villagers gather here in the evening, like at a Bonfire' },
+    { name: 'Storytelling circle', text: 'Evenings round the fire lift the mood and bring Belief half as much again' },
     { name: 'Eternal flame', text: 'A steady trickle of Belief and a wider light' },
   ]),
   farm: priced('farm', [
@@ -116,7 +116,7 @@ export const UPGRADES: Partial<Record<BuildingKey, UpgradeStep[]>> = {
     { name: 'Brooding hens', text: 'A chick hatches now and then while two or more are penned' },
   ]),
   firepit: priced('firepit', [
-    { name: 'Clay oven', text: 'Meals 25% more filling' },
+    { name: 'Clay oven', text: 'Roasted meat meals 25% more filling' },
     { name: 'Dance ring', text: 'A bigger mood boost from the dancing at night' },
     { name: 'Long table', text: 'Draws villagers from half as far again' },
   ]),

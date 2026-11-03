@@ -16,6 +16,7 @@ import { RNG } from '../world/rng';
 import * as models from './models';
 import { hasUpgradePath, nextUpgrade, upgrades, upgradeSum } from './Upgrades';
 import { growthFactor } from './foodUpgrades';
+import { lightRange, upgraded } from './UpgradeEffects';
 
 /** Flame size per building; fires are visible only from dusk until dawn. */
 /** Triangles smaller than this (m²) are left out of a building's far-away model. */
@@ -26,6 +27,8 @@ const FISH_HUT_DEPTH = -1.3;
 const phased = (b: Building): boolean => !!b.finishedHi?.userData.constructionPhases;
 
 const FLAME_SCALE: Partial<Record<BuildingKey, number>> = { campfire: 0.85, bonfire: 1, firepit: 0.9, torch: 1.25, greathall: 3.0, watchtower: 1.1, greattemple: 1.5, palace: 1.2 };
+/** A brazier's wide bowl burns bigger than a torch. */
+const flameScale = (b: Building): number => (FLAME_SCALE[b.key] ?? 1) * (b.key === 'torch' && b.tier > 1 ? 1.3 : 1);
 import { Particles } from '../render/Particles';
 import { GeoBuilder } from '../render/GeoBuilder';
 import { FireLights, FireSpot } from './FireLights';
@@ -102,6 +105,8 @@ export class Building {
   monumentPaid?: number;
   /** Tlatoani's Palace: the decree in force (the first one until the player picks another). */
   decree?: DecreeKey;
+  /** The palace's second throne: another decree in force beside the first. */
+  decree2?: DecreeKey;
   /** Goods displayed for exchange; included in the village stockpile, not extra resources. */
   marketStock: Partial<Record<import('../config').ResourceKey, number>> = {};
   tendTimer = 0;
@@ -501,17 +506,26 @@ export class BuildingSystem {
     return p ? p.decree ?? PALACE_RULES.firstDecree : null;
   }
 
-  /** How much a decree speeds up its work (1 when it isn't the one in force). */
-  decreeFactor(k: DecreeKey): number {
-    return this.decree() === k ? DECREES[k].factor : 1;
+  /** Every decree in force: the first, and the second throne's once the palace has one. */
+  decrees(): DecreeKey[] {
+    const first = this.decree(), p = this.of('palace')[0];
+    if (!first) return [];
+    return p.decree2 && p.decree2 !== first && upgraded(p, 3) ? [first, p.decree2] : [first];
   }
 
-  /** Issue a new decree from a palace (costs Belief); false if it is already in force or unaffordable. */
-  setDecree(b: Building, k: DecreeKey): boolean {
-    if (b.key !== 'palace' || !b.complete || (b.decree ?? PALACE_RULES.firstDecree) === k) return false;
+  /** How much a decree speeds up its work (1 when it isn't in force). */
+  decreeFactor(k: DecreeKey): number {
+    return this.decrees().includes(k) ? DECREES[k].factor : 1;
+  }
+
+  /** Issue a new decree from a palace, or from its second throne (costs Belief); false if it is already in force or unaffordable. */
+  setDecree(b: Building, k: DecreeKey, second = false): boolean {
+    if (b.key !== 'palace' || !b.complete || (b.decree ?? PALACE_RULES.firstDecree) === k || b.decree2 === k) return false;
+    if (second && !upgraded(b, 3)) return false;
     const cost = { wood: 0, stone: 0, belief: PALACE_RULES.decreeCost };
     if (!this.eco.spend(cost)) return false;
-    b.decree = k;
+    if (second) b.decree2 = k;
+    else b.decree = k;
     return true;
   }
 
@@ -1268,7 +1282,7 @@ export class BuildingSystem {
         flame.add(coal);
       }
       flame.position.copy(p);
-      flame.scale.setScalar(FLAME_SCALE[b.key] ?? 1);
+      flame.scale.setScalar(flameScale(b));
       b.group.add(flame);
       const pos = p.clone().applyEuler(new THREE.Euler(0, (b.rot * Math.PI) / 2, 0)).add(b.group.position);
       b.torches.push({ pos, flame, phase: Math.random() * 10 });
@@ -1284,7 +1298,7 @@ export class BuildingSystem {
       const mine: FireSpot[] = [];
       b.torches.forEach((t, k) => {
         if (mine.some((m) => m.pos.distanceToSquared(t.pos) < 0.8 * 0.8)) return;
-        mine.push({ key: `${b.id}:${k}`, pos: t.pos, ground: this.world.heightAt(t.pos.x, t.pos.z), big });
+        mine.push({ key: `${b.id}:${k}`, pos: t.pos, ground: this.world.heightAt(t.pos.x, t.pos.z), big, range: lightRange(b) });
       });
       out.push(...mine);
     }
@@ -1676,7 +1690,7 @@ export class BuildingSystem {
           const f = village
             ? 0.94 + Math.sin(time * 2.2 + t.phase) * 0.025 + Math.sin(time * 3.8 + t.phase * 2) * 0.015
             : 0.93 + Math.sin(time * 5.5 + t.phase) * 0.035 + Math.sin(time * 9.7 + t.phase * 2) * 0.025;
-          const base = FLAME_SCALE[b.key] ?? 1;
+          const base = flameScale(b);
           t.flame.scale.set(base * f, base * (0.9 + (1 - f) * 1.5), base * f);
         }
       }
