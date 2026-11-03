@@ -861,6 +861,9 @@ export class Boats {
    */
   berth(j: Building, slot: number, spacing = 0.9, centre = 1, out = JETTY.berthOut): { x: number; z: number; out: number; approach: { x: number; z: number } } {
     const [dx, dz] = j.dir;
+    // A longer pier's fourth boat: all four close up, centred on the pier head.
+    const n = j.key === 'jetty' ? jettyBoats(j) : 0;
+    if (n > JETTY.maxBoats) { centre = (n - 1) / 2; spacing = 0.72; }
     const lat = (slot - centre) * spacing;
     const x = j.dockX + dx * out + dz * lat, z = j.dockZ + dz * out - dx * lat;
     let a = BOATS.approach + slot * BOATS.approachStagger;
