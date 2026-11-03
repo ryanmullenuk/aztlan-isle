@@ -83,7 +83,7 @@ export const UPGRADES: Partial<Record<BuildingKey, UpgradeStep[]>> = {
   farm: priced('farm', [
     { name: 'Irrigation ditches', text: 'Crops grow 25% faster' },
     { name: 'Fence and scarecrow', text: '+1 farmer', workers: 1 },
-    { name: 'Terraced beds', text: 'Harvests 25% bigger, and wild chickens are caught more often' },
+    { name: 'Terraced beds', text: 'Harvests 25% bigger, and its farmers catch wild chickens nearby for the farm’s run' },
   ]),
   maizefarm: priced('maizefarm', [
     { name: 'Granary crib', text: '+20 food storage', foodCap: 20 },
@@ -106,13 +106,13 @@ export const UPGRADES: Partial<Record<BuildingKey, UpgradeStep[]>> = {
     { name: 'Butcher’s block', text: 'Meat is prepared half as fast again' },
   ]),
   pigpen: priced('pigpen', [
-    { name: 'Bigger yard', text: 'Holds half as many animals again' },
-    { name: 'Breeding sty', text: 'A piglet is born now and then while two or more are penned' },
+    { name: 'Bigger yard', text: 'Room for 15 animals instead of 10' },
+    { name: 'Breeding sty', text: 'A piglet or kid is born now and then while two or more of a kind are penned' },
     { name: 'Troughs and wallow', text: 'Half as much meat again from each pig and goat' },
   ]),
   chickenpen: priced('chickenpen', [
-    { name: 'Bigger coop', text: 'Holds half as many chickens again' },
-    { name: 'Nest boxes', text: 'Penned hens lay eggs: a little food every few minutes' },
+    { name: 'Bigger coop', text: 'Room for 24 chickens instead of 16' },
+    { name: 'Nest boxes', text: 'Penned hens lay eggs: a little food every two minutes' },
     { name: 'Brooding hens', text: 'A chick hatches now and then while two or more are penned' },
   ]),
   firepit: priced('firepit', [

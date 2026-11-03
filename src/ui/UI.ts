@@ -21,6 +21,7 @@ import type { Game } from '../Game';
 import { Building } from '../buildings/Buildings';
 import { HALL, HEAL } from '../buildings/models';
 import { UPGRADES } from '../buildings/Upgrades';
+import { jettyBoats, penRoom, smokeWood } from '../buildings/foodUpgrades';
 import { CONDITION_LABEL, ROLE_LABEL, type Islander } from '../entities/Islander';
 import { islanderLine } from './islanderLines';
 import { ISLAND_TYPES, type IslandType } from '../world/generator';
@@ -1740,7 +1741,7 @@ export class UI {
     }
     if (b.key === 'herbalgarden' && b.complete) body += `<p class="muted small">Farmers harvest these beds and deliver herbs to a completed Herbalist’s Garden.${g.buildings.of('herbalist').length ? '' : ' Build a Herbalist’s Garden to receive the harvest.'}</p>`;
     if (b.key === 'healer' && b.complete) body += `<p class="muted small">Medicine treatment: 60 seconds for sickness, 90 seconds for wounds. One medicine per patient; treatment pauses when medicine runs out.</p>`;
-    if (b.key === 'smokehouse' && b.complete) body += `<div class="kv"><span>Smoking</span><b>${b.tendTimer > 0 ? 'Fire lit, racks full' : g.eco.res.fish >= SMOKE.input || g.eco.res.meat >= SMOKE.input ? 'Waiting for a keeper' : 'Needs raw fish or meat'}</b></div><p class="muted small">${SMOKE.input} raw fish or meat + ${SMOKE.wood} wood → ${SMOKE.output} smoked.</p>`;
+    if (b.key === 'smokehouse' && b.complete) body += `<div class="kv"><span>Smoking</span><b>${b.tendTimer > 0 ? 'Fire lit, racks full' : g.eco.res.fish >= SMOKE.input || g.eco.res.meat >= SMOKE.input ? 'Waiting for a keeper' : 'Needs raw fish or meat'}</b></div><p class="muted small">${SMOKE.input} raw fish or meat + ${smokeWood(b, SMOKE.wood)} wood → ${SMOKE.output} smoked.</p>`;
     if (FARM_TYPES[b.key] && b.complete) body += this.bar(b.growth >= 1 ? 'Ready to harvest' : `${FARM_TYPES[b.key]!.label} growing ${Math.round(b.growth * 100)}%`, b.growth, 'good') + (b.blessTimer > 0 ? '<div class="kv"><span>Blessed</span><b>Growing faster</b></div>' : '');
     if (b.key === 'greattemple' && b.complete) {
       const praying = workers.filter(i => i.task?.kind === 'pray' && i.task.target === b.id && i.task.stage === 2 && i.anim === 'pray').length;
@@ -1749,7 +1750,7 @@ export class UI {
     if (b.key === 'temple' && b.complete) body += `<div class="kv"><span>Belief</span><b>+${(0.25 * b.tier * 60).toFixed(0)}/min and more from priests</b></div>`;
     if (b.key === 'woodstore' || b.key === 'campfire') body += `<div class="kv"><span>Wood / Stone</span><b>${Math.floor(g.eco.res.wood)} · ${Math.floor(g.eco.res.stone)} of ${g.eco.woodCap}</b></div>`;
     if (b.key === 'grainstore' || b.key === 'campfire') body += `<div class="kv"><span>Food</span><b>${Math.floor(g.eco.food)} of ${g.eco.foodCap}</b></div>`;
-    if (b.key === 'jetty' && b.complete) body += `<div class="kv"><span>Boats</span><b>${b.boats.length} / ${JETTY.maxBoats}${b.boatBuild > 0 ? ` (building ${Math.round((b.boatBuild / JETTY.boatBuildSeconds) * 100)}%)` : ''}</b></div>`;
+    if (b.key === 'jetty' && b.complete) body += `<div class="kv"><span>Boats</span><b>${b.boats.length} / ${jettyBoats(b)}${b.boatBuild > 0 ? ` (building ${Math.round((b.boatBuild / JETTY.boatBuildSeconds) * 100)}%)` : ''}</b></div>`;
     if (b.key === 'tradedock' && b.complete) body += this.voyageSection(b);
     if (b.key === 'tradedock' && b.complete) {
       const ships = g.trade.of(b);
@@ -1809,7 +1810,7 @@ export class UI {
         <p class="muted small">Needs nobody to man it: arrows fly from its windows at jaguars and alligators within ${DEFENCE.range} paces, day and night. Wounded beasts flee; a few hits kill one, but others will come in from beyond the island in time.</p>`;
     }
     if (b.complete && (b.key === 'pigpen' || b.key === 'chickenpen')) {
-      body += `<div class="kv"><span>Animals in pen</span><b>${g.wildlife.penCount(b)}</b></div>`;
+      body += `<div class="kv"><span>Animals in pen</span><b>${g.wildlife.penCount(b)} / ${penRoom(b)}</b></div>`;
       body += `<p class="muted small">${g.buildings.of('butcher',true).some(buildingOperational) ? 'Slaughterhouse workers collect these animals and take them there to prepare meat.' : 'Animals stay in this pen. Build a completed, working Slaughterhouse to turn penned animals into food.'}</p>`;
     }
     let actions = '';
@@ -1818,7 +1819,7 @@ export class UI {
       const n = rushPearls(rushLeft), have = Math.floor(g.eco.goods.pearls);
       actions += `<button class="btn small" data-a="rush" ${have >= n ? '' : 'disabled'} title="${have >= n ? 'Spend pearls to finish it now' : `You have ${have} pearl${have === 1 ? '' : 's'}`}">Finish now <span class="c">${icon('pearls')}${n}</span></button>`;
     }
-    if (b.complete && (b.key === 'pigpen' || b.key === 'chickenpen')) actions += `<button class="btn small" data-a="roundup">${ICONS.people} ROUND UP</button><p class="muted small">Send idle adults to catch ${b.key === 'pigpen' ? 'pigs' : 'chickens'} and bring them to this pen.</p>`;
+    if (b.complete && (b.key === 'pigpen' || b.key === 'chickenpen')) actions += `<button class="btn small" data-a="roundup" ${g.wildlife.penCount(b) < penRoom(b) ? '' : 'disabled title="The pen is full"'}>${ICONS.people} ROUND UP</button><p class="muted small">Send idle adults to catch ${b.key === 'pigpen' ? 'pigs' : 'chickens'} and bring them to this pen.</p>`;
     if (b.key === 'palace' && b.complete) {
       const now = b.decree ?? PALACE_RULES.firstDecree;
       for (const k of Object.keys(DECREES) as DecreeKey[]) {
@@ -1848,10 +1849,10 @@ export class UI {
     }
     if (b.key === 'jetty' && b.complete) {
       const c = JETTY.boatCost;
-      actions += `<button class="btn small" data-a="boat" ${!g.buildings.boatRequirement(1) && b.boats.length + (b.boatBuild > 0 ? 1 : 0) < JETTY.maxBoats && !b.boatBuild && g.eco.canAfford(c) ? '' : 'disabled'}>${ICONS.boat} Build canoe <span class="c">${icon('wood')}${c.wood}</span></button>`;
+      actions += `<button class="btn small" data-a="boat" ${!g.buildings.boatRequirement(1) && b.boats.length + (b.boatBuild > 0 ? 1 : 0) < jettyBoats(b) && !b.boatBuild && g.eco.canAfford(c) ? '' : 'disabled'}>${ICONS.boat} Build canoe <span class="c">${icon('wood')}${c.wood}</span></button>`;
     }
     if(b.key==='jetty'&&b.complete){const c=BOAT_WORKSHOP.largeCost,reason=g.buildings.boatRequirement(2);
-      actions+=`<button class="btn small" data-a="largeboat" ${!reason && !b.boatBuild && b.boats.length<JETTY.maxBoats && g.eco.canAfford(c)?'':'disabled'}>${ICONS.boat} Build larger boat <span class="c">${icon('wood')}${c.wood} ${icon('stone')}${c.stone}</span></button>`;
+      actions+=`<button class="btn small" data-a="largeboat" ${!reason && !b.boatBuild && b.boats.length<jettyBoats(b) && g.eco.canAfford(c)?'':'disabled'}>${ICONS.boat} Build larger boat <span class="c">${icon('wood')}${c.wood} ${icon('stone')}${c.stone}</span></button>`;
       if(reason)actions+=`<p class="muted small">${g.buildings.boatRequirement(1)||reason}</p>`;
     }
     if (b.key === 'tradedock' && b.complete) {

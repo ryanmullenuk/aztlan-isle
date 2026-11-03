@@ -2,6 +2,7 @@ import { jobsAt } from '../buildings/Upgrades';
 import { buildingOperational, buildingSafe } from '../buildings/BuildingCondition';
 import { isElder } from '../entities/CharacterVariants';
 import type { FireJob } from '../buildings/StormFire';
+import { butcherSeconds, catchesChickens, FARM_RUN, harvestFactor, harvestFish, meatFactor, nightFishing, penRoom, smokeSeconds, smokeWood } from '../buildings/foodUpgrades';
 import { gatheringWeights, jobRank, specialistShare, villagePriority, type VillagePriority } from './VillagePriority';
 import { marketBatch } from '../economy/Market';
 import { packFireworks } from '../economy/RareGoods';
@@ -51,6 +52,8 @@ export interface ColonyHooks {
   grab?: (id: number, isl: Islander) => 'carry' | 'lead' | 'hunt';
   releaseAnimal?: (id: number) => void;
   putInPen?: (id: number, b: Building) => void;
+  /** The nearest wild chicken within r of (x, z), or -1. */
+  wildChicken?: (x: number, z: number, r: number) => number;
   consumeAnimal?: (id: number) => void;
   /** A jaguar is still prowling near the village (sheltering villagers wait until it has gone). */
   threat?: () => boolean;
@@ -1045,7 +1048,7 @@ export class Colony {
       }
     }
     // Warriors keep watch through the night, until they tire; so do the Observatory's sky-watchers.
-    const watchman = isl.role === 'warrior' || this.stargazer(isl);
+    const watchman = isl.role === 'warrior' || this.stargazer(isl) || (isl.role === 'fisher' && nightFishing(this.bld.byId(isl.workplace)));
     if ((night && !watchman) || isl.rest < ISLANDER.sleepThreshold) return this.goSleep(isl);
     if (night && watchman && isl.rest < 0.5) return this.goSleep(isl);
     if (!night && !god && !this.hooks.threat?.()) {
@@ -1344,7 +1347,7 @@ export class Colony {
         const b = this.bld.byId(isl.workplace);
         if (!b) return false;
         // Only when there is raw fish or meat to smoke and a little firewood.
-        if ((this.eco.res.fish < SMOKE.input && this.eco.res.meat < SMOKE.input) || this.eco.res.wood < SMOKE.wood) return false;
+        if ((this.eco.res.fish < SMOKE.input && this.eco.res.meat < SMOKE.input) || this.eco.res.wood < smokeWood(b, SMOKE.wood)) return false;
         const [rx, rz] = b.local(0.45, 0.0);
         this.setTask(isl, 'smoke', b.id, rx, rz);
         return true;
@@ -1384,7 +1387,7 @@ export class Colony {
         const pen=this.bld.byId(stock.pen);
         if(!pen){this.hooks.cancelSlaughter?.(stock.id,isl);return false;}
         this.setTask(isl,'butcher',b.id,pen.door.x,pen.door.z);
-        Object.assign(isl.task!,{animal:stock.id,sourcePen:stock.pen,meatYield:stock.meat,building:b.id,phase:0});
+        Object.assign(isl.task!,{animal:stock.id,sourcePen:stock.pen,meatYield:Math.round(stock.meat*meatFactor(b,pen)),building:b.id,phase:0});
         return true;
       }
       case 'fisher': {
@@ -1418,6 +1421,7 @@ export class Colony {
     for (const key of order) {
       let best: Building | null = null, bd = Infinity;
       for (const b of this.bld.of(key, true)) {
+        if (this.penFull(b)) continue;
         const d = Math.hypot(b.x - x, b.z - z);
         if (d < bd) {
           bd = d;
@@ -1427,6 +1431,20 @@ export class Colony {
       if (best) return best;
     }
     return null;
+  }
+
+  /** A pen with no room left, counting animals already on their way to it. */
+  private penFull(b: Building, room = penRoom(b)): boolean {
+    if (room === Infinity) return false;
+    const coming = this.list.filter((i) => i.task?.kind === 'capture' && i.task.building === b.id && (i.task.phase ?? 0) < 2).length;
+    return (this.hooks.penCount?.(b) ?? 0) + coming >= room;
+  }
+
+  /** Terraced beds: now and then a farmer catches a wild chicken near the farm for its run. */
+  private farmChicken(isl: Islander, f: Building): void {
+    if (!catchesChickens(f) || this.rnd() > 0.3 || this.penFull(f, FARM_RUN)) return;
+    const id = this.hooks.wildChicken?.(f.x, f.z, 14) ?? -1;
+    if (id >= 0) this.orderCapture(isl, id, f);
   }
 
   /** Nearest adult who could go hunting (not a warrior on duty, not asleep). */
@@ -1452,7 +1470,7 @@ export class Colony {
     let count = 0;
     for (const animal of [...animals].sort((a, b) =>
       Math.hypot(a.x - pen.x, a.z - pen.z) - Math.hypot(b.x - pen.x, b.z - pen.z))) {
-      if (!free.length) break;
+      if (!free.length || this.penFull(pen)) break;
       if (!this.hooks.canCapture?.(animal.id)) continue;
       free.sort((a, b) => Math.hypot(a.x - animal.x, a.z - animal.z) - Math.hypot(b.x - animal.x, b.z - animal.z));
       if (this.orderCapture(free[0], animal.id, pen).ok) { free.shift(); count++; }
@@ -1468,7 +1486,7 @@ export class Colony {
     if (!this.hooks.canCapture?.(animalId)) return { ok: false, msg: `That ${info.name.toLowerCase()} is already being dealt with.` };
     const pos = this.hooks.animalPos?.(animalId);
     if (!pos) return { ok: false, msg: 'That animal cannot be found.' };
-    if (info.needsPen && !this.penFor('lead', pos.x, pos.z)) return { ok: false, msg: `Build a Pig Pen (or a Butcher or Farm) first: a ${info.name.toLowerCase()} needs a pen.` };
+    if (info.needsPen && !this.penFor('lead', pos.x, pos.z)) return { ok: false, msg: this.bld.of('pigpen', true).length ? 'The Pig Pens are full: build another, or a Butcher or Farm.' : `Build a Pig Pen (or a Butcher or Farm) first: a ${info.name.toLowerCase()} needs a pen.` };
     const who = isl ?? this.nearestHunter(pos.x, pos.z);
     if (!who) return { ok: false, msg: this.list.some((i) => !i.child && i.sleeping) ? 'Everyone is asleep. Try again in the morning.' : 'Nobody is free to go hunting.' };
     if (who.child) return { ok: false, msg: `${who.name} is too young to hunt.` };
@@ -1716,8 +1734,10 @@ export class Colony {
         if (harvesting) {
           if (f.key === 'herbalgarden' && !this.bld.list.some(b => b.key === 'herbalist' && buildingOperational(b) && !b.upgrading)) return this.releaseTask(isl);
           if (f.growth >= 1) {
-            f.stock += Math.round((FARM_TYPES[f.key]?.yield ?? FARM.grainYield) * (this.bld.decreeFactor?.('harvest') ?? 1));
+            f.stock += Math.round((FARM_TYPES[f.key]?.yield ?? FARM.grainYield) * (this.bld.decreeFactor?.('harvest') ?? 1) * harvestFactor(f));
             f.growth = 0;
+            // Fish caught in the chinampa's channels go straight to the stores.
+            if (harvestFish(f)) this.eco.add('fish', harvestFish(f));
             this.hooks.sfx?.('harvest', isl.x, isl.z);
           }
           const n = Math.min(f.stock, ISLANDER.carryAmount * 2);
@@ -1726,7 +1746,10 @@ export class Colony {
           isl.carry = f.key === 'herbalgarden' ? { kind: 'herbs', res: 'herbs', n } : { kind: 'grain', res: 'grain', n };
           this.releaseTask(isl);
           this.deliver(isl);
-        } else this.releaseTask(isl);
+        } else {
+          this.releaseTask(isl);
+          this.farmChicken(isl, f);
+        }
         break;
       }
       case 'market': {
@@ -1794,7 +1817,7 @@ export class Colony {
           if (r === 'failed') return this.fail(isl);
           if (r !== 'arrived') return;
           t.stage = 2;
-          t.timer = SMOKE.batchSeconds;
+          t.timer = smokeSeconds(b, SMOKE.batchSeconds);
         }
         // Hanging fish and meat on the racks and tending the fire.
         const [fx, fz] = b.local(0.8, 0);
@@ -1805,9 +1828,10 @@ export class Colony {
         t.timer -= dt;
         if (t.timer > 0) return;
         const kind = this.eco.res.fish >= this.eco.res.meat ? 'fish' : 'meat';
-        if (this.eco.res[kind] >= SMOKE.input && this.eco.res.wood >= SMOKE.wood) {
+        const wood = smokeWood(b, SMOKE.wood);
+        if (this.eco.res[kind] >= SMOKE.input && this.eco.res.wood >= wood) {
           this.eco.res[kind] -= SMOKE.input;
-          this.eco.res.wood -= SMOKE.wood;
+          this.eco.res.wood -= wood;
           this.eco.add(kind, SMOKE.output);
           this.hooks.sfx?.('harvest', isl.x, isl.z);
         }
@@ -1893,7 +1917,7 @@ export class Colony {
           if(info?.mode==='lead'&&Math.hypot(pos.x-isl.x,pos.z-isl.z)>1.2){
             isl.anim='idle';t.timer+=dt;if(t.timer>12)return failed();return;
           }
-          t.phase=3;t.timer=8;
+          t.phase=3;t.timer=butcherSeconds(b,8);
         }
         isl.tool='axe';isl.anim='chop';t.timer-=dt;
         if(t.timer<=0){

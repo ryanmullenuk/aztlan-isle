@@ -15,6 +15,7 @@ import { World } from '../world/World';
 import { RNG } from '../world/rng';
 import * as models from './models';
 import { hasUpgradePath, nextUpgrade, upgrades, upgradeSum } from './Upgrades';
+import { growthFactor } from './foodUpgrades';
 
 /** Flame size per building; fires are visible only from dusk until dawn. */
 /** Triangles smaller than this (m²) are left out of a building's far-away model. */
@@ -1645,7 +1646,7 @@ export class BuildingSystem {
         b.tendTimer = Math.max(0, b.tendTimer - dt);
         if (b.growth < 1 && b.stock <= 0) {
           const season = Math.max(ft.seasonFloor, FARM.seasonGrowth[seasonIndex]);
-          let rate = ((season * ft.grow) / FARM.growSeconds) * (b.tendTimer > 0 ? FARM.tendBoost : 0.5);
+          let rate = ((season * ft.grow * growthFactor(b)) / FARM.growSeconds) * (b.tendTimer > 0 ? FARM.tendBoost : 0.5);
           if (b.blessTimer > 0) rate *= FARM.blessMultiplier;
           if (raining) rate *= 1.3;
           b.growth = Math.min(1, b.growth + rate * dt);

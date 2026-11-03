@@ -4,6 +4,7 @@ import { View } from '../render/View';
 import { FAUNA, SPECIES, SpeciesDef, SpeciesKey, WARRIOR, WILDLIFE } from '../config';
 import { Building } from '../buildings/Buildings';
 import { penLayout } from '../buildings/models';
+import { breedSeconds, eggSeconds, penRoom } from '../buildings/foodUpgrades';
 import { peopleMaterial } from '../render/materials';
 import { SoftShadows } from '../render/SoftShadows';
 import { RNG } from '../world/rng';
@@ -17,7 +18,7 @@ import { CHICKEN_WING, FOLDED, flapPose, mixPose, pose, wingMatrices, wingParts 
 /** Roaming radius of penned animals per pen building (anything else: 0.9, the butcher's pen). */
 const PEN_RADIUS: Partial<Record<string, number>> = { farm: 0.36, butcher: 0.9, pigpen: 1.8, chickenpen: 1.7 };
 /** A pen: its centre and roaming radius, and whether a body of radius r can stand at (x, z) in it. */
-interface Pen { building: Building; x: number; z: number; r: number; key: string; free: (x: number, z: number, r: number) => boolean }
+interface Pen { building: Building; x: number; z: number; r: number; key: string; free: (x: number, z: number, r: number) => boolean; breed: number; egg: number }
 /** Footprint radius of each species (scaled per animal): animals keep at least this far apart. */
 const BODY_R: Record<string, number> = { chicken: 0.09, pig: 0.2, goat: 0.16, tapir: 0.36 };
 const bodyR = (a: { sp: string; scale: number }) => (BODY_R[a.sp] ?? 0.2) * a.scale;
@@ -333,6 +334,7 @@ function ik2(tz: number, ty: number, l1: number, l2: number, bend: number): void
  */
 /** Most chickens that can be brought to the island after it was made (by voyages). */
 export const ANIMALS_EXTRA_CHICKENS = 40;
+const SPECIES_KEYS = Object.keys(SPECIES) as SpeciesKey[];
 
 export class Animals {
   readonly group = new THREE.Group();
@@ -570,18 +572,25 @@ export class Animals {
    * more chickens on the island.
    */
   addChicken(x: number, z: number): boolean {
+    return !!this.addAnimal('chicken', x, z);
+  }
+
+  /** An animal added after the island was made (a chicken off a voyage, or one born in a pen); null if there's no room. */
+  private addAnimal(sp: SpeciesKey, x: number, z: number): Animal | null {
     if (this.baseCount < 0) this.baseCount = this.list.length;
-    if (this.extra >= ANIMALS_EXTRA_CHICKENS) return false;
-    let gi = this.groups.findIndex((g) => g.sp === 'chicken' && Math.hypot(g.homeX - x, g.homeZ - z) < 4);
+    if (this.extra >= ANIMALS_EXTRA_CHICKENS) return null;
+    // Pigs and goats are drawn from a smaller batch than chickens.
+    if (sp !== 'chicken' && this.list.filter((a) => a.sp === sp).length >= 40) return null;
+    let gi = this.groups.findIndex((g) => g.sp === sp && (sp !== 'chicken' || Math.hypot(g.homeX - x, g.homeZ - z) < 4));
     if (gi < 0) {
-      this.groups.push({ sp: 'chicken', x, z, homeX: x, homeZ: z, r: 4 });
+      this.groups.push({ sp, x, z, homeX: x, homeZ: z, r: 4 });
       gi = this.groups.length - 1;
     }
-    const a = this.makeAnimal('chicken', x, z, gi);
+    const a = this.makeAnimal(sp, x, z, gi);
     a.timer = this.rng.range(0.2, 1.5);
     this.list.push(a);
     this.extra++;
-    return true;
+    return a;
   }
 
   // ---------------- Pens & capture API ----------------
@@ -589,7 +598,7 @@ export class Animals {
   registerPen(b: Building): void {
     // A farm's chicken run is small, the butcher's pen roomier; the pig and chicken pens have a whole yard.
     const r = PEN_RADIUS[b.key] ?? 0.9, layout = penLayout(b.key);
-    const p: Pen = { building:b, x: b.penX, z: b.penZ, r, key: b.key as string, free: () => true };
+    const p: Pen = { building:b, x: b.penX, z: b.penZ, r, key: b.key as string, free: () => true, breed: 0, egg: 0 };
     // Pens with a laid-out yard: open ground only, clear of the sty, coop, troughs and feeders.
     // Others (the butcher's and the farm's small runs): anywhere within their radius.
     p.free = layout && typeof b.toLocal === 'function'
@@ -630,6 +639,52 @@ export class Animals {
     }
     this.pens.delete(id);
   }
+  /** Eggs laid in a pen (food for the stores). */
+  onEggs?: (n: number, b: Building) => void;
+
+  /** Upgraded pens: hens lay, and now and then a piglet or chick is born while two or more of a kind are penned. */
+  private penLife(dt: number): void {
+    for (const p of this.pens.values()) {
+      const b = p.building;
+      if (b.key !== 'pigpen' && b.key !== 'chickenpen') continue;
+      const egg = eggSeconds(b), breed = breedSeconds(b);
+      if (!egg && !breed) continue;
+      let n = 0, hens = 0, chickens = 0, pigs = 0, goats = 0;
+      for (const a of this.list) {
+        if (!a.alive || a.pen !== b.id || a.heldBy) continue;
+        n++;
+        if (a.sp === 'chicken') { chickens++; if (!isCockerel(a)) hens++; }
+        else if (a.sp === 'pig') pigs++;
+        else if (a.sp === 'goat') goats++;
+      }
+      if (egg && hens && (p.egg += dt) >= egg) {
+        p.egg = 0;
+        this.onEggs?.(hens, b);
+      }
+      const sp: SpeciesKey | null = chickens >= 2 ? 'chicken' : pigs >= 2 && pigs >= goats ? 'pig' : goats >= 2 ? 'goat' : null;
+      if (!breed || !sp || n >= penRoom(b)) { p.breed = 0; continue; }
+      if ((p.breed += dt) < breed) continue;
+      p.breed = 0;
+      // One of its kind waiting to come back to the wild is born here instead, or a new one.
+      const a = this.list.find((x) => x.sp === sp && !x.alive && !this.slaughter.has(x.id)) ?? this.addAnimal(sp, p.x, p.z);
+      if (!a) continue;
+      Object.assign(a, { alive: true, respawn: 0, stamina: SPECIES[sp].stamina });
+      this.putInPen(a.id, b);
+      a.y = this.world.groundY(a.x, a.z);
+    }
+  }
+
+  /** The nearest free animal of a kind within r of (x, z), or -1. */
+  nearestWild(sp: SpeciesKey, x: number, z: number, r: number): number {
+    let best = -1, bd = r * r;
+    for (const a of this.list) {
+      if (a.sp !== sp || !this.capturable(a)) continue;
+      const d = (a.x - x) ** 2 + (a.z - z) ** 2;
+      if (d < bd) { bd = d; best = a.id; }
+    }
+    return best;
+  }
+
   /** Captured stock only, with the slaughterhouse's own yard first and other pens nearest first. */
   private sourcePens(b: Building): number[] {
     const ids = [b.id];
@@ -826,6 +881,7 @@ export class Animals {
         a.tick = 0;
         this.step(a, d, cursor, people);
       }
+      this.penLife(dt);
       this.separate();
     }
     this.draw(dt);
@@ -1681,15 +1737,18 @@ export class Animals {
       const reservation=this.slaughter.get(a.id),source=reservation?.source;
       const origin=source&&this.pens.has(source.id)&&buildingOperational(source)?source:undefined;
       // Worker tasks are transient in saves: in-transit stock returns to its source pen on reload.
-      return [a.alive?1:0,Math.round((origin?.penX??(reservation&&a.heldBy?a.heldBy.x:a.x))*10)/10,Math.round((origin?.penZ??(reservation&&a.heldBy?a.heldBy.z:a.z))*10)/10,origin?.id??a.pen,Math.round(a.respawn)];
+      const d=[a.alive?1:0,Math.round((origin?.penX??(reservation&&a.heldBy?a.heldBy.x:a.x))*10)/10,Math.round((origin?.penZ??(reservation&&a.heldBy?a.heldBy.z:a.z))*10)/10,origin?.id??a.pen,Math.round(a.respawn)];
+      // Pigs and goats born in a pen keep their kind (chickens off voyages were saved without one).
+      if(this.baseCount>=0&&a.id>=this.baseCount&&a.sp!=='chicken')d.push(SPECIES_KEYS.indexOf(a.sp));
+      return d;
     });
   }
 
   restore(data: number[][], idMap: Map<number, number>): void {
     this.slaughter.clear();
     if (this.baseCount < 0) this.baseCount = this.list.length;
-    // Chickens brought home by voyages, saved after the island's own animals.
-    for (let i = this.list.length; i < data.length; i++) this.addChicken(data[i][1], data[i][2]);
+    // Chickens brought home by voyages and livestock born in pens, saved after the island's own animals.
+    for (let i = this.list.length; i < data.length; i++) this.addAnimal(SPECIES_KEYS[data[i][5]] ?? 'chicken', data[i][1], data[i][2]);
     data.forEach((d, i) => {
       const a = this.list[i];
       if (!a) return;
