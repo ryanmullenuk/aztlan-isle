@@ -72,7 +72,7 @@ import { growIslets } from './world/islets';
 import { softenMapEdge } from './world/mapEdge';
 import { shapeWaterfall } from './world/waterfallSite';
 import { Bridges } from './buildings/Bridges';
-import { TradeFleet } from './entities/Trade';
+import { TradeFleet, workingUpgrades } from './entities/Trade';
 import { GOD_NAME, randomIslandName } from './world/names';
 import { FAUNA, GREAT_HALL, SPECIES, TIME, FIREWORKS, GOODS, RARE_GOODS, WONDER_EFFECT, isDecor, isWonder, type GoodKey, type WonderKey } from './config';
 import { WeddingSystem } from './economy/Weddings';
@@ -3110,7 +3110,7 @@ export class Game {
     this.markFoes(dt);
     // Observatory research: priests on duty this frame study the active tier.
     // The Sky Tower: the star-watchers see further.
-    const studied = this.research.advance(dt * (this.wonder('skytower') ? WONDER_EFFECT.research : 1), this.colony.observing);
+    const studied = this.research.advance(dt * (this.wonder('skytower') ? WONDER_EFFECT.research : 1) * Research.boost(this.observatoryUpgrades, this.colony.observing), this.colony.observing);
     if (studied) this.onResearched(studied);
     this.forecaster.tick(dt > 0 ? realDt : 0);
     const fire = this.buildings.list.find((b) => b.key === 'campfire');
@@ -3228,6 +3228,11 @@ export class Game {
     return this.colony.observatoryStaff() > 0;
   }
 
+  /** Upgrades of the best operational Observatory (research speed, earlier warnings). */
+  get observatoryUpgrades(): number {
+    return this.buildings.of('observatory').reduce((n, b) => Math.max(n, workingUpgrades(b)), 0);
+  }
+
   /** The volcano's next stirring, while it sleeps (none on islands without one). */
   get volcanoOutlook(): { cycle: number; inSeconds: number; erupts: boolean } | null {
     const v = this.volcano;
@@ -3245,6 +3250,7 @@ export class Game {
       volcanoActive: !!this.volcano?.group.visible && this.volcano.state.active,
       speed: this.time.speed,
       tier: this.research.done,
+      upgrades: this.observatoryUpgrades,
     });
     const key = (h: Hazard) => `forecast:${h}`;
     for (const a of actions) {

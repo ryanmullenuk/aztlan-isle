@@ -62,7 +62,7 @@ export const FX = {
   firemaker: { perJar: 4, salvo: 1.5, mood: 1.5 },
   market: { often: 1.25, rate: 0.1 },
   tradedock: { boats: 1, cargo: 1.5, speed: 1.25 },
-  observatory: { research: 1.2, warning: 1.3 },
+  observatory: { research: 1.2, warning: 1.3, third: 1.25 },
   bonfire: { range: 1.4, belief: 1.5, mood: 1.5 },
   well: { refill: 1.5, range: 1.5, moodRange: 8, mood: 0.03 },
   healer: { beds: [4, 6, 6, 8], heal: 1.5 },
@@ -158,12 +158,12 @@ export const UPGRADES: Partial<Record<BuildingKey, UpgradeStep[]>> = {
   market: priced('market', [
     { name: 'More stalls', text: '+1 market keeper', workers: 1 },
     { name: 'Canoe landing', text: 'Traders visit a quarter more often' },
-    { name: 'Haggling', text: 'Better rates from every trader' },
+    { name: 'Haggling', text: 'Better rates from every visiting trader' },
   ]),
   tradedock: priced('tradedock', [
     { name: 'Second berth', text: '+1 trade boat' },
-    { name: 'Warehouse', text: 'Trade boats carry half as much again' },
-    { name: 'Beacon fire', text: 'Voyages 25% faster' },
+    { name: 'Warehouse', text: 'Trade boats bring home half as much again' },
+    { name: 'Beacon fire', text: 'Trade boats and the voyage ship come home a fifth sooner' },
   ]),
   observatory: priced('observatory', [
     { name: 'Star charts', text: 'Research 20% faster' },

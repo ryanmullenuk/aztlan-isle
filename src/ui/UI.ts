@@ -31,6 +31,9 @@ import { Ground } from '../world/World';
 import { ICONS, icon } from './icons';
 import type { Where } from './where';
 import { CARGO_KEYS, CargoKey, haulText, holdValue } from '../entities/Voyage';
+import { tradeBoatsAt } from '../entities/Trade';
+import { Research } from '../economy/Research';
+import { Forecaster } from '../economy/Forecast';
 import { BUILD_MENU, GARDEN_TOOLS, PAINT_TOOLS, TERRAIN_TOOLS, TOOLBAR, TOOLS, ToolId } from './tools';
 import { GARDEN } from '../vegetation/Garden';
 
@@ -1139,7 +1142,7 @@ export class UI {
         const ok = g.trade.canTrade(dock, o, k);
         return `<button class="btn small" data-o="${o.id}" data-k="${k}" ${ok.ok ? '' : 'disabled'} title="${ok.reason}">×${k}</button>`;
       };
-      return `<div class="trow"><span class="tgive">${goods(o.give)}</span><span class="tarrow">→</span><span class="tget">${goods(o.get)}</span><span class="tbtns">${btn(1)}${btn(3)}</span></div>`;
+      return `<div class="trow"><span class="tgive">${goods(o.give)}</span><span class="tarrow">→</span><span class="tget">${goods(g.trade.haul(dock, o))}</span><span class="tbtns">${btn(1)}${btn(3)}</span></div>`;
     }).join('');
     m.innerHTML = `<div class="panel card trade">
       <div class="card-head"><span>${ICONS.boat} Trade Dock market</span></div>
@@ -1514,7 +1517,7 @@ export class UI {
     const g = this.game, r = g.research, staff = g.colony.observatoryStaff(), onDuty = g.colony.observing;
     const speed = Math.max(1, g.time.speed);
     const mins = (s: number) => { const m = Math.max(1, Math.round(s / 60)); return `about ${m} min`; };
-    let h = `<div class="kv"><span>Priests on staff</span><b>${staff} / ${BUILDINGS.observatory.workers}${staff ? ` · ${onDuty} on duty now` : ''}</b></div>`;
+    let h = `<div class="kv"><span>Priests on staff</span><b>${staff} / ${BUILDINGS.observatory.workers + (g.observatoryUpgrades >= 3 ? 1 : 0)}${staff ? ` · ${onDuty} on duty now` : ''}</b></div>`;
     if (!staff) h += '<p class="muted small">No priest on staff: forecasts and research are paused. A priest joins once the village has four workers (two at eight).</p>';
     // Seasons.
     h += `<div class="sec-h">${ICONS.b_observatory} Seasons</div><div class="kv"><span>Now</span><b>${g.time.season}, day ${g.time.dayOfSeason} of ${TIME.daysPerSeason}</b></div>`;
@@ -1526,9 +1529,9 @@ export class UI {
     if (!staff) h += '<p class="muted small">Without a priest watching, only the sky and the mountain’s own signs warn of what is coming.</p>';
     else {
       const s = g.powers.stormOutlook;
-      h += `<div class="kv"><span>Storms</span><b>${g.powers.state === 'storm' ? 'A storm is raging now' : s && s.inSeconds <= OBSERVATORY.stormWindow ? `Expected in ${mins(s.inSeconds / speed)}${r.has(10) ? `, lasting ${mins(s.length / speed)}` : ''}` : 'None in sight'}</b></div>`;
+      h += `<div class="kv"><span>Storms</span><b>${g.powers.state === 'storm' ? 'A storm is raging now' : s && s.inSeconds <= Forecaster.stormWindow(g.observatoryUpgrades) ? `Expected in ${mins(s.inSeconds / speed)}${r.has(10) ? `, lasting ${mins(s.length / speed)}` : ''}` : 'None in sight'}</b></div>`;
       if (g.volcano?.group.visible) {
-        const v = g.volcanoOutlook, win = r.done >= 3 ? OBSERVATORY.volcanoWindowEarly : OBSERVATORY.volcanoWindow;
+        const v = g.volcanoOutlook, win = Forecaster.volcanoWindow(r.done, g.observatoryUpgrades);
         h += `<div class="kv"><span>Volcano</span><b>${g.volcano.state.active ? 'Active now' : v && v.inSeconds <= win ? `Smoke expected in ${mins(v.inSeconds)}` : 'The mountain sleeps'}</b></div>`;
       }
     }
@@ -1536,7 +1539,7 @@ export class UI {
     h += `<div class="sec-h">Research · ${r.done} of ${RESEARCH.length}</div>`;
     if (r.active) {
       // Estimated from the staff (priests step away to eat and sleep, so the count on duty flickers).
-      const left = r.remaining(Math.min(2, staff));
+      const left = r.remaining(Math.min(2, staff)) / Research.boost(g.observatoryUpgrades, staff);
       h += this.bar(`${RESEARCH[r.active - 1].name} ${Math.round(r.fraction * 100)}%${Number.isFinite(left) ? ` · ${mins(left / speed)} left` : ' · paused: no priest on staff'}`, r.fraction, 'good');
     }
     h += '<ol class="rs-list">';
@@ -1858,7 +1861,7 @@ export class UI {
       const c = TRADE.boatCost;
       const boatLock=g.buildings.boatRequirement(3);
       if(boatLock)actions+=`<p class="muted small">${boatLock}</p>`;
-      const canBoat = !boatLock && !b.boatBuild && g.trade.of(b).length + (b.boatBuild > 0 ? 1 : 0) < TRADE.maxBoats && g.eco.canAfford(c);
+      const canBoat = !boatLock && !b.boatBuild && g.trade.of(b).length + (b.boatBuild > 0 ? 1 : 0) < tradeBoatsAt(b) && g.eco.canAfford(c);
       actions += `<button class="btn small" data-a="trade">${ICONS.boat} Trade goods</button>`;
       actions += `<button class="btn small" data-a="tradeboat" ${canBoat ? '' : 'disabled'}>${ICONS.boat} Build trade boat <span class="c">${icon('wood')}${c.wood} ${icon('stone')}${c.stone}</span></button>`;
     }

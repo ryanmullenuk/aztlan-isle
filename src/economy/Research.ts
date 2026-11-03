@@ -1,5 +1,6 @@
 import { OBSERVATORY, RESEARCH, RESEARCH_UPGRADE_LABEL, type BuildingKey, type ResearchUpgrade } from '../config';
 import { STAGES } from './Progression';
+import { FX } from '../buildings/Upgrades';
 
 type Cost = { wood: number; stone: number; belief: number; food: number };
 
@@ -99,6 +100,11 @@ export class Research {
   /** Study speed for this many priests on duty: none, one, or two and more (the cap). */
   static rate(onDuty: number): number {
     return onDuty <= 0 ? 0 : onDuty === 1 ? OBSERVATORY.speedOne : OBSERVATORY.speedFull;
+  }
+
+  /** Research speed from an Observatory's upgrades: Star charts, and a third priest on duty. */
+  static boost(upgrades: number, onDuty: number): number {
+    return (upgrades >= 1 ? FX.observatory.research : 1) * (upgrades >= 3 && onDuty >= 3 ? FX.observatory.third : 1);
   }
 
   /** 0..1 progress of the active study. */

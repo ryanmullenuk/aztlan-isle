@@ -14,6 +14,8 @@ import type { Islander } from './Islander';
 import { BOAT_SCALE, Boats, HULL_BEAM, HULL_HALF, newRide, tradeShipGeometry, Vessel } from './Boats';
 import { hullShadow } from '../render/SoftShadows';
 import { Hull } from './fleet';
+import { workingUpgrades } from './Trade';
+import { FX } from '../buildings/Upgrades';
 
 /** What can go in the hold: stores (not Belief) and precious goods. */
 export type CargoKey = Exclude<ResourceKey, 'belief'> | GoodKey;
@@ -318,7 +320,8 @@ export class Voyages {
     this.crew = crew.map((i) => crewData(i));
     for (const i of crew) this.colony.remove(i);
     this.place = this.rng.pick(VOYAGE.places);
-    this.total = this.rng.range(VOYAGE.seconds[0], VOYAGE.seconds[1]);
+    // A Beacon fire at the dock brings it home sooner.
+    this.total = this.rng.range(VOYAGE.seconds[0], VOYAGE.seconds[1]) / (workingUpgrades(dock) >= 3 ? FX.tradedock.speed : 1);
     this.timer = this.total;
     this.mult = 1;
     this.bonus = {};
