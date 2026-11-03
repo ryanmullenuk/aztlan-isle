@@ -523,7 +523,7 @@ export function treeGeometry(variant: number, lo: boolean, seed: number): THREE.
         break;
       }
       // Hanging strands: chains of narrow leaves from the crown's rim, swaying more toward their ends.
-      const strands = 38;
+      const strands = 30;
       for (let s = 0; s < strands; s++) {
         const a = (s / strands) * Math.PI * 2 + dr.range(-0.06, 0.06);
         const rr = 1.45 + dr.range(-0.25, 0.25), y0 = 3.05 + dr.range(-0.25, 0.3), n = Math.round(dr.range(9, 13));
