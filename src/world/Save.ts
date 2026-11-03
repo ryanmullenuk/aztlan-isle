@@ -81,7 +81,7 @@ export interface SaveData {
   schools: number[];
   /** The player's name for the island. */
   name?: string;
-  /** Land animals: [alive, x, z, pen building id, respawn]. */
+  /** Land animals: [alive, x, z, pen building id, respawn, kind (only for pigs and goats born in pens)]. */
   animals?: number[][];
   /** Pearls, herbs and spices. */
   goods?: Partial<Record<GoodKey, number>>;

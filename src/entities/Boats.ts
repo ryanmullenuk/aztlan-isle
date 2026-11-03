@@ -2,6 +2,7 @@ import { buildingOperational } from '../buildings/BuildingCondition';
 import * as THREE from 'three';
 import { BOATS, JETTY, PEARLS, BOAT_WORKSHOP } from '../config';
 import { Building, BuildingSystem } from '../buildings/Buildings';
+import { catchFactor, jettyBoats } from '../buildings/foodUpgrades';
 import { Colony } from '../ai/Colony';
 import { Economy } from '../economy/Economy';
 import { GeoBuilder, M, P, doubleSide, lumpy } from '../render/GeoBuilder';
@@ -814,7 +815,7 @@ export class Boats {
   /** Start building a boat at a jetty (pays the cost). */
   order(j: Building, sail = false): boolean {
     if(j.key!=='jetty' || this.bld.boatRequirement(sail?2:1))return false;
-    if (!buildingOperational(j) || j.boatBuild > 0 || j.boats.length >= JETTY.maxBoats) return false;
+    if (!buildingOperational(j) || j.boatBuild > 0 || j.boats.length >= jettyBoats(j)) return false;
     if (!this.eco.spend(sail?BOAT_WORKSHOP.largeCost:JETTY.boatCost)) return false;
     j.boatSail = sail;
     j.boatBuild = 0.001;
@@ -1521,7 +1522,8 @@ export class Boats {
           const crew = b.crew;
           b.crew = null;
           if (crew && b.catch > 0) this.bld.recordProgress?.('harvest');
-          if (crew) this.colony.disembark(crew, b.catch, j.door.x, j.door.z);
+          // Net racks at the jetty and a net loft at home make for a bigger catch.
+          if (crew) this.colony.disembark(crew, Math.round(b.catch * catchFactor(j, this.bld.byId(crew.home))), j.door.x, j.door.z);
           // Now and then an oyster in the catch holds a pearl.
           if (b.catch > 0 && Math.random() < PEARLS.fishChance) this.onPearl?.(crew, j.door.x, j.door.z);
           b.catch = 0;

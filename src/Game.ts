@@ -707,6 +707,8 @@ export class Game {
 
     this.colony.hooks.penCount = (b) => this.wildlife.penCount(b);
     const A = this.wildlife.animals;
+    this.colony.hooks.wildChicken = (x, z, r) => A.nearestWild('chicken', x, z, r);
+    A.onEggs = (n) => this.eco.add('meat', n);
     this.colony.hooks.reserveSlaughter=(b,i,blocked)=>A.reserveSlaughter(b,i,blocked);
     this.colony.hooks.collectSlaughter=(id,i)=>A.collectSlaughter(id,i);
     this.colony.hooks.finishSlaughter=(id,i)=>A.finishSlaughter(id,i);
