@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "ios": "npm run build && cap sync ios && cap open ios",
     "ios:sync": "npm run build && cap sync ios",
+    "ios:upload": "scripts/ios-upload.sh",
     "mac": "mac/build.sh",
     "mac:upload": "mac/build.sh upload",
     "islander:prepare": "for g in male female; do /Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup --python scripts/blender/prepare_islander.py -- art/islander_${g}_source.glb public/models/islander_${g}.glb 2000 512 art/islander_${g}_extra.glb; done",
