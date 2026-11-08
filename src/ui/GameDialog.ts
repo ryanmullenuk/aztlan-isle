@@ -30,6 +30,11 @@ export interface DialogItem {
   important?: boolean;
   /** Shown whatever the player chose for pop-ups (a reward to collect, not a notice). */
   always?: boolean;
+  /**
+   * The first pop-up of its kind offers to turn that kind off (once only, ever): `key` names the
+   * kind, `label` the button, and `run` turns them off.
+   */
+  optOut?: { key: string; label: string; run: () => void };
 }
 
 /** Which pop-ups the player wants: all of them, only the important ones, or none. */
@@ -60,6 +65,9 @@ export class GameDialog {
   /** The player's choice in Settings (see PopupMode). */
   mode: () => PopupMode = () => 'all';
   onShow: () => void = () => {};
+  /** Has this kind of pop-up offered to be turned off already? `offered` remembers that it has. */
+  wasOffered: (key: string) => boolean = () => true;
+  offered: (key: string) => void = () => {};
 
   constructor(parent: HTMLElement) {
     this.el = document.createElement('div');
@@ -110,7 +118,13 @@ export class GameDialog {
 
   private show(d: DialogItem): void {
     this.open = d;
-    const actions = d.actions?.length ? d.actions : [{ label: 'OK', primary: true }];
+    let actions = d.actions?.length ? d.actions : [{ label: 'OK', primary: true }];
+    // The first of its kind: a way to turn them off, and where to turn them back on.
+    const offer = d.optOut && !this.wasOffered(d.optOut.key) ? d.optOut : null;
+    if (offer) {
+      this.offered(offer.key);
+      actions = [{ label: offer.label, run: offer.run }, ...actions];
+    }
     this.el.innerHTML = `<div class="gd-card${d.image ? ' has-pic' : ''}" role="dialog" aria-modal="true" aria-labelledby="gd-title">
       <div class="gd-emblem" aria-hidden="true">${ICONS[d.icon]}</div>
       ${d.kicker ? `<div class="gd-kicker">${esc(d.kicker)}</div>` : ''}
@@ -118,6 +132,7 @@ export class GameDialog {
       ${d.image ? `<img class="gd-pic" alt="" src="${d.image}">` : ''}
       ${d.body ? `<div class="gd-body">${d.html ? d.body : esc(d.body)}</div>` : ''}
       ${d.benefit ? `<div class="gd-benefit">${esc(d.benefit)}</div>` : ''}
+      ${offer ? '<div class="gd-optout">Don’t want these? You can turn them off here, and change it any time in Settings.</div>' : ''}
       <div class="gd-actions">${actions.map((a, i) => `<button type="button" class="gd-btn${a.primary || actions.length === 1 ? ' primary' : ''}" data-i="${i}">${esc(a.label)}</button>`).join('')}</div>
     </div>`;
     this.el.classList.remove('hidden', 'gd-out');

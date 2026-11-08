@@ -24,6 +24,11 @@ export class BuildingThumbs {
     this.scene.add(sun, this.mesh);
   }
 
+  /** The picture already drawn for this key, if any. */
+  cached(key: string): string | undefined {
+    return this.cache.get(key);
+  }
+
   /** A data URL picture of this geometry (cached by key), or null if it can't be drawn. */
   get(key: string, geometry: THREE.BufferGeometry): string | null {
     const hit = this.cache.get(key);

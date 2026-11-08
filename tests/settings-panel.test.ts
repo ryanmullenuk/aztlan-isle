@@ -68,7 +68,11 @@ test('save/help/new-game handlers survive layout change and new games retain con
   (globalThis as any).confirm=()=>false;q('[data-a="new"]').click();pick('classic');assert.equal(game.newMode,undefined);
   document.querySelector('.island-modal')?.remove();
   game.islandName='GODMODE';ui.updateIslandName();
-  (globalThis as any).confirm=()=>true;q('[data-a="sandbox"]').click();pick('archipelago');assert.equal(game.newMode,'sandbox');assert.equal(game.newType,'archipelago');
+  (globalThis as any).confirm=()=>true;q('[data-a="sandbox"]').click();
+  // The other kinds of island are coming soon: shown, but they can't be started yet.
+  pick('archipelago');assert.equal(game.newMode,undefined);
+  assert.ok((document.querySelector('.island-modal [data-type="archipelago"]') as HTMLButtonElement).disabled);
+  pick('classic');assert.equal(game.newMode,'sandbox');assert.equal(game.newType,'classic');
   q('[data-a="tutorial"]').click();assert.equal(ui.tutorialStarted,true);
 });
 

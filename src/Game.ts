@@ -90,8 +90,8 @@ import { View } from './render/View';
 import { WaterBirds } from './entities/WaterBirds';
 import { Butterflies } from './entities/Butterflies';
 import { Fireflies, JumpingFish } from './entities/NightLife';
-import { MoodMarkers } from './render/MoodMarkers';
-import { moodOf, type MoodKind, type MoodWorld } from './economy/Mood';
+import { MoodMarkers, type MarkerKind } from './render/MoodMarkers';
+import { moodOf, type MoodWorld } from './economy/Mood';
 import { RareEventSystem } from './economy/RareEventSystem';
 import { addLapseFrame, lastLapseDay } from './world/LapseStore';
 import { SeaTurtles } from './entities/SeaTurtles';
@@ -281,7 +281,7 @@ export class Game {
   rareSales: RareSales = { day: -1, bought: {} };
   /** Badges over the islanders saying how they feel. */
   private moodMarkers = new MoodMarkers();
-  private moodIds: { id: number; kind: MoodKind }[] = [];
+  private moodIds: { id: number; kind: MarkerKind }[] = [];
   private moodTimer = 0;
   /** Growth time-lapse: this island's key, the last day pictured (null until read), and a picture due this frame. */
   private lapseIsland = '';
@@ -2621,9 +2621,10 @@ export class Game {
     this.markerTime += realDt;
     M.children.forEach((m, i) => {
       const r = list[i], who = r ? this.colony.byId(r.who) : undefined;
-      m.visible = !!who && !who.hidden && !this.photoMode;
+      // Like the mood badges: only when zoomed in close enough to see the islanders.
+      m.visible = !!who && !who.hidden && !this.photoMode && this.rig.cur.dist < 36;
       if (!who || !m.visible) return;
-      const s = 0.45 * Math.max(1, Math.min(2.6, this.rig.cur.dist / 30));
+      const s = 0.45 * Math.min(1.3, Math.max(1, this.rig.cur.dist / 20));
       m.position.set(who.x, who.y + 0.95 + Math.sin(this.markerTime * 2.4 + i) * 0.06 + s * 0.3, who.z);
       m.scale.set(s, s, 1);
     });
@@ -2640,12 +2641,15 @@ export class Game {
     if (this.moodTimer <= 0) {
       this.moodTimer = 0.5;
       this.moodIds = [];
+      // A couple who wish to marry: a red heart over each, at any zoom, so they can be found and tapped.
+      const wish = this.weddings?.wish, lovers = new Set(wish ? [wish.a, wish.b] : []);
+      if (!this.photoMode && !this.wildlifeView?.active) for (const id of lovers) this.moodIds.push({ id, kind: 'love' });
       if (this.settings.moodIcons !== false && !this.photoMode && !this.wildlifeView?.active) {
         const w = this.moodWorld();
         // Anyone with a request already has a bubble over them.
         const asking = new Set((this.requests?.list ?? []).map((r) => r.who));
         for (const i of this.colony.list) {
-          if (i.hidden || asking.has(i.id)) continue;
+          if (i.hidden || asking.has(i.id) || lovers.has(i.id)) continue;
           const kind = moodOf(i, w);
           if (kind) this.moodIds.push({ id: i.id, kind });
         }
@@ -2759,6 +2763,16 @@ export class Game {
     const text = buildingNotice(b);
     const image = this.thumbs.get(`${b.key}:${b.tier}`, b.finishedHi ?? b.finished.geometry);
     this.ui?.notice({ ...text, image, icon: 'tick' });
+  }
+  /** A picture of a building as it first stands, for the build menu (null until it can be drawn). */
+  buildingPicture(key: BuildingKey): string | null {
+    const cached = this.thumbs.cached(`menu:${key}`);
+    if (cached !== undefined) return cached;
+    const geo = this.buildings.previewGeometry(key);
+    if (!geo) return null;
+    const url = this.thumbs.get(`menu:${key}`, geo);
+    geo.dispose();
+    return url;
   }
   private thumbsCache: BuildingThumbs | null = null;
   private get thumbs(): BuildingThumbs {

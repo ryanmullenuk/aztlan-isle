@@ -1094,6 +1094,8 @@ export const SAVE = {
   key: 'aztlan-isle-save-v7',
   settingsKey: 'aztec-isle-settings-v1',
   tutorialKey: 'aztec-isle-tutorial-v1',
+  /** Which kinds of pop-up have already offered to be turned off (each offers once). */
+  optOutKey: 'aztec-isle-popup-offers-v1',
 };
 
 /** Medicinal gardens supply the existing herb stores; treatment requires a completed garden. */

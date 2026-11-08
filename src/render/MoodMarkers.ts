@@ -2,7 +2,15 @@ import * as THREE from 'three';
 import type { MoodKind } from '../economy/Mood';
 
 /** Badge colour and glyph for each mood. */
-const BADGE: Record<MoodKind, { fill: string; draw: (g: CanvasRenderingContext2D) => void }> = {
+/** A mood, or `love`: the red heart over a couple who wish to marry. */
+export type MarkerKind = MoodKind | 'love';
+
+const heart = (g: CanvasRenderingContext2D) => {
+  g.beginPath(); g.moveTo(32, 49); g.bezierCurveTo(12, 36, 14, 18, 24, 18); g.bezierCurveTo(29, 18, 32, 22, 32, 25);
+  g.bezierCurveTo(32, 22, 35, 18, 40, 18); g.bezierCurveTo(50, 18, 52, 36, 32, 49); g.fill();
+};
+
+const BADGE: Record<MarkerKind, { fill: string; draw: (g: CanvasRenderingContext2D) => void }> = {
   sick: { fill: '#2f9a6a', draw: (g) => { g.fillRect(27, 15, 10, 34); g.fillRect(15, 27, 34, 10); } },
   hungry: {
     fill: '#d5822c',
@@ -58,18 +66,13 @@ const BADGE: Record<MoodKind, { fill: string; draw: (g: CanvasRenderingContext2D
       g.lineWidth = 4; g.lineCap = 'round'; g.beginPath(); g.arc(32, 50, 11, Math.PI * 1.15, Math.PI * 1.85); g.stroke();
     },
   },
-  happy: {
-    fill: '#d8486a',
-    draw: (g) => {
-      g.beginPath(); g.moveTo(32, 49); g.bezierCurveTo(12, 36, 14, 18, 24, 18); g.bezierCurveTo(29, 18, 32, 22, 32, 25);
-      g.bezierCurveTo(32, 22, 35, 18, 40, 18); g.bezierCurveTo(50, 18, 52, 36, 32, 49); g.fill();
-    },
-  },
+  happy: { fill: '#d8486a', draw: heart },
+  love: { fill: '#d72a26', draw: heart },
 };
 
-const mats = new Map<MoodKind, THREE.SpriteMaterial>();
+const mats = new Map<MarkerKind, THREE.SpriteMaterial>();
 /** A small round badge in the mood's colour with a white glyph, drawn once. */
-function badge(kind: MoodKind): THREE.SpriteMaterial {
+function badge(kind: MarkerKind): THREE.SpriteMaterial {
   let m = mats.get(kind);
   if (m) return m;
   const c = document.createElement('canvas');
@@ -95,7 +98,7 @@ export interface MoodMarker {
   x: number;
   y: number;
   z: number;
-  kind: MoodKind;
+  kind: MarkerKind;
   /** A stable number per islander (so each bobs and blinks on its own beat). */
   seed: number;
 }
@@ -103,7 +106,8 @@ export interface MoodMarker {
 /**
  * Little round badges over the islanders' heads saying what is wrong (hungry, worn out, sick,
  * frightened, cold, soaked, homeless, unhappy) or, now and then, a heart over someone very happy.
- * They grow with the zoom so they stay readable, and are gone when zoomed right out.
+ * These only show when zoomed in close enough to see the islanders themselves. The red heart over
+ * a couple who wish to marry shows at any zoom, growing with it so it can be found from afar.
  */
 export class MoodMarkers {
   readonly group = new THREE.Group();
@@ -117,34 +121,35 @@ export class MoodMarkers {
 
   update(realDt: number, list: MoodMarker[], camDist: number): void {
     this.time += realDt;
-    // Readable from close in to a fair way out; faded away when zoomed right out.
-    const fade = 1 - THREE.MathUtils.smoothstep(camDist, 75, 105);
-    const s = 0.4 * Math.max(1, Math.min(2.4, camDist / 30));
+    // Moods: only close in, where the islanders can be seen. Love hearts: always, kept readable.
+    const near = 1 - THREE.MathUtils.smoothstep(camDist, 28, 38);
+    const s = 0.4 * Math.min(1.3, Math.max(1, camDist / 20));
+    const sLove = 0.45 * Math.max(1, Math.min(3, camDist / 25));
     let used = 0;
-    if (fade > 0.01) {
-      for (const m of list) {
-        // Hearts come and go (a few seconds in every twenty), so a happy village isn't a sea of them.
-        let a = fade;
-        if (m.kind === 'happy') {
-          const ph = (this.time / 20 + m.seed * 0.618) % 1;
-          a *= THREE.MathUtils.smoothstep(ph, 0, 0.03) * (1 - THREE.MathUtils.smoothstep(ph, 0.14, 0.18));
-          if (a < 0.01) continue;
-        }
-        let sp = this.pool[used];
-        if (!sp) {
-          sp = new THREE.Sprite(badge(m.kind));
-          sp.renderOrder = 29;
-          this.pool.push(sp);
-          this.group.add(sp);
-        }
-        used++;
-        sp.material = badge(m.kind);
-        // Each sprite's material is shared by kind: fade by scale rather than opacity.
-        const k = s * (m.kind === 'happy' ? a : 0.4 + 0.6 * a);
-        sp.scale.set(k, k, 1);
-        sp.position.set(m.x, m.y + 0.95 + k * 0.3 + Math.sin(this.time * 2.2 + m.seed * 9) * 0.05, m.z);
-        sp.visible = true;
+    for (const m of list) {
+      const love = m.kind === 'love';
+      if (!love && near < 0.01) continue;
+      // Hearts come and go (a few seconds in every twenty), so a happy village isn't a sea of them.
+      let a = love ? 1 : near;
+      if (m.kind === 'happy') {
+        const ph = (this.time / 20 + m.seed * 0.618) % 1;
+        a *= THREE.MathUtils.smoothstep(ph, 0, 0.03) * (1 - THREE.MathUtils.smoothstep(ph, 0.14, 0.18));
+        if (a < 0.01) continue;
       }
+      let sp = this.pool[used];
+      if (!sp) {
+        sp = new THREE.Sprite(badge(m.kind));
+        sp.renderOrder = 29;
+        this.pool.push(sp);
+        this.group.add(sp);
+      }
+      used++;
+      sp.material = badge(m.kind);
+      // Each sprite's material is shared by kind: fade by scale rather than opacity.
+      const k = love ? sLove : s * a;
+      sp.scale.set(k, k, 1);
+      sp.position.set(m.x, m.y + 0.95 + k * 0.3 + Math.sin(this.time * 2.2 + m.seed * 9) * 0.05, m.z);
+      sp.visible = true;
     }
     for (let i = used; i < this.pool.length; i++) this.pool[i].visible = false;
   }

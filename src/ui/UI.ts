@@ -29,6 +29,7 @@ import { islanderLine } from './islanderLines';
 import { ISLAND_TYPES, type IslandType } from '../world/generator';
 import { PhotoMode } from './PhotoMode';
 import { GameDialog, type PopupMode } from './GameDialog';
+import { islandMood } from '../economy/Mood';
 import { GOD_NAME, randomIslandName } from '../world/names';
 import { Ground } from '../world/World';
 import { ICONS, icon } from './icons';
@@ -74,6 +75,23 @@ const ISLAND_ICONS: Record<IslandType, string> = {
 
 /** Whether the clock's menu (inventory, agenda, objective) is open (remembered per device). */
 const HUD_OPEN_KEY = 'aztlan-hud-open';
+
+/** The village emblem on the top-left bar: a golden sun face on a carved disc. */
+const EMBLEM = `<svg viewBox="0 0 64 64" aria-hidden="true"><defs><radialGradient id="emb-g" cx="0.4" cy="0.35" r="0.75"><stop offset="0" stop-color="#ffe9a0"/><stop offset="0.55" stop-color="#e2a83c"/><stop offset="1" stop-color="#8a5a16"/></radialGradient></defs>${Array.from({ length: 16 }, (_, k) => { const a = (k / 16) * Math.PI * 2, r0 = 22, r1 = k % 2 ? 29 : 31; return `<path d="M${(32 + Math.cos(a - 0.12) * r0).toFixed(1)} ${(32 + Math.sin(a - 0.12) * r0).toFixed(1)} L${(32 + Math.cos(a) * r1).toFixed(1)} ${(32 + Math.sin(a) * r1).toFixed(1)} L${(32 + Math.cos(a + 0.12) * r0).toFixed(1)} ${(32 + Math.sin(a + 0.12) * r0).toFixed(1)}Z" fill="#d9a03a" stroke="#6b420f" stroke-width="1"/>`; }).join('')}<circle cx="32" cy="32" r="22" fill="url(#emb-g)" stroke="#6b420f" stroke-width="2"/><circle cx="32" cy="32" r="17.5" fill="none" stroke="#8a5a16" stroke-width="1.2"/><path d="M24 28.5h5M35 28.5h5" stroke="#5a3608" stroke-width="2.6" stroke-linecap="round"/><path d="M32 30v6l-2 1.5" fill="none" stroke="#5a3608" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M26.5 40.5q5.5 4 11 0" fill="none" stroke="#5a3608" stroke-width="2.2" stroke-linecap="round"/><circle cx="23.5" cy="35" r="1.6" fill="#b8452f" opacity="0.7"/><circle cx="40.5" cy="35" r="1.6" fill="#b8452f" opacity="0.7"/></svg>`;
+
+/** The build menu's tabs, and which tab each building belongs under. */
+const BUILD_TABS: [string, string][] = [['all', 'All'], ['housing', 'Housing'], ['production', 'Production'], ['food', 'Food'], ['services', 'Services'], ['culture', 'Culture'], ['paths', 'Paths'], ['decor', 'Decor']];
+const BUILD_CAT: Partial<Record<BuildingKey, string>> = {
+  hut: 'housing', home: 'housing',
+  stonemason: 'production', herbalist: 'production', boatworkshop: 'production', firemaker: 'production', woodstore: 'production',
+  farm: 'food', maizefarm: 'food', chinampa: 'food', herbalgarden: 'food', smokehouse: 'food', firepit: 'food', grainstore: 'food', butcher: 'food', pigpen: 'food', chickenpen: 'food', jetty: 'food', fishhut: 'food', well: 'food',
+  market: 'services', healer: 'services', kennel: 'services', watchtower: 'services', warroom: 'services', tradedock: 'services', observatory: 'services', torch: 'services', bonfire: 'services',
+  temple: 'culture', greattemple: 'culture', greathall: 'culture', palace: 'culture', ceremony: 'culture', graveyard: 'culture',
+};
+const buildCategory = (key: BuildingKey): string => BUILD_CAT[key] ?? (isWonder(key) ? 'culture' : (DECOR_KEYS as string[]).includes(key) ? 'decor' : 'services');
+
+/** Play at 1×, 2× and 3×: one, two and three arrowheads. */
+const SPEED_ICONS = [1, 2, 3].map((n) => `<svg viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true">${Array.from({ length: n }, (_, k) => { const w = n === 1 ? 11 : n === 2 ? 8.5 : 6.5, x = 12 - (n * w) / 2 + k * w; return `<path d="M${x.toFixed(1)} 6l${w.toFixed(1)} 6-${w.toFixed(1)} 6z" fill="currentColor"/>`; }).join('')}</svg>`);
 /** Whether the goal checklist is open (remembered per device). */
 const GOALS_OPEN_KEY = 'aztlan-goals-open';
 
@@ -91,6 +109,10 @@ interface TutorialStep {
   title: string;
   text: string;
   done: (g: Game) => boolean;
+  /** The button this step is about (its `data-tut`), glowing while the step is open. */
+  tut?: string;
+  /** A tour step: the player reads it and taps Next. */
+  next?: boolean;
 }
 
 /** The whole HTML overlay: HUD, toolbar, menus, info panels, minimap, modals, tutorial and toasts. */
@@ -121,6 +143,8 @@ export class UI {
   /** The growth time-lapse viewer. */
   timeLapse!: TimeLapseView;
   private resEls: Record<string, HTMLSpanElement> = {};
+  /** The resource strip along the top: wood, stone, food, people and happiness at a glance. */
+  private stripEls: Record<string, HTMLSpanElement> = {};
   private timeEl!: HTMLDivElement;
   private perfEl!: HTMLDivElement;
   private dateEl!: HTMLDivElement;
@@ -155,24 +179,43 @@ export class UI {
   private timer = 0;
   private miniTimer = 0;
   private tutStep = 0;
-  private tutStart = { x: 0, z: 0, dist: 0 };
+  private tutStart = { x: 0, z: 0, dist: 0, yaw: 0 };
   private infoKey = '';
   private buildItems = new Map<BuildingKey, HTMLButtonElement>();
   private tutSteps: TutorialStep[] = [
     { title: 'Found your village', text: 'Your first two villagers have come ashore. Choose open, flat land for the campfire: your village will grow around it. (Tap Place campfire if you closed the placement.)', done: (g) => g.buildings.hasCampfire },
-    { title: 'Look around', text: 'With Move (1), drag with the mouse or one finger to pan the island; WASD and the arrow keys work too. Rotate with Q/E, a middle-drag, or by dragging the compass at the end of the toolbar.', done: (g) => Math.hypot(g.rig.cur.x - this.tutStart.x, g.rig.cur.z - this.tutStart.z) > 8 || Math.abs(g.rig.cur.yaw - g.rig.goal.yaw) > 0.3 },
+    // The toolbar along the bottom, left to right.
+    { tut: 'select', title: 'Move', text: '<b>Move (1)</b> is the everyday tool. Drag with the mouse or one finger to pan the island (WASD and the arrow keys work too), and tap islanders, buildings and animals to see what they are doing.', done: (g) => Math.hypot(g.rig.cur.x - this.tutStart.x, g.rig.cur.z - this.tutStart.z) > 8 },
+    { tut: 'rotate', title: 'Turn the view', text: 'The <b>compass</b> at the end of the toolbar turns the island: drag it round, or use Q/E or a middle-drag. Double-tap it to face north again.', done: (g) => Math.abs(g.rig.cur.yaw - this.tutStart.yaw) > 0.3 || this.tutNext },
     { title: 'Zoom in', text: 'Scroll or pinch to zoom in close to your islanders (you can hear them chatter), and out to see the whole island.', done: (g) => Math.abs(g.rig.cur.dist - this.tutStart.dist) > 15 },
     { title: 'Meet your villagers', text: 'Tap an islander near the campfire to see their name, job and needs. More settlers arrive by canoe when you have spare beds and food.', done: (g) => g.selectedIslander >= 0 },
+    { tut: 'area', next: true, title: 'Select', text: '<b>Select (2)</b>: drag a box over the land. Pick up a group of islanders to send to work together, or trees and rocks to clear, or mark out a district whose homes share a look.', done: () => this.tutNext },
+    { tut: 'build', title: 'Build', text: '<b>Build (3)</b> opens the building menu. Choose a Hut and place it on flat land: your builders bring the wood and put it up.', done: (g) => g.buildings.list.some((b) => b.key === 'hut' || b.key === 'home') },
+    { tut: 'terrain', next: true, title: 'Terrain', text: '<b>Terrain (4)</b> shapes the land: raise, lower or flatten it by holding and dragging, to make level ground for bigger buildings, or dig canals. Sculpting costs Belief.', done: () => this.tutNext },
+    { tut: 'flora', next: true, title: 'Flora', text: '<b>Flora (5)</b> plants gardens: hold and drag over open ground to lay flowers, bushes and shrubs (free) or trees (they cost Belief).', done: () => this.tutNext },
+    { tut: 'blessings', next: true, title: 'Power', text: '<b>Power (6)</b> holds your god powers, paid for in Belief (the bar under the toolbar): bless the crops, bring rain, and calm storms and the volcano.', done: () => this.tutNext },
+    // The buttons in the top right, top to bottom.
+    { tut: 'speed', next: true, title: 'Time and speed', text: 'Beside the clock, <b>pause</b> stops time and the arrows play it at 1×, 2× or 3× speed. Space pauses too.', done: () => this.tutNext },
+    { tut: 'island', next: true, title: 'Island view', text: 'The <b>island</b> button lifts the camera to see the whole map from above (O). Tap it again to drop back where you were.', done: () => this.tutNext },
+    { tut: 'settings', next: true, title: 'Settings', text: 'The <b>gear</b> opens Settings: sound, graphics, which pop-ups you see, saving and copying your island, and starting a new one. The <b>?</b> beside it opens How to play.', done: () => this.tutNext },
+    { tut: 'camera', next: true, title: 'Photo Mode', text: 'The <b>camera</b> opens Photo Mode: frame a picture of your island and save it. Every day a picture is kept, to play back as a time-lapse of your village growing.', done: () => this.tutNext },
+    { tut: 'hud', next: true, title: 'Hide the interface', text: 'The <b>eye</b> hides every button and panel, leaving just the island (V). Tap the eye again, or press V, to bring them back.', done: () => this.tutNext },
+    { tut: 'pov', next: true, title: 'Walk among them', text: 'The <b>islander</b> button drops you to eye level to explore the island as one of your people would see it.', done: () => this.tutNext },
+    { tut: 'wildlife', next: true, title: 'Wildlife', text: 'The <b>paw</b> follows the island\u2019s creatures like a nature film: whales, dolphins, turtles, birds and more. Tap next to see another, or close it to come back.', done: () => this.tutNext },
+    { tut: 'alerts', next: true, title: 'Alerts', text: 'The <b>!</b> button gathers the island\u2019s news: raids, storms, sightings and anything that needs you. It lights up when there is something new; tap an alert to go to it.', done: () => this.tutNext },
+    // Then running the village.
     { title: 'Your village at a glance', text: 'Tap the clock and island name (top left) to open <b>Inventory</b> (what you have), <b>Agenda</b> (what your villagers focus on), <b>Mood</b> (how they feel, and what would cheer them) and <b>Objective</b> (what the village needs for its next title). Tap it again to tuck them away.', done: () => this.hudOpened },
-    { title: 'Build a Hut', text: 'Open Build (3), choose a Hut and place it on flat land. Your builders bring the wood and put it up.', done: (g) => g.buildings.list.some((b) => b.key === 'hut' || b.key === 'home') },
     { title: 'Grow food', text: 'Build a Vegetable Farm, or a Fishing Jetty on the shore. Your first harvest or catch moves the village on to the next stage.', done: (g) => g.buildings.list.some((b) => b.key === 'farm' || b.key === 'jetty') },
-    { title: 'Clear the ground', text: 'Pick Select (2) and drag over trees and rocks, then choose Clear area. Islanders fell the trees and quarry the rocks, leaving open land to build on.', done: (g) => g.stats.cleared > 0 },
+    { tut: 'area', title: 'Clear the ground', text: 'Pick Select (2) and drag over trees and rocks, then choose Clear area. Islanders fell the trees and quarry the rocks, leaving open land to build on.', done: (g) => g.stats.cleared > 0 },
     { title: 'Store your supplies', text: 'Once the first food is in, build a Wood & Stone Store and a Food Store. Full stores keep the village going and unlock skilled buildings.', done: (g) => g.buildings.list.some((b) => b.key === 'woodstore' || b.key === 'grainstore') },
-    { title: 'Shape the land', text: 'Open Terrain (4) and pick Raise, Lower or Flatten: hold and drag to make level ground for bigger buildings. Sculpting costs Belief.', done: (g) => g.stats.sculpted > 0 },
+    { tut: 'terrain', title: 'Shape the land', text: 'Open Terrain (4) and pick Raise, Lower or Flatten: hold and drag to make level ground for bigger buildings. Sculpting costs Belief.', done: (g) => g.stats.sculpted > 0 },
   ];
+  /** The tour step's Next was tapped. */
+  private tutNext = false;
 
   constructor(private game: Game) {
     this.buildTopLeft();
+    this.buildResourceStrip();
     this.buildTopRight();
     this.buildBottom();
     this.buildMenuPanel();
@@ -182,6 +225,8 @@ export class UI {
     this.root.appendChild(this.toasts);
     this.dialog = new GameDialog(this.root);
     this.dialog.mode = () => this.game.settings.popups ?? 'all';
+    this.dialog.wasOffered = (key) => { try { return (localStorage.getItem(SAVE.optOutKey) ?? '').split(',').includes(key); } catch { return true; } };
+    this.dialog.offered = (key) => { try { const had = localStorage.getItem(SAVE.optOutKey); localStorage.setItem(SAVE.optOutKey, had ? `${had},${key}` : key); } catch { /* ignore */ } };
     // Not while the player is busy: mid-drag, placing, sculpting, in Photo Mode or a cinematic.
     this.dialog.canShow = () => {
       const g = this.game;
@@ -236,17 +281,45 @@ export class UI {
   private buildTopLeft(): void {
     this.tl = el('div', 'tl');
     const timePanel = el('div', 'panel time-panel');
+    // The village's emblem, its name (with a pencil to rename it) and the season; then the clock
+    // and the time controls.
+    timePanel.appendChild(el('span', 'tl-emblem', EMBLEM));
+    const ident = el('div', 'tl-ident');
+    const nameRow = el('div', 'tl-name');
     this.isleNameEl = el('div', 'islename') as HTMLDivElement;
-    timePanel.appendChild(this.isleNameEl);
+    const rename = el('button', 'tl-rename', ICONS.pencil) as HTMLButtonElement;
+    rename.type = 'button';
+    rename.title = 'Rename your island';
+    rename.setAttribute('aria-label', 'Rename your island');
+    rename.onclick = (e) => { e.stopPropagation(); this.toggle(this.settings, true); this.nameInput?.focus(); };
+    nameRow.append(this.isleNameEl, rename);
+    this.dateEl = el('div', 'date');
+    ident.append(nameRow, this.dateEl);
+    timePanel.appendChild(ident);
     const clock = el('div', 'clock');
     this.sunIcon = el('span', 'sunicon', ICONS.sun);
     this.timeEl = el('div', 'time');
-    this.dateEl = el('div', 'date');
     this.perfEl = el('div', 'perf');
     const tx = el('div', 'clocktext');
-    tx.append(this.timeEl, this.dateEl, this.perfEl);
+    tx.append(this.timeEl, this.perfEl);
     clock.append(this.sunIcon, tx);
     timePanel.appendChild(clock);
+    // Pause, and 1×, 2× and 3× speed, always to hand.
+    const speed = el('div', 'tl-speed');
+    speed.dataset.tut = 'speed';
+    this.pauseBtn = el('button', 'tl-sp', ICONS.pause) as HTMLButtonElement;
+    this.pauseBtn.title = 'Pause (Space)';
+    this.pauseBtn.onclick = (e) => { e.stopPropagation(); this.game.togglePause(); };
+    speed.appendChild(this.pauseBtn);
+    [1, 2, 3].forEach((n) => {
+      const b = el('button', 'tl-sp', SPEED_ICONS[n - 1]) as HTMLButtonElement;
+      b.title = `Speed ${n}×`;
+      b.setAttribute('aria-label', `Speed ${n}×`);
+      b.onclick = (e) => { e.stopPropagation(); this.game.setSpeed(n); };
+      this.speedBtns.push(b);
+      speed.appendChild(b);
+    });
+    timePanel.appendChild(speed);
     // The clock and island name open and close everything else in this corner.
     timePanel.insertAdjacentHTML('beforeend', '<span class="tl-chev" aria-hidden="true">⌄</span>');
     timePanel.setAttribute('role', 'button');
@@ -289,6 +362,7 @@ export class UI {
       if (open) { this.villagePriorities.close(); this.moodPanel.close(); this.setGoalsOpen(false); }
     };
     this.closeInventory = () => { inventory.setAttribute('aria-expanded', 'false'); grid.classList.add('hidden'); };
+    this.openInventory = () => { if (inventory.getAttribute('aria-expanded') !== 'true') inventory.click(); };
     this.villagePriorities = new VillagePrioritiesPanel(
       () => this.game.colony.villagePriority,
       value => this.game.colony.setVillagePriority(value),
@@ -335,6 +409,7 @@ export class UI {
   }
 
   private closeInventory: () => void = () => {};
+  private openInventory: () => void = () => {};
   /** The tutorial card is on screen. */
   get tutorialOpen(): boolean {
     return !!this.tutorial && !this.tutorial.classList.contains('hidden');
@@ -383,55 +458,62 @@ export class UI {
       `<button type="button" class="goal-item ask" data-build="${r.key}"><span class="goal-mark ask">!</span><span>${r.text}</span><span class="goal-go" aria-hidden="true">›</span></button>`).join('');
   }
 
+  /** Wood, stone, food, people (and their beds) and the village's happiness, along the top. */
+  private buildResourceStrip(): void {
+    const strip = el('div', 'panel res-strip');
+    const items: [string, string, string, () => void][] = [
+      ['wood', 'wood', 'Wood in store', () => this.openInventory()],
+      ['stone', 'stone', 'Stone in store', () => this.openInventory()],
+      ['food', 'grain', 'Food: grain, fruit, meat and fish', () => this.openInventory()],
+      ['people', 'people', 'Islanders / beds', () => this.openInventory()],
+      ['happy', 'smile', 'Happiness: how content the village is', () => { if (this.moodPanel.panel.classList.contains('hidden')) this.moodPanel.button.click(); }],
+    ];
+    for (const [k, ic, tip, open] of items) {
+      const b = el('button', 'rs-item', icon(ic)) as HTMLButtonElement;
+      b.type = 'button';
+      b.title = tip;
+      const v = el('span', 'rs-v');
+      b.appendChild(v);
+      b.onclick = () => { this.tl.classList.remove('tl-collapsed'); open(); this.game.audio?.sfx('click'); };
+      this.stripEls[k] = v;
+      strip.appendChild(b);
+    }
+    this.root.appendChild(strip);
+  }
+
   private buildTopRight(): void {
     const tr = el('div', 'panel tr');
-    this.pauseBtn = el('button', 'ib', ICONS.pause);
-    this.pauseBtn.title = 'Pause (Space)';
-    this.pauseBtn.onclick = () => this.game.togglePause();
-
-    // Fast forward: opens the 1× / 2× / 3× choice.
-    this.speedBtn = el('button', 'ib ff', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="10" r="7"/><path d="M12 5v5l3 2"/></svg><span class="ff-x"></span>');
-    this.speedBtn.title = 'Time: play, pause and speed';
-    this.speedBtn.setAttribute('aria-label', 'Time controls');
-    this.speedPop = el('div', 'panel popup speed-pop hidden');
-    this.speedPop.appendChild(this.pauseBtn);
-    for (const s of [1, 2, 3]) {
-      const b = el('button', 'ib sp', `${s}×`);
-      b.title = `Speed ${s}×`;
-      b.onclick = () => {
-        this.game.setSpeed(s);
-        this.closePopups();
-      };
-      this.speedBtns.push(b);
-      this.speedPop.appendChild(b);
-    }
-    this.speedBtn.onclick = () => this.openPopup(this.speedPop, this.speedBtn, 'below');
-    tr.appendChild(this.speedBtn);
-    this.root.appendChild(this.speedPop);
     const gear = el('button', 'ib', ICONS.gear);
     gear.title = 'Settings';
+    gear.dataset.tut = 'settings';
     gear.onclick = () => this.toggle(this.settings);
     const over = el('button', 'ib', ICONS.island);
     over.title = 'See the whole map from above (O) · again to go back';
+    over.dataset.tut = 'island';
     over.onclick = () => this.game.rig.toggleOverview();
     const camera = el('button', 'ib', ICONS.camera);
     camera.title = 'Photo Mode: frame and capture a picture of your island';
     camera.setAttribute('aria-label', 'Photo Mode');
+    camera.dataset.tut = 'camera';
     camera.onclick = () => this.photo.enter();
     const eye = el('button', 'ib', ICONS.eye);
     eye.title = 'Hide the interface: just the island (V)';
+    eye.dataset.tut = 'hud';
     eye.onclick = () => this.toggleZen(true);
     const explore = el('button', 'ib', ICONS.person);
     explore.title = 'Explore at islander eye level';
     explore.setAttribute('aria-label', 'Explore island');
+    explore.dataset.tut = 'pov';
     explore.onclick = () => this.game.toggleExplore();
     const wildlife = el('button', 'ib wildlife-button', ICONS.wildlife);
     wildlife.title = 'Follow a random creature in cinematic mode';
     wildlife.setAttribute('aria-label', 'Watch wildlife');
+    wildlife.dataset.tut = 'wildlife';
     wildlife.onclick = () => this.game.toggleWildlife();
     const views = el('div', 'view-controls');
     this.alertButton = el('button', 'ib alert-button', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v9"/><circle cx="12" cy="19" r="1"/></svg>');
     this.alertButton.setAttribute('aria-label', 'Alerts: none');
+    this.alertButton.dataset.tut = 'alerts';
     this.alertButton.setAttribute('aria-expanded', 'false');
     this.alertButton.setAttribute('aria-controls', 'island-alerts');
     this.alertPanel = el('div', 'panel alert-panel hidden');
@@ -444,9 +526,17 @@ export class UI {
       this.alertButton.setAttribute('aria-expanded', String(open));
     };
     this.root.appendChild(this.alertPanel);
-    views.append(camera, eye, explore, wildlife, this.alertButton);
+    const help = el('button', 'ib', ICONS.help);
+    help.title = 'How to play';
+    help.setAttribute('aria-label', 'How to play');
+    help.onclick = () => this.toggle(this.help, true);
+    views.append(camera, eye, help);
     tr.append(over, gear, views);
     this.root.appendChild(tr);
+    // Down the right-hand side: round buttons for the wildlife, exploring and the island's alerts.
+    const side = el('div', 'tr-side');
+    side.append(wildlife, explore, this.alertButton);
+    this.root.appendChild(side);
     // Shown on its own while the interface is hidden: brings everything back.
     this.zenBtn = el('button', 'ib zen-eye', ICONS.eye);
     this.zenBtn.title = 'Show the interface again (V)';
@@ -481,8 +571,6 @@ export class UI {
     this.game.audio?.sfx('click');
   }
 
-  private speedBtn!: HTMLButtonElement;
-  private speedPop!: HTMLDivElement;
   private terrainSlot!: HTMLButtonElement;
   private terrainPop!: HTMLDivElement;
   private terrainItems: HTMLButtonElement[] = [];
@@ -519,7 +607,7 @@ export class UI {
 
   closePopups(): boolean {
     let closed = this.villagePriorities?.close() ?? false;
-    for (const p of [this.speedPop, this.terrainPop, this.floraPop, this.blessingPop]) {
+    for (const p of [this.terrainPop, this.floraPop, this.blessingPop]) {
       if (p && !p.classList.contains('hidden')) {
         p.classList.add('hidden');
         closed = true;
@@ -587,6 +675,7 @@ export class UI {
     TOOLBAR.forEach((t, i) => {
       const b = el('button', 'slot', `<span class="key">${i + 1}</span>${icon(t.icon)}<span class="nm">${t.name}</span>${t.cost ? `<span class="cost">${icon('belief')}${t.cost}</span>` : '<span class="cost"></span>'}`);
       const id = t.id;
+      b.dataset.tut = id;
       if (id === 'terrain') {
         this.terrainSlot = b;
         b.onclick = () => this.toggleTerrain();
@@ -654,28 +743,50 @@ export class UI {
     // Tapping anywhere else closes an open popup.
     document.addEventListener('pointerdown', (e) => {
       const t = e.target as Node;
-      if ([this.villagePriorities?.panel, this.villagePriorities?.button, this.speedPop, this.terrainPop, this.floraPop, this.blessingPop, this.speedBtn, this.terrainSlot, this.floraSlot, this.blessingSlot].some((el2) => el2?.contains(t))) return;
+      if ([this.villagePriorities?.panel, this.villagePriorities?.button, this.terrainPop, this.floraPop, this.blessingPop, this.terrainSlot, this.floraSlot, this.blessingSlot].some((el2) => el2?.contains(t))) return;
       this.closePopups();
     }, true);
     // The belief bar sits under the toolbar.
-    bottom.append(this.hint, this.toolbar, bb);
+    const toolbarWrap = el('div', 'toolbar-wrap');
+    toolbarWrap.appendChild(this.toolbar);
+    bottom.append(this.hint, toolbarWrap, bb);
     this.root.appendChild(bottom);
   }
 
   private buildMenuPanel(): void {
     this.buildMenu = el('div', 'panel buildmenu hidden');
-    const head = el('div', 'bm-head', '<span>Build</span>');
+    const head = el('div', 'bm-head', `<span class="bm-title">${ICONS.build}<span>Build</span></span>`);
     const x = el('button', 'ib small', ICONS.close);
     x.onclick = () => this.game.setTool('select');
     head.appendChild(x);
     this.buildMenu.appendChild(head);
+    // Tabs: everything, or one kind of building at a time.
+    const tabs = el('div', 'bm-tabs');
+    tabs.setAttribute('role', 'tablist');
+    for (const [cat, label] of BUILD_TABS) {
+      const t = el('button', `bm-tab${cat === 'all' ? ' on' : ''}`, label) as HTMLButtonElement;
+      t.type = 'button';
+      t.dataset.cat = cat;
+      t.setAttribute('role', 'tab');
+      t.onclick = () => {
+        tabs.querySelectorAll('.bm-tab').forEach((x) => x.classList.toggle('on', x === t));
+        grid.querySelectorAll<HTMLElement>('[data-cat]').forEach((x) => x.classList.toggle('hidden', cat !== 'all' && x.dataset.cat !== cat));
+        grid.querySelectorAll<HTMLElement>('.bm-section').forEach((x) => x.classList.toggle('hidden', cat !== 'all'));
+        grid.scrollTop = 0;
+        this.game.audio?.sfx('click');
+      };
+      tabs.appendChild(t);
+    }
+    this.buildMenu.appendChild(tabs);
     const goals=el('p','muted small');goals.dataset.progression='';this.buildMenu.appendChild(goals);
     const grid = el('div', 'bm-grid');
     const buildItem = (key: BuildingKey) => {
       const def = BUILDINGS[key];
       const cost = costHtml(def.cost);
-      const b = el('button', 'bm-item', `<span class="bm-ic">${ICONS[BUILD_ICON[key]]}</span><span class="bm-nm">${def.name}</span><span class="bm-cost">${cost}</span>`);
+      const b = el('button', 'bm-item', `<span class="bm-pic"><span class="bm-ic">${ICONS[BUILD_ICON[key]]}</span></span><span class="bm-nm">${def.name}</span><span class="bm-cost">${cost}</span>`);
       b.setAttribute('aria-label', def.name);
+      b.dataset.cat = buildCategory(key);
+      b.dataset.key = key;
       if (key === 'herbalgarden' || key === 'herbalist') {
         const purpose = el('span', 'bm-purpose');
         purpose.textContent = key === 'herbalgarden' ? 'Grow herbs' : 'Make medicine';
@@ -693,7 +804,8 @@ export class UI {
     BUILD_MENU.forEach(buildItem);
     // Paths: drag-to-paint tools rather than a building.
     const pathItem = (id: ToolId, name: string, iconKey: string, cost: string, tip: string) => {
-      const b = el('button', 'bm-item', `<span class="bm-ic">${ICONS[iconKey]}</span><span class="bm-nm">${name}</span><span class="bm-cost">${cost}</span>`);
+      const b = el('button', 'bm-item', `<span class="bm-pic"><span class="bm-ic">${ICONS[iconKey]}</span></span><span class="bm-nm">${name}</span><span class="bm-cost">${cost}</span>`);
+      b.dataset.cat = 'paths';
       b.onclick = () => this.game.setTool(id);
       this.addTip(b, tip);
       grid.appendChild(b);
@@ -716,6 +828,28 @@ export class UI {
     const edge = () => grid.classList.toggle('end', grid.scrollTop + grid.clientHeight >= grid.scrollHeight - 4);
     grid.addEventListener('scroll', edge, { passive: true });
     new ResizeObserver(edge).observe(grid);
+  }
+
+  private picturesLoading = false;
+  /**
+   * Fill the build menu's cards with pictures of the buildings, one a frame while it is open (each
+   * is drawn once and kept), so opening the menu never stalls the game.
+   */
+  private loadBuildPictures(): void {
+    if (this.picturesLoading) return;
+    const waiting = [...this.buildItems.entries()].filter(([, b]) => !b.dataset.pic);
+    if (!waiting.length) return;
+    this.picturesLoading = true;
+    const next = () => {
+      const item = waiting.shift();
+      if (!item || this.buildMenu.classList.contains('hidden')) { this.picturesLoading = false; return; }
+      const [key, b] = item;
+      b.dataset.pic = '1';
+      const url = this.game.buildingPicture(key);
+      if (url) b.querySelector('.bm-pic')!.innerHTML = `<img alt="" src="${url}">`;
+      requestAnimationFrame(next);
+    };
+    requestAnimationFrame(next);
   }
 
   private buildMinimap(): void {
@@ -763,6 +897,7 @@ export class UI {
   /** Rotate control: the compass at the end of the toolbar. Drag it left/right (mouse or finger) to turn the view; double-tap resets. Q / E still turn it too. */
   private buildRotate(): void {
     const dial = el('button', 'slot compass-slot dial');
+    dial.dataset.tut = 'rotate';
     dial.title = 'Drag to rotate the view · double-tap to reset';
     dial.setAttribute('aria-label', 'Compass: drag to rotate the view, double-tap to reset');
     this.compassNeedle = el('span', 'needle', ICONS.compass);
@@ -1050,25 +1185,32 @@ export class UI {
       }
     }
     this.tutStep = 0;
-    this.tutStart = { x: this.game.rig.cur.x, z: this.game.rig.cur.z, dist: this.game.rig.cur.dist };
+    this.tutStart = { x: this.game.rig.cur.x, z: this.game.rig.cur.z, dist: this.game.rig.cur.dist, yaw: this.game.rig.cur.yaw };
     this.renderTutorial();
     this.tutorial.classList.remove('hidden');
   }
 
   private renderTutorial(): void {
     const s = this.tutSteps[this.tutStep];
+    this.tutNext = false;
+    // Light up the button this step is about.
+    this.root.querySelectorAll('.tut-glow').forEach((e) => e.classList.remove('tut-glow'));
+    if (s?.tut) this.root.querySelector(`[data-tut="${s.tut}"]`)?.classList.add('tut-glow');
     if (!s) {
       this.tutorial.innerHTML = `<div class="tut-step">Tutorial complete</div><div class="tut-title">The island is yours</div><p>Keep your people fed and housed and follow the village's progress. Next, build an Observatory to forecast storms and eruptions and research new buildings, raise a Temple for Belief, and work towards the Great Pyramid and the Tlatoani's Palace.</p><div class="tut-actions"><button class="btn small" data-a="ok">Let's go</button></div>`;
       this.tutorial.querySelector<HTMLButtonElement>('[data-a="ok"]')!.onclick = () => this.endTutorial();
       return;
     }
-    const dots = this.tutSteps.map((_, i) => `<span class="dot ${i < this.tutStep ? 'done' : i === this.tutStep ? 'cur' : ''}"></span>`).join('');
-    this.tutorial.innerHTML = `<div class="tut-step">Step ${this.tutStep + 1} of ${this.tutSteps.length} <span class="dots">${dots}</span></div><div class="tut-title">${s.title}</div><p>${s.text}</p><div class="tut-actions"><button class="btn small ghost" data-a="skip">Skip tutorial</button></div>`;
+    const progress = Math.round((this.tutStep / this.tutSteps.length) * 100);
+    this.tutorial.innerHTML = `<div class="tut-step">Step ${this.tutStep + 1} of ${this.tutSteps.length}</div><div class="tut-bar"><i style="width:${progress}%"></i></div><div class="tut-title">${s.title}</div><p>${s.text}</p><div class="tut-actions"><button class="btn small ghost" data-a="skip">Skip tutorial</button>${s.next ? '<button class="btn small" data-a="next">Next</button>' : ''}</div>`;
     this.tutorial.querySelector<HTMLButtonElement>('[data-a="skip"]')!.onclick = () => this.endTutorial();
+    const next = this.tutorial.querySelector<HTMLButtonElement>('[data-a="next"]');
+    if (next) next.onclick = () => { this.tutNext = true; };
   }
 
   private endTutorial(): void {
     this.tutorial.classList.add('hidden');
+    this.root.querySelectorAll('.tut-glow').forEach((e) => e.classList.remove('tut-glow'));
     this.tutStep = 99;
     try {
       localStorage.setItem(SAVE.tutorialKey, 'done');
@@ -1317,6 +1459,7 @@ export class UI {
     if (action?.label) {
       this.dialog.push({
         icon: kind === 'warn' ? 'warn' : 'ask', kicker: kind === 'warn' ? 'Warning' : 'Something to see', title: split.title, body: split.body,
+        optOut: action.key === 'wildlife-encounter' ? { key: 'wildlife', label: 'Turn off wildlife pop-ups', run: () => { this.game.settings.wildlifeAlerts = false; this.game.applySettings(); } } : undefined,
         actions: [
           { label: 'Later' },
           { label: action.label, primary: true, run: () => {
@@ -1332,6 +1475,7 @@ export class UI {
       this.dialog.push({
         icon: kind === 'warn' ? 'warn' : 'info', kicker: kind === 'warn' ? 'Warning' : 'News', title: split.title, body: split.body,
         news: kind !== 'warn', important: kind === 'warn',
+        optOut: kind !== 'warn' ? { key: 'news', label: 'Only important pop-ups', run: () => { this.game.settings.popups = 'important'; this.game.applySettings(); } } : undefined,
         actions: [{ label: 'Show me', run: () => this.game.focusAt(at) }, { label: 'OK', primary: true }],
       });
       return;
@@ -1425,7 +1569,7 @@ export class UI {
     if (this.tutStep < this.tutSteps.length && !this.tutorial.classList.contains('hidden')) {
       if (this.tutSteps[this.tutStep].done(this.game)) {
         this.tutStep++;
-        this.tutStart = { x: this.game.rig.cur.x, z: this.game.rig.cur.z, dist: this.game.rig.cur.dist };
+        this.tutStart = { x: this.game.rig.cur.x, z: this.game.rig.cur.z, dist: this.game.rig.cur.dist, yaw: this.game.rig.cur.yaw };
         this.renderTutorial();
       }
     }
@@ -1447,6 +1591,12 @@ export class UI {
     }
     const e = g.eco;
     const housed = g.colony.list.filter((i) => i.home >= 0).length;
+    const beds = g.buildings.list.reduce((n, b) => n + (b.complete ? b.housing : 0), 0);
+    const strip: Record<string, string> = {
+      wood: fmt(e.res.wood), stone: fmt(e.res.stone), food: fmt(e.res.grain + e.res.fruit + e.res.meat + e.res.fish),
+      people: `${g.colony.list.length} / ${beds}`, happy: `${islandMood(g.colony.list, g.moodWorld()).score}%`,
+    };
+    for (const k in strip) if (this.stripEls[k].textContent !== strip[k]) this.stripEls[k].textContent = strip[k];
     this.resEls.people.textContent = `${housed}/${g.colony.list.length}`;
     this.resEls.wood.textContent = `${fmt(e.res.wood)}`;
     this.resEls.stone.textContent = `${fmt(e.res.stone)}`;
@@ -1480,10 +1630,6 @@ export class UI {
     });
     for (const b of this.terrainItems) b.classList.toggle('on', g.tool === b.dataset.tool);
     for (const b of this.floraItems) b.classList.toggle('on', g.tool === b.dataset.tool);
-    const ffx = this.speedBtn.querySelector('.ff-x')!;
-    const sp = t.paused ? 'Ⅱ' : `${t.speed}×`;
-    if (ffx.textContent !== sp) ffx.textContent = sp;
-    this.speedBtn.classList.toggle('on', !t.paused && t.speed > 1);
     const pauseIcon = t.paused ? 'play' : 'pause';
     if (this.pauseBtn.dataset.icon !== pauseIcon) {
       this.pauseBtn.innerHTML = ICONS[pauseIcon];
@@ -1494,6 +1640,7 @@ export class UI {
     this.pauseBtn.classList.toggle('on', t.paused);
     this.speedBtns.forEach((b, i) => b.classList.toggle('on', !t.paused && t.speed === i + 1));
     this.buildMenu.classList.toggle('hidden', g.tool !== 'build' || !!g.placing);
+    if (!this.buildMenu.classList.contains('hidden')) this.loadBuildPictures();
     if (!this.buildMenu.classList.contains('hidden')) {
       const goals=this.buildMenu.querySelector('[data-progression]');if(goals)goals.textContent=g.progression.summary;
       for (const [key, b] of this.buildItems) {
@@ -1504,7 +1651,8 @@ export class UI {
         const pc = b.querySelector<HTMLElement>('.bm-cost'), tag = `${price.wood}|${price.stone}|${price.belief}|${price.carvedStone ?? 0}`;
         if (pc && pc.dataset.c !== tag) { pc.dataset.c = tag; pc.innerHTML = costHtml(price); }
         b.title = reason || BUILDINGS[key].name;
-        let lock=b.querySelector('.bm-lock');if(!lock){lock=el('span','bm-purpose bm-lock');b.appendChild(lock);}lock.textContent=reason;
+        // On the card, just the stage it waits for; the whole requirement is in its tooltip.
+        let lock=b.querySelector('.bm-lock');if(!lock){lock=el('span','bm-purpose bm-lock');b.appendChild(lock);}lock.textContent=reason ? `🔒 ${reason.split(':')[0]}` : '';
         b.setAttribute('aria-disabled', String(!!reason));
       }
     }
@@ -1628,10 +1776,14 @@ export class UI {
       const carry = isl.carry ? `${icon(isl.carry.res === 'wood' ? 'wood' : isl.carry.res)} ${isl.carry.n} ${isl.carry.res}` : 'Nothing';
       const say = islanderLine(isl, g.colony.activity(isl), performance.now() / 1000);
       const req = g.requests?.of(isl.id);
-      key = `i${isl.id}|${say}|${req?.id ?? ''}|${Math.ceil(isl.injured / 10)}|${isl.condition}|${Math.ceil(isl.conditionT / 60)}|${role}|${g.colony.activity(isl)}|${carry}|${home?.id}|${Math.round(isl.hunger * 20)}|${Math.round(isl.rest * 20)}|${Math.round(isl.happy * 20)}|${g.followId === isl.id}`;
+      // One of a couple who wish to marry: who, and the wedding can be granted from here.
+      const wish = g.weddings?.wish, partner = !wish ? -1 : wish.a === isl.id ? wish.b : wish.b === isl.id ? wish.a : -1;
+      const beloved = partner >= 0 ? g.colony.byId(partner) : undefined;
+      key = `i${isl.id}|${say}|${req?.id ?? ''}|${beloved?.id ?? ''}|${Math.ceil(isl.injured / 10)}|${isl.condition}|${Math.ceil(isl.conditionT / 60)}|${role}|${g.colony.activity(isl)}|${carry}|${home?.id}|${Math.round(isl.hunger * 20)}|${Math.round(isl.rest * 20)}|${Math.round(isl.happy * 20)}|${g.followId === isl.id}`;
       html = `
         <div class="card-head"><span>${isl.name}</span><span class="tag ${isl.gender}">${isl.gender === 'm' ? 'Male' : 'Female'}${isl.child ? ' · child' : ''}</span></div>
         <p class="isl-say">“${say}”</p>
+        ${beloved ? `<div class="isl-req isl-love"><span>♥ Wishes to marry ${beloved.name}</span><button class="btn small" data-a="grant-wedding">Grant the wedding</button></div>` : ''}
         ${req ? `<div class="isl-req"><span>💬 ${req.text}</span><button class="btn small" data-a="req-build">Build ${BUILDINGS[req.key].name}</button></div>` : ''}
         <div class="kv"><span>Job</span><b>${role}${isl.manualRole ? ' <em>(assigned)</em>' : ''}</b></div>
         <div class="kv"><span>Doing</span><b>${g.colony.activity(isl)}</b></div>
@@ -1928,6 +2080,11 @@ export class UI {
       if (!isl) return;
       if (a === 'explore') g.toggleExplore();
       if (a === 'follow') g.follow(g.followId === isl.id ? -1 : isl.id);
+      if (a === 'grant-wedding') {
+        g.weddings?.grant();
+        g.audio?.sfx('click');
+        this.infoKey = '';
+      }
       if (a === 'req-build') {
         const req = g.requests?.of(isl.id);
         const reason = req ? g.buildings.constructionRequirement(req.key) : '';
@@ -2162,15 +2319,18 @@ export class UI {
     ctx.restore();
   }
 
+  /** Island types open to new games: the original island; the others are coming soon. */
+  private static readonly OPEN_ISLANDS: IslandType[] = ['classic'];
+
   /** Starting a new island: pick the kind of island, then confirm (the current one is replaced). */
   private chooseIsland(sandbox: boolean): void {
     const current = this.game.world?.islandType;
     const modal = el('div', 'modal island-modal');
     const cards = (Object.keys(ISLAND_TYPES) as IslandType[]).map((t) => {
-      const it = ISLAND_TYPES[t];
-      return `<button type="button" class="island-pick" data-type="${t}">
+      const it = ISLAND_TYPES[t], open = UI.OPEN_ISLANDS.includes(t);
+      return `<button type="button" class="island-pick${open ? '' : ' soon'}" data-type="${t}"${open ? '' : ' disabled aria-disabled="true"'}>
         <span class="ip-map" aria-hidden="true">${ISLAND_ICONS[t]}</span>
-        <span class="ip-text"><span class="ip-name"><b>${it.name}</b>${t === current ? '<span class="ip-now">Current</span>' : ''}</span><span>${it.about}</span><em>${it.resources}</em></span>
+        <span class="ip-text"><span class="ip-name"><b>${it.name}</b>${t === current ? '<span class="ip-now">Current</span>' : ''}${open ? '' : '<span class="ip-soon">Coming soon</span>'}</span><span>${it.about}</span><em>${it.resources}</em></span>
       </button>`;
     }).join('');
     modal.innerHTML = `<div class="panel card island-card" role="dialog" aria-labelledby="ip-title">
@@ -2182,7 +2342,7 @@ export class UI {
       const target = e.target as HTMLElement;
       if (target === modal || target.closest('[data-a="close"]')) { modal.remove(); return; }
       const pick = target.closest<HTMLButtonElement>('[data-type]');
-      if (!pick) return;
+      if (!pick || pick.disabled) return;
       const t = pick.dataset.type as IslandType;
       if (confirm(`Start a new ${ISLAND_TYPES[t].name}${sandbox ? ' Sandbox' : ''}? Your progress on this island will be lost.`)) this.game.newIsland(sandbox, t);
     };

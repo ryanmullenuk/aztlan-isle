@@ -750,14 +750,17 @@ export function makeSoftSprite(size = 64, inner = 'rgba(255,255,255,1)', outer =
 /**
  * A river's water: a grid over everything within the channel's half-width of its course, each
  * vertex at the height of the nearest stretch (never rising downstream). Unlike a ribbon swept
- * along the course, it can't fold or double over itself where a lowland river doubles back.
+ * along the course, it can't fold or double over itself where a lowland river doubles back. The
+ * grid's triangles are trimmed along smooth lines (no stepped edges): the channel's sides, a
+ * straight edge across the channel just behind a waterfall's lip (its falling curtain takes over), and
+ * round the plunge pool's basin (which has a surface of its own).
  */
-export function riverSurface(points: { x: number; y: number; z: number }[]): THREE.BufferGeometry | null {
+export function riverSurface(points: { x: number; y: number; z: number }[], fall?: { x: number; z: number; dx: number; dz: number; poolR: number } | null): THREE.BufferGeometry | null {
   if (points.length < 3) return null;
   const curve = new THREE.CatmullRomCurve3(points.map((p) => new THREE.Vector3(p.x, p.y, p.z)), false, 'centripetal');
   const pts = curve.getSpacedPoints(points.length * 3);
   for (let k = 1; k < pts.length; k++) pts[k].y = Math.min(pts[k].y, pts[k - 1].y);
-  const half = 1.35, step = 0.5;
+  const half = 1.35, step = 0.25;
   let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
   for (const p of pts) {
     x0 = Math.min(x0, p.x); z0 = Math.min(z0, p.z);
@@ -784,24 +787,47 @@ export function riverSurface(points: { x: number; y: number; z: number }[]): THR
       }
     }
   }
-  const pos: number[] = [], idx: number[] = [], map = new Int32Array(nx * nz).fill(-1);
-  const vert = (v: number) => {
-    if (map[v] < 0) {
-      map[v] = pos.length / 3;
-      pos.push(x0 + (v % nx) * step, ys[v], z0 + Math.floor(v / nx) * step);
+  // Where water is drawn: k >= 0. Inside the channel, and (by a waterfall) behind the lip or clear
+  // of the basin, a capsule from the foot of the fall to the pool's middle.
+  const keep = new Float32Array(nx * nz);
+  const reach = fall ? fall.poolR + 1.2 : 0, basin = fall ? fall.poolR + 0.6 : 0;
+  for (let v = 0; v < nx * nz; v++) {
+    let k = half - dist[v];
+    if (fall && k > -1) {
+      const rx = x0 + (v % nx) * step - fall.x, rz = z0 + Math.floor(v / nx) * step - fall.z;
+      const along = rx * fall.dx + rz * fall.dz, across = Math.abs(-rx * fall.dz + rz * fall.dx);
+      const dc = along < reach ? across : Math.hypot(across, along - reach);
+      // (Ending a little behind the lip, under the top of the curtain as it fades in, so the cut
+      // edge never shows as a line across the fall.)
+      k = Math.min(k, Math.max(-0.22 - along, dc - basin));
     }
-    return map[v];
+    keep[v] = k;
+  }
+  const pos: number[] = [];
+  const P = (v: number): [number, number, number, number] => [x0 + (v % nx) * step, ys[v], z0 + Math.floor(v / nx) * step, keep[v]];
+  // One triangle, clipped to k >= 0 (the part kept is fanned back into triangles, same winding).
+  const tri = (a: number, b: number, c: number) => {
+    const ka = keep[a], kb = keep[b], kc = keep[c];
+    if (ka < 0 && kb < 0 && kc < 0) return;
+    const inp = [P(a), P(b), P(c)], out: number[][] = [];
+    for (let k = 0; k < 3; k++) {
+      const p = inp[k], q = inp[(k + 1) % 3];
+      if (p[3] >= 0) out.push(p);
+      if ((p[3] >= 0) !== (q[3] >= 0)) {
+        const t = p[3] / (p[3] - q[3]);
+        out.push([p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t, p[2] + (q[2] - p[2]) * t, 0]);
+      }
+    }
+    for (let k = 1; k < out.length - 1; k++) for (const p of [out[0], out[k], out[k + 1]]) pos.push(p[0], p[1], p[2]);
   };
   for (let j = 0; j < nz - 1; j++) for (let i = 0; i < nx - 1; i++) {
     const a = j * nx + i, b = a + 1, c = a + nx, d = c + 1;
-    if (Math.min(dist[a], dist[b], dist[c], dist[d]) > half) continue;
-    const va = vert(a), vb = vert(b), vc = vert(c), vd = vert(d);
-    idx.push(va, vc, vb, vb, vc, vd);
+    tri(a, c, b);
+    tri(b, c, d);
   }
-  if (!idx.length) return null;
+  if (!pos.length) return null;
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setIndex(idx);
   g.computeBoundingSphere();
   return g;
 }
@@ -819,6 +845,11 @@ export class Water {
   private fallMat: THREE.ShaderMaterial | null = null;
   private spray: Particles | null = null;
   private fallMist: Particles | null = null;
+  /** The rapids above the fall (where the stream runs over its rocks), and their splashes. */
+  private rapids: { x: number; y: number; z: number; tx: number; tz: number }[] = [];
+  private rapidSpray: Particles | null = null;
+  private rapidFoam: Particles | null = null;
+  private rapidAcc = 0;
   private plungeAt = new THREE.Vector3();
   private sprayAcc = 0;
   readonly shared = {
@@ -1051,7 +1082,8 @@ export class Water {
   private buildRivers(): void {
     const w = this.world;
     for (const river of w.rivers) {
-      const g = riverSurface(river.points);
+      // The waterfall is on the first river.
+      const g = riverSurface(river.points, river === w.rivers[0] ? w.waterfall : null);
       if (!g) continue;
       const m = new THREE.Mesh(g, this.riverMat);
       m.renderOrder = 11;
@@ -1256,6 +1288,49 @@ export class Water {
         rock(s * a, l, g0 - 0.25, w0 * rng.range(0.85, 1.15), h0 * rng.range(0.85, 1.2), w0 * rng.range(0.8, 1.1), rng.next() * 3, 0.6);
       }
     }
+    // The stream above the fall: where the ground under it drops away faster than the water (by its
+    // spring, cut down when the cliff was shaped), it runs down a built-up mass of rock instead of
+    // hanging in the air: a bed of broad, flat-topped rocks wider than the stream, banks standing
+    // above the water either side with a lower row stepping down to the ground, and a big rock at
+    // the spring the water comes out of. (Their own random stream: the rest stays as it was.)
+    const srng = new RNG(this.world.seed * 29 + 7);
+    const course = this.world.rivers[0]?.points ?? [];
+    const lip = (x: number, z: number) => (x - f.x) * f.dx + (z - f.z) * f.dz;
+    const stone = (x: number, y0: number, z: number, w: number, h: number, d: number, ry: number, moss: number, wet: number, flat = false, block = true) => {
+      const geo = angularRockGeometry(Math.floor(srng.next() * 1e6), flat ? { taper: srng.range(0.88, 0.96), tilt: 0.04 } : {});
+      b.add(geo, { facet: true, color: rockColor(moss, wet), ao: { y0: y0 - 0.2, y1: y0 + h * 0.6, min: 0.6 } }, M.t(x, y0, z, 0, ry, 0, w / 2, h, d / 2));
+      if (block) this.world.blockCircle(x, z, Math.max(w, d) * 0.42);
+    };
+    let spring = true;
+    stream: for (let k = 1; k < course.length; k++) {
+      const p0 = course[k - 1], p1 = course[k];
+      const len = Math.hypot(p1.x - p0.x, p1.z - p0.z) || 1, n = Math.max(1, Math.round(len / 0.6));
+      const tx = (p1.x - p0.x) / len, tz = (p1.z - p0.z) / len, ry = Math.atan2(tx, tz);
+      for (let j = 0; j <= n; j++) {
+        const t = j / n, x = p0.x + (p1.x - p0.x) * t, z = p0.z + (p1.z - p0.z) * t;
+        if (lip(x, z) > -0.3) break stream;
+        const water = p0.y + (p1.y - p0.y) * t, ground = this.world.heightAt(x, z);
+        if (water - ground < 0.2) continue;
+        // Where the stream begins: a big rock behind, standing over the water.
+        if (spring) {
+          spring = false;
+          const bx = x - tx * 1.3, bz = z - tz * 1.3, g0 = Math.min(this.world.heightAt(bx, bz), ground) - 0.25;
+          stone(bx, g0, bz, srng.range(3.2, 3.8), water + srng.range(0.7, 1.0) - g0, srng.range(2.0, 2.4), ry + srng.range(-0.3, 0.3), 0.7, water);
+        }
+        this.rapids.push({ x, y: water, z, tx, tz });
+        // The bed: flat-topped and wider than the stream, its top just under the water.
+        const y0 = ground - 0.25;
+        stone(x, y0, z, srng.range(3.3, 3.7), water - 0.1 - y0, srng.range(1.2, 1.5), ry + srng.range(-0.2, 0.2), 0.3, water - 0.05, true, false);
+        // Banks either side above the water, and a lower row outside them down to the ground.
+        for (const side of [-1, 1]) {
+          const off = (o: number): [number, number] => [x - tz * side * o, z + tx * side * o];
+          const [bx, bz] = off(srng.range(1.55, 1.8)), g0 = Math.min(this.world.heightAt(bx, bz), ground) - 0.25, bw = srng.range(1.3, 1.7);
+          stone(bx, g0, bz, bw, water + srng.range(0.3, 0.6) - g0, bw * srng.range(0.9, 1.1), srng.next() * 6.28, 0.65, water);
+          const [ox, oz] = off(srng.range(2.6, 3.0)), o0 = this.world.heightAt(ox, oz) - 0.25, ow = srng.range(1.1, 1.5);
+          if (water - 0.2 > o0 + 0.4) stone(ox, o0, oz, ow, (water - 0.2 - o0) * srng.range(0.6, 0.85), ow * srng.range(0.9, 1.1), srng.next() * 6.28, 0.6, water);
+        }
+      }
+    }
     // Plants on the ledges: ferns and bushes on the crowns, vines hanging down the faces.
     const fern = fernGeometry(false, 31), bush = bushGeometry(false, false, 41), flower = bushGeometry(true, false, 42);
     const vine = new THREE.Color(0x4c702f), vineLeaf = new THREE.Color(0x7aa83f);
@@ -1289,6 +1364,12 @@ export class Water {
     this.spray = new Particles(520, 0xf4fcff);
     this.fallMist = new Particles(160, 0xeef8ff, 0.32);
     this.group.add(this.spray.points, this.fallMist.points);
+    // Gentle splashing over the rapids: droplets kicked up off the rocks, and soft puffs of foam.
+    if (this.rapids.length) {
+      this.rapidSpray = new Particles(200, 0xf4fcff, 0.85);
+      this.rapidFoam = new Particles(90, 0xf2f9ff, 0.5);
+      this.group.add(this.rapidSpray.points, this.rapidFoam.points);
+    }
   }
 
   /** Waves at a point in world space (used for boats bobbing). */
@@ -1387,9 +1468,24 @@ export class Water {
       }
       this.spray.update(dt, 6.5);
       this.fallMist.update(dt, -0.05);
+      if (this.rapidSpray && this.rapidFoam) {
+        this.rapidAcc += dt;
+        while (this.rapidAcc > 0.03) {
+          this.rapidAcc -= 0.03;
+          const r = this.rapids[Math.floor(Math.random() * this.rapids.length)];
+          // Across the stream, mostly where it breaks against the banks.
+          const side = Math.random() < 0.5 ? -1 : 1, across = side * (0.3 + Math.random() * 1.0);
+          const x = r.x - r.tz * across, z = r.z + r.tx * across, flow = 0.3 + Math.random() * 0.4;
+          this.rapidSpray.spawn(x, r.y + 0.03, z, r.tx * flow + (Math.random() - 0.5) * 0.3, 0.7 + Math.random() * 0.8, r.tz * flow + (Math.random() - 0.5) * 0.3, 0.4 + Math.random() * 0.3, 0.06 + Math.random() * 0.05);
+          if (Math.random() < 0.35) this.rapidFoam.spawn(x, r.y + 0.05, z, r.tx * 0.25, 0.08 + Math.random() * 0.1, r.tz * 0.25, 0.9 + Math.random() * 0.6, 0.3 + Math.random() * 0.18, 0.35);
+        }
+        this.rapidSpray.update(dt, 5);
+        this.rapidFoam.update(dt, 0);
+      }
       const day = 0.35 + 0.65 * this.shared.uDay.value;
       ((this.spray.points.material as THREE.ShaderMaterial).uniforms.uColor.value as THREE.Color).setRGB(0.96 * day, 0.99 * day, day);
       ((this.fallMist.points.material as THREE.ShaderMaterial).uniforms.uColor.value as THREE.Color).setRGB(0.93 * day, 0.97 * day, day);
+      for (const p of [this.rapidSpray, this.rapidFoam]) if (p) ((p.points.material as THREE.ShaderMaterial).uniforms.uColor.value as THREE.Color).setRGB(0.95 * day, 0.98 * day, day);
     }
   }
 }

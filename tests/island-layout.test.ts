@@ -127,13 +127,32 @@ test("a river's water never folds over itself where its course doubles back", ()
   const pts: { x: number; y: number; z: number }[] = [];
   for (let k = 0; k <= 10; k++) pts.push({ x: k, y: 1 - k * 0.01, z: 0 });
   for (let k = 10; k >= 0; k--) pts.push({ x: k, y: 0.8, z: 1.6 });
-  const g = riverSurface(pts)!, P = g.getAttribute('position'), I = g.index!;
+  const P = riverSurface(pts)!.getAttribute('position');
   const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
-  for (let t = 0; t < I.count; t += 3) {
-    a.fromBufferAttribute(P, I.getX(t)); b.fromBufferAttribute(P, I.getX(t + 1)); c.fromBufferAttribute(P, I.getX(t + 2));
+  for (let t = 0; t < P.count; t += 3) {
+    a.fromBufferAttribute(P, t); b.fromBufferAttribute(P, t + 1); c.fromBufferAttribute(P, t + 2);
     const n = b.clone().sub(a).cross(c.clone().sub(a));
     assert.ok(n.y > 0, 'every triangle faces up');
   }
   // Never rising downstream: nothing above the spring.
   for (let i = 0; i < P.count; i++) assert.ok(P.getY(i) <= 1 + 1e-6);
+});
+
+test("a river's water stops in a straight edge at a waterfall's lip and stays out of its plunge pool", () => {
+  // Along +x, as the generator lays it out: level to a cell past the lip (x = 6.6), then the drop
+  // to the pool, whose middle is poolR + 1.2 beyond the lip.
+  const pts: { x: number; y: number; z: number }[] = [];
+  for (let k = 0; k <= 7; k++) pts.push({ x: k, y: 5.6, z: 0 });
+  for (let k = 8; k <= 22; k++) pts.push({ x: k, y: 2.9, z: 0 });
+  const fall = { x: 6.6, z: 0, dx: 1, dz: 0, poolR: 3.3 };
+  const P = riverSurface(pts, fall)!.getAttribute('position');
+  let above = 0, below = 0, lipX = -Infinity;
+  for (let i = 0; i < P.count; i++) {
+    const x = P.getX(i), y = P.getY(i), z = P.getZ(i);
+    assert.ok(y >= 5.58 || y <= 2.92, 'no water sheet down the cliff');
+    if (y > 5) { above++; lipX = Math.max(lipX, x); }
+    else { below++; assert.ok(Math.hypot(Math.max(0, x - (6.6 + 4.5)), z) >= 3.9 - 0.03, 'clear of the pool'); }
+  }
+  assert.ok(above > 0 && below > 0, 'water above and below the fall');
+  assert.ok(Math.abs(lipX - (6.6 - 0.22)) < 1e-3, `the edge just behind the lip runs straight across (${lipX})`);
 });

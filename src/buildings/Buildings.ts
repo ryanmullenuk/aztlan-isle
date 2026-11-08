@@ -1184,6 +1184,15 @@ export class BuildingSystem {
     return model;
   }
 
+  /** A building's finished model on its own (first tier, plain look), for a picture of it; null if it can't be made. */
+  previewGeometry(key: BuildingKey): THREE.BufferGeometry | null {
+    try {
+      return this.modelOf(new Building(-1, key, 0, 0, 0, 1, this.world)).finished;
+    } catch {
+      return null;
+    }
+  }
+
   private modelOf(b: Building): models.BuildingModel {
     const [sw, sd] = b.def.size;
     switch (b.key) {
