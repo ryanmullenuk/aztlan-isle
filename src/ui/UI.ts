@@ -76,9 +76,6 @@ const ISLAND_ICONS: Record<IslandType, string> = {
 /** Whether the clock's menu (inventory, agenda, objective) is open (remembered per device). */
 const HUD_OPEN_KEY = 'aztlan-hud-open';
 
-/** The village emblem on the top-left bar: a golden sun face on a carved disc. */
-const EMBLEM = `<svg viewBox="0 0 64 64" aria-hidden="true"><defs><radialGradient id="emb-g" cx="0.4" cy="0.35" r="0.75"><stop offset="0" stop-color="#ffe9a0"/><stop offset="0.55" stop-color="#e2a83c"/><stop offset="1" stop-color="#8a5a16"/></radialGradient></defs>${Array.from({ length: 16 }, (_, k) => { const a = (k / 16) * Math.PI * 2, r0 = 22, r1 = k % 2 ? 29 : 31; return `<path d="M${(32 + Math.cos(a - 0.12) * r0).toFixed(1)} ${(32 + Math.sin(a - 0.12) * r0).toFixed(1)} L${(32 + Math.cos(a) * r1).toFixed(1)} ${(32 + Math.sin(a) * r1).toFixed(1)} L${(32 + Math.cos(a + 0.12) * r0).toFixed(1)} ${(32 + Math.sin(a + 0.12) * r0).toFixed(1)}Z" fill="#d9a03a" stroke="#6b420f" stroke-width="1"/>`; }).join('')}<circle cx="32" cy="32" r="22" fill="url(#emb-g)" stroke="#6b420f" stroke-width="2"/><circle cx="32" cy="32" r="17.5" fill="none" stroke="#8a5a16" stroke-width="1.2"/><path d="M24 28.5h5M35 28.5h5" stroke="#5a3608" stroke-width="2.6" stroke-linecap="round"/><path d="M32 30v6l-2 1.5" fill="none" stroke="#5a3608" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M26.5 40.5q5.5 4 11 0" fill="none" stroke="#5a3608" stroke-width="2.2" stroke-linecap="round"/><circle cx="23.5" cy="35" r="1.6" fill="#b8452f" opacity="0.7"/><circle cx="40.5" cy="35" r="1.6" fill="#b8452f" opacity="0.7"/></svg>`;
-
 /** The build menu's tabs, and which tab each building belongs under. */
 const BUILD_TABS: [string, string][] = [['all', 'All'], ['housing', 'Housing'], ['production', 'Production'], ['food', 'Food'], ['services', 'Services'], ['culture', 'Culture'], ['paths', 'Paths'], ['decor', 'Decor']];
 const BUILD_CAT: Partial<Record<BuildingKey, string>> = {
@@ -145,6 +142,7 @@ export class UI {
   private resEls: Record<string, HTMLSpanElement> = {};
   /** The resource strip along the top: wood, stone, food, people and happiness at a glance. */
   private stripEls: Record<string, HTMLSpanElement> = {};
+  private resStrip!: HTMLDivElement;
   private timeEl!: HTMLDivElement;
   private perfEl!: HTMLDivElement;
   private dateEl!: HTMLDivElement;
@@ -196,13 +194,10 @@ export class UI {
     { tut: 'blessings', next: true, title: 'Power', text: '<b>Power (6)</b> holds your god powers, paid for in Belief (the bar under the toolbar): bless the crops, bring rain, and calm storms and the volcano.', done: () => this.tutNext },
     // The buttons in the top right, top to bottom.
     { tut: 'speed', next: true, title: 'Time and speed', text: 'Beside the clock, <b>pause</b> stops time and the arrows play it at 1×, 2× or 3× speed. Space pauses too.', done: () => this.tutNext },
-    { tut: 'island', next: true, title: 'Island view', text: 'The <b>island</b> button lifts the camera to see the whole map from above (O). Tap it again to drop back where you were.', done: () => this.tutNext },
     { tut: 'settings', next: true, title: 'Settings', text: 'The <b>gear</b> opens Settings: sound, graphics, which pop-ups you see, saving and copying your island, and starting a new one. The <b>?</b> beside it opens How to play.', done: () => this.tutNext },
     { tut: 'camera', next: true, title: 'Photo Mode', text: 'The <b>camera</b> opens Photo Mode: frame a picture of your island and save it. Every day a picture is kept, to play back as a time-lapse of your village growing.', done: () => this.tutNext },
-    { tut: 'hud', next: true, title: 'Hide the interface', text: 'The <b>eye</b> hides every button and panel, leaving just the island (V). Tap the eye again, or press V, to bring them back.', done: () => this.tutNext },
-    { tut: 'pov', next: true, title: 'Walk among them', text: 'The <b>islander</b> button drops you to eye level to explore the island as one of your people would see it.', done: () => this.tutNext },
-    { tut: 'wildlife', next: true, title: 'Wildlife', text: 'The <b>paw</b> follows the island\u2019s creatures like a nature film: whales, dolphins, turtles, birds and more. Tap next to see another, or close it to come back.', done: () => this.tutNext },
-    { tut: 'alerts', next: true, title: 'Alerts', text: 'The <b>!</b> button gathers the island\u2019s news: raids, storms, sightings and anything that needs you. It lights up when there is something new; tap an alert to go to it.', done: () => this.tutNext },
+    { tut: 'views', next: true, title: 'Views', text: 'The <b>eye</b> opens your views: <b>Hide interface</b> leaves just the island (V brings it back), <b>Island view</b> lifts the camera over the whole map (O), <b>Explore</b> walks among your people at eye level, and <b>Wildlife</b> follows the island\u2019s creatures like a nature film.', done: () => this.tutNext },
+    { tut: 'alerts', next: true, title: 'Alerts', text: 'The <b>!</b> button (top right) gathers the island\u2019s news: raids, storms, sightings and anything that needs you. It lights up when there is something new; tap an alert to go to it.', done: () => this.tutNext },
     // Then running the village.
     { title: 'Your village at a glance', text: 'Tap the clock and island name (top left) to open <b>Inventory</b> (what you have), <b>Agenda</b> (what your villagers focus on), <b>Mood</b> (how they feel, and what would cheer them) and <b>Objective</b> (what the village needs for its next title). Tap it again to tuck them away.', done: () => this.hudOpened },
     { title: 'Grow food', text: 'Build a Vegetable Farm, or a Fishing Jetty on the shore. Your first harvest or catch moves the village on to the next stage.', done: (g) => g.buildings.list.some((b) => b.key === 'farm' || b.key === 'jetty') },
@@ -281,20 +276,11 @@ export class UI {
   private buildTopLeft(): void {
     this.tl = el('div', 'tl');
     const timePanel = el('div', 'panel time-panel');
-    // The village's emblem, its name (with a pencil to rename it) and the season; then the clock
-    // and the time controls.
-    timePanel.appendChild(el('span', 'tl-emblem', EMBLEM));
+    // One slim bar: the village's name and the season, the time of day, and the time controls.
     const ident = el('div', 'tl-ident');
-    const nameRow = el('div', 'tl-name');
     this.isleNameEl = el('div', 'islename') as HTMLDivElement;
-    const rename = el('button', 'tl-rename', ICONS.pencil) as HTMLButtonElement;
-    rename.type = 'button';
-    rename.title = 'Rename your island';
-    rename.setAttribute('aria-label', 'Rename your island');
-    rename.onclick = (e) => { e.stopPropagation(); this.toggle(this.settings, true); this.nameInput?.focus(); };
-    nameRow.append(this.isleNameEl, rename);
     this.dateEl = el('div', 'date');
-    ident.append(nameRow, this.dateEl);
+    ident.append(this.isleNameEl, this.dateEl);
     timePanel.appendChild(ident);
     const clock = el('div', 'clock');
     this.sunIcon = el('span', 'sunicon', ICONS.sun);
@@ -460,7 +446,7 @@ export class UI {
 
   /** Wood, stone, food, people (and their beds) and the village's happiness, along the top. */
   private buildResourceStrip(): void {
-    const strip = el('div', 'panel res-strip');
+    const strip = this.resStrip = el('div', 'panel res-strip') as HTMLDivElement;
     const items: [string, string, string, () => void][] = [
       ['wood', 'wood', 'Wood in store', () => this.openInventory()],
       ['stone', 'stone', 'Stone in store', () => this.openInventory()],
@@ -478,7 +464,6 @@ export class UI {
       this.stripEls[k] = v;
       strip.appendChild(b);
     }
-    this.root.appendChild(strip);
   }
 
   private buildTopRight(): void {
@@ -497,9 +482,9 @@ export class UI {
     camera.dataset.tut = 'camera';
     camera.onclick = () => this.photo.enter();
     const eye = el('button', 'ib', ICONS.eye);
-    eye.title = 'Hide the interface: just the island (V)';
-    eye.dataset.tut = 'hud';
-    eye.onclick = () => this.toggleZen(true);
+    eye.title = 'Views: hide the interface, the whole island, explore, wildlife';
+    eye.setAttribute('aria-label', 'Views');
+    eye.dataset.tut = 'views';
     const explore = el('button', 'ib', ICONS.person);
     explore.title = 'Explore at islander eye level';
     explore.setAttribute('aria-label', 'Explore island');
@@ -530,13 +515,26 @@ export class UI {
     help.title = 'How to play';
     help.setAttribute('aria-label', 'How to play');
     help.onclick = () => this.toggle(this.help, true);
-    views.append(camera, eye, help);
-    tr.append(over, gear, views);
+    views.append(camera, eye, help, this.alertButton);
+    tr.append(gear, views);
     this.root.appendChild(tr);
-    // Down the right-hand side: round buttons for the wildlife, exploring and the island's alerts.
-    const side = el('div', 'tr-side');
-    side.append(wildlife, explore, this.alertButton);
-    this.root.appendChild(side);
+    // The eye's menu: every way of looking at the island.
+    this.viewPop = el('div', 'panel popup terrain-pop view-pop hidden');
+    for (const b of [over, explore, wildlife]) b.className = 'tp-item';
+    const hide = el('button', 'tp-item') as HTMLButtonElement;
+    hide.onclick = () => this.toggleZen(true);
+    const label = (b: HTMLElement, ic: string, name: string) => { b.innerHTML = `<span class="ic">${ic}</span><span class="nm">${name}</span>`; };
+    label(hide, ICONS.eye, 'Hide interface');
+    label(over, ICONS.island, 'Island view');
+    label(explore, ICONS.person, 'Explore');
+    label(wildlife, ICONS.wildlife, 'Wildlife');
+    for (const b of [hide, over, explore, wildlife]) {
+      const run = b.onclick;
+      b.onclick = (e) => { this.closePopups(); run?.call(b, e); };
+      this.viewPop.appendChild(b);
+    }
+    this.root.appendChild(this.viewPop);
+    eye.onclick = () => this.openPopup(this.viewPop, eye, 'below');
     // Shown on its own while the interface is hidden: brings everything back.
     this.zenBtn = el('button', 'ib zen-eye', ICONS.eye);
     this.zenBtn.title = 'Show the interface again (V)';
@@ -573,6 +571,7 @@ export class UI {
 
   private terrainSlot!: HTMLButtonElement;
   private terrainPop!: HTMLDivElement;
+  private viewPop!: HTMLDivElement;
   private terrainItems: HTMLButtonElement[] = [];
   private floraSlot!: HTMLButtonElement;
   private floraPop!: HTMLDivElement;
@@ -607,7 +606,7 @@ export class UI {
 
   closePopups(): boolean {
     let closed = this.villagePriorities?.close() ?? false;
-    for (const p of [this.terrainPop, this.floraPop, this.blessingPop]) {
+    for (const p of [this.terrainPop, this.floraPop, this.blessingPop, this.viewPop]) {
       if (p && !p.classList.contains('hidden')) {
         p.classList.add('hidden');
         closed = true;
@@ -743,13 +742,14 @@ export class UI {
     // Tapping anywhere else closes an open popup.
     document.addEventListener('pointerdown', (e) => {
       const t = e.target as Node;
-      if ([this.villagePriorities?.panel, this.villagePriorities?.button, this.terrainPop, this.floraPop, this.blessingPop, this.terrainSlot, this.floraSlot, this.blessingSlot].some((el2) => el2?.contains(t))) return;
+      if ([this.villagePriorities?.panel, this.villagePriorities?.button, this.terrainPop, this.floraPop, this.blessingPop, this.viewPop, this.terrainSlot, this.floraSlot, this.blessingSlot, this.root.querySelector('[data-tut="views"]')].some((el2) => el2?.contains(t))) return;
       this.closePopups();
     }, true);
     // The belief bar sits under the toolbar.
     const toolbarWrap = el('div', 'toolbar-wrap');
     toolbarWrap.appendChild(this.toolbar);
-    bottom.append(this.hint, toolbarWrap, bb);
+    // The resource strip sits just above the toolbar, the belief bar under it.
+    bottom.append(this.hint, this.resStrip, toolbarWrap, bb);
     this.root.appendChild(bottom);
   }
 

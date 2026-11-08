@@ -34,7 +34,7 @@ test('the first pop-up of a kind offers to turn that kind off, once, pointing to
 test('the tutorial tours every button, lighting each one up, and moves on with Next', () => {
   const root = dom();
   // Every button the player asked to be shown has a step of its own.
-  const keys = ['select', 'rotate', 'area', 'build', 'terrain', 'flora', 'blessings', 'speed', 'island', 'settings', 'camera', 'hud', 'pov', 'wildlife', 'alerts'];
+  const keys = ['select', 'rotate', 'area', 'build', 'terrain', 'flora', 'blessings', 'speed', 'settings', 'camera', 'views', 'alerts'];
   const src = readFileSync(new URL('../src/ui/UI.ts', import.meta.url), 'utf8');
   const toolbar = ['select', 'area', 'build', 'terrain', 'flora', 'blessings'];
   for (const k of keys) {

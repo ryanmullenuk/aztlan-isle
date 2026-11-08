@@ -70,7 +70,6 @@ export const ICONS: Record<string, string> = {
   sun: svg('<circle cx="12" cy="12" r="4.5" fill="#ffc86a"/><g stroke="#ffc86a" stroke-width="2"><path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.2 5.2 7 7M17 17l1.8 1.8M5.2 18.8 7 17M17 7l1.8-1.8"/></g>'),
   sunset: svg('<path d="M4 17h16" stroke="#ffb35a" stroke-width="2"/><path d="M7 17a5 5 0 0 1 10 0z" fill="#ff9a4a"/><g stroke="#ffb35a" stroke-width="2"><path d="M12 6v2.5M5.5 9.5l1.6 1.6M18.5 9.5l-1.6 1.6"/></g><path d="M6 20.5h12" stroke="#ffb35a" stroke-width="1.5" opacity=".6"/>'),
   moon: svg('<path d="M15.5 3.5a8.5 8.5 0 1 0 5 13.5A7 7 0 0 1 15.5 3.5z" fill="#cfe0ff"/><circle cx="10" cy="11" r="1.2" fill="#a8bce6"/><circle cx="13" cy="16" r="0.9" fill="#a8bce6"/>'),
-  pencil: svg('<path d="M4 20l1.2-4.6L15.6 5a2 2 0 0 1 2.8 0l.6.6a2 2 0 0 1 0 2.8L8.6 18.8z" stroke="currentColor" stroke-width="1.9"/><path d="M13.8 6.8l3.4 3.4" stroke="currentColor" stroke-width="1.9"/>'),
   help: svg('<circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7v.5" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="17.2" r="1.1" fill="currentColor"/>'),
   camera: svg('<path d="M4 8.5h3.2L9 6h6l1.8 2.5H20a1 1 0 0 1 1 1V18a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><circle cx="12" cy="13.3" r="3.3" fill="none" stroke="currentColor" stroke-width="1.9"/>'),
   close: svg('<path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.4"/>'),
