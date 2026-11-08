@@ -256,6 +256,62 @@ class TitleShimmer {
   }
 }
 
+/**
+ * The two islanders in each artwork, cut out (body and head) and laid exactly over the picture,
+ * as fractions of the image: the body box, and how much of it is the head (down to the chin).
+ */
+const FIGURES = {
+  portrait: [
+    { box: { x: 0.44, y: 0.48, w: 0.3306, h: 0.3346 }, head: 0.1254 / 0.3346, src: 'splash-portrait-fig1' },
+    { box: { x: 0.1659, y: 0.5135, w: 0.3106, h: 0.3049 }, head: 0.1259 / 0.3049, src: 'splash-portrait-fig2' },
+  ],
+  desktop: [
+    { box: { x: 0.2087, y: 0.3146, w: 0.1352, h: 0.5877 }, head: 0.1945 / 0.5877, src: 'splash-desktop-fig1' },
+    { box: { x: 0.0993, y: 0.3783, w: 0.122, h: 0.5122 }, head: 0.1977 / 0.5122, src: 'splash-desktop-fig2' },
+  ],
+};
+
+/**
+ * The two islanders come alive a little: each breathes (rising a touch from the feet) and now and
+ * then turns or tips its head, the two out of step. Their cut-outs only ever grow over the picture
+ * underneath, never shrink from it, so the still image never shows round them.
+ */
+class Figures {
+  private readonly root = document.querySelector<HTMLElement>('.splash-figures');
+  private readonly img = document.querySelector<HTMLImageElement>('.splash-art');
+  private readonly onResize = () => this.place();
+  private set = '';
+
+  constructor() {
+    if (!this.root || !this.img || reduced()) {
+      this.root?.remove();
+      return;
+    }
+    if (this.img.complete) this.place();
+    this.img.addEventListener('load', this.onResize);
+    addEventListener('resize', this.onResize);
+  }
+
+  private place(): void {
+    const root = this.root!, img = this.img!, r = artRect(img);
+    if (!r) return;
+    const which = img.currentSrc.includes('splash-desktop') ? 'desktop' : 'portrait';
+    if (this.set !== which) {
+      this.set = which;
+      root.innerHTML = FIGURES[which].map((f, k) => `<div class="sf sf-${k}"><img class="sf-body" alt="" src="./ui/${f.src}.png?v=1"><img class="sf-head" alt="" src="./ui/${f.src}-head.png?v=1" style="height:${(f.head * 100).toFixed(2)}%"></div>`).join('');
+    }
+    FIGURES[which].forEach((f, k) => {
+      const el = root.children[k] as HTMLElement;
+      Object.assign(el.style, { left: `${r.x + r.w * f.box.x}px`, top: `${r.y + r.h * f.box.y}px`, width: `${r.w * f.box.w}px`, height: `${r.h * f.box.h}px` });
+    });
+  }
+
+  stop(): void {
+    removeEventListener('resize', this.onResize);
+    this.root?.replaceChildren();
+  }
+}
+
 interface Mote {
   x: number; y: number; vx: number; vy: number; phase: number; sway: number;
   size: number; soft: boolean; age: number; life: number; glint: number;
@@ -395,6 +451,7 @@ export class SplashFx {
   private readonly tips = new Tips();
   private readonly shimmer = new TitleShimmer();
   private readonly pollen = new Pollen();
+  private readonly figures = new Figures();
 
   constructor() {
     this.progress.stage(STAGE.script);
@@ -429,5 +486,6 @@ export class SplashFx {
     this.tips.stop();
     this.shimmer.stop();
     this.pollen.stop();
+    this.figures.stop();
   }
 }

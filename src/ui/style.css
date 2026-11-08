@@ -152,6 +152,23 @@ html.native-app .splash-hint { display: none; }
 
 /* ---- Loading screen dressing (src/ui/SplashFx.ts): pollen, title sweep, progress card. ---- */
 .splash-pollen, .splash-shimmer { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+/* The islanders, alive: breathing from the feet, and a slow look about now and then. */
+.splash-figures { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.sf { position: absolute; transform-origin: 50% 100%; animation: sf-breathe 4.2s ease-in-out infinite; will-change: transform; }
+.sf-1 { animation-duration: 3.7s; animation-delay: -1.6s; }
+.sf-body { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.sf-head { position: absolute; left: 0; top: 0; width: 100%; display: block; transform-origin: 60% 100%; animation: sf-look 11s ease-in-out infinite; }
+.sf-1 .sf-head { animation-duration: 13s; animation-delay: -5s; }
+@keyframes sf-breathe {
+  0%, 100% { transform: scale(1, 1); }
+  50% { transform: scale(1.006, 1.014); }
+}
+@keyframes sf-look {
+  0%, 100% { transform: scale(1.012) rotate(0deg); }
+  18%, 36% { transform: scale(1.012) rotate(-0.9deg) translateY(-0.4%); }
+  52% { transform: scale(1.012) rotate(0deg); }
+  68%, 82% { transform: scale(1.012) rotate(0.7deg); }
+}
 .splash-shimmer {
   overflow: hidden; mix-blend-mode: screen;
   mask-repeat: no-repeat; -webkit-mask-repeat: no-repeat;
