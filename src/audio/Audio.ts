@@ -380,6 +380,29 @@ export class AudioEngine {
   // ---------------- Effects ----------------
 
   /** Play a named effect, optionally positioned in the world (quieter with distance and zoom). */
+  /**
+   * One note of the belief tune: a soft bell `step` notes up a pentatonic scale from C5 (taps in
+   * quick succession climb it, a little melody).
+   */
+  note(step: number): void {
+    if (!this.ready) return;
+    const ctx = this.ctx!, t = ctx.currentTime + 0.005;
+    const scale = [0, 2, 4, 7, 9], k = Math.max(0, Math.floor(step));
+    const f = 523.25 * 2 ** ((scale[k % 5] + 12 * Math.floor(k / 5)) / 12);
+    // The tone and two quieter, quicker partials: a struck bell.
+    for (const [mult, g0, dur] of [[1, 0.2, 1.3], [2.01, 0.06, 0.55], [3.02, 0.03, 0.3]] as const) {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(f * mult, t);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(g0, t + 0.006);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g).connect(this.sfxBus);
+      o.start(t);
+      o.stop(t + dur + 0.05);
+    }
+  }
+
   sfx(name: string, x?: number, z?: number): void {
     if (!this.ready) return;
     const ctx = this.ctx!;

@@ -119,6 +119,8 @@ export class Economy {
     const t = Math.min(Math.max(0, seconds), AWAY_CAP_SECONDS), out: Partial<Record<ResourceKey, number>> = {};
     if (this.godMode) return out;
     for (const k of Object.keys(this.steady) as ResourceKey[]) {
+      // Belief gathers in the bubbles over homes and temples instead (see BeliefBubbles.away).
+      if (k === 'belief') continue;
       const rate = this.steady[k] ?? 0;
       if (!(rate > 0)) continue;
       const got = Math.floor(this.add(k, (rate / 60) * t * AWAY_PACE));

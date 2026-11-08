@@ -79,6 +79,8 @@ export interface SaveData {
     integrity?: number; fire?: number; ruined?: boolean; repairing?: boolean; repairProgress?: number; fireAlerted?: boolean;
     /** Houses: the district style they were built in. */
     style?: string;
+    /** Belief waiting in the building's bubble. */
+    belief?: number;
   }[];
   /** Districts painted on the island (house styles by area). */
   districts?: { name: string; style: string; x0: number; z0: number; x1: number; z1: number }[];
@@ -232,6 +234,7 @@ export function serialize(g: Game): SaveData {
         repairProgress: b.repairProgress, fireAlerted: b.fireAlerted,
       } : {}),
       ...(b.yaw ? { yaw: Math.round(b.yaw * 1000) / 1000 } : {}),
+      ...(b.belief > 0 ? { belief: Math.round(b.belief * 100) / 100 } : {}),
       id: b.id, key: b.key, cx: b.cx, cz: b.cz, rot: b.rot, complete: b.complete, progress: b.progress, tier: b.tier,
       upgrading: b.upgrading, growth: b.growth, stock: b.stock, boats: b.key === 'tradedock' ? b.tradeBoats : b.boats.length, bless: b.blessTimer,
       ...(['jetty','tradedock'].includes(b.key) ? {boatBuild:b.boatBuild??0,boatSail:b.boatSail??false} : {}),
@@ -325,6 +328,7 @@ export function applyRest(g: Game, d: SaveData): void {
   for (const b of d.buildings) {
     const nb = g.buildings.restore(b.key, b.cx, b.cz, b.rot, b);
     nb.monumentPaid = b.monumentPaid;
+    if (typeof b.belief === 'number' && b.belief > 0) nb.belief = b.belief;
     if (b.decree && b.decree in DECREES) nb.decree = b.decree;
     if (b.decree2 && b.decree2 in DECREES) nb.decree2 = b.decree2;
     nb.boatBuild = b.boatBuild??0;nb.boatSail=b.boatSail??false;

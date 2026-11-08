@@ -9,6 +9,7 @@ import { seasonFloor } from './SafetyUpgrades';
 import { needsStonemason, masonryCost, STONEMASON, BOAT_WORKSHOP, DECREES, PALACE_RULES, type DecreeKey } from '../config';
 import { BUILDINGS, BUILD_RISE, BUILD_SITES, BuildingDef, BuildingKey, ECONOMY, FARM, HOMES, JETTY, TEMPLE, FARM_TYPES, isFarm, isDecor, isPhased, isWonder } from '../config';
 import { Economy, Cost } from '../economy/Economy';
+import { BeliefBubbles } from '../economy/BeliefBubbles';
 import { buildingMaterial, canopyMaterial, fireMaterial, flameMaterial, FX, patchStylised } from '../render/materials';
 import { Terrain } from '../terrain/Terrain';
 import { Vegetation } from '../vegetation/Vegetation';
@@ -95,6 +96,10 @@ export class Building {
   upgrading = false;
   builders = new Set<number>();
   workers = new Set<number>();
+  /** Belief gathered in the bubble over this building, waiting to be collected (see BeliefBubbles). */
+  belief = 0;
+  /** How tall the finished model stands (its bubble floats above it). */
+  modelHeight = 1;
   residents: number[] = [];
   group = new THREE.Group();
   foundation!: THREE.Mesh;
@@ -513,7 +518,11 @@ export class BuildingSystem {
   /** Called when a building is removed (pens release animals, etc.). */
   onRemove: (b: Building) => void = () => {};
 
+  /** The belief bubbles over homes, temples and the like (see BeliefBubbles). */
+  readonly bubbles: BeliefBubbles;
+
   constructor(private world: World, private veg: Vegetation, private eco: Economy, private terrain: Terrain, private scene: THREE.Scene) {
+    this.bubbles = new BeliefBubbles(eco);
     this.group.add(this.smoke.points, this.dust.points, this.shadows.mesh, this.far.mesh);
     this.scene.add(this.spaceMesh);
     this.group.add(this.fireLights.group);
@@ -1254,6 +1263,7 @@ export class BuildingSystem {
     b.foundation = new THREE.Mesh(models.foundationGeometry(sw, sd), mat);
     b.foundation.receiveShadow = true;
     b.scaffold = new THREE.Mesh(models.scaffoldGeometry(sw, sd, model.height), mat);
+    b.modelHeight = model.height;
     b.scaffold.castShadow = true;
     b.group.add(b.foundation, b.scaffold, b.finished);
     if (model.canopy) {
@@ -1522,6 +1532,7 @@ export class BuildingSystem {
       setGlow(b, model.windows);
       b.scaffold.geometry.dispose();
       b.scaffold.geometry = models.scaffoldGeometry(b.def.size[0], b.def.size[1], model.height + 1);
+      b.modelHeight = model.height;
     }
     b.complete = true;
     b.progress = 1;

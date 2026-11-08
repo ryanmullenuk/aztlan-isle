@@ -77,7 +77,10 @@ import { shapeWaterfall } from './world/waterfallSite';
 import { Bridges } from './buildings/Bridges';
 import { TradeFleet, workingUpgrades } from './entities/Trade';
 import { GOD_NAME, randomIslandName } from './world/names';
-import { FAUNA, GREAT_HALL, SPECIES, TIME, FIREWORKS, GOODS, RARE_GOODS, WONDER_EFFECT, isDecor, isWonder, type GoodKey, type WonderKey } from './config';
+import { FAUNA, GREAT_HALL, SPECIES, TIME, FIREWORKS, GOODS, RARE_GOODS, WONDER_EFFECT, BELIEF_BUBBLE, isDecor, isWonder, type GoodKey, type WonderKey } from './config';
+import { BeliefOrbs } from './render/BeliefOrbs';
+import { hasBubble } from './economy/BeliefBubbles';
+import { AWAY_PACE } from './economy/Economy';
 import { WeddingSystem } from './economy/Weddings';
 import { SeasonGoals } from './economy/SeasonGoals';
 import { Raids } from './economy/Raids';
@@ -352,7 +355,12 @@ export class Game {
   photoMode = false;
   /** Photo Mode's chosen light (a time of day), or null for the island's own. */
   photoLight: number | null = null;
-  stats = { sculpted: 0, marked: 0, boats: 0, cleared: 0 };
+  stats = { sculpted: 0, marked: 0, boats: 0, cleared: 0, beliefCollected: 0 };
+  /** The purple belief bubbles over homes and temples. */
+  private beliefOrbs = new BeliefOrbs();
+  /** The belief tune: how far up the scale the next tap goes, and when the last one was. */
+  private melody = { step: 0, at: -Infinity };
+  private beliefFullWarned = -Infinity;
   milestones = new Set<string>();
   /** Observatory research (village-wide: kept through damage, demolition and rebuilding). */
   readonly research = new Research({
@@ -544,7 +552,7 @@ export class Game {
 
     this.lighting = new Lighting(this.scene, cfg.shadowSize);
     this.skyBodies = new SkyBodies();
-    this.scene.add(this.skyBodies.group, this.rainbow.mesh, this.moodMarkers.group, this.fireworks.points);
+    this.scene.add(this.skyBodies.group, this.rainbow.mesh, this.moodMarkers.group, this.fireworks.points, this.beliefOrbs.group);
     this.fireworks.onSound = (n, x, z) => this.audio?.sfx(n, x, z);
     this.rare = new RareEventSystem(this);
     this.weddings = new WeddingSystem(this);
@@ -1744,6 +1752,11 @@ export class Game {
 
   private onTap(x: number, y: number, preview?:THREE.Vector3): void {
     if (this.wildlifeView?.active) return;
+    // A belief bubble under the finger: pop it (before anything else is picked).
+    if (!this.placing) {
+      const b = this.beliefOrbs.pick(x, y, this.rig.camera, this.canvas.getBoundingClientRect());
+      if (b) { this.collectBelief(b); return; }
+    }
     const p = preview ?? this.pickGround(x, y);
     if (p) {
       this.cursorWorld.copy(p);
@@ -2602,9 +2615,47 @@ export class Game {
    * The player has been away `seconds`: if it was a while, the islanders kept gathering (see
    * Economy.awayGains) and a welcome card says what they brought in and what the village needs next.
    */
+  /**
+   * Belief bubbles each frame: the Observatory's stargazers add to its bubble; once the Great
+   * Temple stands, bubbles half full pop by themselves; and the bubbles are drawn.
+   */
+  private updateBelief(dt: number, realDt: number): void {
+    const B = this.buildings.bubbles, list = this.buildings.list;
+    if (dt > 0) {
+      for (const b of list) if (b.key === 'observatory' && b.complete && b.workers.size) B.gather(b, BELIEF_BUBBLE.observatoryPerSecond * dt);
+      B.auto = list.some((b) => b.key === 'greattemple' && b.complete && !b.ruined);
+      if (B.auto) for (const b of list) if (hasBubble(b) && B.fill(b) >= BELIEF_BUBBLE.autoAt && B.collect(b) > 0) this.beliefOrbs.pop(b);
+    }
+    const shown = !this.photoMode && !this.wildlifeView?.active && !this.eco.godMode;
+    this.beliefOrbs.update(list, (b) => (hasBubble(b) ? B.fill(b) : 0), BELIEF_BUBBLE.showFrom, shown, this.rig.cur.dist, realDt);
+  }
+
+  /** Tapped a belief bubble: it pops with a note of the tune and its belief goes into the store. */
+  private collectBelief(b: Building): void {
+    const got = this.buildings.bubbles.collect(b);
+    if (got <= 0) {
+      // The store is full: the bubble waits.
+      this.audio?.sfx('deny');
+      if (performance.now() - this.beliefFullWarned > 20000) {
+        this.beliefFullWarned = performance.now();
+        this.ui.toast('Your Belief is full. Spend it on god powers, or raise and upgrade temples to hold more.', 'info');
+      }
+      return;
+    }
+    const now = performance.now() / 1000;
+    this.melody.step = now - this.melody.at < BELIEF_BUBBLE.melodyGap ? (this.melody.step + 1) % 8 : 0;
+    this.melody.at = now;
+    this.audio?.note(this.melody.step);
+    haptic('light');
+    if (b.belief < 0.01) this.beliefOrbs.pop(b);
+    this.stats.beliefCollected++;
+  }
+
   private returned(seconds: number): void {
     if (!(seconds >= WELCOME_AFTER) || this.stopped || this.eco.godMode) return;
     const gains = this.eco.awayGains(seconds);
+    // Belief kept gathering in the bubbles over homes and temples, waiting to be collected.
+    this.buildings.bubbles.away(this.buildings.list, Math.min(seconds, 4 * 3600), AWAY_PACE, (id) => this.colony.byId(id)?.happy ?? 0);
     this.ui.welcomeBack(seconds, gains);
   }
 
@@ -2710,7 +2761,7 @@ export class Game {
     cam.layers.mask = this.rig.camera.layers.mask;
     cam.updateMatrixWorld();
     // Things that belong to the player's own view stay out of the picture.
-    const hide = [this.fireworks.points, this.lanternNight.lanterns.points, this.moodMarkers.group, this.requestMarkers, this.rainbow.mesh, this.rare.comet.mesh, this.brush, this.skyBodies.group];
+    const hide = [this.fireworks.points, this.lanternNight.lanterns.points, this.moodMarkers.group, this.beliefOrbs.group, this.requestMarkers, this.rainbow.mesh, this.rare.comet.mesh, this.brush, this.skyBodies.group];
     const was = hide.map((o) => o.visible);
     hide.forEach((o) => (o.visible = false));
     const fog = this.scene.fog as THREE.Fog, near = fog.near, far = fog.far;
@@ -3289,6 +3340,7 @@ export class Game {
     this.lanternNight.update(dt);
     // The Sun Stone's favour: a steady trickle of Belief.
     if (dt > 0 && this.wonder('sunstone')) this.eco.add('belief', (WONDER_EFFECT.beliefPerMinute * dt) / 60);
+    this.updateBelief(dt, realDt);
     this.healers.update(dt);
     const healers = this.healers.list;
     this.rig3d.celebrate = this.fireworks.active;

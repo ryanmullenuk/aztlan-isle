@@ -16,6 +16,7 @@ import { Building, BuildingSystem, doorStep } from '../buildings/Buildings';
 import { HALL, HEAL, OBS } from '../buildings/models';
 import { Economy } from '../economy/Economy';
 import { Condition, Islander, Role, Task, makeIslander } from '../entities/Islander';
+import { homeMult } from '../economy/BeliefBubbles';
 import { Plant, PlantState, TREE_FALL, Vegetation } from '../vegetation/Vegetation';
 import { GameTime } from '../world/Time';
 import { World } from '../world/World';
@@ -1887,8 +1888,8 @@ export class Colony {
           const elapsed = (isl.greatTemplePrayer ?? 0) + dt;
           const offerings = Math.floor((elapsed + 1e-8) / TEMPLE.greatPrayerSeconds);
           isl.greatTemplePrayer = Math.max(0, elapsed - offerings * TEMPLE.greatPrayerSeconds);
-          if (offerings > 0) this.eco.add('belief', offerings);
-        } else this.eco.add('belief', TEMPLE.prayBelief * tp.tier * dt);
+          if (offerings > 0) this.gatherBelief(tp, offerings);
+        } else this.gatherBelief(tp, TEMPLE.prayBelief * tp.tier * dt);
         t.timer -= dt;
         if (t.timer <= 0) this.releaseTask(isl);
         break;
@@ -2119,7 +2120,7 @@ export class Colony {
         isl.speed = 0;
         const fx = eveningFire(b);
         isl.happy = Math.min(1, isl.happy + COMFORTS.bonfireHappy * fx.mood * dt);
-        this.eco.add('belief', COMFORTS.bonfireBelief * fx.belief * dt);
+        this.gatherBelief(b, COMFORTS.bonfireBelief * fx.belief * dt);
         t.timer -= dt;
         if (t.timer <= 0) this.releaseTask(isl);
         break;
@@ -3114,6 +3115,7 @@ export class Colony {
 
     this.moodBoost *= Math.exp(-dt / 360);
     let happy = 0;
+    const content: Islander[] = [];
     // Seed all neighbours before anyone moves, including those later in the update order.
     this.avoidanceGrid.clear();
     for (const person of this.list) if (!person.hidden) this.avoidanceGrid.insert(person);
@@ -3135,7 +3137,7 @@ export class Colony {
           isl.hidden = false;
         }
       }
-      if (isl.happy > ISLANDER.happyThreshold) happy++;
+      if (isl.happy > ISLANDER.happyThreshold) { happy++; content.push(isl); }
       this.tryFirefighting(isl);
       if (!isl.task) {
         isl.think -= dt;
@@ -3162,9 +3164,16 @@ export class Colony {
       }
     }
     this.separate(dt);
-    this.eco.add('belief', happy * ISLANDER.beliefPerHappyPerSecond * this.sacredFactor() * (this.bld.decreeFactor?.('gods') ?? 1) * dt);
+    // Contented islanders' belief gathers in the bubble over their home (more in a better home), or
+    // over the Tribal Fire for anyone without one.
+    const fire = this.bld.list.find((b) => b.key === 'campfire');
+    const each = ISLANDER.beliefPerHappyPerSecond * this.sacredFactor() * (this.bld.decreeFactor?.('gods') ?? 1) * dt;
+    for (const isl of content) {
+      const home = isl.home >= 0 ? this.bld.byId(isl.home) : undefined;
+      this.gatherBelief(home ?? fire, each * (home ? homeMult(home) : 1));
+    }
     // The Tribal Fire's eternal flame.
-    if (anyUpgraded(this.bld.list, 'campfire', 3)) this.eco.add('belief', (FX.campfire.beliefPerMinute / 60) * dt);
+    if (anyUpgraded(this.bld.list, 'campfire', 3)) this.gatherBelief(fire, (FX.campfire.beliefPerMinute / 60) * dt);
     void JETTY;
   }
 
@@ -3178,6 +3187,12 @@ export class Colony {
   private sacred = { at: -Infinity, f: 1 };
 
   /** How much the village's temples multiply its Belief: the best working temple's tier, and a Great Temple on top. */
+  /** Belief earned at a building: into its bubble, to be collected (or straight in, if it has none). */
+  private gatherBelief(b: Building | null | undefined, amount: number): void {
+    if (this.bld.bubbles) this.bld.bubbles.gather(b, amount);
+    else this.eco.add('belief', amount);
+  }
+
   sacredFactor(): number {
     const now = this.time.elapsed;
     if (now - this.sacred.at < 1 && now >= this.sacred.at) return this.sacred.f;

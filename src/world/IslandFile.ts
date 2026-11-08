@@ -79,6 +79,7 @@ export function parseIslandFile(raw: string): SaveData {
     for (const k of ['decree', 'decree2']) if (b[k] !== undefined && !(typeof b[k] === 'string' && b[k] in DECREES)) return fail();
     if (b.style !== undefined && !isHouseStyle(b.style)) return fail();
     if (b.monumentPaid!==undefined && (!Number.isInteger(b.monumentPaid)||b.monumentPaid<1||b.monumentPaid>4)) return fail();
+    if (b.belief !== undefined && (!number(b.belief) || b.belief < 0 || b.belief > 1000)) return fail();
     if (b.marketStock !== undefined && (!obj(b.marketStock) || !Object.entries(b.marketStock).every(([key,n]) => ['wood','stone','grain','fruit','meat','fish'].includes(key) && number(n) && (n as number) >= 0 && (n as number) <= 32))) return fail();
     ids.add(b.id);
   }

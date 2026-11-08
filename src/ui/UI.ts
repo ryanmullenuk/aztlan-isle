@@ -201,6 +201,7 @@ export class UI {
     // Then running the village.
     { title: 'Your village at a glance', text: 'Tap the clock and island name (top left) to open <b>Inventory</b> (what you have), <b>Agenda</b> (what your villagers focus on), <b>Mood</b> (how they feel, and what would cheer them) and <b>Objective</b> (what the village needs for its next title). Tap it again to tuck them away.', done: () => this.hudOpened },
     { title: 'Grow food', text: 'Build a Vegetable Farm, or a Fishing Jetty on the shore. Your first harvest or catch moves the village on to the next stage.', done: (g) => g.buildings.list.some((b) => b.key === 'farm' || b.key === 'jetty') },
+    { title: 'Collect belief', text: 'Purple bubbles of <b>Belief</b> gather over your homes as your people are content, and over temples as priests pray. They grow as they fill: <b>tap one to collect it</b>. A full bubble stops filling, so come back now and then (bigger homes gather and hold more). Once you raise the Great Temple, belief collects itself.', done: (g) => g.stats.beliefCollected > 0 },
     { tut: 'area', title: 'Clear the ground', text: 'Pick Select (2) and drag over trees and rocks, then choose Clear area. Islanders fell the trees and quarry the rocks, leaving open land to build on.', done: (g) => g.stats.cleared > 0 },
     { title: 'Store your supplies', text: 'Once the first food is in, build a Wood & Stone Store and a Food Store. Full stores keep the village going and unlock skilled buildings.', done: (g) => g.buildings.list.some((b) => b.key === 'woodstore' || b.key === 'grainstore') },
     { tut: 'terrain', title: 'Shape the land', text: 'Open Terrain (4) and pick Raise, Lower or Flatten: hold and drag to make level ground for bigger buildings. Sculpting costs Belief.', done: (g) => g.stats.sculpted > 0 },
@@ -663,7 +664,7 @@ export class UI {
     this.followPill.onclick = () => this.game.follow(-1);
     bottom.appendChild(this.followPill);
     const bb = el('div', 'beliefbar');
-    bb.title = 'Belief: earned from happy islanders and temples, spent on god powers';
+    bb.title = 'Belief: tap the purple bubbles over homes and temples to collect it; spent on god powers';
     bb.innerHTML = `<span class="bicon">${ICONS.belief}</span>`;
     const track = el('div', 'track');
     this.beliefFill = el('div', 'fill');
@@ -1084,7 +1085,7 @@ export class UI {
     const card = el('div', 'panel card help');
     card.innerHTML = `
       <div class="card-head"><span>How to play</span></div>
-      <p>Guide your Aztec tribe as they settle the island. Keep them fed, housed and happy: happy islanders and temples create <b>Belief</b>, which pays for your god powers. Grow from a camp into the Capital of the Isle.</p>
+      <p>Guide your Aztec tribe as they settle the island. Keep them fed, housed and happy: happy islanders and praying priests fill purple <b>Belief</b> bubbles over their homes and temples. Tap a bubble to collect it; Belief pays for your god powers. Grow from a camp into the Capital of the Isle.</p>
       <div class="cols">
         <div><h4>Desktop</h4><ul>
           <li><b>Drag</b> (left or right) or <b>WASD</b>: pan</li>
@@ -1124,7 +1125,8 @@ export class UI {
         <li>Elders don’t live for ever. After some weeks an elder passes away peacefully in their sleep, and the village gathers to lay them to rest near the temple (or the tribal fire). A grave with a carved stone and marigolds marks the spot; tap it to see who lies there. A small village (fewer than six grown islanders) keeps its elders a while longer.</li>
       </ul>
       <h4>Belief and the gods</h4><ul>
-        <li>Belief comes from happy islanders, priests praying at temples, bonfire evenings, granted wishes, weddings, seasonal goals and celebrations. Spend it on god powers (<b>Power</b>, 6): rain, calming storms and the volcano, and more.</li>
+        <li><b>Belief bubbles</b>: happy islanders' belief gathers in a purple bubble over their home (bigger homes gather and hold more), priests' prayers over their temple, and bonfire evenings, the Tribal Fire and the Observatory over theirs. Bubbles grow as they fill; <b>tap one to collect it</b> (quick taps play a little tune). A full bubble stops filling, so come back now and then. Once the <b>Great Temple</b> stands, bubbles collect themselves.</li>
+        <li>Belief also comes straight in from granted wishes, weddings, seasonal goals and celebrations. Spend it on god powers (<b>Power</b>, 6): rain, calming storms and the volcano, and more.</li>
         <li><b>Before a temple, Belief is a slow trickle.</b> A working Temple multiplies the Belief your happy islanders bring (two and a half times, more as it is upgraded), and a Great Temple adds more again.</li>
         <li>Temples upgrade twice into the Great Pyramid. The Great Temple is built in four phases.</li>
         <li><b>Wonders</b> (Capital of the Isle, one of each, built in four phases): the <b>Colossal Head</b> makes everyone a little happier, the <b>Sun Stone</b> brings a steady trickle of Belief, and the <b>Sky Tower</b> makes research half as fast again. Each wonder (and the Great Temple) also adds to your island’s <b>fame</b>: visiting traders come sooner and offer better deals.</li>

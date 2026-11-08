@@ -421,6 +421,32 @@ export const PATHS = {
 };
 
 /** Adobe homes grow in place: tier 1–4 are house levels 2–5. */
+/**
+ * Belief bubbles (after Godus): the belief a building's people bring gathers in a purple bubble
+ * over it, to be tapped and collected; a full bubble stops filling until it is. Once the Great
+ * Temple stands, they collect themselves.
+ */
+export const BELIEF_BUBBLE = {
+  /** A full bubble over a home: this much per bed, times the home's own multiplier below. */
+  homeCapPerBed: 6,
+  /** Homes earn and hold more as they're improved: a hut, then the Family House's tiers 1–4. */
+  homeTierMult: [1, 1.2, 1.4, 1.65, 1.9],
+  /** Temples: per tier. The Great Temple, the Tribal Fire, the Bonfire and the Observatory: fixed. */
+  templeCapPerTier: 40,
+  greatTempleCap: 60,
+  campfireCap: 30,
+  bonfireCap: 25,
+  observatoryCap: 25,
+  /** The Observatory's stargazers, while it is staffed (per second). */
+  observatoryPerSecond: 0.02,
+  /** Below this share of full, no bubble shows yet. */
+  showFrom: 0.04,
+  /** With the Great Temple, bubbles collect themselves once this full. */
+  autoAt: 0.5,
+  /** Taps this close together (seconds) climb the scale into a tune; a pause starts it again. */
+  melodyGap: 1.6,
+};
+
 export const HOMES = {
   housing: [4, 7, 12, 16],
   /** Cost to reach each tier (index = target tier). */
