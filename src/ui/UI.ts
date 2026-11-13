@@ -84,7 +84,7 @@ const BUILD_CAT: Partial<Record<BuildingKey, string>> = {
   stonemason: 'production', herbalist: 'production', boatworkshop: 'production', firemaker: 'production', woodstore: 'production',
   farm: 'food', maizefarm: 'food', chinampa: 'food', herbalgarden: 'food', smokehouse: 'food', firepit: 'food', grainstore: 'food', butcher: 'food', pigpen: 'food', chickenpen: 'food', jetty: 'food', fishhut: 'food', well: 'food',
   market: 'services', healer: 'services', kennel: 'services', watchtower: 'services', warroom: 'services', tradedock: 'services', observatory: 'services', torch: 'services', bonfire: 'services',
-  temple: 'culture', greattemple: 'culture', greathall: 'culture', palace: 'culture', ceremony: 'culture', graveyard: 'culture',
+  temple: 'culture', greattemple: 'culture', greathall: 'culture', palace: 'culture', ceremony: 'culture', graveyard: 'culture', pyre: 'culture', ancestoraltar: 'culture',
 };
 const buildCategory = (key: BuildingKey): string => BUILD_CAT[key] ?? (isWonder(key) ? 'culture' : (DECOR_KEYS as string[]).includes(key) ? 'decor' : 'services');
 
@@ -99,8 +99,8 @@ const BUILD_ICON: Record<BuildingKey, string> = {
   woodstore: 'b_woodstore', grainstore: 'b_grainstore', warroom: 'b_warroom', jetty: 'b_jetty',
   maizefarm: 'b_maize', chinampa: 'b_chinampa', smokehouse: 'b_smoke',
   tradedock: 'b_trade', torch: 'b_torch', bonfire: 'b_bonfire', firepit: 'b_firepit', well: 'b_well', kennel: 'b_kennel', greathall: 'b_greathall', palace: 'b_palace', observatory: 'b_observatory',
-  ceremony: 'b_ceremony', graveyard: 'b_graveyard', pigpen: 'b_pigpen', chickenpen: 'b_chickenpen', healer: 'b_healer', watchtower: 'b_tower', fishhut: 'b_fishhut',
-  bannersun: 'b_bannersun', bannereagle: 'b_bannereagle', bannerteal: 'b_bannerteal', pennants: 'b_pennants', featherbanner: 'b_featherbanner', flagstring: 'b_flagstring',
+  ceremony: 'b_ceremony', graveyard: 'b_graveyard', pyre: 'b_pyre', ancestoraltar: 'b_altar', pigpen: 'b_pigpen', chickenpen: 'b_chickenpen', healer: 'b_healer', watchtower: 'b_tower', fishhut: 'b_fishhut',
+  bannersun: 'b_bannersun', bannereagle: 'b_bannereagle', bannerteal: 'b_bannerteal', pennants: 'b_pennants', featherbanner: 'b_featherbanner', flagstring: 'b_flagstring', paperflags: 'b_paperflags',
 };
 
 interface TutorialStep {

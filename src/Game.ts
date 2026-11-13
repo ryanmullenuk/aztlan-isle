@@ -94,6 +94,7 @@ import { WeddingSystem } from './economy/Weddings';
 import { SeasonGoals } from './economy/SeasonGoals';
 import { Raids } from './economy/Raids';
 import { Passings } from './economy/Passings';
+import { AncestorNight } from './economy/AncestorNight';
 import { LanternNight } from './economy/LanternNight';
 import { MONKEY_BASE } from './entities/Monkeys';
 import { DOG_BASE, Dogs } from './entities/Dogs';
@@ -289,6 +290,7 @@ export class Game {
   passings!: Passings;
   /** Lantern Night, once a year after the harvest. */
   lanternNight!: LanternNight;
+  ancestors!: AncestorNight;
   /** Firework displays over the village. */
   readonly fireworks = new Fireworks();
   /** Rare goods bought from the traders today (saved). */
@@ -588,6 +590,8 @@ export class Game {
     this.scene.add(this.passings.graves.group);
     this.lanternNight = new LanternNight(this);
     this.scene.add(this.lanternNight.lanterns.points);
+    this.ancestors = new AncestorNight(this);
+    this.scene.add(this.ancestors.ghosts.group);
     const seaAngle = Math.atan2(this.world.seaDir.z, this.world.seaDir.x);
     this.lighting.eveningAzimuth = seaAngle + Math.PI;
 
@@ -3547,6 +3551,7 @@ export class Game {
     this.rainbow.update(realDt, this.rig.camera, this.rig.target, ls, this.lighting.overcast);
     this.fireworks.update(realDt, this.rig.camera, this.renderer.domElement.height, ls.night);
     this.lanternNight.lanterns.update(realDt, this.renderer.domElement.height, ls.night);
+    this.ancestors.ghosts.update(realDt, t);
 
     const ws = this.water.shared;
     ws.uSunDir.value.copy(ls.sunDir);
@@ -3638,6 +3643,7 @@ export class Game {
     this.raids.update();
     this.passings.update(dt);
     this.lanternNight.update(dt);
+    this.ancestors.update(dt);
     // The Sun Stone's favour: a steady trickle of Belief.
     if (dt > 0 && this.wonder('sunstone')) this.eco.add('belief', (WONDER_EFFECT.beliefPerMinute * dt) / 60);
     this.updateBelief(dt, realDt);

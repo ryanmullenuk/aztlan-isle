@@ -480,7 +480,7 @@ function setOpenings(b: Building, model: Look): void {
 const lookSeed = (b: Building): number => ((b.cx * 7919 + b.cz * 104729) ^ (b.def.size[0] * 97 + b.def.size[1] * 31)) >>> 0;
 
 /** Buildings that never show wear: fields, fires and other things with no walls to crack. */
-const NO_WEAR = new Set<BuildingKey>(['torch', 'campfire', 'bonfire', 'firepit', 'well', 'herbalgarden', 'graveyard', 'ceremony', 'jetty', 'tradedock']);
+const NO_WEAR = new Set<BuildingKey>(['torch', 'campfire', 'bonfire', 'firepit', 'well', 'herbalgarden', 'graveyard', 'pyre', 'ancestoraltar', 'ceremony', 'jetty', 'tradedock']);
 /** How worn a building should look (see Wear). */
 const wearOf = (b: Building): number => (NO_WEAR.has(b.key) || isFarm(b.key) || isDecor(b.key) || isWonder(b.key) ? 0 : wearLevel(b));
 
@@ -1362,6 +1362,8 @@ export class BuildingSystem {
       case 'fishhut': return models.fishHutModel(b.y);
       case 'ceremony': return models.ceremonyModel(sw, sd);
       case 'graveyard': return models.graveyardModel(sw, sd);
+      case 'pyre': return models.pyreModel();
+      case 'ancestoraltar': return models.ancestorAltarModel();
       default: return models.decorModel(b.key);
     }
   }

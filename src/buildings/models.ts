@@ -4031,8 +4031,8 @@ export function observatoryModel(): BuildingModel {
   const cy = ty + TH;
   b.add(P.cyl(R * 1.06, R * 1.06, 0.05, 24), { color: CUT.stoneLight }, M.t(0, cy, 0));
   b.add(P.cyl(R * 0.86, R * 0.86, 0.02, 20), { color: CUT.stoneDark }, M.t(0, cy + 0.01, 0));
-  for (let k = 0; k < 16; k++) {
-    const a = (k / 16) * Math.PI * 2;
+  for (let k = 0; k < 24; k++) {
+    const a = (k / 24) * Math.PI * 2;
     b.add(P.box(0.2, 0.22, 0.1), { color: stoneCol, facet: true }, M.t(Math.cos(a) * R * 0.97, cy + 0.13, Math.sin(a) * R * 0.97, 0, -a + Math.PI / 2, 0));
     const a2 = a + Math.PI / 16;
     b.add(P.box(0.05, 0.08, 0.02), { color: c(0x3a2a20) }, M.t(Math.cos(a2) * R * 1.0, ty + TH - 0.12, Math.sin(a2) * R * 1.0, 0, -a2 + Math.PI / 2, 0));
@@ -4433,6 +4433,58 @@ export function decorModel(key: string): BuildingModel {
         }
       });
       return { finished: b.build(), torches: [], height: 1.6 };
+    }
+    case 'paperflags': {
+      // Size 3x1: two rope-bound posts on stone feet, and a string of five cut-paper flags, each
+      // with a skull and flowers cut out of it (papel picado).
+      const span = 2.5, top = 1.5, sag = 0.16, r = new RNG(981);
+      for (const s of [-1, 1]) {
+        const x = s * span / 2;
+        b.add(P.cyl(0.17, 0.2, 0.1, 7), { color: K.stoneDark, facet: true }, M.t(x, 0.05, 0));
+        b.add(P.cyl(0.12, 0.16, 0.08, 7), { color: K.stone, facet: true }, M.t(x, 0.13, 0));
+        b.add(P.cyl(0.035, 0.045, top, 6), { color: K.timber }, M.t(x, 0.15 + top / 2 - 0.04, 0));
+        for (const y of [0.42, 0.9, top - 0.02]) b.add(P.cyl(0.048, 0.048, 0.06, 6), { color: K.rope }, M.t(x, y, 0));
+        b.add(P.cone(0.04, 0.07, 6), { color: K.timberDark }, M.t(x, top + 0.14, 0));
+        for (let k = 0; k < 6; k++) {
+          const a = (k / 6) * Math.PI * 2;
+          b.add(FLOWER, { color: k % 2 ? c(0xf08a1c) : c(0xf6c22e), leaf: 1 }, M.t(x + Math.cos(a) * 0.15, 0.2, Math.sin(a) * 0.15, 0, a, 0, 1.3, 1, 1.3));
+        }
+      }
+      const ropeY = (x: number) => top - sag * (1 - (2 * x / span) ** 2);
+      const n = 12;
+      for (let k = 0; k < n; k++) {
+        const x0 = -span / 2 + (span * k) / n, x1 = x0 + span / n, y0 = ropeY(x0), y1 = ropeY(x1);
+        b.add(P.cyl(0.008, 0.008, Math.hypot(x1 - x0, y1 - y0), 3), { color: K.rope }, M.t((x0 + x1) / 2, (y0 + y1) / 2, 0, 0, 0, Math.PI / 2 + Math.atan2(y1 - y0, x1 - x0)));
+      }
+      const cols = [c(0x8a3fa8), c(0xef7a22), c(0xf2c230), c(0xe0457a), c(0x8a3fa8)];
+      const W = 0.36, H = 0.44;
+      cols.forEach((col, k) => {
+        const x = -span / 2 + (span * (k + 0.5)) / cols.length * 0.92 + span * 0.04, y = ropeY(x) - 0.006;
+        const sway = (p: THREE.Vector3) => Math.min(1, Math.max(0, (y - p.y) / H)) * 0.45;
+        const f = clothPanel(W, H, 0.008, 4, 3);
+        // A scalloped foot.
+        const fp = f.geo.getAttribute('position');
+        for (let i = 0; i < fp.count; i++) if (fp.getY(i) < -H + 0.02) fp.setY(i, -H + 0.035 * Math.abs(Math.sin((fp.getX(i) / W) * Math.PI * 4)));
+        f.geo.computeVertexNormals();
+        b.add(f.geo, { color: col, sway, leaf: CLOTH }, M.t(x, y, 0));
+        f.geo.dispose();
+        // The cut-outs show the dark behind: a skull, and little flowers and slots round it.
+        const hole = col.clone().multiplyScalar(0.28), pale = col.clone().lerp(c(0xffffff), 0.55);
+        for (const face of [1, -1]) {
+          const at = (dx: number, dy: number) => M.t(x + dx, y + dy, face * 0.006, 0, face < 0 ? Math.PI : 0, 0);
+          const o = { sway, leaf: CLOTH };
+          b.add(P.plane(0.15, 0.13), { color: pale, ...o }, at(0, -0.2));
+          b.add(P.plane(0.1, 0.06), { color: pale, ...o }, at(0, -0.285));
+          for (const s of [-1, 1]) b.add(P.plane(0.04, 0.045), { color: hole, ...o }, M.t(x + s * 0.035, y - 0.2, face * 0.0075, 0, face < 0 ? Math.PI : 0, 0));
+          b.add(P.plane(0.02, 0.025), { color: hole, ...o }, M.t(x, y - 0.245, face * 0.0075, 0, face < 0 ? Math.PI : 0, Math.PI / 4));
+          for (let j = -1; j <= 1; j++) b.add(P.plane(0.012, 0.04), { color: hole, ...o }, M.t(x + j * 0.028, y - 0.29, face * 0.0075, 0, face < 0 ? Math.PI : 0, 0));
+          for (const [dx, dy] of [[-0.12, -0.07], [0.12, -0.07], [-0.12, -0.36], [0.12, -0.36], [0, -0.06]]) b.add(P.plane(0.04, 0.04), { color: hole, ...o }, M.t(x + dx, y + dy, face * 0.0075, 0, face < 0 ? Math.PI : 0, Math.PI / 4));
+          for (const s of [-1, 1]) for (const dy of [-0.16, -0.25]) b.add(P.plane(0.014, 0.05), { color: hole, ...o }, M.t(x + s * 0.13, y + dy, face * 0.0075, 0, face < 0 ? Math.PI : 0, 0));
+          for (let j = -2; j <= 2; j++) b.add(P.plane(0.03, 0.012), { color: hole, ...o }, M.t(x + j * 0.06, y - 0.025, face * 0.0075, 0, face < 0 ? Math.PI : 0, 0));
+        }
+        void r;
+      });
+      return { finished: b.build(), torches: [], height: 1.75 };
     }
   }
   throw new Error(`No decoration ${key}`);
@@ -5297,4 +5349,201 @@ export function graveyardModel(w: number, d: number): BuildingModel {
     b.add(P.box(onSide ? 0.012 : rng.range(0.25, 0.6), rng.range(0.12, 0.3), onSide ? rng.range(0.25, 0.6) : 0.012), { color: c(0x5f8a3a).lerp(c(0x86a850), rng.next()) }, M.t(mx, rng.range(0.14, 0.34), mz));
   }
   return { finished: b.build(), torches, height: 2.5 };
+}
+
+// ---------------- Funeral pyre ----------------
+
+/** Height of the pyre's stone hearth: the logs are stacked (and the dead laid) on top of it. */
+export const PYRE_HEARTH = 0.16;
+
+/**
+ * Funeral Pyre: a raised round hearth of laid sandstone blocks, its top a bed of old ash and
+ * charred stones, ringed by a low kerb; two tall torches stand at its head, a stack of spare logs
+ * waits beside it, and pots of marigolds and copal sit at its foot. The pyre itself (the crossed
+ * logs and the body laid on them) is raised on the hearth for each funeral (see Graves).
+ */
+export function pyreModel(): BuildingModel {
+  const b = new GeoBuilder(), torches: THREE.Vector3[] = [], rng = new RNG(733);
+  const H = PYRE_HEARTH, R = 1.0;
+  // The hearth: a ring of laid blocks round a stone fill, the top dark with old ash.
+  const n = 14;
+  for (let k = 0; k < n; k++) {
+    const a = (k / n) * Math.PI * 2;
+    b.add(P.box(0.46, H + 0.04, 0.26), { color: SAND[rng.int(0, 3)].clone().multiplyScalar(rng.range(0.9, 1.02)), facet: true }, M.t(Math.cos(a) * R, (H + 0.04) / 2 - 0.04, Math.sin(a) * R, 0, -a + Math.PI / 2, 0));
+  }
+  b.add(P.cyl(R - 0.1, R - 0.05, H, 14), { color: SAND_MORTAR, facet: true }, M.t(0, H / 2 - 0.01, 0));
+  b.add(P.cyl(R - 0.16, R - 0.16, 0.012, 14), { color: c(0x3a3330), facet: true }, M.t(0, H + 0.006, 0));
+  for (let k = 0; k < 9; k++) {
+    const a = rng.range(0, Math.PI * 2), d = rng.range(0.2, 0.75);
+    b.add(P.sphere(rng.range(0.04, 0.07), 0), { color: c(rng.chance(0.5) ? 0x55504a : 0x6a625a), facet: true }, M.t(Math.cos(a) * d, H + 0.02, Math.sin(a) * d, 0, 0, 0, 1, 0.6, 1));
+  }
+  // A step up at the front, where the bearers come.
+  b.add(P.box(0.8, 0.07, 0.3), { color: SAND[2], facet: true }, M.t(0, 0.035, R + 0.18));
+  // Two torches at the head.
+  for (const s of [-1, 1]) torches.push(torchPole(b, s * 0.9, -1.12, 0.95));
+  // Spare logs, stacked beside it.
+  for (let k = 0; k < 5; k++) {
+    const row = k < 3 ? 0 : 1, off = row ? (k - 3.5) * 0.12 : (k - 1) * 0.12;
+    b.add(P.cyl(0.05, 0.055, 0.7, 6), { color: [c(0x7a5230), c(0x6a4628), c(0x8a5e38)][k % 3], facet: true }, M.t(1.18, 0.05 + row * 0.095, 0.2 + off, Math.PI / 2, 0.15, 0));
+  }
+  // Marigolds and a smoking copal pot at the foot.
+  frettedPot(b, -0.75, 0, 1.12, 0.8);
+  blooms(b, -0.75, 0.24, 1.12, 4, 0.05, 0.05, 734, 0.2);
+  frettedPot(b, 0.72, 0, 1.15, 0.7, 0xb85a2e);
+  return { finished: b.build(), torches, height: 1.2 };
+}
+
+// ---------------- The Ancestor Altar ----------------
+
+/** A candle: a wax stub with a bright still flame (too small for a real fire). */
+function candle(b: GeoBuilder, x: number, y: number, z: number, h = 0.09): void {
+  b.add(P.cyl(0.018, 0.02, h, 5), { color: c(0xf3ead2), leaf: CLOTH }, M.t(x, y + h / 2, z));
+  b.add(P.cone(0.014, 0.05, 4), { color: (p) => (p.y > y + h + 0.025 ? c(0xffe9a0) : c(0xffa93a)), leaf: 1 }, M.t(x, y + h + 0.027, z));
+}
+
+/** A marigold head, orange or gold. */
+function marigold(b: GeoBuilder, x: number, y: number, z: number, r: RNG, s = 1): void {
+  b.add(FLOWER, { color: r.chance(0.6) ? c(0xf08a1c) : c(0xf6c22e), leaf: 1 }, M.t(x, y, z, r.range(0, 3), r.range(0, 3), 0, s * 0.72, s * 0.6, s * 0.72));
+}
+
+/** A red block painted with a square spiral on its front. */
+function spiralBlock(b: GeoBuilder, x: number, y: number, z: number, w: number, h: number, d: number): void {
+  const red = c(0xb2382c), ink = c(0xf0dfc0);
+  b.add(P.box(w, h, d), { color: red, facet: true }, M.t(x, y, z));
+  const f = z + d / 2 + 0.004, u = Math.min(w, h) * 0.7, t = u * 0.13;
+  // The spiral: four turns of a squared hook, drawn as flat strokes.
+  const stroke = (cx: number, cy: number, sw: number, sh: number) => b.add(P.plane(sw, sh), { color: ink }, M.t(x + cx, y + cy, f));
+  stroke(0, u / 2 - t / 2, u, t);
+  stroke(u / 2 - t / 2, 0, t, u);
+  stroke(t * 0.6, -u / 2 + t / 2, u - t * 1.2, t);
+  stroke(-u / 2 + t * 1.7, -t * 0.4, t, u * 0.6);
+  stroke(0, u * 0.12, u * 0.42, t);
+}
+
+/** The great carved skull that crowns the altar, wreathed in marigolds (faces +z). */
+function altarSkull(b: GeoBuilder, x: number, y: number, z: number, s: number, r: RNG): void {
+  const bone = c(0xe9dcc0), shade = c(0xcdbd9c), dark = c(0x2e2622);
+  b.add(P.sphere(0.3 * s, 1), { color: (p) => (p.y < y + 0.2 * s ? shade.clone() : bone.clone()), facet: true, leaf: CLOTH }, M.t(x, y + 0.36 * s, z, 0, 0, 0, 1, 0.95, 1.02));
+  // Cheekbones and the jaw.
+  b.add(P.box(0.4 * s, 0.16 * s, 0.34 * s), { color: bone, facet: true, leaf: CLOTH }, M.t(x, y + 0.14 * s, z + 0.04 * s));
+  b.add(P.box(0.3 * s, 0.1 * s, 0.3 * s), { color: shade, facet: true, leaf: CLOTH }, M.t(x, y + 0.03 * s, z + 0.05 * s));
+  // Sockets, the nose and a row of teeth.
+  for (const k of [-1, 1]) b.add(P.sphere(0.075 * s, 0), { color: dark, leaf: CLOTH }, M.t(x + k * 0.115 * s, y + 0.36 * s, z + 0.25 * s, 0, 0, 0, 1, 1.05, 0.5));
+  b.add(P.cone(0.04 * s, 0.08 * s, 3), { color: dark, leaf: CLOTH }, M.t(x, y + 0.23 * s, z + 0.27 * s, 0.2, 0, 0, 1, 1, 0.4));
+  for (let k = -3; k <= 3; k++) b.add(P.box(0.038 * s, 0.07 * s, 0.02 * s), { color: k % 2 ? bone : c(0xf6eeda), leaf: CLOTH }, M.t(x + k * 0.045 * s, y + 0.105 * s, z + 0.215 * s));
+  b.add(P.box(0.33 * s, 0.012 * s, 0.02 * s), { color: dark, leaf: CLOTH }, M.t(x, y + 0.068 * s, z + 0.216 * s));
+  // The wreath: a crown of marigolds over the brow and a ring round the foot.
+  for (let k = 0; k < 19; k++) {
+    const a = Math.PI * (k / 18);
+    marigold(b, x + Math.cos(a) * 0.27 * s, y + 0.5 * s + Math.sin(a) * 0.13 * s, z + 0.12 * s + Math.sin(a) * 0.08 * s, r, 1.5 * s);
+  }
+  for (let k = 0; k < 16; k++) {
+    const a = (k / 16) * Math.PI * 2;
+    marigold(b, x + Math.cos(a) * 0.33 * s, y + 0.02, z + 0.03 * s + Math.sin(a) * 0.3 * s, r, 1.5 * s);
+  }
+}
+
+/**
+ * The Ancestor Altar: a stepped sandstone shrine to the island's dead. A great carved skull
+ * wreathed in marigolds looks out from the top; red blocks painted with square spirals mark each
+ * step; candles burn along the ledges, a fire bowl at the front, and garlands of marigolds hang
+ * down the sides. A red runner climbs the middle stair. Door (the stair) faces +z.
+ */
+export function ancestorAltarModel(): BuildingModel {
+  const b = new GeoBuilder(), torches: THREE.Vector3[] = [], rng = new RNG(4127);
+  const sand = () => SAND[rng.int(0, 3)].clone().lerp(c(0xd9a05c), 0.3).multiplyScalar(rng.range(0.92, 1.03));
+  // A paved court, its flags a little uneven.
+  for (let ix = -3; ix <= 3; ix++) for (let iz = -3; iz <= 3; iz++) {
+    if (Math.abs(ix) === 3 && Math.abs(iz) === 3) continue;
+    b.add(P.box(0.38, 0.05, 0.38), { color: sand().multiplyScalar(0.9), facet: true }, M.t(ix * 0.4 + rng.range(-0.01, 0.01), 0.022 + rng.range(-0.006, 0.006), iz * 0.4, 0, rng.range(-0.03, 0.03), 0));
+  }
+  // Three steps, each set back, built of laid blocks.
+  const tiers = [
+    { w: 2.3, d: 1.5, h: 0.32, z: -0.3 },
+    { w: 1.75, d: 1.1, h: 0.3, z: -0.42 },
+    { w: 1.2, d: 0.74, h: 0.28, z: -0.54 },
+  ];
+  let y = 0.045;
+  const tops: { y: number; w: number; d: number; z: number }[] = [];
+  for (const t of tiers) {
+    const n = Math.round(t.w / 0.38), bw = t.w / n;
+    b.add(P.box(t.w - 0.04, t.h, t.d - 0.04), { color: SAND_MORTAR, facet: true }, M.t(0, y + t.h / 2, t.z));
+    for (let k = 0; k < n; k++) for (const row of [0, 1]) {
+      const off = row ? bw / 2 : 0, x = -t.w / 2 + bw / 2 + k * bw + off;
+      if (x > t.w / 2 - 0.05) continue;
+      for (const face of [1, -1]) b.add(P.box(bw - 0.015, t.h / 2 - 0.012, 0.05), { color: sand(), facet: true }, M.t(x, y + t.h * (0.25 + row * 0.5), t.z + face * (t.d / 2 - 0.02)));
+    }
+    const m = Math.round(t.d / 0.38), bd = t.d / m;
+    for (let k = 0; k < m; k++) for (const row of [0, 1]) for (const side of [1, -1]) {
+      b.add(P.box(0.05, t.h / 2 - 0.012, bd - 0.015), { color: sand(), facet: true }, M.t(side * (t.w / 2 - 0.02), y + t.h * (0.25 + row * 0.5), t.z - t.d / 2 + bd / 2 + k * bd));
+    }
+    // A capping course, a touch proud.
+    b.add(P.box(t.w + 0.05, 0.04, t.d + 0.05), { color: SAND[3], facet: true }, M.t(0, y + t.h, t.z));
+    y += t.h + 0.02;
+    tops.push({ y: y + 0.0, w: t.w, d: t.d, z: t.z });
+  }
+  // The middle stair, with its red runner, from the court up to the second step.
+  const stairW = 0.56;
+  for (let k = 0; k < 6; k++) {
+    const sy = 0.045 + (k + 1) * 0.1, sz = 0.9 - k * 0.11;
+    if (sy > tops[1].y + 0.02) break;
+    b.add(P.box(stairW, 0.1, 0.13), { color: SAND[1], facet: true }, M.t(0, sy - 0.05, sz));
+    b.add(P.box(stairW * 0.5, 0.012, 0.132), { color: c(0xb2382c) }, M.t(0, sy + 0.004, sz));
+    b.add(P.box(stairW * 0.5, 0.1, 0.012), { color: c(0x9a2e25) }, M.t(0, sy - 0.05, sz + 0.066));
+  }
+  for (const s of [-1, 1]) b.add(P.box(0.1, 0.42, 0.62), { color: SAND[2], facet: true }, M.t(s * (stairW / 2 + 0.05), 0.25, 0.68));
+  // Red spiral blocks at the corners of each step and on the stair cheeks.
+  tops.forEach((t, k) => {
+    const h = tiers[k].h * 0.7;
+    for (const s of [-1, 1]) spiralBlock(b, s * (t.w / 2 - 0.2), t.y - tiers[k].h / 2 - 0.02, t.z + t.d / 2 + 0.01, 0.3, h, 0.06);
+  });
+  for (const s of [-1, 1]) spiralBlock(b, s * (stairW / 2 + 0.05), 0.52, 0.72, 0.16, 0.14, 0.56);
+  // The skull on a low plinth at the top.
+  const top = tops[2];
+  b.add(P.box(0.8, 0.1, 0.52), { color: SAND[0], facet: true }, M.t(0, top.y + 0.05, top.z - 0.04));
+  altarSkull(b, 0, top.y + 0.1, top.z - 0.06, 1.05, rng);
+  // Candles along every ledge.
+  tops.forEach((t, k) => {
+    const next = tops[k + 1], ledge = next ? (t.w - next.w) / 2 : 0.18;
+    for (const s of [-1, 1]) {
+      const n = k === 2 ? 2 : 4;
+      for (let j = 0; j < n; j++) {
+        const x = s * (t.w / 2 - 0.08 - (j / Math.max(1, n - 1)) * Math.max(0.05, ledge - 0.14));
+        candle(b, x + rng.range(-0.015, 0.015), t.y, t.z + t.d / 2 - 0.09 - rng.range(0, 0.1), rng.range(0.06, 0.13));
+      }
+    }
+  });
+  for (let j = 0; j < 5; j++) candle(b, (j - 2) * 0.09, tops[1].y, tops[1].z + tops[1].d / 2 - 0.08, 0.05 + (j % 2) * 0.04);
+  // Offerings on the first step: pots, bread and fruit, and a bowl of fire in the middle.
+  frettedPot(b, -0.86, tops[0].y, 0.26, 0.75);
+  frettedPot(b, 0.9, tops[0].y, 0.24, 0.65, 0xb85a2e);
+  for (let k = 0; k < 4; k++) b.add(P.sphere(0.045, 0), { color: [c(0xd8a24a), c(0xc8482a), c(0xe0b85a), c(0xd06a2a)][k], facet: true }, M.t(-0.56 + (k % 2) * 0.09, tops[0].y + 0.04 + (k > 1 ? 0.06 : 0), 0.3 + (k > 1 ? 0.03 : 0), 0, 0, 0, 1, 0.75, 1));
+  b.add(P.cyl(0.11, 0.07, 0.07, 8), { color: c(0x8a4a2a), facet: true }, M.t(0.55, tops[0].y + 0.035, 0.3));
+  for (let k = 0; k < 5; k++) b.add(P.sphere(0.03, 0), { color: c(k % 2 ? 0xe8c060 : 0xd89a3a), facet: true }, M.t(0.55 + Math.cos(k * 1.3) * 0.05, tops[0].y + 0.085, 0.3 + Math.sin(k * 1.3) * 0.05));
+  // Stone braziers either side of the stair, and the fire bowl before the skull.
+  for (const s of [-1, 1]) {
+    b.add(P.cyl(0.07, 0.1, 0.34, 6), { color: SAND[2], facet: true }, M.t(s * 0.62, 0.215, 1.08));
+    b.add(P.cyl(0.13, 0.08, 0.09, 7), { color: K.stoneDark, facet: true }, M.t(s * 0.62, 0.43, 1.08));
+    torches.push(new THREE.Vector3(s * 0.62, 0.52, 1.08));
+  }
+  // Garlands of marigolds: looped along the front of each step and hung down the sides.
+  tops.forEach((t, k) => {
+    const n = Math.round(t.w / 0.05);
+    for (let j = 0; j <= n; j++) {
+      const u = j / n, x = (u - 0.5) * (t.w - 0.1);
+      if (k < 2 && Math.abs(x) < stairW / 2 + 0.12) continue;
+      const loops = k === 0 ? 4 : 3, dip = Math.abs(Math.sin(u * Math.PI * loops)) * 0.07;
+      marigold(b, x, t.y - 0.05 - dip, t.z + t.d / 2 + 0.05, rng, 1.05);
+    }
+    for (const s of [-1, 1]) for (let j = 0; j < 4; j++) marigold(b, s * (t.w / 2 + 0.045), t.y - 0.04 - j * 0.065, t.z + t.d / 2 - 0.05, rng, 1.05);
+  });
+  // Heaps of flowers at the foot and petals strewn over the court.
+  for (const s of [-1, 1]) for (let j = 0; j < 9; j++) marigold(b, s * rng.range(0.42, 1.05), 0.075 + rng.range(0, 0.05), rng.range(0.52, 0.72), rng, 1.3);
+  for (let j = 0; j < 46; j++) {
+    const a = rng.range(0, Math.PI * 2), d = rng.range(0.35, 1.25);
+    b.add(P.plane(0.035, 0.035), { color: rng.chance(0.6) ? c(0xf08a1c) : c(0xf6c22e) }, M.t(Math.cos(a) * d, 0.052, 0.55 + Math.abs(Math.sin(a)) * d * 0.62, -Math.PI / 2, 0, rng.range(0, 3)));
+  }
+  // Candles on the court by the stair.
+  for (const s of [-1, 1]) for (let j = 0; j < 3; j++) candle(b, s * (0.42 + j * 0.07), 0.05, 0.98 + (j % 2) * 0.06, 0.06 + j * 0.02);
+  return { finished: b.build(), torches, height: 1.7 };
 }

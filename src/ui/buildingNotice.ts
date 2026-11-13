@@ -21,7 +21,9 @@ export interface FinishedBuilding {
 const ROLE: Partial<Record<BuildingKey, string>> = {
   greathall: 'Shelters up to 100 islanders',
   ceremony: 'Weddings are held here, by the sea',
-  graveyard: 'The village lays its elders to rest here',
+  graveyard: 'The village lays its dead to rest here',
+  ancestoraltar: 'Islanders may now ask to visit the ancestors by night',
+  pyre: 'The dead are now burned here, their ashes kept',
   palace: 'Royal decrees can now be issued',
   observatory: 'Forecasts and research begin',
   kennel: 'Room for 3 village dogs',
