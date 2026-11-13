@@ -207,9 +207,9 @@ export class Vegetation {
     for (let v = 0; v < CANOPY.length; v++) d(`broadleaf${v}`, treeGeometry(v, false, 21 + v), treeGeometry(v, true, 21 + v), false);
     d('apple1', fruitTreeGeometry(false, 45), fruitTreeGeometry(true, 45), false);
     d('fruit_orange', orangeFruitGeometry(46), undefined, false, false, 1.4);
-    d('fern0', fernGeometry(false, 31), fernGeometry(true, 31), true, false, 1.1);
-    d('bush0', bushGeometry(false, false, 41), bushGeometry(false, true, 41), false, true, 1.6);
-    d('flowerbush0', bushGeometry(true, false, 42), bushGeometry(false, true, 42), false, true, 1.6);
+    d('fern0', fernGeometry(false, 31), fernGeometry(true, 31), true, false, 1.9);
+    d('bush0', bushGeometry(false, false, 41), bushGeometry(false, true, 41), false, true, 2.6);
+    d('flowerbush0', bushGeometry(true, false, 42), bushGeometry(false, true, 42), false, true, 2.6);
     d('apple0', bushGeometry(false, false, 43, true), bushGeometry(false, true, 43, true), false);
     d('fruit_apple', appleFruitGeometry(44), undefined, false, false, 1.4);
     d('banana0', bananaGeometry(false, 51), bananaGeometry(true, 51), true);

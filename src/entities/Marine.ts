@@ -10,6 +10,26 @@ import { Water } from '../water/Water';
 import { Particles } from './Boats';
 import { poseWhale, sampleRise, riseSiteOk, RISE_T, RISE_REACH, WHALE_GIRTH, type WhaleDrive } from './WhaleMotion';
 import { createWhale, type WhaleRig } from './WhaleModel';
+import { CreatureAsset, CreatureRig, loadCreature } from './creatureAssets';
+
+/** Dolphin rigs further than this from the camera pause (the instanced pod is all that's needed there). */
+const DOLPHIN_RIG_FAR2 = 130 * 130;
+
+/** Tint a dolphin rig's material toward the sea's blue-green with depth, as the instanced dolphins' shader does. */
+function underwaterTint(mat: THREE.Material): THREE.Material {
+  const base = mat.onBeforeCompile;
+  mat.onBeforeCompile = (shader, r) => {
+    base.call(mat, shader, r);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying float vWy;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\n  vWy = (modelMatrix * vec4(transformed, 1.0)).y;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vWy;')
+      .replace('#include <fog_fragment>', '{ float uwD = max(-vWy, 0.0); gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.035, 0.19, 0.26), (1.0 - exp(-uwD * 0.8)) * 0.55); }\n#include <fog_fragment>');
+  };
+  mat.customProgramCacheKey = () => 'dolphin-rig';
+  return mat;
+}
 import { Whitewater, whitewaterTexture } from './Whitewater';
 
 // ---------------- Surfacing to breathe ----------------
@@ -354,6 +374,9 @@ export class Marine {
   get dolphinSubjects(): readonly Dolphin[] { return this.dolphins; }
   private dolphinMesh: THREE.InstancedMesh;
   private dolphinBend: THREE.InstancedBufferAttribute;
+  /** The artist's dolphin once loaded: then each dolphin near the camera is a skinned rig (the instanced dolphins stand in until then, and in tests). */
+  private dolphinModel: CreatureAsset | null = null;
+  private dolphinRigs: (CreatureRig | undefined)[] = [];
   private spray = new Particles(3200, 0xf2fcff);
   /** Heaving clumps of white water, and soft drifting mist (textured sprites). */
   private white: Whitewater;
@@ -467,6 +490,8 @@ export class Marine {
     this.dolphinMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.dolphinMesh.count = 0;
     this.group.add(this.dolphinMesh);
+    // No models where there's no page to load them into (tests): the stand-in stays.
+    if (typeof document !== 'undefined') try { loadCreature('dolphin').then((a) => (this.dolphinModel = a)).catch(() => undefined); } catch { /* stand-in stays */ }
     // Each pod swims a loop that lies entirely in deep water (checked all the way round).
     const loops: { cx: number; cz: number; r: number }[] = [];
     for (let k = 0; k < 3000 && loops.length < MARINE.pods; k++) {
@@ -1403,13 +1428,41 @@ export class Marine {
       e.set(-d.pitch, yaw, d.roll, 'YXZ');
       q.setFromEuler(e);
       p.set(d.x, d.y, d.z);
+      if (this.dolphinModel) {
+        // The artist's dolphin: Swim fast under water, its beat matched to the pod's speed; a slow
+        // Swim (just a flex of the tail) through the leap. Paused and hidden when off screen or far.
+        const shown = View.sees(d.x, d.y, d.z, L) && View.dist2(d.x, d.y, d.z) < DOLPHIN_RIG_FAR2;
+        let rig = this.dolphinRigs[i];
+        if (!shown) {
+          if (rig) rig.root.visible = false;
+          return;
+        }
+        rig ??= this.dolphinRigs[i] = this.dolphinRig(this.dolphinModel, L);
+        rig.root.visible = true;
+        rig.root.position.copy(p);
+        rig.root.quaternion.copy(q);
+        if (up) rig.play('Swim', 0.25, 0.4);
+        else rig.play('Swim fast', 0.25, THREE.MathUtils.clamp(pod.speed / MARINE.dolphinSpeed, 0.7, 1.6));
+        rig.update(dt);
+        return;
+      }
       s.setScalar(L);
       this.dolphinMesh.setMatrixAt(i, m.compose(p, q, s));
     });
     this.dolphinBend.needsUpdate = true;
-    // Only as many instances as there are dolphins (spare slots would sit frozen at the map centre).
-    this.dolphinMesh.count = this.dolphins.length;
+    // Only as many instances as there are dolphins (spare slots would sit frozen at the map centre);
+    // none once the rigs have taken over.
+    this.dolphinMesh.count = this.dolphinModel ? 0 : this.dolphins.length;
     this.dolphinMesh.instanceMatrix.needsUpdate = true;
+  }
+
+  /** A dolphin rig `L` long, centred on its middle like the instanced dolphin, with the depth tint. */
+  private dolphinRig(model: CreatureAsset, L: number): CreatureRig {
+    const rig = new CreatureRig(model, L, { material: underwaterTint });
+    const k = L / model.length, b = model.box;
+    rig.body.position.set(-(b.min.x + b.max.x) / 2 * k, -(b.min.y + b.max.y) / 2 * k, -(b.min.z + b.max.z) / 2 * k);
+    this.group.add(rig.root);
+    return rig;
   }
 
   /** Broken foam stays on the surface after the dolphin has disappeared below it. */

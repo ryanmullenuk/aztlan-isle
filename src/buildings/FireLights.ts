@@ -18,9 +18,28 @@ export interface FireSpot {
 export const FIRE_LIGHTS = 8;
 const MAX_GLOWS = 256;
 /** Seconds for a real light to fade fully in or out. */
-const FADE = 0.35;
+const FADE = 0.45;
 /** A wider light burns a little brighter too (half as much again as it is wider). */
 const brighter = (range: number): number => 1 + (range - 1) * 0.5;
+
+/**
+ * A flame's brightness over time (about 0.6..1.25, around 1): slow breathing, a quicker lick and
+ * flutter over it, and now and then a gutter as the flame ducks. Smooth throughout (no strobing).
+ * The ground glow's shader runs the same sum (FLICKER_GLSL), so pool and light move as one.
+ */
+export function flicker(time: number, ph: number): number {
+  const gut = Math.max(0, Math.sin(time * 0.83 + ph * 0.5) * Math.sin(time * 1.31 + ph));
+  return 1 + 0.09 * Math.sin(time * 2.1 + ph) + 0.06 * Math.sin(time * 3.7 + ph * 1.3) + 0.045 * Math.sin(time * 7.3 + ph * 0.7)
+    + 0.03 * Math.sin(time * 12.9 + ph * 2.1) - 0.2 * gut * gut * gut * gut;
+}
+const FLICKER_GLSL = /* glsl */ `
+  float flicker(float t, float ph) {
+    float gut = max(0.0, sin(t * 0.83 + ph * 0.5) * sin(t * 1.31 + ph));
+    return 1.0 + 0.09 * sin(t * 2.1 + ph) + 0.06 * sin(t * 3.7 + ph * 1.3) + 0.045 * sin(t * 7.3 + ph * 0.7)
+      + 0.03 * sin(t * 12.9 + ph * 2.1) - 0.2 * gut * gut * gut * gut;
+  }`;
+/** Firelight's colour: redder as the flame dips, yellower as it flares. */
+const EMBER = new THREE.Color(0xff8436), FLARE = new THREE.Color(0xffb468);
 
 /**
  * Firelight at night that holds steady however the camera moves:
@@ -29,11 +48,15 @@ const brighter = (range: number): number => 1 + (range - 1) * 0.5;
  *  - a small pool of real point lights lights walls and villagers round the fires that matter
  *    most: on screen, near the middle of the view, big fires first. A light stays with its fire
  *    while that fire is still among the best, and fades rather than popping when it moves on;
- *  - both flicker gently together (slow, overlapping waves, no strobing).
+ *  - both flicker together like a living flame: breathing, licking, now and then guttering, the
+ *    light shifting a little from side to side and warming and reddening as it does, so the glow
+ *    plays over nearby walls, ground and people (`still` holds it steady, for reduced motion).
  */
 export class FireLights {
   readonly group = new THREE.Group();
-  readonly lights: { light: THREE.PointLight; key: string | null; level: number; want: boolean; big: boolean; phase: number; bright: number }[] = [];
+  readonly lights: { light: THREE.PointLight; key: string | null; level: number; want: boolean; big: boolean; phase: number; bright: number; at: THREE.Vector3 }[] = [];
+  /** Hold the flames steady (the reduced-motion setting). */
+  still = false;
   readonly glow: THREE.InstancedMesh;
   private glowMat: THREE.ShaderMaterial;
   private timer = 0;
@@ -46,32 +69,40 @@ export class FireLights {
       const light = new THREE.PointLight(0xffa04a, 0, 8, 1.6);
       light.castShadow = false;
       this.group.add(light);
-      this.lights.push({ light, key: null, level: 0, want: false, big: false, phase: 0, bright: 1 });
+      this.lights.push({ light, key: null, level: 0, want: false, big: false, phase: 0, bright: 1, at: new THREE.Vector3() });
     }
     const geo = new THREE.PlaneGeometry(1, 1);
     geo.rotateX(-Math.PI / 2);
     this.glowMat = new THREE.ShaderMaterial({
-      uniforms: { uNight: { value: 0 }, uTime: { value: 0 } },
+      uniforms: { uNight: { value: 0 }, uTime: { value: 0 }, uFlicker: { value: 1 } },
       vertexShader: /* glsl */ `
-        uniform float uTime;
+        uniform float uTime, uFlicker;
         varying vec2 vUv;
         varying vec3 vCol;
+        varying float vF;
+        ${FLICKER_GLSL}
         void main() {
           vUv = uv;
           vec3 o = instanceMatrix[3].xyz;
           float ph = o.x * 1.7 + o.z * 2.3;
-          float f = 1.0 + 0.07 * sin(uTime * 2.1 + ph) + 0.05 * sin(uTime * 3.3 + ph * 1.3) + 0.03 * sin(uTime * 5.9 + ph * 0.7);
-          vCol = instanceColor * f;
-          gl_Position = projectionMatrix * viewMatrix * modelMatrix * instanceMatrix * vec4(position, 1.0);
+          vF = mix(1.0, flicker(uTime, ph), uFlicker);
+          vCol = instanceColor * vF;
+          // The pool swells and shrinks a little with the flame.
+          vec3 p = position * (1.0 + (vF - 1.0) * 0.35);
+          gl_Position = projectionMatrix * viewMatrix * modelMatrix * instanceMatrix * vec4(p, 1.0);
         }`,
       fragmentShader: /* glsl */ `
         uniform float uNight;
         varying vec2 vUv;
         varying vec3 vCol;
+        varying float vF;
         void main() {
           float r = length(vUv - 0.5) * 2.0;
-          float a = pow(max(0.0, 1.0 - r), 2.2);
-          gl_FragColor = vec4(vCol * a * uNight, 1.0);
+          float k = max(0.0, 1.0 - r);
+          // A wide, soft ember-red skirt round a hotter, yellower heart.
+          float wide = pow(k, 2.0), core = pow(k, 5.0);
+          vec3 c = vCol * (wide * vec3(1.0, 0.82, 0.62) + core * vec3(0.75, 0.85, 0.9) * vF);
+          gl_FragColor = vec4(c * uNight, 1.0);
         }`,
       transparent: true,
       depthWrite: false,
@@ -97,6 +128,7 @@ export class FireLights {
     const dusk = THREE.MathUtils.smoothstep(night, 0.12, 0.35);
     this.glowMat.uniforms.uNight.value = dusk;
     this.glowMat.uniforms.uTime.value = time;
+    this.glowMat.uniforms.uFlicker.value = this.still ? 0 : 1;
     this.timer -= dt;
     if (this.timer <= 0) {
       this.timer = 0.25;
@@ -108,10 +140,19 @@ export class FireLights {
       l.level = THREE.MathUtils.clamp(l.level + (l.want ? step : -step), 0, 1);
       if (l.level === 0 && !l.want) l.key = null;
       const ph = l.phase;
-      const f = 1 + 0.07 * Math.sin(time * 2.1 + ph) + 0.05 * Math.sin(time * 3.3 + ph * 1.3) + 0.03 * Math.sin(time * 5.9 + ph * 0.7);
+      const f = this.still ? 1 : flicker(time, ph);
       // Only ever dimmed, never hidden: changing how many lights are visible makes every lit
       // material recompile its shader (a visible hitch at dusk and dawn).
-      l.light.intensity = dusk * l.level * (l.big ? 3.2 : 1.9) * l.bright * f;
+      l.light.intensity = dusk * l.level * (l.big ? 3.6 : 2.2) * l.bright * f;
+      if (l.key === null || dusk === 0) continue;
+      // The flame leans and ducks: its light slides over walls and faces rather than only pulsing.
+      const sway = this.still ? 0 : l.big ? 0.12 : 0.06;
+      l.light.position.set(
+        l.at.x + sway * Math.sin(time * 3.1 + ph * 1.9),
+        l.at.y + sway * 0.6 * (f - 1) * 4,
+        l.at.z + sway * Math.sin(time * 2.3 + ph * 0.8 + 1.7),
+      );
+      l.light.color.copy(EMBER).lerp(FLARE, THREE.MathUtils.clamp((f - 0.7) / 0.5, 0, 1));
     }
   }
 
@@ -124,7 +165,7 @@ export class FireLights {
       const lift = Math.max(0, f.pos.y - f.ground);
       const k = THREE.MathUtils.clamp(1 - lift / 4, 0.25, 1);
       const s = f.range ?? 1;
-      const r = (f.big ? 3.4 : 1.7) * (1 + lift * 0.15) * s;
+      const r = (f.big ? 4.2 : 2.1) * (1 + lift * 0.15) * s;
       this.m4.makeScale(r * 2, 1, r * 2).setPosition(f.pos.x, f.ground + 0.04, f.pos.z);
       this.glow.setMatrixAt(n, this.m4);
       this.col.setRGB(1.0, 0.52, 0.18).multiplyScalar((f.big ? 0.32 : 0.28) * k * brighter(s));
@@ -154,8 +195,9 @@ export class FireLights {
       free.want = true;
       free.big = f.big;
       free.phase = f.pos.x * 1.7 + f.pos.z * 2.3;
-      free.light.position.set(f.pos.x, f.pos.y + (f.big ? 0.45 : 0.25), f.pos.z);
-      free.light.distance = (f.big ? 11 : 7) * (f.range ?? 1);
+      free.at.set(f.pos.x, f.pos.y + (f.big ? 0.45 : 0.25), f.pos.z);
+      free.light.position.copy(free.at);
+      free.light.distance = (f.big ? 12 : 7.5) * (f.range ?? 1);
       free.bright = brighter(f.range ?? 1);
     }
   }

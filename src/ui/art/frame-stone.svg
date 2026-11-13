@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160">
+  <!-- Laid sandstone: one course of blocks round a dark plate, a gold bevel inside, a carved fret in each corner. 9-slice at 40. -->
+  <path fill-rule="evenodd" fill="#c99b5b" d="M7 1H153Q159 1 159 7V153Q159 159 153 159H7Q1 159 1 153V7Q1 1 7 1ZM30 30V130H130V30Z"/>
+  <!-- light on the outer top and left, shade on the inner edge -->
+  <path d="M3 30V7Q3 3 7 3H153" fill="none" stroke="#f2dba6" stroke-width="2"/>
+  <path d="M157 7V153Q157 157 153 157H7" fill="none" stroke="#9a733e" stroke-width="2"/>
+  <path d="M30 130V30H130" fill="none" stroke="#8a6331" stroke-width="2"/>
+  <path d="M130 30V130H30" fill="none" stroke="#e9cf98" stroke-width="2"/>
+  <!-- block joints, one per edge tile -->
+  <g stroke="#7d592a" stroke-width="2">
+    <path d="M80 3V29M80 131V157M3 80H29M131 80H157"/>
+  </g>
+  <g stroke="#efd59e" stroke-width="1">
+    <path d="M82 4V28M82 132V156M4 82H28M132 82H156"/>
+  </g>
+  <!-- carved square spirals in the corners -->
+  <g fill="none" stroke-linecap="square">
+    <g id="f">
+      <path d="M9 23V9H23V19H14V14H18" stroke="#f3dcaa" stroke-width="1.2" transform="translate(1 1)"/>
+      <path d="M9 23V9H23V19H14V14H18" stroke="#6b4519" stroke-width="2.6"/>
+    </g>
+    <use href="#f" transform="translate(160 0) scale(-1 1)"/>
+    <use href="#f" transform="translate(0 160) scale(1 -1)"/>
+    <use href="#f" transform="translate(160 160) scale(-1 -1)"/>
+  </g>
+  <!-- the gold bevel and a dark line inside it -->
+  <rect x="31" y="31" width="98" height="98" fill="none" stroke="#e8b84a" stroke-width="4"/>
+  <rect x="32.5" y="32.5" width="95" height="95" fill="none" stroke="#fff0b8" stroke-width="1"/>
+  <rect x="34.5" y="34.5" width="91" height="91" fill="none" stroke="#2a1a0a" stroke-width="3"/>
+  <path fill="#2c1e10" fill-rule="evenodd" d="M36 36H124V124H36ZM40 40V120H120V40Z"/>
+</svg>

@@ -225,6 +225,14 @@ export class Powers {
   }
 
   /** Gameplay land strike; no ocean spray, and never triggered after Calm or while paused. */
+  /** A single bolt out of any sky, on the god's word (thunder follows). */
+  smiteBolt(x: number, y: number, z: number, distance: number): void {
+    const camera = this.camera;
+    if (!camera) return;
+    this.bolt.strike(x, y, z, 28, camera.position, this.rnd, Math.max(0.6, 1 - distance / 160), false);
+    this.queueThunder(0.2 + distance / 75, distance < 55);
+  }
+
   strikeLand(x: number, y: number, z: number): void {
     if (this.state !== 'storm' || this.time.paused) return;
     const camera = this.camera;

@@ -989,6 +989,18 @@ export const SPECIES: Record<SpeciesKey, SpeciesDef> = {
   tapir: { name: 'Tapir', count: [3, 5], group: [1, 2], habitat: 'jungle', wanderSpeed: 0.4, fleeSpeed: 2.5, alertRadius: 9, avoidRadius: 6.5, fleeRadius: 3.5, stamina: 11, captureTime: 5, meat: 18, needsPen: false, capture: 'hunt', regrow: 480, maxSlope: 0.45 },
 };
 
+/**
+ * Ambient land animals with no part in the economy: never hunted, penned or saved, and placed from
+ * the island's seed (so they're the same every load). Sizes are nose to tail in world units (an
+ * islander is ~0.62 tall); speeds in world units a second.
+ */
+export const AMBIENT_FAUNA = {
+  /** A small herd of oxen grazing the grassland near the village: slow, and they rarely run. */
+  ox: { count: [2, 4] as [number, number], size: [0.86, 0.98] as [number, number], walkSpeed: 0.22, runSpeed: 1.0, range: 5, avoidRadius: 1.3, fleeRadius: 0.7 },
+  /** Ducks pottering along the shores of fresh water (rivers, pools, the glade's lake), the first flock nearest the village. */
+  duck: { flocks: [2, 3] as [number, number], perFlock: [2, 4] as [number, number], size: [0.2, 0.24] as [number, number], walkSpeed: 0.3, runSpeed: 1.5, range: 1.8, avoidRadius: 1.4, fleeRadius: 0.9 },
+};
+
 /** Pink jellyfish drifting in swarms in the shallows off the beaches. */
 export const JELLYFISH = {
   swarms: 5,

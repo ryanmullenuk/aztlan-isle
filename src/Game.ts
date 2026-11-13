@@ -53,6 +53,15 @@ import { DriftClouds } from './render/DriftClouds';
 import { CoastRocks } from './render/CoastRocks';
 import { SeaArch } from './water/SeaArch';
 import { TubeCoral } from './entities/TubeCoral';
+import { Bumblebees } from './entities/Bumblebees';
+import { Body, Crowding } from './entities/Crowding';
+import { Atmosphere } from './render/Atmosphere';
+import { GodHand } from './entities/GodHand';
+import type { Grave } from './render/Graves';
+import { Cinematics } from './render/Cinematics';
+import { Letterbox } from './ui/Letterbox';
+import { setGroundSeason, setTramplers } from './terrain/groundFx';
+import { MorayEels } from './entities/MorayEels';
 import { SeaStacks } from './water/SeaStacks';
 import { Breeze } from './render/Breeze';
 import { Economy } from './economy/Economy';
@@ -173,6 +182,8 @@ export interface Settings {
    * the scenery still (calmer, and a little lighter on the device).
    */
   motion: boolean;
+  /** A short camera move for weddings, temples and other big moments. */
+  cinematics: boolean;
   /** Chunky pixel-art rendering. */
   pixel: boolean;
   /** Testing (or god mode): buildings and upgrades finish the moment they are placed. */
@@ -306,6 +317,18 @@ export class Game {
   dogs!: Dogs;
   waterBirds!: WaterBirds;
   butterflies!: Butterflies;
+  bees!: Bumblebees;
+  /** The grave waiting for the player to tap its new place. */
+  private movingGrave: Grave | null = null;
+  /** The way the grave being moved will face (free: any angle). */
+  private graveYaw = 0;
+  private graveSpin: { x: number; z: number } | null = null;
+  hand!: GodHand;
+  cinematics!: Cinematics;
+  private letterbox!: Letterbox;
+  atmosphere!: Atmosphere;
+  crowding!: Crowding;
+  eels!: MorayEels;
   private fireflies!: Fireflies;
   private jumpingFish!: JumpingFish;
   turtles!: SeaTurtles;
@@ -506,7 +529,7 @@ export class Game {
     }, () => this.rng.next(), () => this.time.elapsed);
     this.requests.onAsked = (r, who) => {
       this.ui?.dialog.push({
-        icon: 'ask', kicker: `${who.name} has a request`, title: `A ${BUILDINGS[r.key].name}, please`, body: r.text,
+        icon: 'ask', kicker: `${who.name} has a request`, title: `A ${BUILDINGS[r.key].name}, please`, body: r.text, image: this.buildingPicture(r.key),
         benefit: `Build it soon: +${r.belief} Belief and a happier islander`,
         actions: [
           { label: 'Show me', run: () => { if (this.colony.byId(who.id)) { this.focusAt({ x: who.x, z: who.z }); this.select({ islander: who.id }); } } },
@@ -551,6 +574,9 @@ export class Game {
     this.buildings.instantBuild = () => (TEST_TOOLS || this.islandName.toUpperCase() === GOD_NAME) && this.settings.instantBuild;
 
     this.lighting = new Lighting(this.scene, cfg.shadowSize);
+    // Morning mist over water and valley floors, and shafts of low sun among the trees.
+    this.atmosphere = new Atmosphere(this.world, this.preset);
+    this.scene.add(this.atmosphere.group);
     this.skyBodies = new SkyBodies();
     this.scene.add(this.skyBodies.group, this.rainbow.mesh, this.moodMarkers.group, this.fireworks.points, this.beliefOrbs.group);
     this.fireworks.onSound = (n, x, z) => this.audio?.sfx(n, x, z);
@@ -612,6 +638,10 @@ export class Game {
       ...this.seaArch.coralSpots(),
     ];
     this.tubeCoral = new TubeCoral(this.world, seaRocks);
+    // Moray eels in holes among the reefs and sea rocks, ducking back in when a boat passes.
+    this.eels = new MorayEels(this.world, [...this.wildlife.coral.patches.map((p) => ({ x: p.x, z: p.z })), ...seaRocks.map((r) => ({ x: r.x, z: r.z }))]);
+    this.eels.threats = () => this.boats.list.map((b) => ({ x: b.x, z: b.z }));
+    this.scene.add(this.eels.group);
     this.scene.add(this.tubeCoral.group);
     // The sea stacks and arch block their cells now: clear the seabed decoration from under them.
     this.wildlife.seabed.refresh(0, 0, this.world.N - 1, this.world.N - 1);
@@ -627,6 +657,9 @@ export class Game {
     this.scene.add(this.waterBirds.meshes.group);
     this.butterflies = new Butterflies(this.world, this.veg.plants.filter((p) => p.kind === 'flowerbush' || p.kind === 'bush'), Math.round(110 * cfg.vegDensity), this.flowers.blooms());
     this.scene.add(this.butterflies.mesh);
+    // Bumblebees buzzing round the flowering bushes by day.
+    this.bees = new Bumblebees(this.world, this.veg.plants.filter((p) => p.kind === 'flowerbush'));
+    this.scene.add(this.bees.group);
     this.fireflies = new Fireflies(this.world, Math.round(70 * cfg.vegDensity));
     this.jumpingFish = new JumpingFish(this.world, this.water);
     this.jumpingFish.onSplash = (x, z) => this.audio.sfx('splash', x, z);
@@ -638,10 +671,49 @@ export class Game {
     this.swampView = new SwampView(this.world, this.water.shared);
     this.scene.add(this.swampView.group);
     this.gators = new Alligators(this.world);
+    // One rule for them all: no walking through rocks, buildings or each other (see Crowding).
+    this.hand = new GodHand(this.world, {
+      sharks: () => this.wildlife.sharks.sharks,
+      jellies: () => this.jellies.spots(),
+      splash: (x, z, big) => this.marine.splash(x, z, big ? 16 : 9, big ? 2.6 : 1.8, 0.35),
+      release: (isl) => this.colony.cancelTask(isl),
+      taken: (isl, by) => {
+        // Thrown into the sea and caught before reaching the shore.
+        this.marine.splash(isl.x, isl.z, 14, 2.2, 0.4);
+        if (this.selectedIslander === isl.id) this.select(null);
+        this.passings.take(isl, by === 'shark'
+          ? { kicker: 'Taken by a shark', line: `${isl.name} was thrown into the sea and taken by a shark before reaching the shore.` }
+          : { kicker: 'Stung by jellyfish', line: `${isl.name} was thrown into the sea among the jellyfish, and was stung and drowned before reaching the shore.` });
+      },
+      freed: (isl, swam) => {
+        // Shaken, not hurt: a knock to their happiness, and the village has seen what you can do.
+        isl.happy = Math.max(0, isl.happy - 0.15);
+        this.colony.moodBoost -= 0.01;
+        if (swam) this.ui?.toast(`${isl.name} swam back to shore, shaken but unharmed.`);
+      },
+    });
+    this.crowding = new Crowding(this.world);
+    {
+      type B = Body & Record<string, unknown>;
+      const A = this.wildlife.animals, livestock: Record<string, number> = { chicken: 0.09, pig: 0.2, goat: 0.17, tapir: 0.3 };
+      this.crowding.add({ list: () => A.list, radius: (b) => (livestock[(b as B).sp as string] ?? 0.15) * (((b as B).scale as number) ?? 1), skip: (b) => !(b as B).alive || !!(b as B).heldBy });
+      this.crowding.add({ list: () => A.ambient, radius: (b) => ((b as B).sp === 'ox' ? 0.36 : 0.09) });
+      this.crowding.add({ list: () => this.dogs.list, radius: (b) => 0.13 * (((b as B).scale as number) ?? 1), skip: (b) => ['dead', 'sleep', 'hide', 'fight'].includes((b as B).state as string) });
+      this.crowding.add({ list: () => this.wildlife.critters.crabs, radius: () => 0.07 });
+      this.crowding.add({ list: () => this.jaguars.list, radius: () => 0.24, skip: (b) => ['dead', 'fight'].includes((b as B).state as string) });
+      this.crowding.add({ list: () => this.gators.list, radius: (b) => 0.3 * (((b as B).scale as number) ?? 1), skip: (b) => (b as B).state === 'dead' });
+      const ashore = (b: Body) => ['rest', 'crawl', 'exit'].includes((b as B).state as string);
+      const shell = (b: Body) => 0.24 * (((b as B).scale as number) ?? 1);
+      this.crowding.add({ list: () => this.turtles.list, radius: shell, skip: (b) => !ashore(b) });
+      this.crowding.add({ list: () => this.turtles.list, radius: shell, skip: ashore, water: true });
+      this.crowding.add({ list: () => this.wildlife.critters.rays, radius: () => 0.3, water: true });
+    }
     this.scene.add(this.gators.meshes.group);
     this.defence = new Defence(this.world, this.buildings);
     this.scene.add(this.defence.mesh);
     this.powers = new Powers(this.eco, this.buildings, this.lighting, this.water, this.time, () => this.rng.next());
+    // Falling rain is left out of the sea's mirror: streaks do not belong in a reflection.
+    for (const o of this.powers.group.children) if ((o as THREE.LineSegments).isLineSegments) this.water.reflection?.exclude(o);
     this.scene.add(this.powers.group);
     this.fires = new StormFire(this.world, this.veg, this.eco, this.buildings, this.colony, () => this.rng.next());
     this.scene.add(this.fires.group);
@@ -688,12 +760,17 @@ export class Game {
       // In Photo Mode the island can only be looked at: taps and tools do nothing.
       onTap: (x, y) => { if (!this.photoMode) this.onTap(x, y); },
       onPress: (x, y) => { if (!this.photoMode) this.oceanPress(x, y); },
+      // The god's hand: drag from an islander to pick them up; let go to throw.
+      wantsGrab: (x, y) => this.grabbable(x, y) !== null,
+      onGrabStart: (x, y) => this.grabStart(x, y),
+      onGrab: (x, y) => this.grabMove(x, y),
+      onGrabEnd: () => this.hand.release(),
       wantsPlacementDrag: () => !!this.placing && !this.photoMode,
       onPlacementDrag: (x,y) => {this.touchPlacement=true;this.onHover(x,y);},
-      wantsHoldRotate: () => !!this.placing && !this.photoMode && this.placing !== 'jetty' && this.placing !== 'tradedock' && !!this.hoverPoint,
-      onHoldRotateStart: () => this.spinStart(),
-      onHoldRotate: (x, y) => this.spinTo(x, y),
-      onHoldRotateEnd: () => this.spinEnd(),
+      wantsHoldRotate: () => (!!this.movingGrave && !!this.passings.graves.ghostAt) || (!!this.placing && !this.photoMode && this.placing !== 'jetty' && this.placing !== 'tradedock' && !!this.hoverPoint),
+      onHoldRotateStart: (x, y) => { if (this.movingGrave) this.graveSpin = this.passings.graves.ghostAt; else this.spinStart(); void x; void y; },
+      onHoldRotate: (x, y) => { if (this.movingGrave && this.graveSpin) this.spinGrave(x, y); else this.spinTo(x, y); },
+      onHoldRotateEnd: () => { if (this.movingGrave) this.graveSpin = null; else this.spinEnd(); },
       onCancel: () => this.cancel(),
       wantsToolDrag: () => !this.photoMode && (this.tool === 'area' || this.tool === 'raise' || this.tool === 'lower' || this.tool === 'flatten' || this.tool === 'harvest' || PAINT_TOOLS.includes(this.tool)),
       onToolDragStart: (x, y) => this.toolDrag(x, y, true),
@@ -706,6 +783,14 @@ export class Game {
     });
 
     this.ui = new UI(this);
+    // Short camera moves for the big moments (any tap skips one; off with motion or its own setting).
+    this.letterbox = new Letterbox(() => this.cinematics.skip());
+    this.cinematics = new Cinematics(this.rig, {
+      enabled: () => this.settings.motion && this.settings.cinematics !== false,
+      canPlay: () => !this.introFollow && !this.photoMode && !this.awaitingFire && !this.placing && !this.moving && !this.explorer?.active && !this.wildlifeView?.active && !this.ui.tutorialOpen && !this.ui.dialog.showing,
+      onStart: () => this.letterbox.show(),
+      onEnd: () => this.letterbox.hide(),
+    });
     this.encounters = new WildlifeEncounters({
       start: (kind, avoidBoat) => this.startEncounter(kind, avoidBoat),
       dismiss: () => this.ui.dismissAlert('wildlife-encounter'),
@@ -715,7 +800,7 @@ export class Game {
       }),
     }, save?.encounters);
     if (save) this.fires.announceRestored();
-    this.volcano.state.onErupt = () => { this.eco.res.belief = Math.max(0, this.eco.res.belief - 75); };
+    this.volcano.state.onErupt = () => { this.eco.res.belief = Math.max(0, this.eco.res.belief - 75); this.cinematics?.play('eruption', { x: this.volcano.x, z: this.volcano.z, radius: 14 }); };
     // No lava early on: until the fifth day and a skilled village, the mountain only smokes.
     this.volcano.state.allowErupt = () => this.time.day >= 5 && this.progression.stage >= 3;
     this.volcano.notify = message => this.ui.toast(message, 'warn', () => ({ x: this.volcano.x, z: this.volcano.z }));
@@ -1195,7 +1280,7 @@ export class Game {
 
   private loadSettings(preset: PresetName): Settings {
     // Depth of field (the tilt-shift look) is off unless the player turns it on in Settings.
-    const def: Settings = { preset, dofOptIn: true, dof: true, dofStrength: NEW_GAME_DOF, volume: 0.7, music: 0.5, muted: false, chatter: true, moodIcons: true, wildlifeAlerts: true, fps: false, showMap: false, autoQuality: true, shadows: true, dayNight: true, weather: true, motion: true, pixel: false, instantBuild: false, renderScale: 1, motionRes: true, haptics: true, batterySaver: typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches };
+    const def: Settings = { preset, dofOptIn: true, dof: true, dofStrength: NEW_GAME_DOF, volume: 0.7, music: 0.5, muted: false, chatter: true, moodIcons: true, wildlifeAlerts: true, fps: false, showMap: false, autoQuality: true, shadows: true, dayNight: true, weather: true, motion: true, cinematics: true, pixel: false, instantBuild: false, renderScale: 1, motionRes: true, haptics: true, batterySaver: typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches };
     try {
       const s = JSON.parse(localStorage.getItem(SAVE.settingsKey) ?? 'null');
       // Settings saved before depth of field became opt-in had it on by default: start those off too.
@@ -1230,6 +1315,7 @@ export class Game {
     this.outcrops?.setUltra(ultra);
     this.terrain.uniforms.uUltra.value = Number(ultra);
     this.water.shared.uUltra.value = Number(ultra);
+    this.water.setReflections(this.preset);
     this.lighting.ultra = ultra;
     const was = this.applied;
     if (was.shadows !== s.shadows) {
@@ -1249,6 +1335,7 @@ export class Game {
     }
     this.powers.randomWeather = s.weather;
     this.breeze.still = !s.motion;
+    this.buildings.fireLights.still = !s.motion;
     this.coastRocks.calm = !s.motion;
     this.seaStacks.calm = !s.motion;
     if (!s.weather && was.weather) this.powers.clearWeather();
@@ -1264,6 +1351,7 @@ export class Game {
   }
 
   setPreset(p: PresetName): void {
+    this.atmosphere?.setPreset(p);
     this.preset = p;
     const cfg = RENDER.presets[p];
     this.renderer.setPixelRatio(this.pixelRatio());
@@ -1662,6 +1750,7 @@ export class Game {
   }
 
   private cancel(): void {
+    if (this.movingGrave) { this.movingGrave = null; this.passings.graves.showGhost(null); this.ui.setHint(null); return; }
     if (this.wildlifeView?.active) { this.toggleWildlife(); return; }
     // The founding fire can't be cancelled; there is nowhere else to go.
     if (this.placing === 'campfire' && this.awaitingFire) return;
@@ -1716,7 +1805,28 @@ export class Game {
     else this.ui.setHint(`Tap to place a <b>${BUILDINGS[this.placing].name}</b> · keep tapping to place more · hold and drag or <b>R</b> to turn it · right-click or Esc to finish`);
   }
 
+  /** Show the ghost of the grave being moved at (x, z): green where it may go, red where it may not. */
+  /** Press, hold and drag while moving a grave: it turns to face (its headstone away from) the pointer. */
+  private spinGrave(sx: number, sy: number): void {
+    const at = this.graveSpin, p = this.pickGround(sx, sy, false);
+    if (!at || !p || Math.hypot(p.x - at.x, p.z - at.z) < 0.15) return;
+    // Snapped to 5° so rows line up easily by hand.
+    const step = Math.PI / 36;
+    this.graveYaw = Math.round(Math.atan2(p.x - at.x, p.z - at.z) / step) * step;
+    this.ghostGrave(at.x, at.z);
+  }
+
+  private ghostGrave(x: number, z: number): void {
+    const mg = this.movingGrave;
+    if (!mg) return;
+    this.passings.graves.showGhost({ x, y: this.world.groundY(x, z), z, yaw: this.graveYaw }, !this.passings.graveSpot(mg, x, z));
+  }
+
   private onHover(x: number, y: number): void {
+    if (this.movingGrave) {
+      const gp = this.pickGround(x, y);
+      if (gp) this.ghostGrave(gp.x, gp.z);
+    }
     if (this.wildlifeView?.active) { this.cursorActive = false; return; }
     if (this.spinAt) return;
     const p = this.pickGround(x, y);
@@ -1901,8 +2011,41 @@ export class Game {
     }
     // A grave: who lies there.
     const gp = this.pickGround(x, y), grave = gp && this.passings.graves.near(gp.x, gp.z, 0.45);
+    // Moving a grave: this tap chooses its new place (tapping the grave itself calls it off).
+    if (this.movingGrave) {
+      const mg = this.movingGrave, G = this.passings.graves;
+      if (grave === mg || !gp) { this.movingGrave = null; G.showGhost(null); this.ui.setHint(null); return; }
+      // With a mouse the ghost is already under the pointer. By touch, the first tap sets the ghost
+      // down to look at; tapping the ghost again places the grave there.
+      const shown = G.ghostAt && Math.hypot(G.ghostAt.x - gp.x, G.ghostAt.z - gp.z) < 0.7;
+      if (!shown) {
+        this.ghostGrave(gp.x, gp.z);
+        this.ui.setHint(`Tap the ghost again to place ${mg.name}’s grave there, or tap somewhere else (tap the grave to cancel).`);
+        return;
+      }
+      const at = G.ghostAt!, why = this.passings.moveGrave(mg, at.x, at.z, this.graveYaw);
+      if (why) { this.ui.toast(why, 'warn'); return; }
+      this.movingGrave = null;
+      G.showGhost(null);
+      this.ui.setHint(null);
+      this.audio?.sfx('select', mg.x, mg.z);
+      this.ui.toast(`${mg.name}’s grave has been moved.`);
+      return;
+    }
     if (grave) {
-      this.ui.toast(`Here lies ${grave.name}, laid to rest on day ${grave.day}.`);
+      const yard = this.passings.inGraveyard(grave), free = this.passings.plotFree;
+      this.ui.dialog.push({
+        icon: 'home', kicker: `Laid to rest on day ${grave.day}`, always: true, art: 'death',
+        title: `Here lies ${grave.name}`,
+        body: yard ? 'This grave lies in the graveyard. You can move it to open ground of your choosing.'
+          : free ? 'You can move this grave to open ground of your choosing, or into a free plot in the graveyard.'
+          : 'You can move this grave to open ground of your choosing. Build a graveyard (or free a plot) to move it there.',
+        actions: [
+          { label: 'Move grave', primary: true, run: () => { this.movingGrave = grave; this.graveYaw = grave.yaw; this.ui.setHint(`Choose where ${grave.name}’s grave should go. Turn it with R (Shift+R the other way), or press, hold and drag (tap the grave to cancel).`); } },
+          ...(!yard && free ? [{ label: 'Move to graveyard', run: () => { if (this.passings.moveToGraveyard(grave)) this.ui.toast(`${grave.name} now rests in the graveyard.`); } }] : []),
+          { label: 'Leave it' },
+        ],
+      });
       return;
     }
     // A rope bridge: offer to take it down.
@@ -1910,7 +2053,7 @@ export class Game {
     if (bi >= 0 && this.world.bridge[bi]) {
       const cells = this.bridgeCells(bi), back = Math.floor((cells.length * PATHS.bridgeWood) / 2);
       this.ui?.dialog.push({
-        icon: 'ask', kicker: 'Rope bridge', always: true,
+        icon: 'ask', kicker: 'Rope bridge', always: true, art: 'bridge',
         title: `Rope bridge · ${cells.length} section${cells.length === 1 ? '' : 's'}`,
         body: `Take the whole bridge down? Half its wood comes back (${back} wood).`,
         actions: [
@@ -2528,6 +2671,11 @@ export class Game {
       this.togglePause();
     } else if (k === 'escape') {
       if (!this.ui.closeModals()) this.cancel();
+    } else if (k === 'r' && this.movingGrave) {
+      // Turn the grave in 15° steps (R one way, Shift+R the other) so rows can be lined up.
+      this.graveYaw += (e.shiftKey ? -1 : 1) * Math.PI / 12;
+      const at = this.passings.graves.ghostAt;
+      if (at) this.ghostGrave(at.x, at.z);
     } else if (k === 'r' && this.placing) {
       this.placeRot = (this.placeRot + 1) % 4;
       if (this.hoverPoint) this.updateGhost(this.hoverPoint);
@@ -2540,6 +2688,8 @@ export class Game {
 
   private onBuildingComplete(b: Building): void {
     this.completeHandler?.(b);
+    const shot = b.key === 'greattemple' ? 'greatTemple' : b.key === 'temple' ? 'temple' : isWonder(b.key) ? 'wonder' : null;
+    if (shot) this.cinematics?.play(shot, { x: b.x, z: b.z, radius: Math.max(b.w, b.d) / 2 });
   }
 
   /**
@@ -2681,9 +2831,112 @@ export class Game {
     });
   }
 
+  /** The islander under a screen point that the hand may pick up (not while building, sculpting or in a cinematic). */
+  private grabbable(sx: number, sy: number): Islander | null {
+    if (this.photoMode || this.placing || this.moving || this.awaitingFire || this.introFollow || this.explorer?.active || this.wildlifeView?.active || this.hand.held) return null;
+    const isl = this.colony.pick(this.rig.camera, sx, sy, this.canvas.getBoundingClientRect());
+    return isl && !isl.hidden && !isl.flung && !isl.npc ? isl : null;
+  }
+
+  private grabStart(sx: number, sy: number): void {
+    const isl = this.grabbable(sx, sy);
+    if (!isl) return;
+    this.cinematics?.skip();
+    this.hand.grab(isl, isl.x, isl.z);
+    this.select({ islander: isl.id });
+    haptic('medium');
+    this.audio?.sfx('select', isl.x, isl.z);
+  }
+
+  private grabMove(sx: number, sy: number): void {
+    if (!this.hand.held) return;
+    const p = this.pickGround(sx, sy);
+    if (p) this.hand.moveTo(p.x, p.z);
+  }
+
+  /**
+   * Strike the selected islander dead with a bolt from a clear sky. The village mourns and buries
+   * them as usual, and is frightened by it.
+   */
+  smite(isl: Islander): void {
+    this.smiteAll([isl]);
+  }
+
+  /**
+   * Strike islanders dead at once, a bolt for each (a few at a time, so a crowd is a volley). The
+   * first is mourned with a funeral; the rest are laid straight into graves, with one word for all.
+   */
+  smiteAll(people: Islander[]): void {
+    const doomed = people.filter((p) => !p.flung && !p.hidden && !p.npc && this.colony.list.includes(p));
+    if (!doomed.length) return;
+    const camera = this.rig.camera;
+    doomed.forEach((p, k) => {
+      if (k < 6) this.powers.smiteBolt(p.x, p.y, p.z, camera.position.distanceTo(new THREE.Vector3(p.x, p.y + 10, p.z)));
+    });
+    haptic('medium');
+    this.select(null);
+    this.colony.moodBoost -= Math.min(0.3, 0.06 * doomed.length);
+    const [first, ...rest] = doomed;
+    for (const p of rest) this.passings.take(p, { kicker: '', line: '' }, true);
+    const others = rest.length ? ` ${rest.length === 1 ? `${rest[0].name} fell` : `${rest.length} others fell`} with them.` : '';
+    this.passings.take(first, { kicker: 'Struck down', line: `${first.name} was struck down by a bolt from a clear sky.${others} The village is afraid.` });
+  }
+
   /** How things are round the island, for reading moods. */
   moodWorld(): MoodWorld {
-    return { storm: this.powers.state === 'storm', night: this.time.isNight, winter: this.time.seasonIndex === 3, afraid: this.rare.afraid };
+    return { storm: this.powers.state === 'storm', night: this.time.isNight, winter: this.time.seasonIndex === 3, afraid: this.rare.afraid || this.eruptionFear };
+  }
+
+  /** The volcano is erupting (or still hot from it): everyone out of doors is frightened. */
+  private get eruptionFear(): boolean {
+    const v = this.volcano;
+    return !!v?.group.visible && (v.state.phase === 'erupting' || (v.state.phase === 'cooling' && v.state.coolingHot));
+  }
+
+  private quakeT = 0;
+  private fearClock = 0;
+  private jolted = false;
+  /**
+   * The ground shakes with the volcano: a low tremble while it rumbles before lava, hard all through
+   * an eruption with a jolt at each spurt from the crater, strongest near the mountain and still
+   * felt across the island. The view is shaken (after the camera has settled for the frame, so it
+   * never drifts); with motion turned off in Settings only the phone's buzz remains.
+   * And the people are afraid: when the lava comes they drop what they are doing and run for the
+   * village fire, and huddle there until it is over.
+   */
+  private quake(realDt: number): void {
+    const v = this.volcano;
+    const level = v ? v.shaking : 0;
+    if (level > 0 && this.settings.motion && !this.photoMode) {
+      this.quakeT += realDt;
+      const cam = this.rig.camera, t = this.quakeT;
+      const near = 1 - THREE.MathUtils.smoothstep(Math.hypot(this.rig.target.x - v.x, this.rig.target.z - v.z), 25, 140);
+      // Scaled with the zoom, so it reads the same close in and far out.
+      const amp = level * (0.35 + 0.65 * near) * this.rig.cur.dist * 0.0075;
+      cam.position.x += (Math.sin(t * 37.1) + Math.sin(t * 61.7 + 1.3) * 0.6) * amp;
+      cam.position.y += (Math.sin(t * 43.3 + 0.7) + Math.sin(t * 71.9) * 0.5) * amp * 0.7;
+      cam.position.z += (Math.sin(t * 40.9 + 2.1) + Math.sin(t * 57.3) * 0.6) * amp;
+      cam.rotation.z += Math.sin(t * 29.3) * level * 0.004;
+      cam.updateMatrixWorld();
+    }
+    // A buzz in the hand at each spurt.
+    const jolt = !!v && v.spurt > 0.6;
+    if (jolt && !this.jolted) haptic('medium');
+    this.jolted = jolt;
+    if (!this.eruptionFear || v.state.phase !== 'erupting') { this.fearClock = 0; return; }
+    // Run for the fire: at once when it starts, and again every so often for anyone who has wandered off.
+    this.fearClock -= realDt;
+    if (this.fearClock > 0) return;
+    const first = this.fearClock === 0;
+    this.fearClock = 9;
+    if (first) this.colony.moodBoost -= 0.1;
+    const fire = this.buildings.list.find((b) => b.key === 'campfire');
+    if (!fire) return;
+    for (const isl of this.colony.list) {
+      if (isl.hidden || Math.hypot(isl.x - fire.x, isl.z - fire.z) < 3.2) continue;
+      const a = Math.random() * Math.PI * 2, r = 1.3 + Math.random() * 1.6;
+      this.colony.walkTo(isl, fire.x + Math.cos(a) * r, fire.z + Math.sin(a) * r);
+    }
   }
 
   /** Twice a second, read each islander's mood; every frame, keep the badges over their heads. */
@@ -2874,7 +3127,7 @@ export class Game {
     this.milestones.add(foundFlag(k));
     if (k !== 'gunpowder') return;
     this.ui?.dialog.push({
-      icon: 'star', kicker: 'Rare discovery', important: true, always: true,
+      icon: 'star', kicker: 'Rare discovery', important: true, always: true, image: this.buildingPicture('firemaker'),
       title: 'Rare Discovery: Gunpowder!',
       body: `Your voyagers have returned with a mysterious new resource: ${n} jar${n === 1 ? '' : 's'} of black powder from ${from || 'a distant shore'}.`,
       benefit: 'Unlocked: the Firemaker’s Workshop, and gunpowder for pearls at the Trade Dock',
@@ -2934,7 +3187,7 @@ export class Game {
     const b = this.firemaker();
     if (this.eco.godMode || this.fireworksBlock(b)) return;
     this.ui?.dialog.push({
-      icon: 'star', kicker: 'Celebrate', title: `Fireworks for ${what}?`, important: true,
+      icon: 'star', kicker: 'Celebrate', title: `Fireworks for ${what}?`, important: true, art: 'fireworks',
       body: `The firemaker has ${Math.floor(this.eco.goods.fireworks)} fireworks ready. A display uses ${FIREWORKS.perShow}.`,
       actions: [
         { label: 'Launch fireworks', primary: true, run: () => this.ui?.toast(this.launchFireworks(this.firemaker(), true)) },
@@ -3228,9 +3481,11 @@ export class Game {
         this.rig.goal.z += (f.z - this.rig.goal.z) * k;
       } else if (!f) this.followId = -1;
     }
+    this.cinematics.update(realDt);
     this.wildlifeView?.update(realDt);
     if (this.explorer?.active) this.explorer.update(realDt);
     else this.rig.update(realDt);
+    this.quake(realDt);
     // What the camera sees this frame: off-screen entities skip posing and drawing.
     View.update(this.rig.camera);
     // Islanders smaller than about 14 screen pixels are drawn as simple far-away figures.
@@ -3248,6 +3503,7 @@ export class Game {
     // Photo Mode's dawn, day or night light is for the picture only: the island's clock is untouched.
     this.lighting.update(this.photoLight ?? (this.settings.dayNight ? this.time.t : RENDER.fixedTimeOfDay), this.rig.target, this.rig.viewRadius);
     const ls = this.lighting.state;
+    this.atmosphere.update(realDt, ls, this.settings.motion);
     const fog = this.scene.fog as THREE.Fog;
     fog.color.copy(ls.fog);
     (this.scene.background as THREE.Color).copy(ls.fog);
@@ -3278,7 +3534,8 @@ export class Game {
     FX.uNight.value = ls.night;
     FX.uCamPos.value.copy(this.rig.camera.position);
     FX.uFocus.value.copy(this.rig.target);
-    FX.uCut.value = 1 - THREE.MathUtils.smoothstep(this.rig.cur.dist, 14, 30);
+    // Trees and awnings in the way thin out only when zoomed right in (from further out they stay whole).
+    FX.uCut.value = 1 - THREE.MathUtils.smoothstep(this.rig.cur.dist, 7, 15);
     setCanopyFade(FX.uCut.value);
 
     const growth = [1.2, 1.0, 0.85, 0.5][this.time.seasonIndex] * (this.raining ? 1.6 : 1);
@@ -3308,21 +3565,31 @@ export class Game {
     }
     this.dogs.update(dt, this.time.isNight);
     this.waterBirds.update(dt, this.time.hour, this.input.hover.active && !this.input.navigating && !this.wildlifeView?.active && this.cursorActive ? this.cursorWorld : null);
+    const beeCursor = this.input.hover.active && !this.input.navigating && !this.wildlifeView?.active && this.cursorActive ? this.cursorWorld : null;
+    this.bees.update(dt, realDt, ls.day, this.raining, beeCursor);
     this.butterflies.update(dt, realDt, ls.day, this.raining, this.input.hover.active && !this.input.navigating && !this.wildlifeView?.active && this.cursorActive ? this.cursorWorld : null);
     this.fireflies.update(realDt, t, ls.night, this.powers.rainAmt, this.renderer.domElement.height);
     this.jumpingFish.update(dt, this.rig.target, this.boats.fishing(), this.powers.state === 'storm');
     this.jellies.update(dt, this.input.hover.active && !this.input.navigating && !this.wildlifeView?.active && this.cursorActive ? this.cursorWorld : null);
     this.turtles.people = this.colony.grid;
     this.turtles.update(dt);
+    this.eels.update(dt);
     this.gators.update(dt);
+    // After everything has moved: nothing stands in a rock, a building or another animal.
+    this.crowding.update();
+    this.hand.update(realDt > 0 && dt > 0 ? Math.min(realDt, 0.05) : 0);
     this.defence.update(dt);
     this.buildings.camPos.copy(this.rig.camera.position);
     this.buildings.lodDist = RENDER.presets[this.preset].lodDist;
+    this.buildings.dayTime = this.time.t;
     this.buildings.update(dt, t, ls.night, this.time.seasonIndex, this.raining, this.rig.target);
     this.updateSettlers(dt);
     this.updateIntroCamera(realDt);
     this.eco.update(dt);
     this.sculptor.update(realDt);
+    // The ground follows the season, and grass bends under the feet of people and animals near the view.
+    setGroundSeason(this.time.day, this.time.t);
+    setTramplers(this.rig.target, [this.colony.list, this.dogs.list, this.wildlife.animals.list, this.wildlife.animals.ambient]);
     this.tufts.update(realDt, this.rig.camera.position, RENDER.presets[this.preset].lodDist);
     this.outcrops.update(realDt);
     this.flowers.update(realDt);
@@ -3344,6 +3611,9 @@ export class Game {
     this.healers.update(dt);
     const healers = this.healers.list;
     this.rig3d.celebrate = this.fireworks.active;
+    // How the people carry themselves: afraid (an eclipse, the volcano), or gathered in grief at a funeral.
+    this.rig3d.afraid = this.rare.afraid || this.eruptionFear;
+    this.rig3d.mournAt = this.passings.mourningAt;
     this.rig3d.update(healers.length ? [...this.colony.list, ...healers] : this.colony.list, this.selectedIslander, realDt, this.selectedIslanders);
     this.updateMoods(realDt);
     this.scheduleLapse(realDt);

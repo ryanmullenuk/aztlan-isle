@@ -4,7 +4,8 @@ import { fishMaterial } from '../render/materials';
 import { RNG } from '../world/rng';
 import { World } from '../world/World';
 import { View } from '../render/View';
-import { FishType, fishGeometry } from './animalModels';
+import { FishType as ModelType, fishGeometry } from './animalModels';
+import { CreatureName, swapToFish } from './creatureAssets';
 import { clearWaterMove } from './WaterObstacles';
 import { SEA_SURFACE } from '../water/Water';
 
@@ -14,7 +15,18 @@ const REEF_LOD2 = 11 * 11;
 /** Beyond this distance (squared) reef fish are sub-pixel: neither steered nor drawn. */
 const FAR2 = WILDLIFE.fishDrawDistance * WILDLIFE.fishDrawDistance;
 
-const TYPES: FishType[] =['blueYellow', 'yellow', 'clown', 'idol', 'silver', 'tang'];
+/** The reef varieties: the old procedural kinds plus the flame angelfish. */
+type FishType = ModelType | 'angel';
+const TYPES: FishType[] = ['blueYellow', 'yellow', 'clown', 'idol', 'silver', 'tang', 'angel'];
+/**
+ * The species each variety is drawn as (the artist's models): until a model loads, the variety's
+ * procedural stand-in (`STAND_IN`) draws at the same length, so sizes never jump.
+ */
+const SPECIES: Record<FishType, CreatureName> = {
+  clown: 'clownfish', blueYellow: 'green-chromis', silver: 'chromis', yellow: 'foxface-rabbitfish',
+  idol: 'banggai-cardinalfish', tang: 'blue-tang', angel: 'flame-angelfish',
+};
+const STAND_IN = (t: FishType): ModelType => (t === 'angel' ? 'yellow' : t);
 /**
  * Relative abundance, nose-to-tail length in world units (an islander is ~0.62 tall, a canoe
  * ~1.2 long) and cruising speed of each variety. Small fish are clearly smaller than big ones.
@@ -26,6 +38,7 @@ const TYPE_INFO: Record<FishType, { weight: number; size: [number, number]; spee
   yellow: { weight: 3, size: [0.1, 0.13], speed: 0.36 },
   idol: { weight: 1.2, size: [0.14, 0.18], speed: 0.3 },
   tang: { weight: 1.5, size: [0.17, 0.24], speed: 0.4 },
+  angel: { weight: 1.5, size: [0.08, 0.11], speed: 0.28 },
 };
 
 interface Reef {
@@ -98,7 +111,7 @@ export class ReefFish {
     // Model length per variety, so each fish can be scaled to its real world length.
     const geoHi = new Map<FishType, THREE.BufferGeometry>();
     for (const t of TYPES) {
-      const g = fishGeometry(t, 'hi');
+      const g = fishGeometry(STAND_IN(t), 'hi');
       g.computeBoundingBox();
       const bb = g.boundingBox!;
       this.modelLen.set(t, Math.max(0.01, bb.max.z - bb.min.z));
@@ -114,7 +127,7 @@ export class ReefFish {
     for (const t of TYPES) {
       const n = this.fish.filter((f) => this.schools[f.school].type === t).length;
       for (const lo of [false, true]) {
-        const m = new THREE.InstancedMesh(lo ? fishGeometry(t, 'lo') : geoHi.get(t)!, mat, Math.max(1, n));
+        const m = new THREE.InstancedMesh(lo ? fishGeometry(STAND_IN(t), 'lo') : geoHi.get(t)!, mat, Math.max(1, n));
         m.castShadow = false;
         m.frustumCulled = false;
         m.renderOrder = 12;
@@ -123,6 +136,8 @@ export class ReefFish {
         (lo ? this.meshesLo : this.meshes).set(t, m);
         this.group.add(m);
       }
+      // Draw the species' own model once it loads, at the stand-in's length (so f.scale holds).
+      swapToFish(SPECIES[t], this.modelLen.get(t)!, [this.meshes.get(t)!], [this.meshesLo.get(t)!]);
     }
   }
 

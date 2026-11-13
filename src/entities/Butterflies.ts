@@ -5,6 +5,7 @@ import { Plant, PlantState } from '../vegetation/Vegetation';
 import { SEA_SURFACE } from '../water/Water';
 import { RNG } from '../world/rng';
 import { World } from '../world/World';
+import { bakeCreature, loadCreature, simplifyGeometry } from './creatureAssets';
 
 /** Tuning for the butterflies. */
 export const BUTTERFLIES = {
@@ -128,6 +129,42 @@ function butterflyGeometry(): THREE.BufferGeometry {
   return geo;
 }
 
+/**
+ * The artist's butterfly as the same kind of geometry: its Fly clip at the moment the wings lie
+ * flat (start of the clip), scaled to the 0.1 wingspan, with `aWing` from each vertex's side and
+ * whether it is ahead of the wing root (forewing) or behind it (hindwing); the slim body stays
+ * rigid. The clip's own beat is small and slow, so the shader's hinge (per-instance angle, as
+ * before) does the flapping: one draw call for every butterfly, no per-instance morph texture.
+ * Colours become greyscale (each vertex's brightest channel, the model's orange scaled to white)
+ * so the black veins and edges stay black while the species tint (instance colour) fills the wing.
+ */
+async function modelGeometry(): Promise<THREE.BufferGeometry> {
+  const asset = await loadCreature('butterfly');
+  const geo = bakeCreature(asset, { clip: 'Fly', time: 0, centreY: true });
+  const bb = geo.boundingBox!;
+  const k = 0.1 / Math.max(1e-4, bb.max.x - bb.min.x);
+  geo.scale(k, k, k);
+  geo.computeBoundingBox();
+  const P = geo.getAttribute('position'), C = geo.getAttribute('color') as THREE.BufferAttribute;
+  const body = (geo.boundingBox!.max.x - geo.boundingBox!.min.x) * 0.06;
+  // The wing root: the middle of the wing vertices along z.
+  let zs = 0, zn = 0;
+  for (let i = 0; i < P.count; i++) if (Math.abs(P.getX(i)) > body) (zs += P.getZ(i)), zn++;
+  const z0 = zn ? zs / zn : 0;
+  let top = 0;
+  for (let i = 0; i < C.count; i++) top = Math.max(top, C.getX(i), C.getY(i), C.getZ(i));
+  const wing = new Float32Array(P.count);
+  for (let i = 0; i < P.count; i++) {
+    const x = P.getX(i);
+    wing[i] = Math.abs(x) > body ? Math.sign(x) * (P.getZ(i) >= z0 ? 1 : 2) : 0;
+    const v = Math.min(1, Math.max(C.getX(i), C.getY(i), C.getZ(i)) / Math.max(1e-3, top));
+    C.setXYZ(i, v, v, v);
+  }
+  geo.setAttribute('aWing', new THREE.BufferAttribute(wing, 1));
+  // Thousands of triangles is far more than a speck this size needs: a third of them is plenty.
+  return simplifyGeometry(geo, 0.3);
+}
+
 function butterflyMaterial(): THREE.MeshStandardMaterial {
   const mat = patchStylised(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0, side: THREE.DoubleSide }), 0.5);
   const prev = mat.onBeforeCompile;
@@ -194,6 +231,13 @@ export class Butterflies {
     this.mesh.castShadow = false;
     this.mesh.receiveShadow = false;
     this.mesh.count = 0;
+    // The procedural butterfly draws until the model is ready (and stays if it fails to load).
+    if (typeof document !== 'undefined') {
+      modelGeometry().then((g) => {
+        g.setAttribute('aFlap', this.flapAttr);
+        this.mesh.geometry = g;
+      }).catch(() => undefined);
+    }
   }
 
   get count(): number {

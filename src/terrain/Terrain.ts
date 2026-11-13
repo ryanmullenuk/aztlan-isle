@@ -6,6 +6,7 @@ import { World } from '../world/World';
 import { SHADOW_LAYER } from '../render/ShadowLayer';
 import { FX } from '../render/materials';
 import { groundDetailTexture } from './groundDetail';
+import { GROUND_FX } from './groundFx';
 import { reefField } from '../entities/Seabed';
 
 const tmpA = new THREE.Color();
@@ -92,6 +93,9 @@ export class Terrain {
     uWet: { value: 0 },
     /** How hard it is raining right now (raindrop rings in the puddles). */
     uRainNow: { value: 0 },
+    /** The season's tint of grass and meadow, and its dryness, fallen leaves and flower specks (see groundFx). */
+    uSeasonTint: GROUND_FX.uSeasonTint,
+    uSeasonK: GROUND_FX.uSeasonK,
   };
 
   private sub: number;
@@ -141,6 +145,9 @@ export class Terrain {
     this.wearTex.minFilter = THREE.LinearFilter;
     this.wearTex.needsUpdate = true;
     this.uniforms.uWear.value = this.wearTex;
+    // The grass clumps read the same texture, to thin out towards trodden ground.
+    GROUND_FX.uGroundWear.value = this.wearTex;
+    GROUND_FX.uGroundSize.value = WORLD.size;
 
     this.uniforms.uDetail.value = groundDetailTexture();
     // The island type's ground (as in colorAt): black sand and ashy grass, or deep jungle green.
@@ -446,9 +453,23 @@ export class Terrain {
   updateWear(): void {
     const w = this.world;
     const d = this.wearData;
-    for (let i = 0; i < w.N * w.N; i++) {
-      // Dirt paths show as fully trodden ground; stone paths get their own flagstone channel.
-      d[i * 4] = w.path[i] === 2 ? 255 : Math.min(255, w.wear[i] * 255);
+    const N = w.N;
+    // Trodden ground as drawn: dirt paths show as fully trodden.
+    const trodden = (i: number) => (w.path[i] === 2 ? 1 : Math.min(1, w.wear[i]));
+    for (let i = 0; i < N * N; i++) {
+      // Stone paths get their own flagstone channel.
+      let t = trodden(i);
+      // A faint skirt of scuffed ground round every worn cell (drawn only: the wear itself is
+      // untouched), so paths fade into the meadow and the grass thins towards them.
+      if (t < 0.5) {
+        const cx = i % N, cz = (i - cx) / N;
+        if (cx > 0 && cz > 0 && cx < N - 1 && cz < N - 1) {
+          const near = (trodden(i - 1) + trodden(i + 1) + trodden(i - N) + trodden(i + N)) * 2
+            + trodden(i - N - 1) + trodden(i - N + 1) + trodden(i + N - 1) + trodden(i + N + 1);
+          t = Math.max(t, near * (0.5 / 12));
+        }
+      }
+      d[i * 4] = Math.min(255, t * 255);
       d[i * 4 + 1] = Math.min(255, w.soil[i] * 255);
       d[i * 4 + 2] = w.path[i] === 1 ? 255 : 0;
       // Alpha: swampland (wet ground → mud).
@@ -531,6 +552,7 @@ export class Terrain {
         }
         #include <roughnessmap_fragment>
         roughnessFactor = mix(roughnessFactor, 0.32, swWet * 0.8);
+        roughnessFactor = mix(roughnessFactor, 0.5, tDamp * 0.6);
         roughnessFactor = mix(mix(roughnessFactor, 0.6, tWet * 0.4), 0.62, tPuddle);`
       )
       .replace(
@@ -601,6 +623,8 @@ export class Terrain {
         uniform float uSunI;
         uniform float uWet;
         uniform float uRainNow;
+        uniform vec3 uSeasonTint;
+        uniform vec4 uSeasonK;
         varying vec3 vWPos;
         varying vec4 vMask;
         varying float vForest;
@@ -654,30 +678,44 @@ export class Terrain {
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
-        float tWet = 0.0, tPuddle = 0.0;
+        float tWet = 0.0, tPuddle = 0.0, tDamp = 0.0;
         {
           vec2 wuv = (vWPos.xz + uWorld * 0.5) / uWorld;
           vec4 wr = texture2D(uWear, wuv);
+          // Trodden ground is looked up a little off true (a slow wander of up to a quarter of a
+          // cell), so a path's edge meanders instead of following the grid it is stored on. Fields,
+          // paving and swamp keep the straight lookup.
+          vec2 wander = (vec2(vn2(vWPos.xz * 1.1 + 3.0), vn2(vWPos.xz * 1.1 + 31.0)) - 0.5) * 0.55;
+          float wv = texture2D(uWear, wuv + wander / uWorld).r;
+          vec4 dt = texture2D(uDetail, vWPos.xz * 0.3);
           // Smooth noise (not per-cell hash) so dirt paths have soft, organic edges.
           float grain = vn2(vWPos.xz * 2.3) * 0.65 + vn2(vWPos.xz * 7.0) * 0.35;
           // Farm soil with furrows.
           float soil = smoothstep(0.1, 0.6, wr.g) * vMask.y;
           float furrow = 0.82 + 0.18 * sin(vWPos.x * 7.0);
           diffuseColor.rgb = mix(diffuseColor.rgb, uSoilCol * furrow, soil);
-          // Trampled paths, in stages: grass walked on now and then is flattened and paler, then wears
-          // through to packed earth (pebbles where it is trodden hardest) with a darker trodden rim.
-          float trod = smoothstep(0.04, 0.3, wr.r) * (1.0 - smoothstep(0.35, 0.65, wr.r)) * vMask.x * (1.0 - vMask.z);
-          diffuseColor.rgb *= mix(vec3(1.0), vec3(1.07, 1.04, 0.86), trod);
-          float wear = smoothstep(0.3 + grain * 0.35, 0.9 + grain * 0.1, wr.r) * (0.4 + 0.6 * vMask.y);
-          vec3 dirt = mix(uPathCol, uPathCol2, grain) * (1.0 + (texture2D(uDetail, vWPos.xz * 0.3).a - 0.5) * 0.4 * smoothstep(0.5, 1.0, wr.r));
+          // Footpaths, in stages. Grass walked on now and then lies flattened and paler; walked on
+          // more it wears through in ragged patches (blades and clumps holding on along the edges)
+          // to bare earth; and where it is trodden hardest the earth is packed pale and smooth, with
+          // the odd pebble. Left alone the wear fades and the stages run backwards: the path heals.
+          float trod = smoothstep(0.03, 0.22, wv) * (1.0 - smoothstep(0.3, 0.6, wv)) * vMask.x * (1.0 - vMask.z);
+          diffuseColor.rgb *= mix(vec3(1.0), vec3(1.08, 1.04, 0.84), trod);
+          float packed = smoothstep(0.55, 0.95, wv);
+          float rag = ((dt.r - 0.5) * 0.5 + (grain - 0.5) * 0.45) * smoothstep(0.1, 0.4, wv) * (1.0 - packed);
+          float wear = smoothstep(0.24, 0.5, wv + rag) * (0.4 + 0.6 * vMask.y);
+          vec3 dirt = mix(uPathCol, uPathCol2, grain);
+          dirt = mix(dirt, lin(vec3(0.83, 0.72, 0.55)), packed * 0.45) * (1.0 + (dt.a - 0.5) * 0.4 * packed);
+          // Across a beach a path is only scuffed, darker sand.
+          dirt = mix(dirt, diffuseColor.rgb * 0.84, vMask.z * 0.6);
           vec2 pbc = floor(vWPos.xz * 6.0);
           float pbh = th21(pbc + 51.0);
           if (pbh > 0.86) {
             vec2 pbf = fract(vWPos.xz * 6.0) - 0.5 - (vec2(th21(pbc + 2.9), th21(pbc + 6.1)) - 0.5) * 0.5;
-            dirt = mix(dirt, lin(vec3(0.66, 0.6, 0.52)) * (0.85 + 0.3 * fract(pbh * 41.0)), smoothstep(0.12, 0.07, length(pbf)) * smoothstep(0.6, 0.9, wr.r));
+            dirt = mix(dirt, lin(vec3(0.66, 0.6, 0.52)) * (0.85 + 0.3 * fract(pbh * 41.0)), smoothstep(0.12, 0.07, length(pbf)) * smoothstep(0.6, 0.9, wv));
           }
           diffuseColor.rgb = mix(diffuseColor.rgb, dirt, wear);
-          diffuseColor.rgb *= 1.0 - wear * (1.0 - wear) * 0.5;
+          // Damp, darker soil where the turf is breaking up.
+          diffuseColor.rgb *= 1.0 - wear * (1.0 - wear) * 0.45;
           // Swamp: the ground turns dark and wet, then to slick mud toward the pools.
           float swp = wr.a;
           if (swp > 0.004) {
@@ -686,10 +724,10 @@ export class Terrain {
             diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.58, 0.64, 0.44), smoothstep(0.03, 0.4, swp));
             diffuseColor.rgb = mix(diffuseColor.rgb, mix(lin(vec3(0.36, 0.26, 0.15)), lin(vec3(0.28, 0.21, 0.12)), grain), mud);
           }
-          // Tiny wildflower specks on sunny meadow grass.
+          // Tiny wildflower specks on sunny meadow grass: thick in spring, almost none in winter.
           vec2 fc = floor(vWPos.xz * 4.0);
           float h = th21(fc);
-          if (h > 0.93 && vMask.x > 0.45 && wear < 0.2 && soil < 0.1 && wr.b < 0.3) {
+          if (h > 1.0 - uSeasonK.z && vMask.x > 0.45 && wear < 0.2 && trod < 0.3 && soil < 0.1 && wr.b < 0.3) {
             vec2 fp = fract(vWPos.xz * 4.0) - 0.5 - (vec2(th21(fc + 3.1), th21(fc + 7.7)) - 0.5) * 0.5;
             float m = smoothstep(0.13, 0.07, length(fp)) * (1.0 - smoothstep(35.0, 70.0, vViewDist));
             float pick = fract(h * 97.0);
@@ -703,22 +741,37 @@ export class Terrain {
             // ---- Painted texture, natural edges, terrace lips and contact shadows ----
             {
               float texK = 1.0 - smoothstep(40.0, 120.0, vViewDist);
-              vec4 dt = texture2D(uDetail, xz * 0.3);
               // Broad, soft variation (smooth noise, not the strokes magnified into bars).
               float broad = vn2(xz * 0.18 + 5.0) - 0.5;
               float rt = rockTri(vWPos * vec3(1.0, 1.6, 1.0), vWNrm);
               float en = vn2(xz * 1.6) - 0.5;
               // Edges: sand fills the low spots first and grass breaks off in ragged clumps; rock
               // shows through where its pattern is high. Only the band between them changes.
+              // The break is soft and many-scaled (a slow meander, clumps, single blades), never a
+              // drawn line: between sand and turf lies a thin seam of dry, sandy earth and thin grass.
               if (vMask.z > 0.03 && vMask.z < 0.97) {
-                float sandC = smoothstep(0.42, 0.58, vMask.z + (dt.g - 0.5) * 0.45 + en * 0.4 - (dt.r - 0.5) * 0.25);
+                float en2 = vn2(xz * 5.3 + 11.0) - 0.5;
+                float sandC = smoothstep(0.36, 0.64, vMask.z + (dt.g - 0.5) * 0.45 + en * 0.45 + en2 * 0.2 - (dt.r - 0.5) * 0.3);
                 float dS = sandC - vMask.z;
-                diffuseColor.rgb = mix(diffuseColor.rgb, dS > 0.0 ? uSandCol : uGrassCol, abs(dS) * 0.85);
+                diffuseColor.rgb = mix(diffuseColor.rgb, dS > 0.0 ? uSandCol : uGrassCol, abs(dS) * 0.8);
+                float seam = sandC * (1.0 - sandC) * 4.0 * vMask.y;
+                diffuseColor.rgb = mix(diffuseColor.rgb, mix(uSandCol, uGrassCol, 0.45) * vec3(0.92, 0.86, 0.7), seam * 0.4);
               }
               if (vMask.w > 0.03 && vMask.w < 0.97) {
-                float rockC = smoothstep(0.4, 0.6, vMask.w + (rt - 0.5) * 0.6 + en * 0.3);
+                float rockC = smoothstep(0.36, 0.64, vMask.w + (rt - 0.5) * 0.6 + en * 0.35);
                 float dR = rockC - vMask.w;
                 diffuseColor.rgb = mix(diffuseColor.rgb, dR > 0.0 ? uRockCol : diffuseColor.rgb * 1.04, abs(dR) * 0.7);
+                // Scree: loose stones spilled from the rock onto the ground round it.
+                float scree = vMask.w * (1.0 - vMask.w) * 4.0 * vMask.y * texK;
+                vec2 kc = floor(xz * 4.5);
+                float kh = th21(kc + 71.0);
+                if (kh > 1.0 - 0.4 * scree) {
+                  vec2 kf = fract(xz * 4.5) - 0.5 - (vec2(th21(kc + 2.3), th21(kc + 5.9)) - 0.5) * 0.55;
+                  float kr = 0.07 + 0.09 * fract(kh * 13.0);
+                  float km = smoothstep(kr, kr * 0.6, length(kf * vec2(1.0, 1.25)));
+                  // Lit on top, dark at the foot.
+                  diffuseColor.rgb = mix(diffuseColor.rgb, uRockCol * (0.78 + 0.5 * fract(kh * 37.0)) * (1.0 + kf.y * 1.2), km * 0.9);
+                }
               }
               // Hand-painted texture: blades in the grass, grain in the sand, earth on bare slopes.
               float grassK = vMask.x * (1.0 - vMask.z), sandK = vMask.z, earthK = (1.0 - vMask.y) * (1.0 - vMask.w) * (1.0 - vMask.z);
@@ -745,6 +798,15 @@ export class Terrain {
             // Grass: broad lush / sun-dried patches and small clover clumps.
             float gp = vn2(xz * 0.3) * 0.6 + vn2(xz * 1.05 + 7.0) * 0.4;
             diffuseColor.rgb *= mix(vec3(1.0), mix(vec3(0.86, 0.95, 0.84), vec3(1.08, 1.05, 0.86), gp), vMask.x);
+            // The season: fresh green in spring, deep in summer, golden-brown in autumn, pale and
+            // dry in winter (the sun-dried patches turn first). Bare paths and tilled soil keep their colour.
+            float seasK = (1.0 - vMask.z) * (1.0 - vMask.w) * (1.0 - wear) * (1.0 - soil) * (1.0 - vForest * 0.5);
+            if (seasK > 0.01) {
+              vec3 sc = diffuseColor.rgb * uSeasonTint;
+              float lum = dot(sc, vec3(0.3, 0.6, 0.1));
+              sc = mix(sc, lum * vec3(1.3, 1.1, 0.68), clamp(uSeasonK.x * (0.55 + 0.7 * gp), 0.0, 1.0) * 0.8);
+              diffuseColor.rgb = mix(diffuseColor.rgb, sc, seasK);
+            }
             // (The painted texture gives the grass its small-scale clumps now: the old thresholded
             // clover noise drew square, grid-aligned blotches.)
             // Sand: wind ripples on the dry beach, pebbles and shells.
@@ -759,9 +821,29 @@ export class Terrain {
               diffuseColor.rgb *= 1.0 + dry * nearK * detailFade
                 * ((grains - 0.5) * 0.15 + fineRidges * 0.035);
             }
+            // The waterline: sand the sea has just left is damp and darker, up to a ragged high-water
+            // mark with a broken line of weed and shells along it.
+            float dampTop = 0.085 + vn2(xz * 0.45 + 2.0) * 0.07 + vn2(xz * 2.6) * 0.025;
+            float damp = (1.0 - smoothstep(dampTop - 0.035, dampTop + 0.03, vWPos.y)) * (0.3 + 0.7 * vMask.z);
+            diffuseColor.rgb *= mix(vec3(1.0), vec3(0.8, 0.83, 0.86), damp);
+            tDamp = damp;
+            float wrack = (1.0 - smoothstep(0.0, 0.024, abs(vWPos.y - dampTop - 0.03))) * smoothstep(0.4, 0.8, vMask.z) * nearK;
+            diffuseColor.rgb = mix(diffuseColor.rgb, lin(vec3(0.3, 0.27, 0.16)), wrack * smoothstep(0.4, 0.62, vn2(xz * 1.7 + 9.0)) * 0.4);
+            // Shell and grit flecks, seen only close to.
+            float fleckK = vMask.z * (1.0 - smoothstep(14.0, 30.0, vViewDist));
+            if (fleckK > 0.3) {
+              vec2 sc2 = floor(xz * 13.0);
+              float sh = th21(sc2 + 5.0);
+              if (sh > 0.95) {
+                vec2 sf = fract(xz * 13.0) - 0.5 - (vec2(th21(sc2 + 0.7), th21(sc2 + 3.9)) - 0.5) * 0.6;
+                float sm = smoothstep(0.2, 0.08, length(sf)) * smoothstep(0.3, 0.7, fleckK);
+                diffuseColor.rgb = mix(diffuseColor.rgb, fract(sh * 61.0) < 0.5 ? diffuseColor.rgb * 0.6 : lin(vec3(0.99, 0.96, 0.9)), sm * 0.7);
+              }
+            }
+            // Pebbles and shells, thickest along the high-water mark.
             vec2 pc = floor(xz * 5.0);
             float ph = th21(pc + 31.0);
-            if (ph > 0.9 && vMask.z > 0.4) {
+            if (ph > 0.9 - 0.2 * wrack && vMask.z > 0.4) {
               vec2 pf = fract(xz * 5.0) - 0.5 - (vec2(th21(pc + 1.7), th21(pc + 9.3)) - 0.5) * 0.5;
               float pm = smoothstep(0.1 + ph * 0.05, 0.04, length(pf * vec2(1.0, 1.4))) * nearK * vMask.z;
               vec3 pcol = fract(ph * 53.0) < 0.55 ? lin(vec3(0.62, 0.6, 0.58)) : (fract(ph * 31.0) < 0.5 ? lin(vec3(0.98, 0.94, 0.9)) : lin(vec3(0.96, 0.78, 0.74)));
@@ -781,6 +863,21 @@ export class Terrain {
                 vec3 lcol = mix(lin(vec3(0.55, 0.36, 0.16)), lin(vec3(0.62, 0.55, 0.2)), fract(lh * 17.0));
                 lcol = mix(lcol, lin(vec3(0.3, 0.42, 0.14)), step(0.8, fract(lh * 7.0)));
                 diffuseColor.rgb = mix(diffuseColor.rgb, lcol, lm * 0.75);
+              }
+            }
+            // Autumn: leaves down under the trees in gold, orange and russet, thinning out through
+            // the winter (the forest mask stands in for where the broadleaf trees are).
+            if (uSeasonK.y > 0.01 && vForest > 0.03 && vMask.z < 0.6) {
+              vec2 ac = floor(xz * 5.5);
+              float ah = th21(ac + 23.0);
+              if (ah > 1.0 - 0.6 * uSeasonK.y) {
+                vec2 af = fract(xz * 5.5) - 0.5 - (vec2(th21(ac + 1.3), th21(ac + 8.8)) - 0.5) * 0.5;
+                float aa = ah * 57.0;
+                af = mat2(cos(aa), -sin(aa), sin(aa), cos(aa)) * af;
+                float am = smoothstep(0.21, 0.13, length(af * vec2(1.9, 1.0))) * smoothstep(0.03, 0.35, vForest) * (1.0 - vMask.z) * (1.0 - wear) * nearK;
+                float pk = fract(ah * 29.0);
+                vec3 acol = pk < 0.4 ? lin(vec3(0.85, 0.55, 0.14)) : (pk < 0.75 ? lin(vec3(0.74, 0.32, 0.1)) : lin(vec3(0.9, 0.74, 0.22)));
+                diffuseColor.rgb = mix(diffuseColor.rgb, acol, am * 0.85);
               }
             }
             // Rock and terrace faces: sedimentary layers, cracks, lichen on the tops.

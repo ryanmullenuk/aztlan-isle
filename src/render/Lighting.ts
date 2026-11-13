@@ -15,6 +15,32 @@ export interface LightState {
   day: number;
   exposure: number;
   fog: THREE.Color;
+  /** Golden hour: 1 while the sun is low and warm, just after sunrise and before sunset (0 at midday and at night). */
+  golden: number;
+  /** The blue hour: 1 in the deep blue twilight either side of the night. */
+  dusk: number;
+  /** How much of the light is the moon's (0 by day, 1 on a clear night). */
+  moon: number;
+  /** Morning mist: gathers before dawn, lies thickest at sunrise and burns off through the morning. */
+  mist: number;
+  /** How strongly shafts of low sunlight show in the air (0 at midday, at night and under cloud). */
+  shafts: number;
+}
+
+/** The atmosphere's slow quantities for a time of day (pure: no light or scene needed). */
+export function atmosphereAt(dayT: number, elevDeg: number, overcast = 0): { golden: number; dusk: number; mist: number; shafts: number } {
+  const ss = THREE.MathUtils.smoothstep;
+  const clear = 1 - clamp(overcast, 0, 1);
+  // Low, warm sun: from just clearing the horizon up to a third of the way up the sky.
+  const golden = (1 - ss(elevDeg, 8, 30)) * ss(elevDeg, -4, 3);
+  // Blue hour: the sun a little below the horizon, the sky still holding its light.
+  const dusk = ss(elevDeg, -16, -5) * (1 - ss(elevDeg, -3, 6));
+  // A thin veil gathers through the small hours, thickens at first light, and is gone by mid-morning.
+  const gather = dayT < 0.13 ? 0.3 * ss(dayT, 0.02, 0.13) : 0.3 + 0.7 * ss(dayT, 0.13, 0.2);
+  const mist = gather * (1 - ss(dayT, 0.26, 0.37)) * (1 - 0.8 * clamp(overcast, 0, 1));
+  // Shafts want a low sun and clear air; mist in the air makes them stand out.
+  const shafts = (1 - ss(elevDeg, 14, 36)) * ss(elevDeg, -2, 4) * clear * (0.6 + 0.4 * mist);
+  return { golden, dusk, mist, shafts };
 }
 
 const cA = new THREE.Color();
@@ -33,6 +59,21 @@ const ECLIPSE_SKY = new THREE.Color(0x3a4a70);
 /** Lightning: a cold blue-white flash on the land and in the sky. */
 const FLASH_LIGHT = new THREE.Color(0xd4e0ff);
 const FLASH_SKY = new THREE.Color(0x7d8cb0);
+/** Golden hour: deep amber sun, a peach sky bounce, warm earth bounce and honeyed haze. */
+const GOLD_SUN = new THREE.Color(0xffa24e);
+const GOLD_SKY = new THREE.Color(0xf0bfa6);
+const GOLD_GROUND = new THREE.Color(0xd8965a);
+const GOLD_FOG = new THREE.Color(0xffc48c);
+/** Blue hour: a saturated blue sky bounce and deep blue distance, before the moon takes over. */
+const DUSK_SKY = new THREE.Color(0x5b74d6);
+const DUSK_FOG = new THREE.Color(0x3d5190);
+const DUSK_LIGHT = new THREE.Color(0xa6b8ff);
+/** Moonlight: cool and silvery, with enough shape in it to read the land by. */
+const MOON_LIGHT = new THREE.Color(0xa9c4ff);
+/** The fill light's own tint: cool by day, warm at golden hour, blue at dusk and by night. */
+const AMB_DAY = new THREE.Color(0xbfd8ff);
+const AMB_GOLD = new THREE.Color(0xffd6ac);
+const AMB_BLUE = new THREE.Color(0x8ea6ff);
 
 /** Scratch vectors for fitting the shadow camera. */
 const UP = new THREE.Vector3(0, 1, 0), _dir = new THREE.Vector3(), _right = new THREE.Vector3(), _up = new THREE.Vector3(), _snap = new THREE.Vector3();
@@ -55,7 +96,14 @@ export class Lighting {
     day: 1,
     exposure: RENDER.exposure,
     fog: new THREE.Color(RENDER.fogColor),
+    golden: 0,
+    dusk: 0,
+    moon: 0,
+    mist: 0,
+    shafts: 0,
   };
+  /** The light of the scene being drawn, for systems with no handle on this object (the post chain). */
+  static current: LightState | null = null;
   /** World azimuth (radians) the evening sun sits at: upper-right of the default view. */
   eveningAzimuth = 0;
   /** Darkening from storms / rain (0..1). */
@@ -85,6 +133,7 @@ export class Lighting {
     scene.add(this.hemi);
     this.ambient = new THREE.AmbientLight(0xbfd8ff, 0.18);
     scene.add(this.ambient);
+    Lighting.current = this.state;
   }
 
   setShadowSize(size: number): void {
@@ -154,6 +203,44 @@ export class Lighting {
     s.fog.copy(cA).lerp(cB, f).lerp(cC.copy(STORM_FOG_DAY).lerp(STORM_FOG_NIGHT, night), oc * 0.6);
     s.exposure = L(a.exposure, b.exposure) * (1 - oc * (0.12 + 0.08 * night));
 
+    // The hours between the keyframes: golden light either side of the day, the blue hour either
+    // side of the night, moonlight with some shape to it. Cloud mutes all of them.
+    const at = atmosphereAt(dayT, elev, oc);
+    const clear = 1 - oc * 0.7;
+    const g = at.golden * clear, bl = at.dusk * clear, mo = m * m * (3 - 2 * m);
+    s.golden = g;
+    s.dusk = bl;
+    s.moon = mo * (1 - oc);
+    s.mist = at.mist;
+    s.shafts = at.shafts;
+    if (g > 0.001) {
+      s.sunColor.lerp(GOLD_SUN, 0.45 * g);
+      this.sun.color.copy(s.sunColor);
+      this.hemi.color.lerp(GOLD_SKY, 0.3 * g);
+      this.hemi.groundColor.lerp(GOLD_GROUND, 0.4 * g);
+      s.fog.lerp(GOLD_FOG, 0.3 * g);
+      s.exposure *= 1 + 0.04 * g;
+    }
+    if (bl > 0.001) {
+      s.sunColor.lerp(DUSK_LIGHT, 0.3 * bl);
+      this.sun.color.copy(s.sunColor);
+      this.hemi.color.lerp(DUSK_SKY, 0.5 * bl);
+      this.hemi.intensity *= 1 + 0.12 * bl;
+      s.fog.lerp(DUSK_FOG, 0.45 * bl);
+    }
+    if (mo > 0.001) {
+      // A touch more of the night's light from the moon itself and less from the sky all round,
+      // so slopes, roofs and shadows keep their shape in the dark.
+      s.sunColor.lerp(MOON_LIGHT, 0.35 * mo);
+      this.sun.color.copy(s.sunColor);
+      s.sunIntensity *= 1 + 0.12 * mo;
+      this.sun.intensity = s.sunIntensity;
+      this.hemi.intensity *= 1 - 0.06 * mo;
+    }
+    this.ambient.color.copy(AMB_DAY).lerp(AMB_GOLD, 0.6 * g).lerp(AMB_BLUE, Math.max(0.5 * bl, 0.35 * mo));
+    // Long, low shadows fall softer-edged than the short ones of midday.
+    this.sun.shadow.radius = 1.6 + 1.1 * g;
+
     if (this.ultra) {
       // Deeper blue-black sky, retaining moonlight and emissive lamps for navigation.
       s.fog.multiplyScalar(1 - night * 0.6);
@@ -175,6 +262,8 @@ export class Lighting {
       s.exposure *= 1 - 0.1 * ec;
       s.night = Math.max(s.night, ec * 0.75);
       s.day = 1 - s.night;
+      s.shafts *= 1 - ec;
+      s.golden *= 1 - ec;
     }
 
     // Lightning: everything lights up cold and blue-white for an instant (most of all in the dark).

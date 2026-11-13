@@ -126,7 +126,7 @@ export class WeddingSystem {
     this.wish = { a: a.id, b: b.id, until: t.elapsed + WEDDING.wishSecs };
     const at = this.venue()!;
     g.ui?.dialog.push({
-      icon: 'ask', kicker: 'A wish to marry', important: true,
+      icon: 'ask', kicker: 'A wish to marry', important: true, art: 'wedding',
       title: `${a.name} and ${b.name} wish to marry`,
       body: `They ask for a wedding at the ${at.key === 'campfire' ? 'tribal fire' : at.label}. Only married couples have children. The wish waits in your Requests for a day; if it goes ungranted, they will grieve and the gods will be displeased.`,
       benefit: `A happier village · +${WEDDING.belief} Belief · a home of their own, and children`,
@@ -229,6 +229,7 @@ export class WeddingSystem {
         if (w.couple.size < 2) return this.end(false);
         w.phase = 'vows';
         w.t = 0;
+        g.cinematics?.play('wedding', { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2, radius: 3 });
       }
     } else if (w.phase === 'vows') {
       if (w.t > WEDDING.vowSecs) {

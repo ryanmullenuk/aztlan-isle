@@ -20,7 +20,7 @@ export const FX = {
  * Trees that stand between the camera and what it's looking at dither to semi-transparent,
  * but only when zoomed in (fully solid when zoomed out).
  */
-function patchSeeThrough(mat: THREE.MeshStandardMaterial, key: string, amount = 0.62, fade = false): THREE.MeshStandardMaterial {
+function patchSeeThrough(mat: THREE.MeshStandardMaterial, key: string, amount = 0.42, fade = false): THREE.MeshStandardMaterial {
   const prev = mat.onBeforeCompile;
   mat.onBeforeCompile = (shader, r) => {
     prev.call(mat, shader, r);
@@ -80,7 +80,7 @@ let canopy: THREE.MeshStandardMaterial | null = null;
  */
 export function canopyMaterial(): THREE.MeshStandardMaterial {
   if (!canopy) {
-    canopy = patchSeeThrough(patchStylised(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0, side: THREE.DoubleSide, transparent: true }), 0.35, false), 'canopy-rigid', 0.85, true);
+    canopy = patchSeeThrough(patchStylised(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0, side: THREE.DoubleSide, transparent: true }), 0.35, false), 'canopy-rigid', 0.6, true);
   }
   return canopy;
 }
@@ -262,8 +262,10 @@ function patchBuilding(mat: THREE.MeshStandardMaterial): THREE.MeshStandardMater
           vec3 lp = transformed + bs;
           vec2 lean = vec2(bvNoise(lp * 0.55 + 3.1), bvNoise(lp * 0.55 + 17.3)) - 0.5;
           vec2 wav = vec2(bvNoise(lp * 2.3 + 8.7), bvNoise(lp * 2.3 - 4.2)) - 0.5;
-          transformed.xz += lean * 0.06 * min(hgt, 3.0) + wav * 0.03 * up;
-          transformed.y += (bvNoise(lp * 1.4 + 21.0) - 0.5) * 0.045 * up;
+          // Finer still: corners knocked and courses out of line, a few centimetres each way.
+          vec3 chip = vec3(bvNoise(lp * 6.1 + 1.7), bvNoise(lp * 6.1 + 12.9), bvNoise(lp * 6.1 - 7.3)) - 0.5;
+          transformed.xz += lean * 0.07 * min(hgt, 3.0) + wav * 0.055 * up + chip.xz * 0.022 * up;
+          transformed.y += (bvNoise(lp * 1.4 + 21.0) - 0.5) * 0.07 * up + chip.y * 0.016 * up;
         }
         #endif
         #include <project_vertex>
@@ -440,7 +442,7 @@ function patchBuilding(mat: THREE.MeshStandardMaterial): THREE.MeshStandardMater
         }`
       );
   };
-  mat.customProgramCacheKey = () => 'building-handmade-v4';
+  mat.customProgramCacheKey = () => 'building-handmade-v5';
   return mat;
 }
 

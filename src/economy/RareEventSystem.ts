@@ -168,7 +168,7 @@ export class RareEventSystem {
     this.active = { kind: 'whale', t: 0, whale, helpers: null, recall: 0 };
     g.audio?.sfx('whale', site.x, site.z);
     g.ui?.dialog.push({
-      icon: 'ask', kicker: 'On the beach', title: 'A whale has stranded', important: true,
+      icon: 'ask', kicker: 'On the beach', title: 'A whale has stranded', important: true, art: 'whale',
       body: 'A young whale has washed up on the beach near the village. Send islanders to push it back into the sea before it tires?',
       actions: [
         { label: 'Show me', run: () => g.focusAt({ x: site.x, z: site.z }) },

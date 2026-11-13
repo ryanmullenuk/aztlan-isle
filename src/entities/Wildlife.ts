@@ -24,6 +24,7 @@ import { Sharks } from './Sharks';
 import { Coral } from './Coral';
 import { Seabed } from './Seabed';
 import { fishGeometry } from './animalModels';
+import { swapToFish } from './creatureAssets';
 
 /** A deep-water fish school: the fishing boats' resource. */
 export interface School {
@@ -114,13 +115,13 @@ export class Wildlife {
     this.critters = new Critters(world);
     // Coral reefs first: the reef fish gather over them.
     this.coral = new Coral(world,veg.plants.filter(p=>p.kind==='reef'||p.kind==='searock').map(p=>({x:p.x,z:p.z})));
-    this.seabed = new Seabed(world);
+    this.seabed = new Seabed(world, this.coral.clownfish.hosts.map((h) => ({ x: h.x, z: h.z, r: 0.22 * h.s })));
     // Open sea only: an inland lake never gets reef fish.
     const reefPts = [...this.reefHotspots(), ...veg.plants.filter((p) => (p.kind === 'reef' || p.kind === 'searock') && world.isSeaAt(p.x, p.z)).map((p) => ({ x: p.x, z: p.z }))];
     this.reef = new ReefFish(world, reefPts);
     // Hammerhead sharks patrol the reefs and hunt the reef fish.
     this.sharks = new Sharks(world, this.coral.patches, this.reef);
-    this.group.add(this.animals.group, this.birds.group, this.monkeys.group, this.critters.group, this.reef.group, this.coral.group, this.seabed.group, this.sharks.group);
+    this.group.add(this.animals.group, this.birds.group, this.monkeys.group, this.critters.group, this.reef.group, this.coral.group, this.coral.bubbles.points, this.coral.clownfish.mesh, this.seabed.group, this.sharks.group);
     const fmat = fishMaterial(11);
     const cap = Math.max(1, WILDLIFE.schools * WILDLIFE.schoolFishShown);
     const mk = (g: THREE.BufferGeometry) => {
@@ -137,6 +138,8 @@ export class Wildlife {
     this.fishModelLen = Math.max(0.01, geo.boundingBox!.max.z - geo.boundingBox!.min.z);
     this.fishMesh = mk(geo);
     this.fishMeshLo = mk(fishGeometry('silver', 'lo'));
+    // The open-water shoals are chromis (the artist's model, once it loads).
+    swapToFish('chromis', this.fishModelLen, [this.fishMesh], [this.fishMeshLo]);
     this.spawnSchools();
     this.shownCount = new Int32Array(this.schools.length);
   }
@@ -200,6 +203,7 @@ export class Wildlife {
     this.critters.update(dt, this.time, input.ground, islanders);
     this.reef.update(dt, input.ground, this.boats);
     this.sharks.update(dt);
+    this.coral.clownfish.update(dt);
     if (dt > 0) this.updateSchools(dt, input.ground);
     this.renderSchools();
   }

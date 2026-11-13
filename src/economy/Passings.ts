@@ -4,7 +4,7 @@ import { TIME } from '../config';
 import { isElder } from '../entities/CharacterVariants';
 import type { Islander } from '../entities/Islander';
 import type { Game } from '../Game';
-import { Graves } from '../render/Graves';
+import { Graves, type Grave } from '../render/Graves';
 import { GRAVEYARD } from '../buildings/models';
 import type { Building } from '../buildings/Buildings';
 import { haptic } from '../ui/Haptics';
@@ -43,6 +43,11 @@ interface Procession { bearers: Gathering; body: { x: number; z: number; y: numb
  */
 export class Passings {
   readonly graves = new Graves();
+  /** Where a funeral is gathered now (for the mourners' bearing). */
+  get mourningAt(): { x: number; z: number } | null {
+    const f = this.funeral;
+    return f && (f.phase === 'gather' || f.phase === 'pray') ? f.spot : null;
+  }
   private funeral: { name: string; t: number; phase: 'wait' | 'fetch' | 'carry' | 'gather' | 'pray'; crowd: Gathering; spot: { x: number; z: number }; spouse?: number; procession?: Procession } | null = null;
 
   constructor(private game: Game) {}
@@ -94,6 +99,60 @@ export class Passings {
     return null;
   }
 
+  /** Is there a free plot in a graveyard to move a grave into? */
+  get plotFree(): boolean {
+    return !!this.graveyardPlot();
+  }
+
+  /** The ground under a grave is kept clear of building; free it when the grave goes, claim it where it comes. */
+  private claim(gr: Grave, on: boolean): void {
+    const w = this.game.world, i = w.cellIndexAt(gr.x, gr.z);
+    if (on) w.blockCircle(gr.x, gr.z, 0.2);
+    else if (i >= 0) { w.blockFixed[i] = 0; w.navigationVersion++; }
+  }
+
+  /**
+   * Move a grave to any open ground the player chooses (it faces the same way as before).
+   * Returns why not, or null once it is done.
+   */
+  moveGrave(gr: Grave, x: number, z: number, yaw = gr.yaw): string | null {
+    const w = this.game.world, why = this.graveSpot(gr, x, z);
+    if (why) return why;
+    this.claim(gr, false);
+    gr.x = x; gr.z = z; gr.y = w.groundY(x, z); gr.yaw = yaw;
+    this.claim(gr, true);
+    this.graves.redraw();
+    return null;
+  }
+
+  /** Why a grave may not be moved to (x, z), or null if it may. */
+  graveSpot(gr: Grave, x: number, z: number): string | null {
+    const w = this.game.world, i = w.cellIndexAt(x, z), here = w.cellIndexAt(gr.x, gr.z);
+    if (i < 0 || !w.isLandCell(i)) return 'A grave needs dry land.';
+    if (w.occ[i]) return 'A building stands there: choose open ground (or move the grave to the graveyard).';
+    if (i !== here && w.blocked(i)) return 'Rock or a landmark is in the way.';
+    if (this.graves.list.some((o) => o !== gr && Math.hypot(o.x - x, o.z - z) < 0.7)) return 'Another grave lies there.';
+    return null;
+  }
+
+  /** Move a grave into the next free plot of a graveyard, laid out like the rest. False if there is no free plot. */
+  moveToGraveyard(gr: Grave): boolean {
+    const plot = this.graveyardPlot();
+    if (!plot) return false;
+    this.claim(gr, false);
+    gr.x = plot.x; gr.z = plot.z; gr.y = plot.y; gr.yaw = plot.yaw;
+    this.claim(gr, true);
+    this.graves.redraw();
+    return true;
+  }
+
+  /** Is this grave already in a graveyard plot? */
+  inGraveyard(gr: Grave): boolean {
+    const i = this.game.world.cellIndexAt(gr.x, gr.z);
+    const b = i >= 0 && this.game.world.occ[i] ? this.game.buildings.byId(this.game.world.occ[i] - 1) : undefined;
+    return b?.key === 'graveyard';
+  }
+
   /** Mourners' places at a graveyard: down the path beside the plot's row, either side. */
   private pathSlots(plot: Plot): { x: number; z: number }[] {
     const yard = this.game.buildings.list.find((b) => b.key === 'graveyard' && Math.hypot(b.x - plot.venue.x, b.z - plot.venue.z) < 0.1) as Building | undefined;
@@ -130,7 +189,33 @@ export class Passings {
     return null;
   }
 
-  private pass(isl: Islander): void {
+  /**
+   * An islander dies by the god's own doing (struck down, or thrown to the sharks): the village
+   * mourns and buries them as it does an elder, with words for how it happened.
+   */
+  take(isl: Islander, words: { kicker: string; line: string }, quiet = false): void {
+    // One funeral at a time: anyone else who dies while one is under way (or in the same stroke)
+    // is laid straight into a grave, with no procession of their own.
+    if (this.funeral || quiet) this.layToRest(isl, quiet ? null : words);
+    else this.pass(isl, words);
+  }
+
+  /** Bury at once: the next graveyard plot, or a quiet spot near the temple or fire. */
+  private layToRest(isl: Islander, words: { kicker: string; line: string } | null): void {
+    const g = this.game, c = g.colony;
+    const spouse = isl.spouse !== undefined ? c.byId(isl.spouse) : undefined;
+    const plot = this.graveyardPlot(), spot = plot ? null : this.restingPlace();
+    c.remove(isl);
+    c.moodBoost -= PASSING.grief * 0.5;
+    if (spouse) spouse.happy = Math.max(0, spouse.happy - 0.3);
+    if (plot) this.graves.add({ name: isl.name, x: plot.x, z: plot.z, y: plot.y, yaw: plot.yaw, day: g.time.day });
+    else if (spot) this.graves.add({ name: isl.name, x: spot.x, z: spot.z, y: g.world.groundY(spot.x, spot.z), yaw: Math.atan2(spot.venue.x - spot.x, spot.venue.z - spot.z), day: g.time.day });
+    const at = plot ?? spot;
+    if (at) g.world.blockCircle(at.x, at.z, 0.2);
+    if (words) g.ui?.toast(words.line, 'warn');
+  }
+
+  private pass(isl: Islander, words?: { kicker: string; line: string }): void {
     const g = this.game, c = g.colony;
     const spouse = isl.spouse !== undefined ? c.byId(isl.spouse) : undefined;
     const taught = isl.taught ?? 0;
@@ -140,12 +225,12 @@ export class Passings {
     c.moodBoost -= PASSING.grief;
     if (spouse) spouse.happy = Math.max(0, spouse.happy - 0.3);
     const lines = [
-      `${isl.name} has passed away peacefully in their sleep.`,
-      taught ? `They taught ${taught === 1 ? 'one young islander' : `${taught} young islanders`} their skills.` : '',
+      words ? words.line : `${isl.name} has passed away peacefully in their sleep.`,
+      !words && taught ? `They taught ${taught === 1 ? 'one young islander' : `${taught} young islanders`} their skills.` : '',
       spouse ? `${spouse.name} mourns them.` : '',
     ].filter(Boolean).join(' ');
     g.ui?.dialog.push({
-      icon: 'home', kicker: 'An elder passes', important: true,
+      icon: 'home', kicker: words?.kicker ?? 'An elder passes', important: true, art: 'death',
       title: `Farewell, ${isl.name}`,
       body: `${lines} The village gathers to lay them to rest.`,
       actions: [
@@ -267,7 +352,7 @@ export class Passings {
     f.crowd.update();
     if (f.phase === 'gather') {
       if ((f.crowd.present >= Math.min(f.crowd.size, 4) && f.t > 10) || f.t > PASSING.gatherSecs) {
-        f.phase = 'pray';
+        f.phase = 'pray'; this.game.cinematics?.play('funeral', { x: f.spot.x, z: f.spot.z, radius: 3 });
         f.t = 0;
         f.crowd.anim = 'pray';
       }

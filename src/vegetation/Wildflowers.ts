@@ -6,6 +6,7 @@ import { View } from '../render/View';
 import { RNG } from '../world/rng';
 import { Simplex2 } from '../world/noise';
 import { World } from '../world/World';
+import { groundSeason } from '../terrain/groundFx';
 import { leafGeometry } from './detail';
 import { fernGeometry } from './models';
 
@@ -19,7 +20,16 @@ export const WILDFLOWERS = {
   clusterSize: [2, 7] as [number, number],
   /** Hide a chunk beyond this distance from the camera. */
   drawDistance: 70,
+  /** Chance of each flower having a spring-only companion beside it (the meadow at its thickest). */
+  springExtra: 0.55,
+  /** Map chunks re-made per refresh as the season turns (each is a small hitch, so they go a few at a time). */
+  seasonChunks: 2,
 };
+
+/** Flowers showing, in eighths: the season's density moves in steps, so chunks are not re-made every refresh. */
+function seasonDensity(): number {
+  return Math.round(groundSeason.look.flowers * 8) / 8;
+}
 
 /** Wild kinds, plus garden-only flower colours (white, blue). */
 export type Kind = 'orchid' | 'red' | 'yellow' | 'orange' | 'purple' | 'pink' | 'fern' | 'tropical' | 'white' | 'blue';
@@ -112,6 +122,12 @@ interface Bloom {
   cell: number;
   rot: number;
   s: number;
+  /**
+   * How hardy it is: it shows while this is below the season's flower density. Ferns and leafy
+   * plants are 0 (all year), the island's usual flowers 0..1 (all out by summer, the hardiest
+   * few left in winter), spring's extra blooms 1..1.5.
+   */
+  hard: number;
 }
 
 interface Chunk {
@@ -121,6 +137,8 @@ interface Chunk {
   key: string;
   cx: number;
   cz: number;
+  /** The season's flower density this chunk was last built for. */
+  season: number;
 }
 
 /**
@@ -144,7 +162,7 @@ export class Wildflowers {
     const noise = new Simplex2(rng);
     // Two shape variants of each kind.
     for (let k = 0; k < KINDS.length; k++) this.variants.push([plantGeometry(KINDS[k].k, 900 + k * 7), plantGeometry(KINDS[k].k, 901 + k * 7)]);
-    for (let i = 0; i < this.C * this.C; i++) this.chunks.push({ list: [], mesh: null, key: '', cx: i % this.C, cz: Math.floor(i / this.C) });
+    for (let i = 0; i < this.C * this.C; i++) this.chunks.push({ list: [], mesh: null, key: '', cx: i % this.C, cz: Math.floor(i / this.C), season: -1 });
     const tot = KINDS.reduce((s, k) => s + k.w, 0);
     const pickKind = () => {
       let r = rng.next() * tot;
@@ -159,11 +177,14 @@ export class Wildflowers {
       if (Math.abs(w.heightAt(x + 0.2, z) - y) > 0.06 || Math.abs(w.heightAt(x, z + 0.2) - y) > 0.06) return -1;
       return i;
     };
+    const evergreen = (kind: number) => KINDS[kind].k === 'fern' || KINDS[kind].k === 'tropical';
     const add = (kind: number, x: number, z: number, s: number) => {
       const i = ok(x, z);
       if (i < 0) return;
       const cx = Math.min(this.C - 1, Math.floor(((x + w.half) / N) * this.C)), cz = Math.min(this.C - 1, Math.floor(((z + w.half) / N) * this.C));
-      this.chunks[cz * this.C + cx].list.push({ kind: kind * 2 + (rng.chance(0.5) ? 1 : 0), x, z, cell: i, rot: rng.range(0, 6.28), s });
+      // Hardiness from where it stands (not from the placing dice, so the scatter is as it always was).
+      const hard = evergreen(kind) ? 0 : Math.abs(Math.sin(x * 12.9898 + z * 78.233) * 43758.5453) % 1;
+      this.chunks[cz * this.C + cx].list.push({ kind: kind * 2 + (rng.chance(0.5) ? 1 : 0), x, z, cell: i, rot: rng.range(0, 6.28), s, hard });
     };
     for (let cz = 1; cz < N - 1; cz++) {
       for (let cx = 1; cx < N - 1; cx++) {
@@ -188,11 +209,28 @@ export class Wildflowers {
         }
       }
     }
-    this.refresh();
+    // Spring's extra blooms: a companion of the same kind beside many of the flowers, out only
+    // while the season's density is above the usual (their own dice: the scatter above is untouched).
+    const srng = new RNG(w.seed * 571 + 977);
+    const chance = WILDFLOWERS.springExtra * Math.min(1, density);
+    for (const c of this.chunks) {
+      const base = c.list.length;
+      for (let k = 0; k < base; k++) {
+        const b = c.list[k];
+        if (evergreen(b.kind >> 1) || !srng.chance(chance)) continue;
+        const a = srng.range(0, Math.PI * 2), d = srng.range(0.14, 0.45);
+        const x = b.x + Math.cos(a) * d, z = b.z + Math.sin(a) * d;
+        const i = ok(x, z);
+        if (i < 0) continue;
+        c.list.push({ kind: b.kind ^ (srng.chance(0.5) ? 1 : 0), x, z, cell: i, rot: srng.range(0, 6.28), s: b.s * srng.range(0.7, 1), hard: 1 + srng.next() * 0.5 });
+      }
+    }
+    this.refresh(Infinity);
   }
 
+  /** The island's usual scatter (spring's extra blooms aside). */
   get count(): number {
-    return this.chunks.reduce((s, c) => s + c.list.length, 0);
+    return this.chunks.reduce((s, c) => s + c.list.reduce((n, b) => n + (b.hard < 1 ? 1 : 0), 0), 0);
   }
 
   /** Every flowering plant (not the ferns and leafy plants): where it is and how high its blooms stand. */
@@ -202,30 +240,41 @@ export class Wildflowers {
     for (const c of this.chunks) {
       for (const b of c.list) {
         const k = b.kind >> 1;
-        if (k === fern || k === tropical) continue;
+        if (k === fern || k === tropical || b.hard >= 1) continue;
         out.push({ x: b.x, z: b.z, top: 0.16 * b.s });
       }
     }
     return out;
   }
 
-  /** Rebuild the chunks whose visible flowers changed (buildings, fields, paths, sculpting). */
-  refresh(): void {
+  /**
+   * Rebuild the chunks whose visible flowers changed (buildings, fields, paths, sculpting, and the
+   * season: thick in spring, the usual scatter in summer, thinning through autumn to a hardy few
+   * in winter). At most `seasonal` chunks take up a new season per call, so the turn of the season
+   * spreads across the island over a minute or two instead of landing as one hitch.
+   */
+  refresh(seasonal: number = WILDFLOWERS.seasonChunks): void {
     const w = this.world;
+    const want = seasonDensity();
     // Not the tree material: small plants never dither see-through like trees near the camera.
     const mat = stylisedMaterial();
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
     for (const c of this.chunks) {
       if (!c.list.length) continue;
+      // A chunk never built takes the season at once; the rest wait their turn.
+      const turning = c.season !== want && (c.season < 0 || seasonal > 0);
+      const dens = turning ? want : c.season;
       let key = '';
       const show: Bloom[] = [];
       for (const b of c.list) {
         const i = b.cell;
-        const vis = w.occ[i] === 0 && !w.path[i] && w.wear[i] <= 0.3 && w.soil[i] <= 0.05 && w.isLandCell(i) && !w.blocked(i);
+        const vis = b.hard < dens && w.occ[i] === 0 && !w.path[i] && w.wear[i] <= 0.3 && w.soil[i] <= 0.05 && w.isLandCell(i) && !w.blocked(i);
         key += vis ? '1' : '0';
         if (vis) show.push(b);
       }
+      c.season = dens;
       if (key === c.key) continue;
+      if (turning) seasonal--;
       c.key = key;
       if (c.mesh) {
         this.group.remove(c.mesh);

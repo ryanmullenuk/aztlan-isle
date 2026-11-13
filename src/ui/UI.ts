@@ -1,3 +1,4 @@
+import { AZ_CORNERS } from './aztecKit';
 import { STAGES, TITLES } from '../economy/Progression';
 import { HOUSE_STYLES, isHouseStyle, type HouseStyle } from '../buildings/models';
 import { buildingOperational } from '../buildings/BuildingCondition';
@@ -131,6 +132,9 @@ const setLabel = (b: HTMLButtonElement, text: string) => {
   if (l && l.textContent !== text) l.textContent = text;
 };
 
+/** Remembers whether the top-right buttons are tucked away under the menu button. */
+const TR_FOLD_KEY = 'aztlan.trFolded';
+
 export class UI {
   private root = document.getElementById('hud')!;
   private tl!: HTMLDivElement;
@@ -143,6 +147,8 @@ export class UI {
   /** The resource strip along the top: wood, stone, food, people and happiness at a glance. */
   private stripEls: Record<string, HTMLSpanElement> = {};
   private resStrip!: HTMLDivElement;
+  private alertBadge!: HTMLSpanElement;
+  private trMenu!: HTMLButtonElement;
   private timeEl!: HTMLDivElement;
   private perfEl!: HTMLDivElement;
   private dateEl!: HTMLDivElement;
@@ -194,6 +200,7 @@ export class UI {
     { tut: 'blessings', next: true, title: 'Power', text: '<b>Power (6)</b> holds your god powers, paid for in Belief (the bar under the toolbar): bless the crops, bring rain, and calm storms and the volcano.', done: () => this.tutNext },
     // The buttons in the top right, top to bottom.
     { tut: 'speed', next: true, title: 'Time and speed', text: 'Beside the clock, <b>pause</b> stops time and the arrows play it at 1×, 2× or 3× speed. Space pauses too.', done: () => this.tutNext },
+    { tut: 'menu', next: true, title: 'The menu button', text: 'The <b>☰</b> button at the top right tucks the buttons below it away for a clearer view, and brings them back. Tucked away, it shows how many alerts are waiting.', done: () => this.tutNext },
     { tut: 'settings', next: true, title: 'Settings', text: 'The <b>gear</b> opens Settings: sound, graphics, which pop-ups you see, saving and copying your island, and starting a new one. The <b>?</b> beside it opens How to play.', done: () => this.tutNext },
     { tut: 'camera', next: true, title: 'Photo Mode', text: 'The <b>camera</b> opens Photo Mode: frame a picture of your island and save it. Every day a picture is kept, to play back as a time-lapse of your village growing.', done: () => this.tutNext },
     { tut: 'views', next: true, title: 'Views', text: 'The <b>eye</b> opens your views: <b>Hide interface</b> leaves just the island (V brings it back), <b>Island view</b> lifts the camera over the whole map (O), <b>Explore</b> walks among your people at eye level, and <b>Wildlife</b> follows the island\u2019s creatures like a nature film.', done: () => this.tutNext },
@@ -215,7 +222,7 @@ export class UI {
     this.buildTopRight();
     this.buildBottom();
     this.buildMenuPanel();
-    this.info = el('div', 'panel info hidden');
+    this.info = el('div', 'panel info az-plate hidden');
     this.root.appendChild(this.info);
     this.toasts = el('div', 'toasts');
     this.root.appendChild(this.toasts);
@@ -516,8 +523,31 @@ export class UI {
     help.title = 'How to play';
     help.setAttribute('aria-label', 'How to play');
     help.onclick = () => this.toggle(this.help, true);
+    this.alertBadge = el('span', 'ib-badge hidden');
+    this.alertBadge.setAttribute('aria-hidden', 'true');
+    this.alertButton.appendChild(this.alertBadge);
     views.append(camera, eye, help, this.alertButton);
-    tr.append(gear, views);
+    // The menu button folds the column away (and back), remembered between visits. Folded, it
+    // carries the alert count instead.
+    const menu = this.trMenu = el('button', 'ib tr-menu', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 7h14M5 12h14M5 17h14"/></svg><span class="ib-badge hidden" aria-hidden="true"></span>') as HTMLButtonElement;
+    menu.dataset.tut = 'menu';
+    const fold = (on: boolean) => {
+      tr.classList.toggle('folded', on);
+      menu.setAttribute('aria-expanded', String(!on));
+      menu.setAttribute('aria-label', on ? 'Show the menu buttons' : 'Hide the menu buttons');
+      menu.title = on ? 'Show settings, photo, views, help and alerts' : 'Tuck the menu buttons away';
+    };
+    let folded = false;
+    try { folded = localStorage.getItem(TR_FOLD_KEY) === '1'; } catch { /* ignore */ }
+    fold(folded);
+    menu.onclick = () => {
+      const on = !tr.classList.contains('folded');
+      fold(on);
+      if (on) this.closePopups();
+      try { localStorage.setItem(TR_FOLD_KEY, on ? '1' : '0'); } catch { /* ignore */ }
+      this.game.audio?.sfx('click');
+    };
+    tr.append(menu, gear, views);
     this.root.appendChild(tr);
     // The eye's menu: every way of looking at the island.
     this.viewPop = el('div', 'panel popup terrain-pop view-pop hidden');
@@ -755,7 +785,8 @@ export class UI {
   }
 
   private buildMenuPanel(): void {
-    this.buildMenu = el('div', 'panel buildmenu hidden');
+    this.buildMenu = el('div', 'panel buildmenu az-plate hidden');
+    this.buildMenu.insertAdjacentHTML('afterbegin', AZ_CORNERS);
     const head = el('div', 'bm-head', `<span class="bm-title">${ICONS.build}<span>Build</span></span>`);
     const x = el('button', 'ib small', ICONS.close);
     x.onclick = () => this.game.setTool('select');
@@ -825,10 +856,6 @@ export class UI {
     DECOR_KEYS.forEach(buildItem);
     this.buildMenu.appendChild(grid);
     this.root.appendChild(this.buildMenu);
-    // Drop the bottom fade once scrolled to the end (or when everything fits).
-    const edge = () => grid.classList.toggle('end', grid.scrollTop + grid.clientHeight >= grid.scrollHeight - 4);
-    grid.addEventListener('scroll', edge, { passive: true });
-    new ResizeObserver(edge).observe(grid);
   }
 
   private picturesLoading = false;
@@ -846,8 +873,11 @@ export class UI {
       if (!item || this.buildMenu.classList.contains('hidden')) { this.picturesLoading = false; return; }
       const [key, b] = item;
       b.dataset.pic = '1';
-      const url = this.game.buildingPicture(key);
-      if (url) b.querySelector('.bm-pic')!.innerHTML = `<img alt="" src="${url}">`;
+      // One that cannot be drawn keeps its icon; the rest still load.
+      try {
+        const url = this.game.buildingPicture(key), pic = b.querySelector('.bm-pic');
+        if (url && pic) pic.innerHTML = `<img alt="" src="${url}">`;
+      } catch { /* keep the icon */ }
       requestAnimationFrame(next);
     };
     requestAnimationFrame(next);
@@ -934,7 +964,7 @@ export class UI {
     this.settings.setAttribute('aria-modal', 'true');
     this.settings.setAttribute('aria-labelledby', 'settings-title');
     const s = this.game.settings;
-    const card = el('div', 'settings-card', settingsMarkup());
+    const card = el('div', 'settings-card az-plate', settingsMarkup());
     wireSettingsTabs(card);
     for (const action of ['close', 'return']) card.querySelector<HTMLButtonElement>(`[data-a="${action}"]`)!.onclick = () => this.toggle(this.settings, false);
     card.addEventListener('keydown', e => {
@@ -1082,7 +1112,7 @@ export class UI {
 
   private buildHelp(): void {
     this.help = el('div', 'modal hidden');
-    const card = el('div', 'panel card help');
+    const card = el('div', 'panel card help az-plate');
     card.innerHTML = `
       <div class="card-head"><span>How to play</span></div>
       <p>Guide your Aztec tribe as they settle the island. Keep them fed, housed and happy: happy islanders and praying priests fill purple <b>Belief</b> bubbles over their homes and temples. Tap a bubble to collect it; Belief pays for your god powers. Grow from a camp into the Capital of the Isle.</p>
@@ -1197,7 +1227,11 @@ export class UI {
     this.tutNext = false;
     // Light up the button this step is about.
     this.root.querySelectorAll('.tut-glow').forEach((e) => e.classList.remove('tut-glow'));
-    if (s?.tut) this.root.querySelector(`[data-tut="${s.tut}"]`)?.classList.add('tut-glow');
+    if (s?.tut) {
+      const target = this.root.querySelector(`[data-tut="${s.tut}"]`);
+      if (target?.closest('.tr.folded') && s.tut !== 'menu') this.trMenu?.click();
+      target?.classList.add('tut-glow');
+    }
     if (!s) {
       this.tutorial.innerHTML = `<div class="tut-step">Tutorial complete</div><div class="tut-title">The island is yours</div><p>Keep your people fed and housed and follow the village's progress. Next, build an Observatory to forecast storms and eruptions and research new buildings, raise a Temple for Belief, and work towards the Great Pyramid and the Tlatoani's Palace.</p><div class="tut-actions"><button class="btn small" data-a="ok">Let's go</button></div>`;
       this.tutorial.querySelector<HTMLButtonElement>('[data-a="ok"]')!.onclick = () => this.endTutorial();
@@ -1295,7 +1329,7 @@ export class UI {
       };
       return `<div class="trow"><span class="tgive">${goods(o.give)}</span><span class="tarrow">→</span><span class="tget">${goods(g.trade.haul(dock, o))}</span><span class="tbtns">${btn(1)}${btn(3)}</span></div>`;
     }).join('');
-    m.innerHTML = `<div class="panel card trade">
+    m.innerHTML = `<div class="panel card trade az-plate">
       <div class="card-head"><span>${ICONS.boat} Trade Dock market</span></div>
       <p class="muted small">Load a boat with spare goods and send it to trade. It sails over the horizon and returns with what you bargained for.</p>
       <div class="kv"><span>Boats</span><b>${status}</b></div>
@@ -1368,6 +1402,12 @@ export class UI {
 
   private renderAlerts(): void {
     this.alertButton.classList.toggle('unread', this.alerts.length > 0);
+    const count = this.alerts.length > 99 ? '99+' : String(this.alerts.length);
+    for (const b of [this.alertBadge, this.trMenu?.querySelector<HTMLElement>('.ib-badge')]) {
+      if (!b) continue;
+      b.textContent = count;
+      b.classList.toggle('hidden', !this.alerts.length);
+    }
     this.alertButton.setAttribute('aria-label', this.alerts.length ? `Alerts: ${this.alerts.length} active` : 'Alerts: none');
     this.alertPanel.replaceChildren();
     const heading = el('div', 'alert-heading', '<strong>Alerts</strong>');
@@ -1455,7 +1495,7 @@ export class UI {
     // milestones, events with a choice, and news or warnings about a place on the island.
     const split = splitMessage(text);
     if (kind === 'milestone') {
-      this.dialog.push({ icon: 'star', kicker: 'Milestone', title: split.title, body: split.body, important: true });
+      this.dialog.push({ icon: 'star', kicker: 'Milestone', title: split.title, body: split.body, important: true, art: 'sun' });
       return;
     }
     if (action?.label) {
@@ -1599,6 +1639,7 @@ export class UI {
       people: `${g.colony.list.length} / ${beds}`, happy: `${islandMood(g.colony.list, g.moodWorld()).score}%`,
     };
     for (const k in strip) if (this.stripEls[k].textContent !== strip[k]) this.stripEls[k].textContent = strip[k];
+    this.stripEls.people.parentElement?.classList.toggle('over', g.colony.list.length > beds);
     this.resEls.people.textContent = `${housed}/${g.colony.list.length}`;
     this.resEls.wood.textContent = `${fmt(e.res.wood)}`;
     this.resEls.stone.textContent = `${fmt(e.res.stone)}`;
@@ -1771,7 +1812,7 @@ export class UI {
         <p class="muted small">Tap a tree to collect wood, a rock to collect stone, or a workplace to assign the group.</p>
         <p class="muted small">Islanders manage food and rest automatically when not called to work.</p>
         <div class="actions"><button class="btn small" data-a="group-wood">Collect wood</button><button class="btn small" data-a="group-stone">Collect stone</button></div>
-        <div class="actions"><button class="btn small" data-a="group-auto">Return to automatic jobs</button></div>`;
+        <div class="actions"><button class="btn small" data-a="group-auto">Return to automatic jobs</button><button class="btn small ghost smite" data-a="group-smite" title="Strike them all dead">Smite all</button></div>`;
     } else if (isl) {
       const home = isl.home >= 0 ? g.buildings.byId(isl.home) : undefined;
       const role = isl.child ? 'Child' : isl.warrior ? (isl.warrior === 'jaguar' ? 'Jaguar warrior' : 'Eagle warrior') : ROLE_LABEL[isl.role];
@@ -1800,7 +1841,7 @@ export class UI {
         ${this.bar('Happiness', isl.happy, isl.happy > 0.6 ? 'good' : '')}
         ${(() => { const k = moodOf(isl, g.moodWorld()); return k ? `<div class="kv"><span>Feeling</span><b>${MOOD_LABEL[k]}</b></div>` : ''; })()}
         <div class="actions">
-          <button class="btn small" data-a="explore">Explore POV</button><button class="btn small" data-a="follow">${ICONS.follow} ${g.followId === isl.id ? 'Stop following' : 'Follow'}</button>
+          <button class="btn small" data-a="explore">Explore POV</button><button class="btn small" data-a="follow">${ICONS.follow} ${g.followId === isl.id ? 'Stop following' : 'Follow'}</button>${isl.npc ? '' : '<button class="btn small ghost smite" data-a="smite" title="Strike this islander dead">Smite</button>'}
           ${isl.manualRole ? '<button class="btn small" data-a="auto">Auto job</button>' : ''}
         </div>
         ${isl.child ? '' : '<p class="muted small">Tip: click a building, tree, rock or fruit bush to give them that job.</p>'}`;
@@ -2066,6 +2107,10 @@ export class UI {
       g.collectWithSelectedGroup(a === 'group-wood' ? 'wood' : 'stone');
       return;
     }
+    if (a === 'group-smite') {
+      g.smiteAll([...g.selectedIslanders].map((id) => g.colony.byId(id)).filter((p): p is Islander => !!p));
+      return;
+    }
     if (a === 'group-auto') {
       for (const id of g.selectedIslanders) {
         const person = g.colony.byId(id);
@@ -2082,6 +2127,7 @@ export class UI {
       if (!isl) return;
       if (a === 'explore') g.toggleExplore();
       if (a === 'follow') g.follow(g.followId === isl.id ? -1 : isl.id);
+      if (a === 'smite') g.smite(isl);
       if (a === 'grant-wedding') {
         g.weddings?.grant();
         g.audio?.sfx('click');
@@ -2367,6 +2413,7 @@ export class UI {
       : '';
     this.dialog.push({
       icon: 'home', kicker: `You were away ${away}`, title: `Welcome back to ${this.game.islandName}`, html: true,
+      art: 'island',
       body: (list ? `<p>Your islanders kept busy while you were gone:</p><div class="wb-gains">${list}</div>` : '<p>Your islanders have been waiting for you. All is well on the island.</p>') + goal,
       actions: [{ label: 'Back to the island', primary: true }], important: true,
     });
@@ -2383,7 +2430,7 @@ export class UI {
       return `<span class="dc-day${d < cur ? ' done' : d === cur ? ' today' : ''}"><small>Day ${d}${d === DAILY_PEARLS.length ? '+' : ''}</small>${icon('pearls')}<b>${n}</b></span>`;
     }).join('');
     this.dialog.push({
-      icon: 'star', kicker: day > 1 ? `${day} days in a row` : 'A gift from the sea', title: 'Daily chest', html: true, always: true,
+      icon: 'star', kicker: day > 1 ? `${day} days in a row` : 'A gift from the sea', title: 'Daily chest', html: true, always: true, art: 'chest',
       body: `<div class="dc-week">${week}</div><p>Open a chest every day to keep your streak going: the pearls grow each day. Spend them to finish a build straight away, or trade them on a voyage.</p>`,
       actions: [{ label: `Open · ${pearls} pearl${pearls === 1 ? '' : 's'}`, primary: true, run: claim }],
     });

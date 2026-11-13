@@ -9,6 +9,7 @@ import { Islander } from './Islander';
 import { FLARE, FOLDED, GULL_WING, TOUCAN_WING, WingPose, WingSpec, flapPose, mixPose, pose, trimPose, wingMatrices, wingParts } from './birdWings';
 import { QuadMeshes } from './quadRig';
 import { TUCKED, foldedWings } from './birdForms';
+import { CreatureAsset, CreatureRig, creatureNow, loadCreature } from './creatureAssets';
 
 type V3 = [number, number, number];
 
@@ -98,6 +99,8 @@ interface Toucan {
   flickT: number;
   prev: 'perch' | 'hop' | 'fly';
   seed: number;
+  /** Seconds left holding the wings open after landing (model rig only). */
+  openT: number;
 }
 
 const WHITE = new THREE.Color(1, 1, 1);
@@ -367,11 +370,23 @@ const GULL_FLARE_DIST = 1.5;
 const GULL_LEGS_DIST = 2.6;
 /** Toucan bounding flight: flaps per burst cycle gate and the tail spring (stiffness, damping). */
 const TOUCAN_TAIL_SPRING = { k: 120, c: 13 };
+/**
+ * The artist's models: nose-to-tail lengths matching the procedural birds (gull 0.30 body units x
+ * GS, toucan 0.33 x TS), and how far from the camera a bird is still animated (beyond, or off
+ * screen, its rig is hidden and paused).
+ */
+const GULL_LEN = 0.37;
+const PARROT_LEN = 0.43;
+const RIG_DIST = 70;
+/** A flying gull's position is its body centre; the model's origin is at its feet. */
+const GULL_HANG = 0.06;
 
 /**
  * Gulls in loose boids flocks around the coast (they land on rocks and beaches, and react to the
  * pointer with a graduated, staggered response before regrouping) and toucans hopping between
- * jungle treetops on curved flight paths.
+ * jungle treetops on curved flight paths. Both are drawn procedurally until the artist's gull and
+ * parrot models load, then as skinned rigs (the parrot taking the toucans' place) for the birds
+ * near the camera and on screen.
  */
 export class Birds {
   readonly group = new THREE.Group();
@@ -386,6 +401,9 @@ export class Birds {
   private arng: RNG;
   private time = 0;
   private meshes = new QuadMeshes();
+  /** Model rigs per gull / parrot (made when first seen once the model has loaded). */
+  private gullRigs: (CreatureRig | null)[] = [];
+  private parrotRigs: (CreatureRig | null)[] = [];
   /** Called when birds burst into flight (for the flap sound). */
   onScatter: (x: number, z: number) => void = () => {};
 
@@ -419,6 +437,11 @@ export class Birds {
     ms.add('tLegL', legSeg(TOU.legL, 0.0042, 0.0038, 0x5a6a92), T * 2);
     ms.add('tFoot', perchFoot(0.018, 0.003, 0x4e5e84), T * 2);
     this.group.add(ms.group);
+    // The artist's gull and parrot replace the procedural birds once loaded (never in tests).
+    if (typeof document !== 'undefined') {
+      loadCreature('gull').catch(() => undefined);
+      loadCreature('parrot').catch(() => undefined);
+    }
   }
 
   private spawn(): void {
@@ -453,7 +476,7 @@ export class Birds {
       const p = this.perches[Math.floor(this.rng.next() * this.perches.length)];
       this.toucans.push({
         x: p.x, y: p.y, z: p.z, heading: this.rng.range(0, 6.28), state: 'perch', timer: 3 + this.rng.next() * 10, look: 0, lookT: 0, from: p.clone(), to: p.clone(), ctrl: p.clone(), t: 0, dur: 1, flap: 0, fold: 1,
-        vy: 0, bank: 0, pitch: -0.35, wph: 0, amp: 0, flare: 0, tuck: 0, tail: -0.15, tailV: 0, headYaw: 0, bodyYaw: 0, toss: 0, flickT: 2 + k, prev: 'perch', seed: k * 1.7,
+        vy: 0, bank: 0, pitch: -0.35, wph: 0, amp: 0, flare: 0, tuck: 0, tail: -0.15, tailV: 0, headYaw: 0, bodyYaw: 0, toss: 0, flickT: 2 + k, prev: 'perch', seed: k * 1.7, openT: 0,
       });
     }
   }
@@ -748,7 +771,9 @@ export class Birds {
   private draw(dt: number): void {
     this.meshes.begin();
     const k = Math.min(1, dt * 6);
-    for (const g of this.gulls) {
+    const gullA = creatureNow('gull'), parrotA = creatureNow('parrot');
+    for (let i = 0; i < this.gulls.length; i++) {
+      const g = this.gulls[i];
       // Wingbeat timing runs for every gull (the scatter call is keyed to it), posing only on screen.
       const panic = g.state === 'takeoff' || g.fear > 0.4;
       const burst = Math.sin(this.time * 0.45 + g.speedMul * 23) > 0.35 || g.vy > 0.6;
@@ -756,10 +781,98 @@ export class Birds {
       g.amp += (ampT - g.amp) * k;
       g.flap += dt * (panic ? 17 : g.state === 'land' ? 6 + g.flare * 8 : 7);
       g.fold += ((g.state === 'ground' ? 1 : 0) - g.fold) * Math.min(1, dt * (g.state === 'ground' ? 4 : 12));
-      if (View.sees(g.x, g.y, g.z, 0.5)) this.drawGull(g, dt, panic);
+      const seen = View.sees(g.x, g.y, g.z, 0.5);
+      if (gullA) this.drawGullRig(g, i, gullA, dt, panic, seen);
+      else if (seen) this.drawGull(g, dt, panic);
     }
-    for (const b of this.toucans) if (View.sees(b.x, b.y, b.z, 0.5)) this.drawToucan(b, dt);
+    for (let i = 0; i < this.toucans.length; i++) {
+      const b = this.toucans[i];
+      const seen = View.sees(b.x, b.y, b.z, 0.5);
+      if (parrotA) this.drawParrotRig(b, i, parrotA, dt, seen);
+      else if (seen) this.drawToucan(b, dt);
+    }
     this.meshes.end();
+  }
+
+  /** A bird's rig if it should be drawn this frame (made on first use), else null with any rig hidden. */
+  private rig(list: (CreatureRig | null)[], i: number, asset: CreatureAsset, len: number, x: number, y: number, z: number, seen: boolean): CreatureRig | null {
+    let r = list[i] ?? null;
+    if (!seen || View.dist2(x, y, z) > RIG_DIST * RIG_DIST) {
+      if (r) r.root.visible = false;
+      return null;
+    }
+    if (!r) {
+      r = list[i] = new CreatureRig(asset, len);
+      this.group.add(r.root);
+    }
+    r.root.visible = true;
+    return r;
+  }
+
+  /**
+   * The gull model: Fly in the air (slowed right down in glides, quickest when frightened or taking
+   * off, braking beats when landing), Walk while it potters about on the ground, Idle otherwise.
+   */
+  private drawGullRig(g: Gull, i: number, asset: CreatureAsset, dt: number, panic: boolean, seen: boolean): void {
+    const onGround = g.state === 'ground';
+    const landing = g.state === 'land';
+    const dl = landing ? Math.hypot(g.lx - g.x, g.ly - g.y, g.lz - g.z) : Infinity;
+    const kt = Math.min(1, dt * 6);
+    g.flare += ((landing ? smooth(1 - (dl - 0.15) / GULL_FLARE_DIST) : 0) - g.flare) * kt;
+    const walking = onGround && g.act === 1;
+    const pitchT = onGround ? 0 : THREE.MathUtils.clamp(-g.vy * 0.05, -0.35, 0.35) - g.flare * 0.35;
+    g.pitch += (pitchT - g.pitch) * Math.min(1, dt * 5);
+    const y = onGround ? g.ly : landing || g.state === 'takeoff' ? Math.max(g.y - GULL_HANG, g.ly) : g.y - GULL_HANG;
+    const r = this.rig(this.gullRigs, i, asset, GULL_LEN, g.x, y, g.z, seen);
+    if (!r) return;
+    if (onGround) {
+      if (walking) r.play('Walk', 0.2, GULL_WALK.steps * 0.9);
+      else r.play('Idle', 0.3);
+    } else {
+      r.play('Fly', 0.25);
+      r.setSpeed(panic ? 1 : landing ? 0.45 + 0.4 * g.flare : 0.2 + 0.5 * clamp01(g.amp * 2));
+    }
+    const bank = onGround ? 0 : g.bank * (1 - g.flare * 0.7);
+    r.root.position.set(g.x, y, g.z);
+    r.root.rotation.set(g.pitch, g.heading, bank, 'YXZ');
+    r.update(dt);
+  }
+
+  /**
+   * The parrot model (in the toucans' place, with all their behaviour): folded-wing Idle on a
+   * perch, open wings for a moment on take-off, landing and after touching down, an open-winged
+   * Walk for a hop along the branch, and Fly between trees (slower through the glides of its
+   * bounding flight).
+   */
+  private drawParrotRig(b: Toucan, i: number, asset: CreatureAsset, dt: number, seen: boolean): void {
+    const flying = b.state === 'fly';
+    const hop = b.state === 'hop';
+    if (b.state !== b.prev) {
+      if (b.prev === 'fly') b.openT = 0.6;
+      b.prev = b.state;
+    }
+    b.openT = Math.max(0, b.openT - dt);
+    const kt = Math.min(1, dt * 8);
+    const launch = flying ? clamp01(1 - b.t / 0.14) : 0;
+    b.flare += ((flying ? smooth((b.t - 0.8) / 0.2) : 0) - b.flare) * kt;
+    const bursting = Math.sin(b.flap * 2.4) > -0.35;
+    const ampT = !flying ? 0 : launch > 0 ? 1 : b.flare > 0.2 ? 0.55 : bursting ? 0.85 : 0.04;
+    b.amp += (ampT - b.amp) * Math.min(1, dt * 7);
+    const pitchT = flying ? THREE.MathUtils.clamp(-b.vy * 0.07, -0.35, 0.35) - b.flare * 0.3 : 0;
+    b.pitch += (pitchT - b.pitch) * Math.min(1, dt * 6);
+    b.bodyYaw += ((flying ? 0 : b.look * 0.5) - b.bodyYaw) * Math.min(1, dt * 3);
+    const r = this.rig(this.parrotRigs, i, asset, PARROT_LEN, b.x, b.y, b.z, seen);
+    if (!r) return;
+    if (hop) r.play('Walk (open wings)', 0.1);
+    else if (!flying) r.play(b.openT > 0 ? 'Idle (open wings)' : 'Idle (folded wings)', 0.3);
+    else if (launch > 0.5 || b.flare > 0.4) r.play('Idle (open wings)', 0.15);
+    else {
+      r.play('Fly', 0.2);
+      r.setSpeed(0.35 + 0.9 * b.amp);
+    }
+    r.root.position.set(b.x, b.y, b.z);
+    r.root.rotation.set(b.pitch, b.heading + b.bodyYaw, b.bank, 'YXZ');
+    r.update(dt);
   }
 
   private drawGull(g: Gull, dt: number, panic: boolean): void {

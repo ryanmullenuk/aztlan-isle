@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { buildShoreField, SHORE_SURF_GLSL } from './Shoreline';
+import { IslandReflection, reflectionModeFor, type ReflectionMode } from './Reflection';
 import { COLORS, WORLD } from '../config';
 import { World } from '../world/World';
 import { GeoBuilder, M, P, lumpy } from '../render/GeoBuilder';
@@ -60,6 +61,16 @@ const waterFrag = /* glsl */ `
   /** 1 for the sea: surf rolls in and washes up the beaches (the plane sits SEA_SURFACE above 0). */
   uniform float uSwash;
   uniform float uSurface;
+  /**
+   * The island mirrored in the sea (high and ultra): the scene drawn from a camera reflected in the
+   * water plane, looked up through the matrix it was drawn with. Alpha marks where something stood
+   * to be mirrored. uReflectK = 0 switches it off.
+   */
+  uniform sampler2D uReflect;
+  uniform mat4 uReflectMat;
+  uniform float uReflectK;
+  /** 1 = the cheap stand-in (medium): a dark mirror of the land guessed from the height map, close inshore only. */
+  uniform float uMirror;
   /** Wind strength patch at this pixel (set by waves()). */
   float gWind;
   /** Slope variance of the waves too small to see at this pixel (set by waves()): the sea's roughness for the sun's glitter. */
@@ -277,11 +288,11 @@ const waterFrag = /* glsl */ `
     float edgeFade = 1.0 - smoothstep(0.0, 6.0, edgeIn);
     // Surf only close in, and broken along the coast into stretches that come and go (never a
     // continuous line tracing the shore).
-    float surfPatch = smoothstep(0.32, 0.68, vnoise(p * 0.21 + vec2(t * 0.03, -t * 0.02)) * 0.7 + vnoise(p * 0.6 - vec2(0.0, t * 0.05)) * 0.3);
-    float surfZone = (1.0 - smoothstep(1.4, 3.4 + 0.5 * along, sd)) * inMap * uSwash * surfPatch * mix(0.18, 1.0, exposure) * stormSurf;
+    float surfPatch = smoothstep(0.08, 0.42, vnoise(p * 0.21 + vec2(t * 0.03, -t * 0.02)) * 0.7 + vnoise(p * 0.6 - vec2(0.0, t * 0.05)) * 0.3);
+    float surfZone = (1.0 - smoothstep(3.0, 7.5 + 1.0 * along, sd)) * inMap * uSwash * surfPatch * mix(0.45, 1.0, exposure) * stormSurf;
     float fSw = fract(surfP / TAU);
     float runup = shorePulse(fSw);
-    float reach = mix(0.015, uSurface, mix(0.2, 1.0, exposure)) * setK * mix(0.45, 1.0, beachK);
+    float reach = mix(0.03, uSurface, mix(0.5, 1.0, exposure)) * setK * mix(0.6, 1.0, beachK);
     reach = min(uSurface, reach * stormSurf);
     float level = mix(vW.y, -0.03 + (reach + 0.03) * runup, uSwash * inside);
     float wet = 0.0;
@@ -289,6 +300,11 @@ const waterFrag = /* glsl */ `
       // Above the water line: sand the last wave reached stays dark and glossy for a moment.
       // The previous crest reached this strip; drying continues through the whole retreat.
       wet = (1.0 - smoothstep(reach - 0.012, reach, bed)) * mix(exp(-(fSw + 0.72) * 2.6), 1.0, smoothstep(0.04, 0.18, fSw)) * exp(-max(fSw - 0.28, 0.0) * 2.6) * beachK * inMap;
+      // It dries from the top of the reach down, and in ragged patches rather than as one even fade:
+      // fully dark and glossy just behind the retreating water, breaking up as it goes.
+      float dryN = vnoise(p * 3.1 + 1.7) * 0.65 + vnoise(p * 8.3 + 5.0) * 0.35;
+      float upSand = clamp((bed - level) / max(reach + 0.03, 0.01), 0.0, 1.0);
+      wet = clamp(wet * (1.3 - 0.45 * upSand) - dryN * 0.42 * (1.0 - wet), 0.0, 1.0);
       if (wet < 0.02) discard;
     }
     float depth = max(level - bed, 0.0) + uDeepen;
@@ -300,14 +316,41 @@ const waterFrag = /* glsl */ `
     // Far away the surface settles into a smooth sheen; glassy in very shallow water.
     float gK = mix(1.0, 0.5, smoothstep(0.15, 0.8, fw)) * mix(0.3, 1.0, smoothstep(0.05, 0.9, depth));
     grad *= gK;
-    float spacing = 3.1 * (0.8 + 0.4 * vnoise(p * 0.09 + 5.5));
+    float spacing = 2.3 * (0.8 + 0.4 * vnoise(p * 0.09 + 5.5));
     float shorePhase = sd * spacing + surfP - TAU * 0.18 + sin(sd * 0.7) * 0.28;
     // Negative phase velocity moves crests down the distance field towards the local shore.
-    float crestWidth = clamp(fw * spacing * 0.5, 0.13, 0.75);
+    float crestWidth = clamp(fw * spacing * 0.5, 0.24, 0.75);
     float crestBand = 1.0 - smoothstep(crestWidth, crestWidth * 2.2, abs(sin(shorePhase * 0.5))) * min(1.0, 0.3 / crestWidth);
     float line = crestBand * surfZone * setK;
-    float breaking = (1.0 - smoothstep(0.3, 2.2, sd)) * mix(0.55, 1.0, beachK);
-    grad += outward * sin(shorePhase) * surfZone * setK * 0.12;
+    float breaking = (1.0 - smoothstep(0.5, 3.4, sd)) * mix(0.6, 1.0, beachK);
+    // ---- Breakers ----
+    // Each surf wave is followed through its life by where its crest stands (metres from the shore):
+    // a low hump far out, rising and steepening with a darker face as it shoals, its lip tipping
+    // over into white water that tumbles down and ahead of the face, and a lace of foam left behind.
+    // (Shading only: the sea is one flat sheet, and boats ride the swells, not the surf.)
+    float wK = surfZone * setK;
+    float lamS = TAU / spacing;
+    // wu: place in the wave (0 on the crest, negative down the face in front, positive on its back);
+    // xu: the same in widths of the face or the back; pr: how far through breaking (0 unbroken, 1 spent).
+    float wu = 0.0, xu = 0.0, pr = 0.0, rise = 0.0, steep = 0.0, detailK = 0.0;
+    if (wK > 0.004) {
+      wu = fract(shorePhase / TAU + 0.5) - 0.5;
+      float sdc = max(sd - wu * lamS, 0.0);
+      // Where it breaks wanders along the coast, so a wave peels along the beach instead of going over all at once.
+      float breakAt = (2.2 + 1.3 * vnoise(p * 0.3 + vec2(1.3, t * 0.04))) * mix(0.7, 1.0, beachK);
+      rise = 1.0 - smoothstep(breakAt + 0.5, breakAt + 3.8, sdc);
+      pr = 1.0 - smoothstep(0.3, breakAt, sdc);
+      steep = rise * (1.0 - 0.7 * smoothstep(0.5, 1.0, pr));
+      // The face narrows as the wave steepens; the back stays long and gentle.
+      float wf = mix(0.17, 0.065, steep);
+      float wside = wu < 0.0 ? wf : 0.24;
+      xu = wu / wside;
+      // Nothing of one wave reaches the next; and where a pixel covers much of a wave, the plain crest line takes over.
+      detailK = (1.0 - smoothstep(0.36, 0.48, abs(wu))) * (1.0 - smoothstep(0.1, 0.3, fw / lamS));
+      float hump = exp(-xu * xu) * rise * (1.0 - 0.55 * smoothstep(0.6, 1.0, pr));
+      grad += outward * (-2.0 * xu / wside * hump / lamS) * 0.1 * wK * detailK;
+    }
+    grad += outward * sin(shorePhase) * wK * 0.26 * (1.0 - detailK);
 
     // Disturbances (a whale coming up, a big splash): rings of waves spreading out from each, and
     // churned white water at its heart while it's fresh.
@@ -356,6 +399,7 @@ const waterFrag = /* glsl */ `
     vec3 ns = normalize(vec3(-gradS.x, 1.0, -gradS.y));
     vec3 V = normalize(cameraPosition - vW);
     vec3 L = normalize(uSunDir);
+    float camD = length(cameraPosition - vW);
     float crest = h0 / max(ampSum, 1e-3);
 
     // Body colour by depth: bright turquoise shallows -> teal -> deep navy. Colour uses a wide blur of
@@ -387,7 +431,7 @@ const waterFrag = /* glsl */ `
     // The swells read as long, soft bands: crests catch a little more light, troughs sit darker
     // (strongest at middle distances; close up the ripples take over, far off it all evens out).
     float swellK = smoothstep(1.5, 5.0, depth) * (1.0 - smoothstep(0.35, 1.3, fw)) * uSwash;
-    lit *= 1.0 + 0.08 * clamp(crest, -1.0, 1.0) * swellK;
+    lit *= 1.0 + 0.13 * clamp(crest, -1.0, 1.0) * swellK;
     // Gentle light through the swell tops (every pow() base is clamped to 0..1: pow of a tiny negative
     // rounding error is NaN on some GPUs, and one NaN pixel turns the whole frame black once bloom spreads it).
     float back = pow(clamp(dot(-V, L) * 0.5 + 0.5, 0.0, 1.0), 3.0);
@@ -398,8 +442,8 @@ const waterFrag = /* glsl */ `
     vec2 cq = p * 0.9 + warpC(p, t);
     float caus = pow(clamp(1.0 - abs(vnoise(cq) * 2.0 - 1.0), 0.0, 1.0), 7.0) * 0.6
                + pow(clamp(1.0 - abs(vnoise(cq * 1.7 + 3.1) * 2.0 - 1.0), 0.0, 1.0), 7.0) * 0.4;
-    float causK = (1.0 - smoothstep(0.25, 1.9, cdepth)) * smoothstep(0.02, 0.2, depth) * (1.0 - smoothstep(0.08, 0.3, fw));
-    lit += vec3(0.85, 1.0, 0.95) * caus * causK * 0.16 * uDay * (1.0 - uStorm * 0.7);
+    float causK = (1.0 - smoothstep(0.4, 2.8, cdepth)) * smoothstep(0.02, 0.2, depth) * (1.0 - smoothstep(0.12, 0.45, fw));
+    lit += vec3(0.85, 1.0, 0.95) * caus * causK * 0.34 * uDay * (1.0 - uStorm * 0.7);
 
     // Sky reflection (Fresnel), kept soft so the water keeps its colour.
     vec3 R = reflect(-V, n);
@@ -415,13 +459,53 @@ const waterFrag = /* glsl */ `
     F = clamp(F * 1.2 + 0.02, 0.0, 0.6);
     lit = mix(lit, skyR, F);
 
+    // The island in the water. Looking straight down nothing but sky is mirrored.
+    float steepK = 1.0 - smoothstep(0.86, 0.985, V.y);
+    vec3 mirrorCol = skyR;
+    vec3 reflGlow = vec3(0.0);
+    float reflA = 0.0;
+    if (uReflectK > 0.001) {
+      // The mirrored picture, pushed about by the waves' slope (less with distance) and smeared a
+      // little along the reflected ray, as ripples do.
+      vec4 rc = uReflectMat * vec4(vW, 1.0);
+      vec2 ruv = rc.xy / max(rc.w, 1e-3) + clamp(grad, -0.6, 0.6) * vec2(0.6, 1.0) * (0.5 / max(camD * 0.1, 1.0));
+      vec4 rf = mix(texture2D(uReflect, clamp(ruv, 0.0, 1.0)), texture2D(uReflect, clamp(ruv + vec2(0.0, 0.008), 0.0, 1.0)), 0.4);
+      // (Bounded: one wild value here would spread through the bloom.)
+      rf = min(max(rf, vec4(0.0)), vec4(6.0, 6.0, 6.0, 1.0));
+      vec2 re = smoothstep(vec2(0.0), vec2(0.03), ruv) * (1.0 - smoothstep(vec2(0.97), vec2(1.0), ruv));
+      rf *= re.x * re.y;
+      // Far stronger than a real sea seen from this high would show, and glassier in the calms.
+      float rk = uReflectK * steepK * clamp(0.34 + F * 1.4, 0.0, 0.75) * (1.0 - 0.35 * gWind);
+      lit = lit * (1.0 - rk * rf.a) + rf.rgb * rk;
+      mirrorCol = mirrorCol * (1.0 - rf.a * uReflectK) + rf.rgb * uReflectK;
+      reflGlow = rf.rgb * rk;
+      reflA = rk * rf.a * 0.85;
+    }
+    if (uMirror > 0.5 && uSwash > 0.5 && inside > 0.5 && sd < 4.5) {
+      // The cheap stand-in: follow the reflected ray over the height map for a few steps; where it
+      // meets land (taken to carry a couple of metres of trees or roofs above the beach), the water
+      // takes a dark green mirror of it. Only close inshore, on the side of the coast facing the view.
+      vec2 hv = -V.xz;
+      float hl = max(length(hv), 1e-3);
+      float climb = V.y / hl;
+      float m = 0.0;
+      for (int k = 0; k < 3; k++) {
+        float dd = 0.8 + float(k) * 1.1;
+        float hgt = textureLod(uHeight, clamp(uv + (hv / hl * dd + clamp(grad, -0.6, 0.6) * 1.2) / uWorld, 0.0, 1.0), 0.0).r;
+        float top = hgt + 2.2 * smoothstep(0.3, 0.8, hgt);
+        m = max(m, smoothstep(0.0, 0.7, top - dd * climb) * step(0.05, hgt));
+      }
+      m *= steepK * (1.0 - smoothstep(3.0, 4.5, sd));
+      lit = mix(lit, vec3(0.045, 0.1, 0.06) * dayK + lit * 0.25, m * 0.36);
+      reflA = m * 0.3;
+    }
+
     // Sun (or moon) on the water: glitter off a rough sea. The waves too small to draw at this distance
     // widen the reflection (their slope variance, gVar), so far off it spreads into a soft, dim path
     // and close up it tightens into bright glints: never a blown-out sheet, or rows of streaks.
     vec3 H = normalize(L + V + vec3(0.0, 1e-4, 0.0));
     float nh = clamp(dot(ns, H), 1e-3, 1.0);
     float nh2 = nh * nh;
-    float camD = length(cameraPosition - vW);
     float m2 = 0.003 + (gVar + gSwVar * gK * gK * 0.9) * 2.0 + 0.009 * smoothstep(30.0, 260.0, camD);
     float Dg = exp(-(1.0 - nh2) / (nh2 * m2)) / (3.14159 * m2 * nh2 * nh2);
     float Fh = 0.02 + 0.98 * pow(clamp(1.0 - dot(H, V), 0.0, 1.0), 5.0);
@@ -433,35 +517,74 @@ const waterFrag = /* glsl */ `
     float twinkle = pow(clamp(0.5 + 0.5 * sin(t * (0.7 + r1 * 0.9) + r1 * 40.0), 0.0, 1.0), 3.0);
     vec2 fc = fract(gp) - 0.5 - (vec2(hsh(cell + 11.3), hsh(cell + 5.9)) - 0.5) * 0.55;
     float dot1 = smoothstep(0.16, 0.0, length(fc));
-    float spark = step(0.86, hsh(cell + 9.1)) * twinkle * dot1 * min(Dg * 0.015, 1.0) * 3.0 * (1.0 - smoothstep(0.03, 0.08, fw));
+    float spark = step(0.76, hsh(cell + 9.1)) * twinkle * dot1 * min(Dg * 0.02, 1.0) * 3.6 * (1.0 - smoothstep(0.03, 0.08, fw));
     // At night the moon path is softened so the living light reads over it.
     float sunVis = (1.0 - uStorm * 0.85) * smoothstep(-0.02, 0.12, L.y) * (1.0 - 0.75 * (1.0 - smoothstep(0.28, 0.58, uDay)));
     lit += uSunCol * (glare * 0.9 + spark * 0.8) * uSunI * 0.3 * sunVis;
 
-    // Whitecaps only in storms.
+    // Whitecaps: thick in storms; in fair weather a few flecks where the wind ruffles the open water.
     float capN = vnoise(p * 1.7 + vec2(t * 0.25, -t * 0.15));
     float cap = smoothstep(0.5, 0.85, crest + (capN - 0.5) * 0.5) * smoothstep(2.5, 5.0, cdepth);
-    cap *= smoothstep(0.55, 0.85, vnoise(p * 3.4 - vec2(t * 0.5, t * 0.3))) * uStorm * 1.2;
+    cap *= smoothstep(0.55, 0.85, vnoise(p * 3.4 - vec2(t * 0.5, t * 0.3))) * (uStorm * 1.2 + gWind * 0.3 * (1.0 - uStorm));
     lit = mix(lit, cFoam * mix(0.3, 1.0, uDay), clamp(cap, 0.0, 1.0) * 0.85);
 
     // Shoreline: a white lip that follows the swash up and down the sand.
     float fn = vnoise(p * 1.1 + t * 0.12);
     // Thickest as a wave surges up the sand, thinning as it drains away.
     float surge = smoothstep(0.0, 0.12, fSw) * (1.0 - smoothstep(0.2, 0.55, fSw)) * setK * uSwash;
-    float shoreWidth = mix(0.05 + 0.06 * fn, 0.035 + 0.025 * fn + 0.055 * surge, uSwash);
-    float shore = (1.0 - smoothstep(0.0, shoreWidth, depth)) * mix(1.0, mix(0.2, 0.8, exposure) * beachK, uSwash);
-    // Rolling surf lines: a lighter hump out in the shallows that steepens and breaks into
-    // foam as it nears the beach.
-    // Wave spacing and height vary along the coast, and the crests break up into foam.
-
-    lit += vec3(0.1, 0.18, 0.18) * line * (1.0 - breaking) * dayK;
-    // The steep face in front of each wave sits in its own shadow.
-    float trough = pow(clamp(0.5 + 0.5 * sin(shorePhase + 1.1), 0.0, 1.0), 6.0) * surfZone * setK;
-    lit *= 1.0 - 0.09 * trough * (0.4 + breaking);
-    float surfFoam = line * mix(0.15, 1.0, breaking) * smoothstep(0.25, 0.6, vnoise(p * 3.1 + vec2(t * 0.4, -t * 0.25)) * 0.75 + vnoise(p * 0.9 - t * 0.1) * 0.25 + breaking * 0.25) * 0.95;
-    // The foam left behind as a wave drains back down the beach.
-    float backwash = (1.0 - smoothstep(0.0, 0.18, depth)) * smoothstep(0.3, 0.6, fSw) * (1.0 - smoothstep(0.6, 0.95, fSw)) * uSwash * exposure * beachK
-                   * smoothstep(0.45, 0.75, vnoise(p * 4.5 + vec2(0.0, t * 0.3)));
+    float shoreWidth = mix(0.05 + 0.06 * fn, 0.05 + 0.035 * fn + 0.11 * surge, uSwash);
+    float shore = (1.0 - smoothstep(0.0, shoreWidth, depth)) * mix(1.0, mix(0.45, 1.0, exposure) * beachK, uSwash);
+    // Breakers, shaded (see "Breakers" above for wu, xu, pr).
+    float surfFoam = 0.0, foamTone = 1.0;
+    if (wK > 0.004) {
+      float front = step(wu, 0.0);
+      float dK = wK * detailK;
+      // The face in front of the crest stands in its own shadow, deeper and greener as it steepens;
+      // the trough ahead of it sits a little darker still.
+      float face = front * smoothstep(-2.4, -0.9, xu) * (1.0 - smoothstep(-0.5, 0.05, xu));
+      float faceK = face * (0.3 + 0.7 * steep) * (1.0 - 0.6 * pr) * dK;
+      lit = mix(lit, lit * vec3(0.5, 0.74, 0.74) + vec3(0.0, 0.035, 0.03) * dayK, 0.75 * faceK);
+      float troughK = front * smoothstep(-5.0, -2.6, xu) * (1.0 - smoothstep(-2.6, -1.4, xu)) * rise * dK;
+      lit *= 1.0 - 0.16 * troughK;
+      // Light coming through the thin lip just under the crest, before it goes over.
+      float lip = front * smoothstep(-1.1, -0.35, xu) * steep * (1.0 - smoothstep(0.1, 0.5, pr)) * dK;
+      lit += vec3(0.05, 0.32, 0.27) * lip * (0.35 + back) * dayK;
+      // The back of the wave lies open to the sky, and the unbroken crest glints.
+      lit += vec3(0.1, 0.19, 0.2) * (1.0 - front) * exp(-xu * xu) * rise * (1.0 - 0.5 * pr) * dK * dayK;
+      lit += vec3(0.3, 0.46, 0.46) * exp(-xu * xu * 9.0) * rise * (1.0 - smoothstep(0.0, 0.25, pr)) * dK * dayK;
+      // White water. The lip whitens first; then the foam front runs down and ahead of the face (a
+      // ragged, scalloped edge), solid where it tumbles, and behind it a lace that thins into holes
+      // and flecks the further the wave has left it.
+      float n1 = vnoise(p * 2.4 + vec2(t * 0.3, -t * 0.22));
+      float n2 = vnoise(p * 6.5 - vec2(t * 0.45, t * 0.3));
+      float tip = smoothstep(0.0, 0.14, pr);
+      float aa = fw / lamS;
+      float ahead = 0.03 + 0.17 * smoothstep(0.0, 0.8, pr) + 0.04 * (n1 - 0.5) + 0.014 * (n2 - 0.5);
+      float foamFront = smoothstep(-ahead - aa, -ahead + 0.012 + aa, wu);
+      float roller = foamFront * (1.0 - smoothstep(-0.005, 0.03 + 0.02 * n1, wu));
+      float tu = clamp((wu - 0.01) / (0.05 + 0.3 * pr), 0.0, 1.0);
+      float lace = (1.0 - abs(n1 * 2.0 - 1.0)) * 0.65 + n2 * 0.35;
+      float gap = mix(0.18, 0.92, tu);
+      float tail = step(0.0, wu) * smoothstep(gap, gap + 0.14, lace) * (1.0 - tu * tu);
+      surfFoam = max(roller * (0.84 + 0.16 * n2), tail * 0.85) * tip * dK * mix(0.75, 1.0, exposure);
+      // The tumbling front is shaded underneath and throws a thin shadow on the water ahead of it,
+      // so it reads as a rolling bank of foam rather than a painted line.
+      foamTone = mix(1.0, mix(0.8, 1.05, smoothstep(-ahead, -ahead * 0.3, wu)), roller);
+      lit *= 1.0 - 0.3 * (1.0 - foamFront) * smoothstep(-ahead - 0.06 - aa, -ahead, wu) * tip * dK;
+    }
+    // Far off, where a wave is only a pixel or two across, the plain crest line stands in.
+    float farLine = line * (1.0 - detailK);
+    lit += vec3(0.24, 0.4, 0.4) * farLine * (1.0 - breaking) * dayK;
+    surfFoam += farLine * mix(0.3, 1.0, breaking) * 0.6;
+    // The foam left behind as a wave drains back down the beach: a sheet that opens into a net of
+    // holes, drawn out seaward as it runs off.
+    float backwash = 0.0;
+    if (uSwash > 0.5 && depth < 0.34 && exposure * beachK > 0.02) {
+      float drain = smoothstep(0.26, 0.5, fSw) * (1.0 - smoothstep(0.62, 0.97, fSw));
+      float cells = (1.0 - abs(vnoise(p * 4.2 - outward * fSw * 3.0) * 2.0 - 1.0)) * 0.75 + vnoise(p * 9.0 + 3.0) * 0.25;
+      float holes = mix(0.3, 0.72, smoothstep(0.3, 0.9, fSw));
+      backwash = (1.0 - smoothstep(0.0, 0.3, depth)) * drain * exposure * beachK * smoothstep(holes, holes + 0.16, cells);
+    }
     // The old gentle ripples on rivers and pools.
     float bandMask = (1.0 - smoothstep(0.08, 0.5, depth)) * (1.0 - uSwash);
     float bands = smoothstep(0.7, 0.97, sin(depth * 11.0 - t * 1.1 + fn * 3.0) * 0.5 + 0.5) * bandMask;
@@ -472,7 +595,7 @@ const waterFrag = /* glsl */ `
     // The white water round a disturbance, broken into lacy foam (out at sea too, beyond the map).
     foam = max(foam, clamp(ripFoam, 0.0, 1.0) * smoothstep(0.3, 0.7, vnoise(p * 4.6 + vec2(t * 0.2, -t * 0.15)) * 0.7 + vnoise(p * 1.3 - t * 0.1) * 0.3 + ripFoam * 0.4));
     foam *= step(bed, level);
-    lit = mix(lit, cFoam * mix(0.3, 1.05, uDay), foam);
+    lit = mix(lit, cFoam * mix(0.3, 1.05, uDay) * foamTone, foam);
 
     // Night bioluminescence (sea only; rivers, pools and wet sand never glow). Reuses the live
     // seabed/shore texture, so sculpting the coast moves it too. uDay keeps a 0.25 moonlit floor.
@@ -528,6 +651,8 @@ const waterFrag = /* glsl */ `
       lit += vec3(0.08, 0.7, 1.45) * stir * churn * bioNight;
       // Glowing water is seen, not seen through.
       bioA = clamp(shallowK * 0.5 + stream * 0.5 + stir * 0.6, 0.0, 0.85) * bioNight;
+      // Torches, fires and the volcano's glow still show in the mirror over the night sea's own light.
+      lit += reflGlow * bioNight * 0.7;
     }
 
     // Deep water stays slightly translucent so whales, rays and fish schools show beneath the surface
@@ -539,10 +664,15 @@ const waterFrag = /* glsl */ `
     alpha *= hr.a;
     alpha = max(alpha, foam);
     alpha = max(alpha, bioA);
-    // Wet sand just above the water line: a thin dark gloss, no water colour.
+    // A mirrored island hides the sea floor behind it.
+    alpha = max(alpha, reflA);
+    // Wet sand just above the water line: dark and glossy, no water colour. It mirrors the sky (and
+    // the island, where that is drawn) more the lower the view, and catches the sun.
     if (wet > 0.0) {
-      lit = mix(vec3(0.3, 0.27, 0.2), skyR * 0.6, 0.25) * dayK;
-      alpha = 0.3 * wet;
+      float glossK = clamp(0.2 + 2.2 * pow(clamp(1.0 - V.y, 0.0, 1.0), 5.0), 0.0, 0.7);
+      float sunSpot = pow(clamp(H.y, 0.0, 1.0), 220.0) * sunVis * uSunI * 0.22;
+      lit = mix(vec3(0.2, 0.17, 0.12) * dayK, mirrorCol, glossK) + uSunCol * sunSpot;
+      alpha = 0.62 * wet;
     }
     gl_FragColor = vec4(lit, alpha);
     #include <tonemapping_fragment>
@@ -917,6 +1047,11 @@ export class Water {
           uDeepen: { value: deepen },
           uSwash: { value: 0 },
           uSurface: { value: SEA_SURFACE },
+          // Each material's own (never shared): only the sea is given the mirrored picture.
+          uReflect: { value: null as THREE.Texture | null },
+          uReflectMat: { value: new THREE.Matrix4() },
+          uReflectK: { value: 0 },
+          uMirror: { value: 0 },
         },
         vertexShader: waterVert,
         fragmentShader: waterFrag,
@@ -934,6 +1069,7 @@ export class Water {
     ocean.position.y = SEA_SURFACE;
     ocean.renderOrder = 10;
     this.group.add(ocean);
+    this.ocean = ocean;
     // Ocean floor under everything beyond the map, so looking through the water never shows the sky
     // colour behind. Coloured and lit like the island's own deep seabed (the terrain's fully absorbed
     // tint), so the sea looks the same over both and the map's square edge never shows.
@@ -944,10 +1080,42 @@ export class Water {
     floor.position.y = -6.2;
     floor.name = 'oceanFloor';
     this.group.add(floor);
+    // The island mirrored in the sea: drawn just before the sea itself, from inside the frame's own
+    // render (as three's Reflector does), so nothing in the frame loop has to call it.
+    const ou = this.oceanMat.uniforms;
+    this.reflection = new IslandReflection({ uReflect: ou.uReflect, uReflectMat: ou.uReflectMat, uReflectK: ou.uReflectK }, SEA_SURFACE, [ocean, floor]);
+    ocean.onBeforeRender = (renderer, scene, camera) => {
+      if (this.reflectionMode() === 'planar') this.reflection.render(renderer, scene as THREE.Scene, camera, this.frameNo);
+      else this.reflection.off();
+    };
 
     this.buildRivers();
     this.buildWaterfall();
     this.setCanals();
+  }
+
+  /** The sea's surface, and the mirrored view of the island it shows. */
+  readonly ocean!: THREE.Mesh;
+  readonly reflection!: IslandReflection;
+  /** Which mirror the sea uses; until setReflections() says, only ultra gets one (the real one). */
+  private mirror: ReflectionMode | null = null;
+  private frameNo = 0;
+
+  /**
+   * How the sea mirrors the island, by graphics preset: a mirrored render of the scene on high and
+   * ultra (every frame on ultra, every other on high), a cheap dark mirror of the land close inshore
+   * on medium, nothing on low.
+   */
+  setReflections(preset: string): void {
+    this.mirror = reflectionModeFor(preset);
+    this.reflection.every = preset === 'ultra' ? 1 : 2;
+    this.oceanMat.uniforms.uMirror.value = this.mirror === 'cheap' ? 1 : 0;
+    if (this.mirror !== 'planar') this.reflection.dispose();
+  }
+
+  /** The mirror in use now. */
+  reflectionMode(): ReflectionMode {
+    return this.mirror ?? (this.shared.uUltra.value > 0.5 ? 'planar' : 'off');
   }
 
   private canalMesh: THREE.Mesh | null = null;
@@ -1448,6 +1616,7 @@ export class Water {
 
   update(dt: number, time: number): void {
     this.shared.uTime.value = time;
+    this.frameNo++;
     this.updateSwellSet(Math.max(0, dt), time);
     const f = this.world.waterfall;
     if (f && this.spray && this.fallMist && dt > 0) {

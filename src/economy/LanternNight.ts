@@ -89,7 +89,7 @@ export class LanternNight {
     crowd.call(LANTERN.people, slots, (i) => !!i.warrior);
     this.active = { t: 0, phase: 'gather', shore, crowd, next: new Map() };
     g.ui?.dialog.push({
-      icon: 'star', kicker: 'Lantern Night', important: true, title: 'The village walks down to the shore',
+      icon: 'star', kicker: 'Lantern Night', important: true, title: 'The village walks down to the shore', art: 'lantern',
       body: 'The harvest is in. Tonight the islanders let paper lanterns go over the sea, to thank the gods for the year.',
       actions: [
         { label: 'Go and watch', primary: true, run: () => g.focusAt({ x: shore.x + shore.sx * 2, z: shore.z + shore.sz * 2 }) },

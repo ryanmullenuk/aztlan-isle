@@ -8,6 +8,11 @@ export interface InputHandlers {
   onPress?(sx: number, sy: number): void;
   /** Right click / long-press (cancel). */
   onCancel(): void;
+  /** A press on something the hand can pick up: dragging from it lifts it instead of panning. */
+  wantsGrab?(sx: number, sy: number): boolean;
+  onGrabStart?(sx: number, sy: number): void;
+  onGrab?(sx: number, sy: number): void;
+  onGrabEnd?(): void;
   /** Whether a left-drag should go to the active tool (sculpting) instead of panning. */
   wantsToolDrag(): boolean;
   wantsPlacementDrag?(): boolean;
@@ -48,7 +53,8 @@ export class Input {
   clear(): void { this.keys.clear(); this.pointers.clear(); this.gesture = null; this.dragging = 'none'; this.hover.active = false; }
   private pointers = new Map<number, PointerInfo>();
   private keys = new Set<string>();
-  private dragging: 'none' | 'pan' | 'tool' | 'rotate' | 'orbit' | 'placement' | 'spin' = 'none';
+  private dragging: 'none' | 'pan' | 'tool' | 'rotate' | 'orbit' | 'placement' | 'spin' | 'grab' = 'none';
+  private grabbed = false;
   private holdTimer = 0;
   private gesture: { dist: number; angle: number; mx: number; my: number } | null = null;
   private moved = false;
@@ -99,6 +105,7 @@ export class Input {
     this.moved = false;
     if (this.pointers.size === 2) {
       if (this.dragging === 'tool') this.h.onToolDragEnd();
+      if (this.dragging === 'grab' && this.grabbed) { this.grabbed = false; this.h.onGrabEnd?.(); }
       this.dragging = 'none';
       this.gesture = this.gestureState();
     } else if (this.pointers.size === 1) {
@@ -112,6 +119,10 @@ export class Input {
       else if (this.h.wantsToolDrag()) {
         this.dragging = 'tool';
         this.h.onToolDragStart(e.clientX, e.clientY);
+      } else if (e.button === 0 && this.h.wantsGrab?.(e.clientX, e.clientY)) {
+        // Pressed on an islander: a drag from here picks them up (a plain tap still selects them).
+        this.dragging = 'grab';
+        this.grabbed = false;
       } else this.dragging = 'pan';
       clearTimeout(this.holdTimer);
       if (e.button === 0 && (this.dragging === 'pan' || this.dragging === 'placement') && this.h.wantsHoldRotate?.()) {
@@ -165,6 +176,12 @@ export class Input {
       this.gesture = g;
       return;
     }
+    if (this.dragging === 'grab') {
+      if (!this.moved) return;
+      if (!this.grabbed) { this.grabbed = true; this.h.onGrabStart?.(p.sx, p.sy); }
+      this.h.onGrab?.(e.clientX, e.clientY);
+      return;
+    }
     if (this.dragging === 'spin') { this.h.onHoldRotate?.(e.clientX, e.clientY); return; }
     if(this.dragging==='placement'){this.h.onPlacementDrag?.(e.clientX,e.clientY);return;}
     if (this.dragging === 'pan' && this.moved) this.rig.panPixels(dx, dy, this.el.clientHeight);
@@ -191,6 +208,7 @@ export class Input {
     }
     if (this.pointers.size === 0) {
       if (this.dragging === 'tool') this.h.onToolDragEnd();
+      if (this.dragging === 'grab' && this.grabbed) { this.grabbed = false; this.h.onGrabEnd?.(); }
       if (e.type!=='pointercancel' && this.dragging!=='placement' && !this.moved && !this.gesture) {
         if (p.button === 2) this.h.onCancel();
         else if (quick || p.type === 'mouse') this.h.onTap(p.x, p.y);

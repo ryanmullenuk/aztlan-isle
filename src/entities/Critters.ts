@@ -3,13 +3,40 @@ import { CRITTERS } from '../config';
 import { ColorFn, GeoBuilder, M, P, facet, tube } from '../render/GeoBuilder';
 import { FX } from '../render/materials';
 import { View } from '../render/View';
-import { RNG } from '../world/rng';
+import { RNG, hash2 } from '../world/rng';
 import { SpatialHash } from '../world/SpatialHash';
 import { World } from '../world/World';
 import { Islander } from './Islander';
 import { QuadMeshes } from './quadRig';
+import { CreatureAsset, CreatureName, CreatureRig, loadCreature } from './creatureAssets';
+
+/**
+ * Crab species. Shore crabs are the common ones; hermit crabs potter about the beaches more slowly
+ * and pull into their shells when startled; reef crabs (bigger, red, long-legged) keep to the
+ * waterline. `len`: nose to tail in world units at crabSize 1; `pace`: speed factor; `side`: walks
+ * sideways (the rest turn to face where they go).
+ */
+export type CrabSpecies = 'shore' | 'hermit' | 'reef';
+const SPECIES: Record<CrabSpecies, { model: CreatureName; len: number; pace: number; side: boolean; walk: string }> = {
+  shore: { model: 'shore-crab', len: 0.15, pace: 1, side: true, walk: 'Walk Sideways' },
+  hermit: { model: 'hermit-crab', len: 0.17, pace: 0.6, side: true, walk: 'Walk' },
+  reef: { model: 'reef-crab', len: 0.19, pace: 1.1, side: true, walk: 'Walk' },
+};
+/** Crab models are posed and drawn only within this distance of the camera. */
+const CRAB_RIG_RANGE = 28;
+
+/**
+ * Which species a crab is, from the seed and where it lives alone (a hash, so the behaviour
+ * stream is untouched): reef crabs only right at the waterline, hermits on the beaches.
+ */
+export function crabSpecies(seed: number, cx: number, cz: number, distWater: number): CrabSpecies {
+  const h = hash2(cx, cz, seed * 97 + 5);
+  if (distWater <= 1 && h < 0.3) return 'reef';
+  return h > 0.72 ? 'hermit' : 'shore';
+}
 
 interface Crab {
+  species: CrabSpecies;
   x: number;
   z: number;
   y: number;
@@ -30,6 +57,8 @@ interface Crab {
   waveSide: number;
   guard: number;
   eyes: number;
+  /** The artist's model once loaded (null: drawn by the procedural stand-in). */
+  rig: CreatureRig | null;
 }
 
 interface Ray {
@@ -226,12 +255,15 @@ function legIK(h: number, v: number, L1: number, L2: number): void {
 /** Little beach crabs that scuttle sideways and burrow, and stingrays gliding over the shallows. */
 export class Critters {
   readonly group = new THREE.Group();
-  private crabs: Crab[] = [];
-  private rays: Ray[] = [];
+  readonly crabs: Crab[] = [];
+  readonly rays: Ray[] = [];
   private crabParts = new QuadMeshes();
   private rayMesh: THREE.InstancedMesh;
   private rayShadow: THREE.InstancedMesh;
   private rayAnim: THREE.InstancedBufferAttribute;
+  /** The artist's stingray once loaded: a rig per ray near the camera (the instanced rays stand in until then, and in tests). */
+  private rayModel: CreatureAsset | null = null;
+  private rayRigs: (CreatureRig | undefined)[] = [];
   private rng: RNG;
   /** Cosmetic choices (claw waving) use their own generator so the behaviour stream is unchanged. */
   private arng: RNG;
@@ -250,6 +282,7 @@ export class Critters {
     cp.add('pinch', crabPinch(), n * 2);
     cp.add('eye', crabEye(), n * 2);
     this.group.add(cp.group);
+    this.loadCrabModels();
 
     // Rays ripple their wing margins in the vertex shader: a wave travelling back along the disc,
     // growing toward the edges, with the whip tail swaying behind.
@@ -289,6 +322,8 @@ export class Critters {
     this.rayShadow.frustumCulled = false;
     this.rayShadow.renderOrder = 2;
     this.group.add(this.rayShadow);
+    // No models where there's no page to load them into (tests): the stand-in stays.
+    if (typeof document !== 'undefined') try { loadCreature('stingray').then((a) => (this.rayModel = a)).catch(() => undefined); } catch { /* stand-in stays */ }
   }
 
   private spawn(): void {
@@ -299,6 +334,7 @@ export class Critters {
       if (w.layer[i] < 1 || w.layer[i] > 2 || w.sandy[i] < 0.5 || w.distWater[i] > 3 || w.occ[i]) continue;
       const x = w.centerX(cx) + this.rng.range(-0.4, 0.4), z = w.centerZ(cz) + this.rng.range(-0.4, 0.4);
       this.crabs.push({
+        species: crabSpecies(w.seed, cx, cz, w.distWater[i]), rig: null,
         x, z, y: w.heightAt(x, z), hx: x, hz: z, heading: this.rng.range(0, 6.28), dir: 1, state: 'rest', timer: this.rng.range(0, 3), phase: this.rng.range(0, 10), sink: 0,
         gph: 0, spd: 0, wave: 0, waveT: 2 + (this.crabs.length % 7), waveSide: 1, guard: 0, eyes: 1,
       });
@@ -311,6 +347,31 @@ export class Critters {
       if (bed > -0.45 || bed < -2.2 || !w.isSeaAt(x, z)) continue;
       if (this.rays.some((r) => Math.hypot(r.x - x, r.z - z) < 6)) continue;
       this.rays.push({ x, z, y: bed + 0.25, heading: this.rng.range(0, 6.28), speed: this.rng.range(0.35, 0.6), turn: 0, phase: this.rng.range(0, 10), size: this.rng.range(0.8, 1.4), cx: x, cz: z, wave: this.rays.length * 1.3 });
+    }
+  }
+
+  /** Crab counts per species (for tests and stats). */
+  crabMix(): Record<CrabSpecies, number> {
+    const out: Record<CrabSpecies, number> = { shore: 0, hermit: 0, reef: 0 };
+    for (const c of this.crabs) out[c.species]++;
+    return out;
+  }
+
+  /** Give each crab its species' model as it loads (the stand-in draws it until then; never in Node). */
+  private loadCrabModels(): void {
+    if (typeof document === 'undefined') return;
+    for (const sp of Object.keys(SPECIES) as CrabSpecies[]) {
+      const def = SPECIES[sp];
+      if (!this.crabs.some((c) => c.species === sp)) continue;
+      loadCreature(def.model).then((asset) => {
+        for (const c of this.crabs) {
+          if (c.species !== sp) continue;
+          c.rig = new CreatureRig(asset, def.len * CRITTERS.crabSize);
+          c.rig.root.visible = false;
+          c.rig.play('Idle', 0);
+          this.group.add(c.rig.root);
+        }
+      }).catch(() => undefined);
     }
   }
 
@@ -366,7 +427,7 @@ export class Critters {
       }
       return;
     }
-    const sp = c.state === 'flee' ? 1.4 : 0.45;
+    const sp = (c.state === 'flee' ? 1.4 : 0.45) * SPECIES[c.species].pace;
     const sx = Math.cos(c.heading) * c.dir, sz = -Math.sin(c.heading) * c.dir;
     const nx = c.x + sx * sp * dt, nz = c.z + sz * sp * dt;
     if (this.sandAt(nx, nz)) {
@@ -407,8 +468,17 @@ export class Critters {
   private draw(time: number, dt: number): void {
     const cp = this.crabParts;
     cp.begin();
+    const near2 = CRAB_RIG_RANGE * CRAB_RIG_RANGE;
     for (const c of this.crabs) {
-      if (c.sink > 0.97 || !View.sees(c.x, c.y, c.z, 0.3)) continue;
+      const hidden = (c.sink > 0.97 && !(c.rig && c.species === 'hermit')) || !View.sees(c.x, c.y, c.z, 0.3);
+      if (c.rig) {
+        // Only the crabs near the camera are posed (one mixer and draw call each).
+        const show = !hidden && View.dist2(c.x, c.y, c.z) < near2;
+        c.rig.root.visible = show;
+        if (show) this.poseCrabRig(c, c.rig, dt);
+        continue;
+      }
+      if (hidden) continue;
       this.drawCrab(c, time, dt);
     }
     cp.end();
@@ -421,7 +491,8 @@ export class Critters {
       _q.setFromEuler(_e);
       _p.set(r.x, r.y + Math.sin(r.wave * 0.5) * 0.01, r.z);
       _s.setScalar(r.size);
-      this.rayMesh.setMatrixAt(i, _m.compose(_p, _q, _s));
+      if (this.rayModel) this.poseRayRig(i, r, dt);
+      else this.rayMesh.setMatrixAt(i, _m.compose(_p, _q, _s));
       // Soft shadow on the seabed below.
       const bed = this.world.heightAt(r.x, r.z);
       _q.identity();
@@ -432,6 +503,68 @@ export class Critters {
     this.rayAnim.needsUpdate = true;
     this.rayMesh.instanceMatrix.needsUpdate = true;
     this.rayShadow.instanceMatrix.needsUpdate = true;
+    // Once the rigs have taken over, the instanced rays draw nothing.
+    this.rayMesh.count = this.rayModel ? 0 : Math.max(1, this.rays.length);
+  }
+
+  /**
+   * A ray drawn with the artist's stingray (posed from _p/_q/_s, just set by draw): Swim at a cruise,
+   * Swim fast when it bolts from the pointer, each beat matched to the undulation rate the
+   * procedural ray uses. Only rays on screen and near the camera are posed (one mixer each).
+   */
+  private poseRayRig(i: number, r: Ray, dt: number): void {
+    let rig = this.rayRigs[i];
+    const show = View.sees(r.x, r.y, r.z, r.size) && View.dist2(r.x, r.y, r.z) < RAY_RIG_RANGE * RAY_RIG_RANGE;
+    if (!show) {
+      if (rig) rig.root.visible = false;
+      return;
+    }
+    if (!rig) {
+      const a = this.rayModel!, k = RAY_LEN / a.length;
+      rig = this.rayRigs[i] = new CreatureRig(a, RAY_LEN);
+      // Nose at the procedural ray's front edge, the disc centred on its midplane.
+      rig.body.position.set(-(a.box.min.x + a.box.max.x) / 2 * k, -(a.box.min.y + a.box.max.y) / 2 * k, RAY.front - a.box.max.z * k);
+      this.group.add(rig.root);
+    }
+    rig.root.visible = true;
+    rig.root.position.copy(_p);
+    rig.root.quaternion.copy(_q);
+    rig.root.scale.copy(_s);
+    const hz = (RAY_WAVE.rate + r.speed * RAY_WAVE.rateSpeed) / (Math.PI * 2);
+    if (r.speed > 0.9) rig.play('Swim fast', 0.3, hz * 1.3);
+    else rig.play('Swim', 0.5, hz * 2.2);
+    rig.update(dt);
+  }
+
+  /**
+   * A crab drawn with its model: idle → Idle, scuttling → Walk Sideways (shore crabs) or Walk,
+   * fleeing → Run, each clip's speed matched to how fast it goes. Startled hermits sit tight in
+   * their shells (Idle); the others sink into the sand as before.
+   */
+  private poseCrabRig(c: Crab, rig: CreatureRig, dt: number): void {
+    const def = SPECIES[c.species], s = CRITTERS.crabSize;
+    const moving = c.state === 'scuttle' || c.state === 'flee', flee = c.state === 'flee';
+    const base = (flee ? 1.4 : 0.45) * def.pace;
+    c.spd += ((moving ? base : 0) - c.spd) * Math.min(1, dt * 14);
+    if (moving) {
+      // Every crab goes sideways, legs working briskly: a scuttle is quick little steps, so the
+      // walk plays well above its natural pace (faster still when fleeing). A crab with its own
+      // sideways walk plays it towards the side it is going; the others work their legs as they go.
+      const sideways = rig.has('Walk Sideways');
+      const clip = sideways ? 'Walk Sideways' : flee && rig.has('Run') ? 'Run' : 'Walk';
+      const rate = (flee ? 3.4 : 2.2) * Math.max(0.5, c.spd / base);
+      rig.play(clip, 0.12, 1);
+      rig.setSpeed(sideways ? rate * (c.dir >= 0 ? 1 : -1) : rate * 1.4);
+    } else {
+      rig.play('Idle', 0.25, 1);
+      rig.setSpeed(c.state === 'buried' ? 0.6 : 1);
+    }
+    // Sideways walkers face as the stand-in does; the others turn to face where they walk.
+    const yaw = def.side ? c.heading : Math.atan2(Math.cos(c.heading) * c.dir, -Math.sin(c.heading) * c.dir);
+    const sink = c.species === 'hermit' ? 0 : c.sink * 0.1 * s;
+    rig.root.position.set(c.x, c.y - sink, c.z);
+    rig.root.rotation.set(0, yaw, 0);
+    rig.update(dt);
   }
 
   private drawCrab(c: Crab, time: number, dt: number): void {
@@ -440,7 +573,7 @@ export class Critters {
     const flee = c.state === 'flee';
     const digging = c.state === 'buried' && c.sink < 0.97;
     const k = Math.min(1, dt * 10);
-    c.spd += ((moving ? (flee ? 1.4 : 0.45) : 0) - c.spd) * Math.min(1, dt * 14);
+    c.spd += ((moving ? (flee ? 1.4 : 0.45) * SPECIES[c.species].pace : 0) - c.spd) * Math.min(1, dt * 14);
     const stride = flee ? CRAB_STRIDE.flee : CRAB_STRIDE.walk;
     // Gait: cycles per second so that feet in stance keep pace with the body.
     c.gph += dt * (c.spd / (2 * stride) + (digging ? 9 : 0));
@@ -520,3 +653,5 @@ export class Critters {
 /** Stingray undulation: wavenumber along the disc, base rate and amplitude (plus per unit of speed). */
 const RAY_WAVE_K = 13;
 const RAY_WAVE = { rate: 2.2, rateSpeed: 3.2, amp: 0.035, ampSpeed: 0.035 };
+/** The procedural ray's length, disc front to the tip of the tail (size 1), which the stingray model is sized to; rigs pause beyond RAY_RIG_RANGE. */
+const RAY_LEN = 1.18, RAY_RIG_RANGE = 60;

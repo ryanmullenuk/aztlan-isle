@@ -6,6 +6,7 @@ import { Water } from '../water/Water';
 import { landDistance } from '../world/mapEdge';
 import { RNG } from '../world/rng';
 import { World } from '../world/World';
+import { bakeCreature, loadCreature } from './creatureAssets';
 
 // ---------------- Model (bell radius 1, bell up along +y) ----------------
 // A moon-jelly: a scalloped, translucent dome with four horseshoe gonads showing through it, four
@@ -79,12 +80,63 @@ function jellyGeometry(): THREE.BufferGeometry {
   return g;
 }
 
+/**
+ * The artist's moon jelly baked (bind pose) into the same frame as the procedural one: bell rim
+ * radius 1, crown at y = 0.48, oral arms and tentacles hanging below, its vertex colours in
+ * `aCol`. Each vertex is classed bell / arm / tentacle (and given how far along it is and its
+ * angle round the bell) from where it lies, so the shader's pulse and waving work on it unchanged.
+ */
+export function jellyModelGeometry(baked: THREE.BufferGeometry): THREE.BufferGeometry {
+  const g = baked.clone();
+  const P = g.getAttribute('position') as THREE.BufferAttribute;
+  let rimR = 0, maxY = -Infinity, minY = Infinity;
+  for (let i = 0; i < P.count; i++) {
+    rimR = Math.max(rimR, Math.hypot(P.getX(i), P.getZ(i)));
+    maxY = Math.max(maxY, P.getY(i));
+    minY = Math.min(minY, P.getY(i));
+  }
+  // The rim: the height of the bell's widest ring.
+  let rimY = 0, rimN = 0;
+  for (let i = 0; i < P.count; i++) if (Math.hypot(P.getX(i), P.getZ(i)) > rimR * 0.9) { rimY += P.getY(i); rimN++; }
+  rimY /= Math.max(1, rimN);
+  const k = 1 / Math.max(1e-4, rimR);
+  g.translate(0, -maxY, 0);
+  g.scale(k, k, k);
+  g.translate(0, 0.48, 0);
+  const top = 0.48, rim = (rimY - maxY) * k + 0.48, bottom = (minY - maxY) * k + 0.48;
+  const n = P.count, part = new Float32Array(n), along = new Float32Array(n), ang = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = P.getX(i), y = P.getY(i), z = P.getZ(i), r = Math.hypot(x, z);
+    ang[i] = Math.atan2(z, x);
+    // Bell: anything above the rim (and the rim's own in-curl), crown 0 to rim 1.
+    if (y > rim - 0.06) {
+      part[i] = 0;
+      along[i] = THREE.MathUtils.clamp(Math.max(r, (top - y) / Math.max(1e-3, top - rim)), 0, 1);
+    } else {
+      // Below it: the thick oral arms near the middle, fine tentacles further out; root 0 to tip 1.
+      part[i] = r < 0.45 ? 1 : 2;
+      along[i] = THREE.MathUtils.clamp((rim - y) / Math.max(1e-3, rim - bottom), 0, 1);
+    }
+  }
+  g.setAttribute('aPart', new THREE.BufferAttribute(part, 1));
+  g.setAttribute('aAlong', new THREE.BufferAttribute(along, 1));
+  g.setAttribute('aAng', new THREE.BufferAttribute(ang, 1));
+  const col = g.getAttribute('color');
+  if (col) g.setAttribute('aCol', col);
+  g.deleteAttribute('color');
+  g.computeBoundingSphere();
+  return g;
+}
+
 const vert = /* glsl */ `
   #include <common>
   #include <fog_pars_vertex>
   attribute float aPart;
   attribute float aAlong;
   attribute float aAng;
+  /** The artist's model's colour (unused by the procedural stand-in). */
+  attribute vec3 aCol;
+  varying vec3 vCol;
   /** x: bell contraction 0..1, y: pulse phase, z: tint, w: fade (0 hidden .. 1). */
   attribute vec4 iAnim;
   /** Its velocity in its own frame: the arms and tentacles trail behind. */
@@ -123,6 +175,7 @@ const vert = /* glsl */ `
     vAlong = aAlong;
     vAng = aAng;
     vAnim = iAnim;
+    vCol = aCol;
     vec4 mvPosition = viewMatrix * wp;
     gl_Position = projectionMatrix * mvPosition;
     #include <fog_vertex>
@@ -134,6 +187,9 @@ const frag = /* glsl */ `
   #include <fog_pars_fragment>
   uniform vec3 uSunDir;
   uniform float uDay;
+  /** 1 once the artist's model (with its own colours) has replaced the procedural jelly. */
+  uniform float uModel;
+  varying vec3 vCol;
   varying float vPart;
   varying float vAlong;
   varying float vAng;
@@ -163,10 +219,12 @@ const frag = /* glsl */ `
       col = mix(pink, vec3(1.0), 0.25);
       a = 0.4 * (1.0 - vAlong * 0.7);
     }
+    // The model's own colours, a touch warmer or cooler per jelly; the bell keeps its fresnel glassiness.
+    col = mix(col, vCol * mix(vec3(1.04, 0.96, 1.0), vec3(0.94, 1.0, 1.06), vAnim.z), uModel);
     // Sunlit from above, with light glowing through the jelly (so the pink holds up under the water's tint).
     float lit = 0.7 + 0.45 * abs(dot(N, normalize(uSunDir)));
     col *= lit * mix(0.3, 1.0, uDay);
-    col += pink * 0.18 * uDay;
+    col += mix(pink, vCol, uModel) * 0.18 * uDay;
     gl_FragColor = vec4(col, a * vAnim.w);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
@@ -239,6 +297,10 @@ function contraction(ph: number): number {
 export class Jellyfish {
   readonly mesh: THREE.InstancedMesh;
   private swarms: Swarm[] = [];
+  /** Where each swarm is drifting now, and roughly how wide it is (a swimmer among them is stung). */
+  spots(): { x: number; z: number; r: number }[] {
+    return this.swarms.map((s, i) => ({ x: s.x, z: s.z, r: this.swarmR[i] ?? 1.5 }));
+  }
   /** Per swarm: how far its jellies spread, whether it's in sight this frame, and time saved up while it isn't. */
   private swarmR: number[] = [];
   private swarmSeen: boolean[] = [];
@@ -260,7 +322,7 @@ export class Jellyfish {
     geo.setAttribute('iAnim', this.anim);
     geo.setAttribute('iDrift', this.drift);
     const mat = new THREE.ShaderMaterial({
-      uniforms: { ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog), uSunDir: water.shared.uSunDir, uDay: water.shared.uDay },
+      uniforms: { ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog), uSunDir: water.shared.uSunDir, uDay: water.shared.uDay, uModel: { value: 0 } },
       vertexShader: vert,
       fragmentShader: frag,
       transparent: true,
@@ -276,6 +338,19 @@ export class Jellyfish {
     this.mesh.name = 'jellyfish';
     this.mesh.count = this.jellies.length;
     this.update(0.001, null);
+    // Over a hundred jellies: the artist's model is baked once and instanced (one draw call), and
+    // keeps this shader's pulse, rather than a skinned rig and mixer per jelly.
+    if (typeof document !== 'undefined') try {
+      loadCreature('moon-jellyfish').then((asset) => {
+        const g = jellyModelGeometry(bakeCreature(asset));
+        g.setAttribute('iAnim', this.anim);
+        g.setAttribute('iDrift', this.drift);
+        const old = this.mesh.geometry;
+        this.mesh.geometry = g;
+        old.dispose();
+        mat.uniforms.uModel.value = 1;
+      }).catch(() => undefined);
+    } catch { /* no page to load models into (tests): the procedural jelly stays */ }
   }
 
   /** Swarm homes: open sea water (never an inland lake) a few cells off a beach, well apart and away from the map's edge. */

@@ -1,7 +1,7 @@
 import { buildingOperational } from '../buildings/BuildingCondition';
 import * as THREE from 'three';
 import { View } from '../render/View';
-import { FAUNA, SPECIES, SpeciesDef, SpeciesKey, WARRIOR, WILDLIFE } from '../config';
+import { AMBIENT_FAUNA, FAUNA, SPECIES, SpeciesDef, SpeciesKey, WARRIOR, WILDLIFE } from '../config';
 import { Building } from '../buildings/Buildings';
 import { penLayout } from '../buildings/models';
 import { breedSeconds, eggSeconds, penRoom } from '../buildings/foodUpgrades';
@@ -13,6 +13,7 @@ import { World } from '../world/World';
 import { Islander } from './Islander';
 import { escortSurfaceY, leashedWalkable } from './livestockTravel';
 import * as models from './animalModels';
+import { CreatureRig, creatureNow, loadCreature, type CreatureName } from './creatureAssets';
 import { CHICKEN_WING, FOLDED, flapPose, mixPose, pose, wingMatrices, wingParts } from './birdWings';
 
 /** Roaming radius of penned animals per pen building (anything else: 0.9, the butcher's pen). */
@@ -333,6 +334,49 @@ function ik2(tz: number, ty: number, l1: number, l2: number, bend: number): void
  * habitats and tuning. Animals only become food through explicit capture orders.
  */
 /** Most chickens that can be brought to the island after it was made (by voyages). */
+/**
+ * Livestock drawn with the artist's rigged models (once loaded; the procedural parts until then):
+ * nose-to-tail length at scale 1, measured from the procedural bodies so nothing changes size.
+ */
+export const MODEL_SIZE: Partial<Record<SpeciesKey, number>> = { chicken: 0.22, pig: 0.52, goat: 0.5 };
+/** Ox and duck: ambient animals, drawn only by their models (see AMBIENT_FAUNA). */
+export type AmbientKey = 'ox' | 'duck';
+export interface AmbientAnimal {
+  sp: AmbientKey;
+  x: number;
+  z: number;
+  y: number;
+  heading: number;
+  speed: number;
+  state: 'idle' | 'walk' | 'avoid' | 'flee';
+  timer: number;
+  tx: number;
+  tz: number;
+  /** Home spot it wanders about (the herd's pasture, the flock's bit of shore). */
+  hx: number;
+  hz: number;
+  /** Nose-to-tail length (world units). */
+  size: number;
+  tempo: number;
+  /** Ground speed actually moved (smoothed, drawing only) and the position it was measured from. */
+  v: number;
+  px: number;
+  pz: number;
+}
+
+/** Which clip a moving animal plays, and how fast, so feet roughly keep pace with the ground. */
+function rigGait(r: CreatureRig, v: number, size: number, run: boolean): void {
+  const dur = (n: string, d: number) => r.asset.clips.find((c) => c.name.toLowerCase() === n)?.duration || d;
+  if (run) {
+    // A run cycle covers about one and a half body lengths, a walk cycle about three quarters.
+    r.play('Run', 0.2, 1);
+    r.setSpeed(THREE.MathUtils.clamp(v / ((1.5 * size) / dur('run', 0.7)), 0.6, 2.4));
+  } else if (v > 0.04) {
+    r.play('Walk', 0.3, 1);
+    r.setSpeed(THREE.MathUtils.clamp(v / ((0.75 * size) / dur('walk', 1.3)), 0.5, 2.2));
+  } else r.play('Idle', 0.4, 1);
+}
+
 export const ANIMALS_EXTRA_CHICKENS = 40;
 const SPECIES_KEYS = Object.keys(SPECIES) as SpeciesKey[];
 
@@ -352,12 +396,24 @@ export class Animals {
   private drawFrame = 0;
   /** Settlement points (buildings) that chickens and goats hang around. */
   settlement: () => { x: number; z: number }[] = () => [];
+  /** Oxen and ducks: scenery only (not in `list`, so never hunted, penned, picked or saved). */
+  readonly ambient: AmbientAnimal[] = [];
+  /** Their own random stream, so adding them changes nothing about the livestock. */
+  private arng: RNG;
+  /** Rigged models, one per animal drawn by one (made the first time it is seen). */
+  private rigs = new Map<object, { rig: CreatureRig; acc: number }>();
+  private camX = 0;
+  private camZ = 0;
 
   constructor(private world: World) {
     this.rng = new RNG(world.seed * 131 + 9);
+    this.arng = new RNG(world.seed * 131 + 57);
     this.buildMeshes();
     this.spawnAll();
     this.ensureCockerels();
+    this.spawnAmbient();
+    // The models load in the background (not in Node tests): until then the procedural parts draw.
+    if (typeof document !== 'undefined') for (const n of ['chicken', 'pig', 'goat', 'ox', 'duck'] as CreatureName[]) { try { loadCreature(n).catch(() => undefined); } catch { /* no page to load from */ } }
     const lg = new THREE.BufferGeometry();
     lg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(64 * 12), 3));
     this.leash = new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: 0xc9a86a, fog: true }));
@@ -856,6 +912,8 @@ export class Animals {
 
   update(dt: number, camTarget: THREE.Vector3, cursor: THREE.Vector3 | null, people: SpatialHash<Islander>): void {
     this.time += dt;
+    this.camX = camTarget.x;
+    this.camZ = camTarget.z;
     if (dt > 0) {
       for (let gi = 0; gi < this.groups.length; gi++) {
         const g = this.groups[gi];
@@ -883,6 +941,10 @@ export class Animals {
       }
       this.penLife(dt);
       this.separate();
+      for (const b of this.ambient) {
+        if (Math.hypot(b.x - camTarget.x, b.z - camTarget.z) > FAUNA.lodDistance) continue;
+        this.stepAmbient(b, dt, cursor, people);
+      }
     }
     this.draw(dt);
   }
@@ -1703,6 +1765,8 @@ export class Animals {
   private draw(dt = 0.016): void {
     this.drawFrame++;
     for (const e of this.meshes.values()) e.n = 0;
+    // Rigs show only when posed this frame (off screen, carried or gone: hidden, and not animated).
+    for (const r of this.rigs.values()) r.rig.root.visible = false;
     this.shadows.begin();
     const lineArr = (this.leash.geometry.getAttribute('position') as THREE.BufferAttribute).array as Float32Array;
     let lines = 0;
@@ -1711,11 +1775,26 @@ export class Animals {
       if (a.heldMode === 'carry') continue; // drawn in the islander's arms
       // Off screen: no limbs to pose (it keeps living; the pose picks up again when seen).
       if (!View.sees(a.x, a.y + 0.2 * a.scale, a.z, 0.5 * a.scale + 0.2)) continue;
-      if (a.sp === 'chicken') this.drawChicken(a, dt);
+      if (this.drawRigged(a, dt)) { /* drawn by its model */ }
+      else if (a.sp === 'chicken') this.drawChicken(a, dt);
       else this.drawQuad(a, dt);
       const r = bodyR(a);
       this.shadows.add(a.x, a.y, a.z, r * 2.4, r * (a.sp === 'chicken' ? 2.6 : 4), a.heading);
       if (this.leashLine(a, lineArr, lines)) lines++;
+    }
+    for (const b of this.ambient) {
+      if (!View.sees(b.x, b.y + 0.3 * b.size, b.z, 0.6 * b.size + 0.2)) continue;
+      const r = this.rigFor(b, b.sp, b.size, null);
+      if (!r) continue;
+      if (dt > 0) {
+        const d = Math.hypot(b.x - b.px, b.z - b.pz);
+        b.v += ((d < 1 ? d / dt : 0) - b.v) * Math.min(1, dt * 8);
+      }
+      b.px = b.x;
+      b.pz = b.z;
+      rigGait(r.rig, b.v, b.size, b.state === 'flee' && b.v > AMBIENT_FAUNA[b.sp].walkSpeed * 1.8);
+      this.showRig(r, b, b.x, b.y, b.z, b.heading, 1, dt);
+      this.shadows.add(b.x, b.y, b.z, b.size * (b.sp === 'ox' ? 0.55 : 0.8), b.size * 1.1, b.heading);
     }
     this.shadows.end();
     this.leash.geometry.setDrawRange(0, lines * 4);
@@ -1728,6 +1807,197 @@ export class Animals {
         e.acc.needsUpdate = true;
       }
     }
+  }
+
+  /** This thing's rig, made the first time it's needed (null until its model has loaded). */
+  private rigFor(key: object, name: CreatureName, size: number, tint: THREE.Color | null): { rig: CreatureRig; acc: number } | null {
+    let r = this.rigs.get(key);
+    if (r) return r;
+    const asset = creatureNow(name);
+    if (!asset) return null;
+    r = { rig: new CreatureRig(asset, size, tint ? { tint } : {}), acc: 0 };
+    r.rig.play('Idle', 0);
+    // The soft shadow underneath stands in for a sun shadow (as for the procedural animals).
+    r.rig.root.traverse((o) => { o.castShadow = false; });
+    this.group.add(r.rig.root);
+    this.rigs.set(key, r);
+    return r;
+  }
+
+  /** Place and show a rig, animating it (far from the camera: every third frame, catching up the time). */
+  private showRig(r: { rig: CreatureRig; acc: number }, key: { tempo: number }, x: number, y: number, z: number, heading: number, scale: number, dt: number): void {
+    const root = r.rig.root;
+    root.position.set(x, y, z);
+    root.rotation.set(0, heading, 0);
+    root.scale.setScalar(scale);
+    root.visible = true;
+    r.acc += dt;
+    const far = Math.hypot(x - this.camX, z - this.camZ) > 30;
+    if (!far || (this.drawFrame + Math.floor(key.tempo * 97)) % 3 === 0) {
+      r.rig.update(Math.min(r.acc, 0.25));
+      r.acc = 0;
+    }
+  }
+
+  /**
+   * Chickens, pigs and goats by their rigged models once loaded: walk while wandering (sped to the
+   * ground actually covered), run when fleeing or hurried, idle standing, feeding or resting. Coats
+   * other than the model's own (dark pigs, tan goats, brown hens, cockerels) tint it.
+   */
+  private drawRigged(a: Animal, dt: number): boolean {
+    const size = MODEL_SIZE[a.sp];
+    if (size === undefined) return false;
+    let r = this.rigs.get(a);
+    if (!r) {
+      if (!creatureNow(a.sp as CreatureName)) return false;
+      const hsl = { h: 0, s: 0, l: 0 };
+      a.color.getHSL(hsl);
+      const tint = hsl.l > 0.72 ? null : new THREE.Color(1, 1, 1).lerp(a.color, 0.6);
+      r = this.rigFor(a, a.sp as CreatureName, size, tint)!;
+    }
+    const an = a.anim;
+    this.track(a, dt, 0.2, 0.3, 1, 2);
+    const def = SPECIES[a.sp];
+    rigGait(r.rig, an.v, size * a.scale, (a.state === 'flee' && an.v > def.wanderSpeed * 1.3) || an.v > def.wanderSpeed * 2.2);
+    this.showRig(r, a, a.x, a.y, a.z, a.heading, a.scale, dt);
+    // Where a leash ties on: about the head.
+    const reach = size * a.scale * 0.42;
+    an.nx = a.x + Math.sin(a.heading) * reach;
+    an.ny = a.y + size * a.scale * 0.55;
+    an.nz = a.z + Math.cos(a.heading) * reach;
+    return true;
+  }
+
+  // ---------------- Oxen and ducks ----------------
+
+  /** Can an ox or duck stand here: open land (no water, buildings or cliffs) close in height to where it is. */
+  private ambientOk(x: number, z: number, y: number): boolean {
+    const w = this.world, i = w.cellIndexAt(x, z);
+    if (i < 0 || !w.isLandCell(i) || w.blocked(i) || (w.occ[i] && !w.passable(w.occ[i] - 1))) return false;
+    return Math.abs(w.heightAt(x, z) - y) < 0.45;
+  }
+
+  /** Fresh water at cell i: a river or pool, or inland water cut off from the sea (the glade's lake). */
+  private fresh(i: number): boolean {
+    const w = this.world;
+    return !Number.isNaN(w.riverY[i]) || (w.layer[i] <= 0 && !w.isSea(i));
+  }
+
+  /**
+   * A small herd of oxen on open grassland a little way out from the village, and flocks of ducks
+   * on fresh-water shores (the first nearest the village). From the seed alone, after the livestock.
+   */
+  private spawnAmbient(): void {
+    const w = this.world, R = this.arng, m = w.meadow, O = AMBIENT_FAUNA.ox, D = AMBIENT_FAUNA.duck;
+    const make = (sp: AmbientKey, x: number, z: number, hx: number, hz: number, size: [number, number]): AmbientAnimal => ({
+      sp, x, z, y: w.groundY(x, z), heading: R.range(0, 6.28), speed: 0, state: 'idle', timer: R.range(0.5, 6), tx: x, tz: z, hx, hz,
+      size: R.range(size[0], size[1]), tempo: R.range(0.85, 1.15), v: 0, px: x, pz: z,
+    });
+    const grass = (x: number, z: number) => {
+      const i = w.cellIndexAt(x, z);
+      return i >= 0 && w.isle[i] !== 2 && !w.occ[i] && this.ambientOk(x, z, w.heightAt(x, z)) && w.forest[i] < 0.3 && w.sandy[i] < 0.4;
+    };
+    let best: [number, number] | null = null, bs = -Infinity;
+    for (let k = 0; k < 60; k++) {
+      const ang = R.range(0, Math.PI * 2), d = R.range(m.r + 3, m.r + 14);
+      const x = m.x + Math.cos(ang) * d, z = m.z + Math.sin(ang) * d;
+      if (!grass(x, z)) continue;
+      const i = w.cellIndexAt(x, z), s = -w.forest[i] * 4 - w.sandy[i] * 2 - w.rocky[i] * 2 + R.next() * 0.5;
+      if (s > bs) { bs = s; best = [x, z]; }
+    }
+    if (best) {
+      const n = R.int(O.count[0], O.count[1]);
+      for (let k = 0; k < n; k++) {
+        let x = best[0], z = best[1];
+        for (let t = 0; t < 8; t++) {
+          const px = best[0] + R.range(-1.6, 1.6), pz = best[1] + R.range(-1.6, 1.6);
+          if (grass(px, pz)) { x = px; z = pz; break; }
+        }
+        this.ambient.push(make('ox', x, z, best[0], best[1], O.size));
+      }
+    }
+    // Shore cells: open land with fresh water next to it.
+    const shore: number[] = [];
+    for (let cz = 1; cz < w.N - 1; cz++) for (let cx = 1; cx < w.N - 1; cx++) {
+      const i = cz * w.N + cx;
+      if (!w.isLandCell(i) || w.occ[i] || w.blocked(i)) continue;
+      if (this.fresh(i - 1) || this.fresh(i + 1) || this.fresh(i - w.N) || this.fresh(i + w.N)) shore.push(i);
+    }
+    if (!shore.length) return;
+    const pos = (i: number): [number, number] => [w.centerX(i % w.N), w.centerZ((i / w.N) | 0)];
+    const byVillage = shore.slice().sort((a, b) => {
+      const [ax, az] = pos(a), [bx, bz] = pos(b);
+      return Math.hypot(ax - m.x, az - m.z) - Math.hypot(bx - m.x, bz - m.z);
+    });
+    const homes: [number, number][] = [];
+    const flocks = R.int(D.flocks[0], D.flocks[1]);
+    for (let f = 0, tries = 0; f < flocks && tries < 40; tries++) {
+      const pool = f === 0 ? byVillage.slice(0, Math.max(1, Math.ceil(byVillage.length * 0.1))) : shore;
+      const h = pos(pool[R.int(0, pool.length - 1)]);
+      if (homes.some((o) => Math.hypot(o[0] - h[0], o[1] - h[1]) < 8)) continue;
+      homes.push(h);
+      f++;
+      const n = R.int(D.perFlock[0], D.perFlock[1]);
+      for (let k = 0; k < n; k++) {
+        let x = h[0], z = h[1];
+        for (let t = 0; t < 8; t++) {
+          const px = h[0] + R.range(-0.8, 0.8), pz = h[1] + R.range(-0.8, 0.8);
+          if (this.ambientOk(px, pz, w.heightAt(h[0], h[1]))) { x = px; z = pz; break; }
+        }
+        this.ambient.push(make('duck', x, z, h[0], h[1], D.size));
+      }
+    }
+  }
+
+  /** Oxen graze and amble, stepping aside from people (running only if nearly run into); ducks potter, and scatter. */
+  private stepAmbient(b: AmbientAnimal, dt: number, cursor: THREE.Vector3 | null, people: SpatialHash<Islander>): void {
+    const C = AMBIENT_FAUNA[b.sp], R = this.arng;
+    let nearD = Infinity, nx = 0, nz = 0, running = false;
+    people.query(b.x, b.z, C.avoidRadius + 1, (i, d2) => {
+      const d = Math.sqrt(d2);
+      if (d < nearD) { nearD = d; nx = i.x; nz = i.z; running = i.anim === 'run'; }
+    });
+    if (b.sp === 'duck' && cursor && Math.hypot(cursor.x - b.x, cursor.z - b.z) < WILDLIFE.chickenFleeRadius) {
+      nearD = 0; nx = cursor.x; nz = cursor.z;
+    }
+    const flee = nearD < C.fleeRadius || (b.sp === 'duck' && running && nearD < C.avoidRadius);
+    if (flee || nearD < C.avoidRadius) {
+      if ((flee && b.state !== 'flee') || (!flee && b.state !== 'avoid' && b.state !== 'flee') || b.timer <= 0) {
+        const away = Math.atan2(b.x - nx, b.z - nz) + R.range(-0.5, 0.5), d = flee ? 1.6 : 1.2;
+        b.tx = b.x + Math.sin(away) * d;
+        b.tz = b.z + Math.cos(away) * d;
+        b.state = flee ? 'flee' : 'avoid';
+        b.timer = flee ? 1 : 2;
+      }
+    }
+    b.timer -= dt;
+    if (b.state === 'idle' && b.timer <= 0) {
+      if (R.chance(0.45)) b.timer = (b.sp === 'ox' ? 5 : 2) + R.next() * (b.sp === 'ox' ? 8 : 4);
+      else {
+        const ang = R.range(0, Math.PI * 2), d = Math.sqrt(R.next()) * C.range;
+        b.tx = b.hx + Math.cos(ang) * d;
+        b.tz = b.hz + Math.sin(ang) * d;
+        b.state = 'walk';
+        b.timer = 12;
+      }
+    }
+    if (b.state === 'idle') { b.speed = 0; return; }
+    if ((b.state === 'flee' || b.state === 'avoid') && b.timer <= 0 && !flee && nearD >= C.avoidRadius) { b.state = 'idle'; b.timer = 1 + R.next() * 2; }
+    const want = b.state === 'flee' ? C.runSpeed : C.walkSpeed * (b.state === 'avoid' ? 1.3 : 1);
+    const dx = b.tx - b.x, dz = b.tz - b.z, d = Math.hypot(dx, dz);
+    if (d < 0.08) { b.state = 'idle'; b.timer = 0.5 + R.next() * 3; b.speed = 0; return; }
+    let dh = Math.atan2(dx, dz) - b.heading;
+    while (dh > Math.PI) dh -= Math.PI * 2;
+    while (dh < -Math.PI) dh += Math.PI * 2;
+    const turn = b.sp === 'ox' ? 1.6 : 4;
+    b.heading += Math.max(-turn * dt, Math.min(turn * dt, dh));
+    b.speed += (want * b.tempo * (1 - Math.min(0.7, Math.abs(dh) * 0.4)) - b.speed) * Math.min(1, dt * (b.sp === 'ox' ? 1.5 : 4));
+    const st = Math.min(d, b.speed * dt), nx2 = b.x + Math.sin(b.heading) * st, nz2 = b.z + Math.cos(b.heading) * st;
+    if (this.ambientOk(nx2, nz2, b.y)) {
+      b.x = nx2;
+      b.z = nz2;
+      b.y = this.world.groundY(b.x, b.z);
+    } else { b.state = 'idle'; b.timer = 0.5 + R.next(); b.speed = 0; }
   }
 
   // ---------------- Save / load ----------------

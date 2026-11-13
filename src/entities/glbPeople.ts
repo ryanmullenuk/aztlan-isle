@@ -59,7 +59,8 @@ export type GlbPeople = Record<CharacterModelKey, GlbModel>;
 /** The base models: the founding man and woman, children, elders and the heavier-built adults. */
 export type BaseModelKey = 'm' | 'f' | 'boy' | 'girl' | 'oldm' | 'oldf' | 'fatm' | 'fatf';
 
-const PARENT: Record<BoneName, BoneName | null> = {
+/** Each bone's parent in the rig's skeleton (the hips are the root). */
+export const PARENT: Record<BoneName, BoneName | null> = {
   hips: null, spine: 'hips', chest: 'spine', neck: 'chest', head: 'neck',
   shoulderL: 'chest', upper_armL: 'shoulderL', forearmL: 'upper_armL', handL: 'forearmL',
   shoulderR: 'chest', upper_armR: 'shoulderR', forearmR: 'upper_armR', handR: 'forearmR',

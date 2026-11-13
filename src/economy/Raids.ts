@@ -79,9 +79,10 @@ export class Raids {
     const store = g.buildings.nearestStore(fire.x, fire.z, true) ?? fire;
     const land = g.boats.sendSettlers(['m', 'm'], { x: store.x, z: store.z }, () => this.land(), true);
     if (!land) return;
+    g.cinematics?.play('raid', land, { patience: 6 });
     g.boats.sendSettlers(['m', 'm'], { x: store.x + 2, z: store.z + 2 }, undefined, true);
     g.ui?.dialog.push({
-      icon: 'warn', kicker: 'Raiders', important: true,
+      icon: 'warn', kicker: 'Raiders', important: true, art: 'raiders',
       title: 'Rival canoes are coming!',
       body: 'Raiders from another island are paddling for your shore. Undefended, they will carry off food, wood and stone. Warriors (Great Hall) and watchtowers keep raiders away.',
       actions: [

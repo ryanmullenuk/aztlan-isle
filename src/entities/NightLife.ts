@@ -5,6 +5,7 @@ import type { Water } from '../water/Water';
 import { RNG } from '../world/rng';
 import { World } from '../world/World';
 import { fishGeometry } from './fishModels';
+import { swapToFish } from './creatureAssets';
 
 const FIREFLY_VS = /* glsl */ `
   attribute float aPhase;
@@ -143,6 +144,9 @@ export class JumpingFish {
       this.pool.push(m);
       this.group.add(m);
     }
+    // The leaping fish are chromis (the artist's model, once it loads).
+    geo.computeBoundingBox();
+    swapToFish('chromis', geo.boundingBox!.max.z - geo.boundingBox!.min.z, [], this.pool);
     this.group.name = 'jumpingFish';
   }
 

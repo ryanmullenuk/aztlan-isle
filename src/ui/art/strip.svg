@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="32" viewBox="0 0 48 32">
+  <!-- A banner with pointed ends: 3-slice across (16 | 16 | 16), drawn at full height. -->
+  <defs>
+    <linearGradient id="b" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3f2c16"/><stop offset="1" stop-color="#1e140a"/></linearGradient>
+  </defs>
+  <path d="M1.5 16L15 1.5H33L46.5 16L33 30.5H15Z" fill="url(#b)" stroke="#6b420f" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M1.5 16L15 1.5H33L46.5 16L33 30.5H15Z" fill="none" stroke="#e8b84a" stroke-width="1.6" stroke-linejoin="round"/>
+  <path d="M5.5 16L16.6 4.2H31.4L42.5 16L31.4 27.8H16.6Z" fill="none" stroke="#f6dc94" stroke-opacity="0.28" stroke-width="1"/>
+</svg>

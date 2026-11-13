@@ -202,6 +202,8 @@ export class SkyBodies {
   private sunGlow: THREE.Sprite;
   private moon: THREE.Sprite;
   private moonGlow: THREE.Sprite;
+  /** The glow along the horizon where the sun rises and sets: amber, then rose once it has gone down. */
+  private afterglow: THREE.Sprite;
   /** The new moon's dark disc, crossing the sun in an eclipse. */
   private shade: THREE.Sprite;
   private static DIST = 1100;
@@ -223,6 +225,7 @@ export class SkyBodies {
     };
     const glow = radialTexture([[0, 'rgba(255,255,255,0.55)'], [0.18, 'rgba(255,255,255,0.28)'], [0.45, 'rgba(255,255,255,0.08)'], [1, 'rgba(255,255,255,0)']]);
     const aureole = radialTexture([[0, 'rgba(255,255,255,0.9)'], [0.12, 'rgba(255,255,255,0.55)'], [0.35, 'rgba(255,255,255,0.18)'], [0.7, 'rgba(255,255,255,0.04)'], [1, 'rgba(255,255,255,0)']]);
+    this.afterglow = sprite(aureole, true, -8);
     this.sunGlow = sprite(aureole, true, -7);
     this.sunCorona = sprite(glow, true, -6);
     this.sun = sprite(radialTexture([[0, 'rgba(255,255,255,1)'], [0.78, 'rgba(255,255,255,1)'], [0.9, 'rgba(255,255,255,0.35)'], [1, 'rgba(255,255,255,0)']]), true, -5);
@@ -323,6 +326,23 @@ export class SkyBodies {
       this.shade.visible = false;
     }
 
+    // Sunrise and sunset paint the horizon under the sun: a wide, low band of amber that turns to
+    // rose as the sun goes under, and lingers a while into the blue hour.
+    const glowK = THREE.MathUtils.smoothstep(elev, -15, -3) * (1 - THREE.MathUtils.smoothstep(elev, 8, 30)) * clouds;
+    this.afterglow.visible = glowK > 0.003;
+    if (this.afterglow.visible) {
+      _p.set(ls.sunSky.x, 0, ls.sunSky.z);
+      if (_p.lengthSq() < 1e-6) _p.set(1, 0, 0);
+      _p.normalize().multiplyScalar(D);
+      _p.y = D * 0.03;
+      this.afterglow.position.copy(_p.add(cam));
+      this.afterglow.scale.set(size(120), size(38), 1);
+      const under = 1 - THREE.MathUtils.smoothstep(elev, -6, 3);
+      const am = this.afterglow.material as THREE.SpriteMaterial;
+      am.color.setRGB(1.0, 0.56, 0.26).lerp(_c.setRGB(0.85, 0.34, 0.46), under).multiplyScalar(0.9);
+      am.opacity = glowK * (0.8 - 0.25 * under);
+    }
+
     // The moon: rises into the night sky with the moonlight, a cool halo round it.
     const mElev = Math.asin(THREE.MathUtils.clamp(ls.moonSky.y, -1, 1)) / deg;
     const moonVis = THREE.MathUtils.smoothstep(ls.night, 0.35, 0.75) * THREE.MathUtils.smoothstep(mElev, -2, 3) * clouds;
@@ -333,14 +353,14 @@ export class SkyBodies {
       this.moonGlow.position.copy(_p);
       const disc = size(2.9);
       this.moon.scale.set(disc, disc, 1);
-      const halo = size(11);
+      const halo = size(16);
       this.moonGlow.scale.set(halo, halo, 1);
       const mm = this.moon.material as THREE.SpriteMaterial;
       mm.color.setRGB(1.25, 1.27, 1.3);
       mm.opacity = moonVis;
       const gm = this.moonGlow.material as THREE.SpriteMaterial;
-      gm.color.setRGB(0.55, 0.65, 0.85);
-      gm.opacity = moonVis * 0.45;
+      gm.color.setRGB(0.5, 0.63, 0.9);
+      gm.opacity = moonVis * 0.55;
     }
   }
 }

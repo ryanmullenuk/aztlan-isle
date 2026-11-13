@@ -36,21 +36,37 @@ export interface BuildingModel {
   canopy?: THREE.BufferGeometry;
   /** Window and doorway openings (boxes: centre and size, local), lit from within at night. */
   windows?: Glow[];
+  /** Doors that stand open by day and are shut at night (drawn apart from the model: see Doors). */
+  doors?: Door[];
 }
 
-/** A window or doorway that glows at night: its centre and size (local, door faces +z). */
-export interface Glow { x: number; y: number; z: number; w: number; h: number; d: number }
+/**
+ * A window or doorway that glows at night: its centre and size (local, door faces +z). A window
+ * (`win`) now and then shows the shadow of someone moving about inside.
+ */
+export interface Glow { x: number; y: number; z: number; w: number; h: number; d: number; win?: boolean }
+/**
+ * A door that moves: a timber leaf hinged at its left edge (it swings out by day and is pulled to
+ * at night), or a hut's cloth curtain, rolled up under the lintel by day and let down at night.
+ * `x` is the middle of the doorway, `y` its foot, `z` the face it sits against (it faces +z).
+ */
+export interface Door { x: number; y: number; z: number; w: number; h: number; color: number; curtain?: boolean }
 /** Collects the openings of the model being built (see collectGlows). */
 let glowSink: Glow[] | null = null;
-/** Build a model, recording its window and doorway openings for the night glow. */
+/** Collects the moving doors of the model being built (models made on their own keep a fixed, shut door). */
+let doorSink: Door[] | null = null;
+/** Build a model, recording its window and doorway openings for the night glow, and its doors. */
 export function collectGlows(make: () => BuildingModel): BuildingModel {
   glowSink = [];
+  doorSink = [];
   try {
     const m = make();
     m.windows = glowSink;
+    m.doors = doorSink;
     return m;
   } finally {
     glowSink = null;
+    doorSink = null;
   }
 }
 
@@ -369,13 +385,15 @@ function tealDoor(b: GeoBuilder, x: number, y: number, z: number, w = 0.26, h = 
   glowSink?.push({ x, y: y + h / 2, z: z + 0.004, w: w + 0.07, h: h + 0.035, d: 0.03 });
   // Dark recess, timber door and projecting stone jambs/lintel.
   b.add(P.box(w + 0.065, h + 0.03, 0.035), { color: K.door }, M.t(x, y + h / 2, z));
-  b.add(P.box(w * 0.86, h * 0.96, 0.018), { color: AD.door }, M.t(x, y + h * 0.48, z + 0.022));
+  // The leaf itself: fixed (and shut) on a model made on its own, else a door that opens by day.
+  if (doorSink) doorSink.push({ x, y: y + h * 0.01, z: z + 0.022, w: w * 0.86, h: h * 0.96, color: AD.door.getHex() });
+  else b.add(P.box(w * 0.86, h * 0.96, 0.018), { color: AD.door }, M.t(x, y + h * 0.48, z + 0.022));
   for (const side of [-1, 1]) b.add(P.box(0.045, h + 0.05, 0.07), { color: AD.wallLight }, M.t(x + side * (w / 2 + 0.035), y + h / 2, z + 0.015));
   b.add(P.rbox(w + 0.16, 0.065, 0.10, 0.012, 1), { color: K.stone }, M.t(x, y + h + 0.025, z + 0.025));
   b.add(P.box(w + 0.12, 0.035, 0.13), { color: K.stoneDark }, M.t(x, y + 0.012, z + 0.04));
 }
 function adobeWindow(b: GeoBuilder, x: number, y: number, z: number, side = false, w = 0.12, h = 0.18): void {
-  glowSink?.push({ x, y, z, w: side ? 0.05 : w * 0.92, h: h * 0.92, d: side ? w * 0.92 : 0.05 });
+  glowSink?.push({ x, y, z, w: side ? 0.05 : w * 0.92, h: h * 0.92, d: side ? w * 0.92 : 0.05, win: true });
   b.add(P.box(side ? 0.04 : w, h, side ? w : 0.04), { color: AD.win }, M.t(x, y, z));
   b.add(P.box(side ? 0.075 : w + 0.065, 0.035, side ? w + 0.065 : 0.075), { color: AD.wallLight }, M.t(x, y - h / 2 - 0.012, z));
 }
@@ -443,6 +461,8 @@ export function hutModel(): BuildingModel {
   planks('z', hw, -hd, hd, gable);
   // Above the doorway, and the dark room inside (firelight shows through the doorway at night).
   glowSink?.push({ x: 0, y: 0.3, z: hd - 0.02, w: door * 1.8, h: 0.44, d: 0.02 });
+  // A woven curtain in the doorway, behind the firelight: rolled up by day, let down at night.
+  doorSink?.push({ x: 0, y: 0.07, z: hd - 0.04, w: door * 2 - 0.03, h: 0.43, color: 0xb9774a, curtain: true });
   b.add(P.box(door * 2, H - 0.5, 0.035), { color: plank() }, M.t(0, 0.5 + (H - 0.5) / 2, hd));
   b.add(P.box(W - 0.1, H - 0.08, 0.01), { color: c(0x3a2414) }, M.t(0, wallY + (H - 0.08) / 2, -hd + 0.03));
   b.add(P.box(W - 0.1, 0.01, D - 0.1), { color: c(0x5a3a20) }, M.t(0, 0.065, 0));
@@ -506,6 +526,13 @@ export function hutModel(): BuildingModel {
   return { finished: b.build(), torches: [], height: 1.25 };
 }
 
+/** Where a family house's hearth smoke leaves its roof, per tier (local: the mouth of its smoke pot). */
+export const HOME_HEARTH: Record<number, [number, number, number]> = {
+  1: [0.62, 1.17, -0.55], 2: [0.82, 1.47, -0.62], 3: [0.92, 1.27, -0.72], 4: [1.02, 1.17, -0.85],
+};
+/** A hut's hearth smoke seeps out through the thatch at the ridge. */
+export const HUT_HEARTH: [number, number, number] = [0.18, 1.14, 0];
+
 /**
  * Home, levels 2–5 (tier 1–4): the adobe house grows with each upgrade.
  *  2: family home, two stacked blocks and a red awning (4 people)
@@ -517,6 +544,10 @@ export function homeModel(tier = 1): BuildingModel {
   const b = new GeoBuilder();
   let height = 2;
   const torches: THREE.Vector3[] = [];
+  // The smoke hole over the hearth: a squat clay pot on the roof, sooty round its mouth.
+  const [hx, hy, hz] = HOME_HEARTH[Math.min(4, Math.max(1, tier))];
+  b.add(P.cyl(0.07, 0.1, 0.16, 7), { color: (p) => AD.pot.clone().lerp(c(0x3a2c24), Math.min(1, Math.max(0, (p.y - hy + 0.1) * 9))) }, M.t(hx, hy - 0.07, hz));
+  b.add(P.cyl(0.052, 0.052, 0.012, 7), { color: c(0x1e1714) }, M.t(hx, hy + 0.012, hz));
   if (tier <= 1) {
     baseBand(b, 1.9, 1.6, 0, -0.1);
     adobeBlock(b, 1.9, 1.0, 1.6, 0, 0, -0.1);
@@ -4998,16 +5029,41 @@ export function ceremonyModel(w: number, d: number): BuildingModel {
     b.add(P.plane(0.05, 0.12), { color: c(0xe9c46a) }, sun.clone().multiply(M.t(Math.sin(a) * 0.27, Math.cos(a) * 0.27, 0.002, 0, 0, -a)));
   }
   // Benches either side of the aisle, facing the arch: a plank seat on red aprons painted with the key.
+  // (Carried out and set down by hand: none quite square to the aisle or level with its neighbour.)
   for (const z of [1.6, 0.85, 0.1]) for (const s of [-1, 1]) {
-    const x = s * 1.65;
-    b.add(P.box(1.45, 0.06, 0.3), { color: K.timber }, M.t(x, D + 0.25, z));
-    b.add(P.box(1.45, 0.012, 0.02), { color: K.timberDark }, M.t(x, D + 0.284, z));
+    const bm = M.t(s * 1.65 + rng.range(-0.05, 0.05), 0, z + rng.range(-0.04, 0.04), 0, rng.range(-0.07, 0.07), 0);
+    const at = (x: number, y: number, zz: number) => bm.clone().multiply(M.t(x, y, zz));
+    b.add(P.box(1.45, 0.06, 0.3), { color: K.timber.clone().multiplyScalar(rng.range(0.88, 1.08)) }, at(0, D + 0.25, 0));
+    b.add(P.box(1.45, 0.012, 0.02), { color: K.timberDark }, at(0, D + 0.284, rng.range(-0.05, 0.05)));
     for (const f of [1, -1]) {
-      b.add(P.box(1.3, 0.14, 0.04), { color: K.red }, M.t(x, D + 0.15, z + f * 0.1));
-      fretBand(b, M.t(x, D + 0.15, z + f * 0.128).multiply(M.t(0, 0, 0, 0, f > 0 ? 0 : Math.PI, 0)), 1.2, 0.09, K.red, CREAM);
+      b.add(P.box(1.3, 0.14, 0.04), { color: K.red }, at(0, D + 0.15, f * 0.1));
+      fretBand(b, at(0, D + 0.15, f * 0.128).multiply(M.t(0, 0, 0, 0, f > 0 ? 0 : Math.PI, 0)), 1.2, 0.09, K.red, CREAM);
     }
-    for (const lx of [-0.66, 0.66]) b.add(P.box(0.08, 0.2, 0.25), { color: K.timberDark }, M.t(x + lx, D + 0.1, z));
+    for (const lx of [-0.66, 0.66]) b.add(P.box(0.08, 0.2, 0.25), { color: K.timberDark }, at(lx, D + 0.1, 0));
+    // A folded cloth left on a seat here and there.
+    if (rng.chance(0.4)) b.add(P.box(0.24, 0.03, 0.2), { color: [c(0x327879), c(0xe9c46a), c(0xefdfb8)][rng.int(0, 2)] }, at(rng.range(-0.5, 0.5), D + 0.295, 0, ));
   }
+  // Petals strewn down the aisle and round the dais.
+  petals(b, -0.42, 0.42, cz0 + 0.1, cz1 - 0.15, top + 0.022, 46, 3111);
+  petals(b, -1.3, 1.3, -hd + 0.2, -hd + 1.7, D + 0.165, 40, 3112);
+  // The musicians' corner: three drums of different sizes and a low stool.
+  drum(b, -hw + 0.55, D, 2.25, 0.2, 0.34, 0x7a4a2a);
+  drum(b, -hw + 0.98, D, 2.42, 0.14, 0.24, 0x8a5a34);
+  drum(b, -hw + 0.62, D, 2.68, 0.11, 0.42, 0x6a4024);
+  b.add(P.cyl(0.11, 0.09, 0.14, 8), { color: K.timberDark }, M.t(-hw + 1.05, D + 0.07, 2.75));
+  // Across from them the feast table: a cloth, bowls of fruit, a jug and loaves.
+  const fx = hw - 0.6, fz = 2.52;
+  for (const [lx, lz] of [[-0.42, -0.14], [0.42, -0.14], [-0.42, 0.14], [0.42, 0.14]] as const) b.add(P.box(0.05, 0.28, 0.05), { color: K.timberDark }, M.t(fx + lx, D + 0.14, fz + lz));
+  b.add(P.box(1.0, 0.04, 0.42), { color: K.timber }, M.t(fx, D + 0.3, fz, 0, 0.05, 0));
+  b.add(P.box(0.62, 0.012, 0.46), { color: CREAM }, M.t(fx - 0.05, D + 0.326, fz, 0, 0.05, 0));
+  b.add(P.box(0.62, 0.1, 0.012), { color: K.red }, M.t(fx - 0.05, D + 0.27, fz + 0.236, 0, 0.05, 0));
+  for (const [ox, col] of [[-0.24, 0xf08a24], [0.02, 0xd8322a]] as const) {
+    b.add(P.cyl(0.1, 0.06, 0.05, 9), { color: c(0x8a5a3a) }, M.t(fx + ox, D + 0.355, fz - 0.02));
+    for (let k = 0; k < 4; k++) b.add(P.sphere(0.036, 0), { color: c(col).lerp(c(0xe8c040), rng.next() * 0.6) }, M.t(fx + ox + rng.range(-0.045, 0.045), D + 0.395, fz - 0.02 + rng.range(-0.045, 0.045)));
+  }
+  b.add(P.cyl(0.05, 0.07, 0.17, 8), { color: c(0xb85a2e) }, M.t(fx + 0.3, D + 0.41, fz + 0.03));
+  b.add(P.cyl(0.03, 0.045, 0.06, 8), { color: c(0xb85a2e) }, M.t(fx + 0.3, D + 0.52, fz + 0.03));
+  for (const lx of [0.36, 0.44]) b.add(P.sphere(0.05, 0), { color: c(0xd6a860) }, M.t(fx + lx, D + 0.345, fz - 0.12 + (lx - 0.36), 0, 0, 0, 1.3, 0.6, 1));
   // The dais: two round tiers, a spiral of rings carved into the top.
   const az = -hd + 0.55, dz = az + 0.3;
   b.add(P.cyl(1.05, 1.1, 0.08, 28), { color: SAND[2] }, M.t(0, D + 0.04, dz));
@@ -5018,11 +5074,13 @@ export function ceremonyModel(w: number, d: number): BuildingModel {
   for (const s of [-1, 1]) {
     const x = s * 1.15;
     blockPillar(b, x, az, 2.35, 0.34, rng, null);
-    frettedPot(b, s * 2.15, D, az + 0.35, 1.35, s > 0 ? 0xb85a2e : 0xc4643a);
-    hibiscusClump(b, s * 2.15, D + 0.4, az + 0.35, 1.5, 2, 95 + s);
-    broadLeaf(b, s * 2.15, D + 0.38, az + 0.35, 1.1, 40 + s);
-    frettedPot(b, s * 1.62, D, az + 0.85, 1.0);
-    hibiscusClump(b, s * 1.62, D + 0.3, az + 0.85, 1.1, 1, 97 + s);
+    // (The pots either side are not a matched pair: different sizes, and set where they landed.)
+    const big = s > 0 ? 1.5 : 1.2, small = s > 0 ? 0.85 : 1.1;
+    frettedPot(b, s * 2.15 + rng.range(-0.08, 0.08), D, az + 0.35 + rng.range(-0.08, 0.08), big, s > 0 ? 0xb85a2e : 0xc4643a);
+    hibiscusClump(b, s * 2.15, D + 0.3 * big, az + 0.35, 1.1 * big, s > 0 ? 3 : 1, 95 + s);
+    broadLeaf(b, s * 2.15, D + 0.28 * big, az + 0.35, 0.8 * big, 40 + s);
+    frettedPot(b, s * 1.62 + rng.range(-0.1, 0.1), D, az + 0.85 + rng.range(-0.1, 0.1), small);
+    hibiscusClump(b, s * 1.62, D + 0.3 * small, az + 0.85, 1.1 * small, s > 0 ? 1 : 2, 97 + s);
     sunBanner(b, M.t(s * 1.55, D + 1.75, az + 0.02), 0.42, 1.2, true);
   }
   const ly = D + 2.45;
@@ -5057,6 +5115,48 @@ export function ceremonyModel(w: number, d: number): BuildingModel {
   return { finished: b.build(), torches, height: D + 3.5 };
 }
 
+/** An old, leaning frangipani: a gnarled grey trunk forking into stubby limbs, tufts of leaves and pale blossom at their ends. */
+function oldTree(b: GeoBuilder, x: number, y: number, z: number, s: number, seed: number): void {
+  const r = new RNG(seed), bark = [c(0x8a7c6c), c(0x7a6c5c), c(0x968878)];
+  const limb = (px: number, py: number, pz: number, dir: THREE.Vector3, len: number, rad: number, depth: number) => {
+    b.add(P.cyl(rad * 0.72, rad, len, 6), { color: bark[r.int(0, 2)] }, along(px, py, pz, dir, len));
+    const ex = px + dir.x * len, ey = py + dir.y * len, ez = pz + dir.z * len;
+    if (depth <= 0) {
+      // A tuft: long leaves round a few blossoms.
+      for (let k = 0; k < 6; k++) {
+        const a = (k / 6) * Math.PI * 2 + r.range(-0.3, 0.3), l = r.range(0.22, 0.32) * s;
+        b.add(P.box(0.07 * s, 0.012, l), { color: c(0x3f8a34).lerp(c(0x6aac44), r.next()), sway: 0.25, leaf: 1 }, M.t(ex + Math.sin(a) * l * 0.5, ey + 0.02, ez + Math.cos(a) * l * 0.5, r.range(0.1, 0.5), a, 0));
+      }
+      for (let k = 0; k < 3; k++) b.add(P.sphere(0.035 * s, 0), { color: k ? c(0xfff4e0) : c(0xffd870) }, M.t(ex + r.range(-0.06, 0.06) * s, ey + 0.05 * s, ez + r.range(-0.06, 0.06) * s));
+      return;
+    }
+    for (let k = 0; k < 2; k++) {
+      const a = r.range(0, Math.PI * 2), nd = dir.clone().add(new THREE.Vector3(Math.cos(a) * 0.75, r.range(0.1, 0.5), Math.sin(a) * 0.75)).normalize();
+      limb(ex, ey, ez, nd, len * r.range(0.6, 0.78), rad * 0.7, depth - 1);
+    }
+  };
+  limb(x, y - 0.03, z, new THREE.Vector3(0.18, 1, -0.1).normalize(), 0.55 * s, 0.085 * s, 2);
+  // Roots, and blossom fallen on the grass beneath.
+  for (let k = 0; k < 4; k++) {
+    const a = (k / 4) * Math.PI * 2 + r.range(-0.4, 0.4);
+    b.add(P.box(0.06 * s, 0.05, 0.26 * s), { color: bark[1] }, M.t(x + Math.sin(a) * 0.13 * s, y + 0.015, z + Math.cos(a) * 0.13 * s, -0.12, a, 0));
+  }
+  for (let k = 0; k < 7; k++) b.add(P.sphere(0.022 * s, 0), { color: c(0xfff4e0) }, M.t(x + r.range(-0.6, 0.6) * s, y + 0.012, z + r.range(-0.6, 0.6) * s, 0, 0, 0, 1, 0.4, 1));
+}
+
+/** Petals strewn on a floor: little flat flecks, mostly red and gold. */
+function petals(b: GeoBuilder, x0: number, x1: number, z0: number, z1: number, y: number, n: number, seed: number): void {
+  const r = new RNG(seed), cols = [c(0xd8322a), c(0xf08a24), c(0xf6e2a0), c(0xe86a8a)];
+  for (let k = 0; k < n; k++) b.add(P.box(0.035, 0.004, 0.022), { color: cols[r.int(0, 3)] }, M.t(r.range(x0, x1), y + k * 0.0004, r.range(z0, z1), 0, r.range(0, Math.PI), 0));
+}
+
+/** A hide drum on a wooden body, laced round. */
+function drum(b: GeoBuilder, x: number, y: number, z: number, rad: number, h: number, body: number): void {
+  b.add(P.cyl(rad, rad * 0.86, h, 10), { color: c(body) }, M.t(x, y + h / 2, z));
+  b.add(P.cyl(rad * 1.04, rad * 1.04, 0.025, 10), { color: c(0xe9dcb8) }, M.t(x, y + h + 0.01, z));
+  for (const k of [0.3, 0.7]) b.add(P.cyl(rad * 0.96, rad * 0.93, 0.02, 10), { color: K.red }, M.t(x, y + h * k, z));
+}
+
 // ---------------- Graveyard ----------------
 
 /** The graveyard's plots (model-local centres, door +z): two columns either side of the path, four rows deep. */
@@ -5076,17 +5176,45 @@ export function graveyardModel(w: number, d: number): BuildingModel {
   const hw = w / 2 - 0.15, hd = d / 2 - 0.15;
   // Grass inside the walls.
   b.add(P.box(2 * hw - 0.2, 0.03, 2 * hd - 0.2), { color: c(0x7c9c48) }, M.t(0, 0.015, 0));
+  // Not a lawn: patches of longer, darker and sun-bleached grass, and bare earth worn beside the path.
+  for (let k = 0; k < 16; k++) {
+    const col = [c(0x6a8c3e), c(0x8caa56), c(0x9aa860), c(0x70943f)][rng.int(0, 3)];
+    b.add(P.cyl(rng.range(0.3, 0.75), rng.range(0.3, 0.75), 0.006, 7), { color: col }, M.t(rng.range(-hw + 0.7, hw - 0.7), 0.032 + k * 0.0005, rng.range(-hd + 0.9, hd - 0.7), 0, rng.range(0, 3), 0, 1, 1, rng.range(0.6, 1.3)));
+  }
+  for (let k = 0; k < 5; k++) b.add(P.cyl(rng.range(0.16, 0.3), rng.range(0.16, 0.3), 0.005, 6), { color: c(0x9a8460) }, M.t((rng.chance(0.5) ? -1 : 1) * rng.range(0.7, 0.95), 0.042, rng.range(-hd + 1.4, hd - 0.4), 0, rng.range(0, 3), 0, 1, 1, 1.5));
   // The path from the gate to the shrine's steps.
   pathStones(b, -0.62, 0.62, -hd + 1.25, hd + 0.05, 0.02, rng);
   // Plots: pale kerbstones round a bed of greener grass.
   const kerb = [c(0xcfc6b2), c(0xbdb4a0), c(0xd8d0bd)];
-  for (const [x, z] of GRAVEYARD.plots) {
-    b.add(P.box(0.66, 0.035, 0.88), { color: c(0x8aaa52) }, M.t(x, 0.03, z));
-    for (const s of [-1, 1]) {
-      for (let k = 0; k < 3; k++) b.add(P.box(0.09, 0.09, 0.32), { color: kerb[(k + (s > 0 ? 1 : 0)) % 3] }, M.t(x + s * 0.38, 0.06, z - 0.33 + k * 0.33));
-      b.add(P.box(0.66, 0.09, 0.09), { color: kerb[s > 0 ? 2 : 0] }, M.t(x, 0.06, z + s * 0.49));
+  // Laid by hand over many years: each plot sits a little askew, its kerbstones of odd lengths,
+  // some sunk or tipped, one or two gone, and the bed mounded (older ones grassed over, newer earth).
+  GRAVEYARD.plots.forEach(([x, z], n) => {
+    const pr = new RNG(900 + n * 17), m = M.t(x, 0, z, 0, pr.range(-0.07, 0.07), 0);
+    const old = pr.chance(0.6);
+    b.add(P.box(0.62, 0.05, 0.84), { color: old ? c(0x8aaa52).lerp(c(0x6f9440), pr.next()) : c(0x8a6c48).lerp(c(0x9a7c54), pr.next()) }, m.clone().multiply(M.t(0, 0.035, 0)));
+    b.add(P.box(0.4, 0.04, 0.6), { color: old ? c(0x7fa04a) : c(0x94764e) }, m.clone().multiply(M.t(pr.range(-0.03, 0.03), 0.065, pr.range(-0.04, 0.04))));
+    const stone = (len: number, cx: number, cz: number, alongX: boolean) => {
+      if (pr.chance(0.07)) return;
+      const h = pr.range(0.07, 0.11), sink = pr.chance(0.25) ? pr.range(0.02, 0.05) : 0;
+      b.add(P.box(alongX ? len : pr.range(0.08, 0.11), h, alongX ? pr.range(0.08, 0.11) : len), { color: kerb[pr.int(0, 2)].clone().multiplyScalar(pr.range(0.88, 1.04)) },
+        m.clone().multiply(M.t(cx + pr.range(-0.012, 0.012), h / 2 + 0.015 - sink, cz + pr.range(-0.012, 0.012), pr.range(-0.06, 0.06), pr.range(-0.08, 0.08), pr.range(-0.06, 0.06))));
+    };
+    for (const sd of [-1, 1]) {
+      let at = -0.49;
+      while (at < 0.47) {
+        const L = Math.min(pr.range(0.2, 0.42), 0.49 - at);
+        stone(L - 0.012, sd * 0.38, at + L / 2, false);
+        at += L;
+      }
+      let ax = -0.33;
+      while (ax < 0.31) {
+        const L = Math.min(pr.range(0.22, 0.4), 0.33 - ax);
+        stone(L - 0.012, ax + L / 2, sd * 0.49, true);
+        ax += L;
+      }
     }
-  }
+    if (old && pr.chance(0.5)) blooms(b, x + pr.range(-0.15, 0.15), 0.07, z + pr.range(-0.2, 0.2), 3, 0.12, 0.16, 930 + n, 0.4);
+  });
   // The walls and their pillars.
   // (Each run stops just inside the pillars at its ends, so no two runs overlap.)
   const wallTop = blockWall(b, -hw + 0.2, -hd, hw - 0.2, -hd, rng);
@@ -5137,18 +5265,36 @@ export function graveyardModel(w: number, d: number): BuildingModel {
   for (const [x, col] of [[-0.06, 0xf08a24], [0.05, 0xe8c040], [0.0, 0xd8322a]] as const) b.add(P.sphere(0.035, 0), { color: c(col) }, M.t(x, ty + 0.27, sz + 0.12 + (x ? 0 : 0.03)));
   frettedPot(b, -0.72, ty, sz + 0.1, 1.1);
   frettedPot(b, 0.72, ty, sz + 0.1, 1.1, 0xb85a2e);
-  // Ferns along the walls; flowers between the graves and round the shrine.
-  for (let k = 0; k < 6; k++) {
-    const z = -hd + 1.3 + k * ((2 * hd - 1.9) / 5);
-    fern(b, -hw + 0.32, 0.03, z, 1.2 + (k % 2) * 0.3, 200 + k);
-    fern(b, hw - 0.32, 0.03, z + 0.25, 1.1 + ((k + 1) % 2) * 0.3, 210 + k);
+  // Growing as it pleases: ferns bunched along the walls (thick in places, bare in others),
+  // flowers come up between the graves and round the shrine.
+  for (const side of [-1, 1]) {
+    let z = -hd + 1.1 + rng.range(0, 0.5);
+    while (z < hd - 0.5) {
+      if (rng.chance(0.75)) fern(b, side * (hw - 0.3 - rng.range(0, 0.12)), 0.03, z, rng.range(0.85, 1.6), 200 + Math.round(z * 37) + side);
+      z += rng.range(0.45, 1.25);
+    }
   }
-  for (const s of [-1, 1]) {
-    fern(b, s * 1.6, 0.03, -hd + 0.4, 1.3, 230 + s);
-    hibiscusClump(b, s * 1.35, 0.03, sz + 0.75, 1.1, 2, 240 + s);
-    for (const z of [1.2, 0.1, -1.0]) blooms(b, s * 2.1, 0.03, z, 4, 0.08, 0.14, 250 + Math.round(z * 10) + s, 0.6);
-    fern(b, s * 1.3, 0.03, hd - 0.4, 1.0, 260 + s);
-    blooms(b, s * 0.82, 0.03, hd - 0.35, 3, 0.05, 0.1, 270 + s, 0.5);
+  fern(b, -1.7, 0.03, -hd + 0.42, 1.45, 229);
+  fern(b, 1.45, 0.03, -hd + 0.36, 1.05, 231);
+  hibiscusClump(b, -1.4, 0.03, sz + 0.8, 1.25, 3, 239);
+  hibiscusClump(b, 1.3, 0.03, sz + 0.62, 0.9, 1, 241);
+  for (let k = 0; k < 7; k++) blooms(b, (rng.chance(0.5) ? -1 : 1) * rng.range(1.95, 2.25), 0.03, rng.range(-1.3, 1.5), rng.int(2, 5), 0.1, 0.16, 250 + k, 0.6);
+  fern(b, -1.35, 0.03, hd - 0.42, 1.15, 259);
+  blooms(b, 0.85, 0.03, hd - 0.36, 4, 0.07, 0.1, 271, 0.5);
+  // An old frangipani leans over the back corner, its blossom fallen on the graves beneath.
+  oldTree(b, -hw + 0.62, 0.03, -hd + 0.75, 1.5, 281);
+  // A stone bench by the wall on the other side, for sitting with the dead.
+  const bx = hw - 0.42, bz = 0.55;
+  for (const dz of [-0.36, 0.36]) b.add(P.box(0.26, 0.2, 0.12), { color: SAND[2] }, M.t(bx, 0.13, bz + dz));
+  b.add(P.box(0.34, 0.07, 1.0), { color: SAND[3] }, M.t(bx, 0.265, bz, 0, 0.03, 0.015));
+  // One corner of the wall has shed a few blocks into the grass; a lost pot lies cracked beside them.
+  for (let k = 0; k < 4; k++) b.add(P.box(rng.range(0.28, 0.4), 0.16, 0.24), { color: SAND[rng.int(0, 3)] }, M.t(hw - 0.5 - rng.range(0, 0.55), 0.09, -hd + 0.45 + rng.range(0, 0.5), rng.range(-0.3, 0.3), rng.range(0, 3), rng.range(-0.35, 0.35)));
+  b.add(P.cyl(0.1, 0.07, 0.16, 8), { color: c(0xb85a2e) }, M.t(hw - 1.25, 0.09, -hd + 0.62, 1.25, 0.6, 0));
+  // Moss and creeper on the walls, here and there.
+  for (let k = 0; k < 9; k++) {
+    const onSide = rng.chance(0.6), t = rng.range(-0.8, 0.8), sgn = rng.chance(0.5) ? -1 : 1;
+    const mx = onSide ? sgn * (hw - 0.135) : t * (hw - 0.6), mz = onSide ? t * (hd - 0.6) : -hd + 0.135;
+    b.add(P.box(onSide ? 0.012 : rng.range(0.25, 0.6), rng.range(0.12, 0.3), onSide ? rng.range(0.25, 0.6) : 0.012), { color: c(0x5f8a3a).lerp(c(0x86a850), rng.next()) }, M.t(mx, rng.range(0.14, 0.34), mz));
   }
   return { finished: b.build(), torches, height: 2.5 };
 }

@@ -7,6 +7,8 @@ import * as THREE from 'three';
  * material so drawing one never compiles the game's own building shaders afresh mid-play.
  */
 const SIZE = 160;
+/** Drawn at twice the size and scaled down: smooth edges without a multisampled target, which some iPhone GPUs read back empty. */
+const DRAW = SIZE * 2;
 
 export class BuildingThumbs {
   private cache = new Map<string, string>();
@@ -15,7 +17,7 @@ export class BuildingThumbs {
   private camera = new THREE.PerspectiveCamera(30, 1, 0.05, 200);
   private material = new THREE.MeshLambertMaterial({ vertexColors: true });
   private mesh = new THREE.Mesh(new THREE.BufferGeometry(), this.material);
-  private pixels = new Uint8Array(SIZE * SIZE * 4);
+  private pixels = new Uint8Array(DRAW * DRAW * 4);
 
   constructor(private renderer: THREE.WebGLRenderer) {
     this.scene.add(new THREE.HemisphereLight(0xfff4e0, 0x5a4a3a, 1.6));
@@ -44,7 +46,7 @@ export class BuildingThumbs {
 
   private draw(geometry: THREE.BufferGeometry): string | null {
     if (typeof document === 'undefined') return null;
-    this.target ??= new THREE.WebGLRenderTarget(SIZE, SIZE, { samples: 4 });
+    this.target ??= new THREE.WebGLRenderTarget(DRAW, DRAW);
     this.mesh.geometry = geometry;
     geometry.computeBoundingBox();
     const box = geometry.boundingBox!, centre = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3());
@@ -58,18 +60,20 @@ export class BuildingThumbs {
     R.setClearColor(0x000000, 0);
     R.clear();
     R.render(this.scene, this.camera);
-    R.readRenderTargetPixels(this.target, 0, 0, SIZE, SIZE, this.pixels);
+    R.readRenderTargetPixels(this.target, 0, 0, DRAW, DRAW, this.pixels);
     R.setRenderTarget(prevTarget);
     R.setClearColor(prevClear, prevAlpha);
     // Flip (GL rows run bottom-up) and convert the linear result to sRGB for the page.
-    const canvas = document.createElement('canvas');
-    canvas.width = canvas.height = SIZE;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
-    const img = ctx.createImageData(SIZE, SIZE), P = this.pixels;
+    const big = document.createElement('canvas');
+    big.width = big.height = DRAW;
+    const bctx = big.getContext('2d');
+    if (!bctx) return null;
+    const img = bctx.createImageData(DRAW, DRAW), P = this.pixels;
     const srgb = (v: number) => Math.round(255 * (v <= 0.0031308 * 255 ? (v / 255) * 12.92 : 1.055 * Math.pow(v / 255, 1 / 2.4) - 0.055));
-    for (let y = 0; y < SIZE; y++) for (let x = 0; x < SIZE; x++) {
-      const s = ((SIZE - 1 - y) * SIZE + x) * 4, d = (y * SIZE + x) * 4, a = P[s + 3];
+    let seen = 0;
+    for (let y = 0; y < DRAW; y++) for (let x = 0; x < DRAW; x++) {
+      const s = ((DRAW - 1 - y) * DRAW + x) * 4, d = (y * DRAW + x) * 4, a = P[s + 3];
+      if (a) seen++;
       // Undo premultiplication against the transparent clear before converting.
       const k = a ? 255 / a : 0;
       img.data[d] = srgb(Math.min(255, P[s] * k));
@@ -77,7 +81,20 @@ export class BuildingThumbs {
       img.data[d + 2] = srgb(Math.min(255, P[s + 2] * k));
       img.data[d + 3] = a;
     }
-    ctx.putImageData(img, 0, 0);
+    // Nothing came back (a GPU that would not read the target): no picture, so the icon stays.
+    if (seen < DRAW * DRAW * 0.01) return null;
+    bctx.putImageData(img, 0, 0);
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = SIZE;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.imageSmoothingQuality = 'high';
+    // The drop shadow is part of the picture: CSS filters on these images mispaint on iOS.
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+    ctx.shadowBlur = 6;
+    ctx.shadowOffsetY = 4;
+    const m = SIZE * 0.05;
+    ctx.drawImage(big, m, m * 0.4, SIZE - 2 * m, SIZE - 2 * m);
     return canvas.toDataURL('image/png');
   }
 

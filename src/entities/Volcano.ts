@@ -243,6 +243,8 @@ export function texturedRock(material: THREE.MeshStandardMaterial, lava?: { heat
 }
 
 /** Vertices across each molten flow, rolling lobes on the flows, lip lobes, fountain bombs, smoke puffs. */
+/** Spurts from the crater: one every so many seconds (a little irregular), lasting this share of that. */
+const SPURT = { every: 5.5, window: 0.2 };
 const LAVA_ACROSS = 9, BLOBS = 30, SPILL = 4, BOMBS = 44, SMOKE = 54;
 /** Height of the crater lake when quiet, and brimming at the breach. */
 const LAKE_LOW = 8.8, LAKE_FULL = 9.42;
@@ -358,23 +360,43 @@ export class Volcano {
   private readonly glow = new THREE.MeshStandardMaterial({ color: 0xff6b13, emissive: 0xffffff, emissiveIntensity: 1, roughness: 0.55 });
   /** 0 at night … 1 in daylight: the smoke is unlit, so it darkens with the sky (its glow from below does not). */
   daylight = 1;
+  /** How hard the crater is spurting right now (0..1): the camera shakes and the crater flashes with it. */
+  spurt = 0;
+  /**
+   * How hard the ground is shaking (0..1): a low tremble while the mountain rumbles before lava,
+   * strong throughout an eruption with a jolt at every spurt, dying away as it cools.
+   */
+  get shaking(): number {
+    if (!this.group.visible) return 0;
+    const p = this.state.phase;
+    if (p === 'erupting') return Math.min(1, 0.55 + this.spurt * 0.45);
+    if (p === 'cooling' && this.state.coolingHot) return 0.3 * Math.min(1, this.state.remaining / 25);
+    return this.state.rumbling ? 0.12 + 0.18 * Math.min(1, (VOLCANO.rumble - this.state.remaining) / VOLCANO.rumble) : 0;
+  }
   notify: (message: string) => void = () => {};
 
   constructor(w: World, saved?: VolcanoSave) {
     this.state = new VolcanoCycle(w.seed, saved);
     // Prefer the broad inland crown of island two, clear of existing buildings and landmarks.
+    // The ground under it must be clear land. A whole square round it is asked for first (where
+    // the volcano has always stood on islands that have room); failing that, just its own round
+    // footprint, so an island whose second isle is too narrow for the square still has its volcano.
     let best = -Infinity, site = -1;
-    for (let i = 0; i < w.layer.length; i++) {
-      if (w.isle[i] !== 2 || w.layer[i] < 2 || w.distWater[i] < 18) continue;
-      const cx = i % w.N, cz = Math.floor(i / w.N);
-      let clear = true;
-      for (let dz = -18; dz <= 18 && clear; dz++) for (let dx = -18; dx <= 18; dx++) {
-        if (!w.inBounds(cx + dx, cz + dz)) { clear = false; break; }
-        const j = w.idx(cx + dx, cz + dz);
-        if (w.occ[j] || w.blockFixed[j] || w.layer[j] < 1) { clear = false; break; }
+    for (const round of [false, true]) {
+      for (let i = 0; i < w.layer.length; i++) {
+        if (w.isle[i] !== 2 || w.layer[i] < 2 || w.distWater[i] < 18) continue;
+        const cx = i % w.N, cz = Math.floor(i / w.N);
+        let clear = true;
+        for (let dz = -18; dz <= 18 && clear; dz++) for (let dx = -18; dx <= 18; dx++) {
+          if (round && dx * dx + dz * dz > 18 * 18) continue;
+          if (!w.inBounds(cx + dx, cz + dz)) { clear = false; break; }
+          const j = w.idx(cx + dx, cz + dz);
+          if (w.occ[j] || w.blockFixed[j] || w.layer[j] < 1) { clear = false; break; }
+        }
+        const score = w.layer[i] * 2 + w.distWater[i];
+        if (clear && score > best) { best = score; site = i; }
       }
-      const score = w.layer[i] * 2 + w.distWater[i];
-      if (clear && score > best) { best = score; site = i; }
+      if (site >= 0) break;
     }
     const savedSite = saved && Number.isFinite(saved.x) && Number.isFinite(saved.z) ? w.cellIndexAt(saved.x, saved.z) : -1;
     if (savedSite >= 0 && w.isle[savedSite] === 2 && w.layer[savedSite] >= 1) site = savedSite;
@@ -585,11 +607,15 @@ export class Volcano {
           float ripple = surfaceNoise(vec3(s * 2.0, along * 0.32, 1.0)) * 0.6 + surfaceNoise(vec3(s * 5.0, along * 0.9, 4.0)) * 0.4;
           float crust = surfaceNoise(vec3(s * 1.7 + 9.0, along * 0.42, 7.0)) * 0.7 + surfaceNoise(vec3(s * 4.3, along * 1.1, 2.0)) * 0.3;
           float core = 1.0 - smoothstep(0.1, 1.0, edge);
-          T = mix(0.42, 0.98, core) * (0.84 + 0.34 * (ripple - 0.5)) - f * 0.14;
-          float crusted = smoothstep(0.66 - 0.2 * f - 0.22 * edge, 0.74 - 0.16 * f - 0.18 * edge, crust);
-          T = mix(T, 0.07, crusted * 0.92);
+          T = mix(0.5, 1.0, core) * (0.86 + 0.34 * (ripple - 0.5)) - f * 0.05;
+          // Fresh surges from the crater run down the flow one after another: bright, fast fronts.
+          float surge = pow(max(0.0, sin(f * 11.0 - t * 1.5 + s * 0.6)), 6.0);
+          T += 0.2 * surge * core;
+          // (While it erupts the flow stays molten: only scattered rafts of crust ride on it, mostly at its edges.)
+          float crusted = smoothstep(0.78 - 0.1 * f - 0.26 * edge, 0.86 - 0.08 * f - 0.22 * edge, crust) * (1.0 - surge * 0.8);
+          T = mix(T, 0.1, crusted * 0.8);
           // A glowing seam round every raft of crust.
-          T = max(T, 0.5 * (1.0 - smoothstep(0.0, 0.035, abs(crust - (0.7 - 0.18 * f - 0.2 * edge)))));
+          T = max(T, 0.55 * (1.0 - smoothstep(0.0, 0.035, abs(crust - (0.82 - 0.09 * f - 0.24 * edge)))));
         } else if (vLava.x > -1.5) {
           // The crater lake turns slowly (faster near the middle), skinned with drifting crust and
           // broken by bubbles that swell and burst.
@@ -613,10 +639,10 @@ export class Volcano {
         vec3 lavaCol = lavaRamp(T);
         float glowing = smoothstep(0.1, 0.32, T) * uLavaHeat;
         diffuseColor.rgb = mix(vec3(0.05, 0.035, 0.03), lavaCol * 0.25, glowing);
-        totalEmissiveRadiance = lavaCol * glowing * (0.8 + 0.3 * facing) * 1.05;
+        totalEmissiveRadiance = lavaCol * glowing * (0.8 + 0.3 * facing) * 1.4;
       `);
     };
-    this.glow.customProgramCacheKey = () => 'volcano-lava-3';
+    this.glow.customProgramCacheKey = () => 'volcano-lava-4';
     this.lava = new THREE.Group(); this.lava.name = 'Active lava'; this.group.add(this.lava);
     const emberMat = this.embers.points.material as THREE.ShaderMaterial;
     emberMat.blending = THREE.AdditiveBlending;
@@ -783,12 +809,26 @@ export class Volcano {
       }
       this.flowBlobs.instanceMatrix.needsUpdate = true;
       // Fountain: molten bombs flung up from the lake in bursts, arcing out and falling back.
+      // Every few seconds the crater spurts: for a moment everything leaving it is thrown twice as
+      // high and further out, in bigger gobs, with a jet of sparks and a flash from the crater.
       const fountain = phase === 'erupting' ? Math.min(1, since / 4) * (0.55 + 0.45 * Math.max(0, Math.sin(t * 0.8))) : 0;
+      const spurting = (time: number) => phase === 'erupting' && since > 3 && ((time / SPURT.every + Math.sin(Math.floor(time / SPURT.every) * 12.9898) * 0.25) % 1 + 1) % 1 < SPURT.window;
+      const nowSpurting = spurting(t);
+      this.spurt += ((nowSpurting ? 1 : 0) - this.spurt) * Math.min(1, dt * (nowSpurting ? 9 : 1.6));
+      if (dt > 0 && nowSpurting) {
+        for (let k = 0; k < 5; k++) {
+          const a = Math.random() * Math.PI * 2, v = Math.random() * 1.6;
+          this.embers.spawn(0.38 + Math.cos(a) * 0.5, lake + 0.2, Math.sin(a) * 0.4, Math.cos(a) * v, 6 + Math.random() * 6, Math.sin(a) * v, 1.2 + Math.random() * 1.4, 0.14 + Math.random() * 0.12);
+        }
+      }
+      this.craterLight.intensity *= 1 + this.spurt * 1.3;
       for (let i = 0; i < BOMBS; i++) {
-        const period = 1.5 + (i % 7) * 0.17, u = ((t / period + i * 0.618034) % 1), s = u * period;
-        const a = i * 2.39996, up = 4.2 + (i % 5) * 0.75 + (i % 3) * 0.4, out = 0.35 + (i % 4) * 0.32;
+        const period = 2.5 + (i % 7) * 0.17, u = ((t / period + i * 0.618034) % 1), s = u * period;
+        // A bomb thrown during a spurt keeps its extra height for its whole flight.
+        const big = spurting(t - s) ? 1 : 0;
+        const a = i * 2.39996, up = (4.2 + (i % 5) * 0.75 + (i % 3) * 0.4) * (1 + big * 0.75), out = (0.35 + (i % 4) * 0.32) * (1 + big * 0.7);
         const y = lake + up * s - 4.6 * s * s;
-        const size = i / BOMBS < fountain && y > lake ? (0.07 + (i % 3) * 0.035) * (1 - u * 0.4) : 0;
+        const size = (big || i / BOMBS < fountain) && y > lake ? (0.07 + (i % 3) * 0.035) * (1 + big * 0.7) * (1 - u * 0.4) : 0;
         blob.position.set(0.38 + Math.cos(a) * out * s, y, Math.sin(a) * out * s);
         blob.quaternion.identity();
         // Stretched along their flight while fast, rounding off at the top of the arc.

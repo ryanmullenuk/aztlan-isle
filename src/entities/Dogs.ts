@@ -15,6 +15,7 @@ import {
   smooth, stepGait,
 } from './quadRig';
 import { steer, turnTo, walkable } from './steer';
+import { CreatureRig, creatureNow, loadCreature } from './creatureAssets';
 
 export const DOG_BASE = 2_000_000;
 
@@ -91,6 +92,8 @@ interface DogAnim {
 /** Coat colours: tan, brown, dark brown, black, cream. */
 const COATS = [0xc89a64, 0x8a5a34, 0x4e3222, 0x262220, 0xe6d6b4];
 const COAT_W = [3, 3, 2, 2, 1.5];
+/** The dog model's nose-to-tail length at scale 1 (as long as the procedural dog, tail included). */
+export const DOG_MODEL_SIZE = 0.5;
 const NAMES = ['Itzcuin', 'Xolo', 'Tochtli', 'Chichi', 'Coyotl', 'Ozomatli', 'Cuetzpal', 'Mazatl', 'Tlaco', 'Ehecatl', 'Cipac', 'Tecolotl', 'Huitzil', 'Cozcatl', 'Nochtli', 'Xochi', 'Metztli', 'Tonal', 'Ayotl', 'Poctli'];
 
 export interface DogHooks {
@@ -122,6 +125,19 @@ const STATE_TEXT: Record<DState, string> = {
  * jaguars long before villagers see them, bark the alarm (rallying the other dogs), and go out
  * to drive the cat away, sometimes at a cost.
  */
+/**
+ * Whole-body poses for the dog model (drop: how far the body sinks, in body lengths; pitch: nose
+ * up is negative; roll: over onto its side). Legs that end up under the ground are simply hidden by it.
+ */
+const POSES = {
+  up: { drop: 0, pitch: 0, roll: 0 },
+  sit: { drop: 0.17, pitch: -0.5, roll: 0 },
+  lie: { drop: 0.26, pitch: 0, roll: 0 },
+  sleep: { drop: 0.1, pitch: 0, roll: 1.35 },
+  dead: { drop: -0.04, pitch: 0, roll: Math.PI / 2 },
+};
+const ACROSS = new THREE.Vector3(1, 0, 0);
+
 export class Dogs {
   readonly meshes = new QuadMeshes();
   list: Dog[] = [];
@@ -155,6 +171,65 @@ export class Dogs {
     dogTail().forEach((g, i) => this.meshes.add(`dog_tail${i}`, g, n, true));
     const legs = dogLegParts(0x2a2220);
     DOG_LEG_KEYS.forEach((k, i) => this.meshes.add(k, legs[i], n * 2, true));
+    // The rigged dog model replaces the procedural one once it has loaded (never in Node tests).
+    if (typeof document !== 'undefined') try { loadCreature('dog').catch(() => undefined); } catch { /* no page to load from */ }
+  }
+
+  /** Each dog's rigged model (made the first time it's seen with the model loaded). */
+  private rigs = new Map<Dog, CreatureRig>();
+  private poseNow = new Map<Dog, { drop: number; pitch: number; roll: number }>();
+
+  /**
+   * Draw a dog by the rigged model: Walk while trotting about (sped to its ground speed), Run at a
+   * gallop, Idle standing, sitting or lying; the dead lie on their side. The model is a tri-colour
+   * collie-type dog: tri-coloured dogs keep its own colours, the others are tinted towards their coat.
+   */
+  private drawRig(d: Dog, s: number, spd: number, dt: number): boolean {
+    let r = this.rigs.get(d);
+    if (!r) {
+      const asset = creatureNow('dog');
+      if (!asset) return false;
+      r = new CreatureRig(asset, DOG_MODEL_SIZE, d.tri ? {} : { tint: new THREE.Color(1, 1, 1).lerp(d.color, 0.65) });
+      r.root.traverse((o) => { o.castShadow = false; });
+      r.play('Idle', 0);
+      this.meshes.group.add(r.root);
+      this.rigs.set(d, r);
+    }
+    const dead = d.state === 'dead';
+    const dur = (n: string, def: number) => r!.asset.clips.find((c) => c.name.toLowerCase() === n)?.duration || def;
+    const L = DOG_MODEL_SIZE * s;
+    if (!dead && spd > 1.3) {
+      r.play('Run', 0.2);
+      r.setSpeed(THREE.MathUtils.clamp(spd / ((1.6 * L) / dur('run', 0.7)), 0.6, 2.4));
+    } else if (!dead && spd > 0.05) {
+      r.play('Walk', 0.25);
+      r.setSpeed(THREE.MathUtils.clamp(spd / ((0.8 * L) / dur('walk', 1.2)), 0.5, 2.4));
+    } else {
+      r.play('Idle', 0.4);
+      r.setSpeed(dead ? 0 : 1);
+    }
+    // The model has no sitting or lying clips, so those are posed with the whole body, eased in:
+    //  sit   : rump down on the ground, chest up on straight front legs;
+    //  lie   : belly on the ground, legs folded away under it, head up;
+    //  sleep : flopped over on one side.
+    const want = dead ? POSES.dead : d.state === 'sit' ? POSES.sit : d.state === 'lie' ? POSES.lie : d.state === 'sleep' || d.state === 'hide' ? POSES.sleep : POSES.up;
+    let p = this.poseNow.get(d);
+    if (!p) this.poseNow.set(d, (p = { ...want }));
+    const k = Math.min(1, dt * 5);
+    p.drop += (want.drop - p.drop) * k;
+    p.pitch += (want.pitch - p.pitch) * k;
+    p.roll += (want.roll - p.roll) * k;
+    // (Sleeping dogs lie on whichever side their name falls on.)
+    const flop = d.id % 2 ? 1 : -1;
+    r.root.position.set(d.x, d.y - p.drop * L, d.z);
+    r.root.rotation.set(p.pitch, d.heading, p.roll * flop, 'YXZ');
+    // Sitting and lying, the head stays level and looks about; asleep, it rests.
+    r.root.scale.setScalar(s);
+    r.root.visible = true;
+    r.update(dt);
+    if (!dead && Math.abs(p.pitch) > 0.01) r.swing('Neck', ACROSS, -p.pitch * 0.8);
+    this.meshes.shadows.add(d.x, d.y, d.z, 0.2 * s, 0.4 * s, d.heading);
+    return true;
   }
 
   // ---------------- Population ----------------
@@ -906,8 +981,20 @@ export class Dogs {
     const m = this.meshes;
     m.begin();
     const p = this.pose;
+    for (const [d, r] of this.rigs) {
+      r.root.visible = false;
+      // Gone (carried off, or a reload): drop its model.
+      if (!this.list.includes(d)) { r.dispose(); this.rigs.delete(d); }
+    }
     for (const d of this.list) {
       if (!View.sees(d.x, d.y + 0.15, d.z, 0.4)) continue;
+      if (creatureNow('dog')) {
+        const dead = d.state === 'dead';
+        if (this.drawRig(d, d.scale * (d.puppy ? 0.5 + 0.3 * Math.min(1, d.age / DOGS.puppyGrow) : 1), dead ? 0 : d.speed, dt)) {
+          d.prevHeading = d.heading;
+          continue;
+        }
+      }
       const a = (d.anim ??= { dyn: new QuadDyn(), frame: -10, prevLie: d.lie, stretch: 0, shake: 0, shakePh: 0 });
       // Back on screen after a while: let the springs settle from rest rather than whip.
       if (View.frame - a.frame > 2) a.dyn.ready = false;

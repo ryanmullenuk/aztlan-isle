@@ -73,6 +73,26 @@ export class Graves {
     this.bier.castShadow = true;
     this.bier.scale.setScalar(0.8);
     this.group.add(this.mesh, this.shadows.mesh, this.bier);
+    // The ghost: a see-through grave shown where one being moved would go (green if it can, red if not).
+    this.ghost = new THREE.Mesh(this.mesh.geometry, new THREE.MeshBasicMaterial({ color: 0x8cf08c, transparent: true, opacity: 0.55, depthWrite: false }));
+    this.ghost.scale.setScalar(0.85);
+    this.ghost.visible = false;
+    this.ghost.renderOrder = 20;
+    this.ghost.name = 'grave ghost';
+    this.group.add(this.ghost);
+  }
+
+  private ghost: THREE.Mesh;
+  /** Where the ghost is showing (null when hidden). */
+  ghostAt: { x: number; z: number } | null = null;
+  /** Show the ghost of a grave at a place (green if it may go there, red if not), or hide it (null). */
+  showGhost(at: { x: number; y: number; z: number; yaw: number } | null, ok = true): void {
+    this.ghost.visible = !!at;
+    this.ghostAt = at ? { x: at.x, z: at.z } : null;
+    if (!at) return;
+    this.ghost.position.set(at.x, at.y + 0.02, at.z);
+    this.ghost.rotation.set(0, at.yaw, 0);
+    (this.ghost.material as THREE.MeshBasicMaterial).color.setHex(ok ? 0x8cf08c : 0xf06a5a);
   }
 
   /** Show the bier at (x, y, z), its length along `yaw`; or hide it (null). */
@@ -92,6 +112,11 @@ export class Graves {
   restore(d: unknown): void {
     if (!Array.isArray(d)) return;
     this.list = d.filter((g): g is Grave => !!g && typeof g.name === 'string' && [g.x, g.z, g.y, g.yaw, g.day].every(Number.isFinite)).slice(-MAX);
+    this.draw();
+  }
+
+  /** A grave was moved: draw them all where they now lie. */
+  redraw(): void {
     this.draw();
   }
 

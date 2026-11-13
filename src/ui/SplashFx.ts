@@ -257,24 +257,26 @@ class TitleShimmer {
 }
 
 /**
- * The two islanders in each artwork, cut out (body and head) and laid exactly over the picture,
- * as fractions of the image: the body box, and how much of it is the head (down to the chin).
+ * The two islanders in each artwork: where each stands in the picture (the box of the body, as
+ * fractions of the image), how much of that box is the head (down to the chin), and the eyes
+ * (centre x, centre y, width, height as fractions of the head, and the skin colour just above
+ * each, measured from the artwork) so an eyelid can close over them.
  */
-const FIGURES = {
+type Eye = [x: number, y: number, w: number, h: number, skin: string];
+const FIGURES: Record<'portrait' | 'desktop', { box: { x: number; y: number; w: number; h: number }; head: number; eyes: Eye[] }[]> = {
   portrait: [
-    { box: { x: 0.44, y: 0.48, w: 0.3306, h: 0.3346 }, head: 0.1254 / 0.3346, src: 'splash-portrait-fig1' },
-    { box: { x: 0.1659, y: 0.5135, w: 0.3106, h: 0.3049 }, head: 0.1259 / 0.3049, src: 'splash-portrait-fig2' },
+    { box: { x: 0.44, y: 0.48, w: 0.3306, h: 0.3346 }, head: 0.1254 / 0.3346, eyes: [[0.4875, 0.6573, 0.032, 0.0517, '#f88411'], [0.6352, 0.6401, 0.0285, 0.0603, '#fb8e1f']] },
+    { box: { x: 0.1659, y: 0.5135, w: 0.3106, h: 0.3049 }, head: 0.1259 / 0.3049, eyes: [[0.6402, 0.6288, 0.0341, 0.0515, '#fd890c'], [0.7898, 0.6094, 0.0303, 0.0472, '#fc8f0d']] },
   ],
   desktop: [
-    { box: { x: 0.2087, y: 0.3146, w: 0.1352, h: 0.5877 }, head: 0.1945 / 0.5877, src: 'splash-desktop-fig1' },
-    { box: { x: 0.0993, y: 0.3783, w: 0.122, h: 0.5122 }, head: 0.1977 / 0.5122, src: 'splash-desktop-fig2' },
+    { box: { x: 0.2087, y: 0.3146, w: 0.1352, h: 0.5877 }, head: 0.1945 / 0.5877, eyes: [[0.5708, 0.7104, 0.0221, 0.0492, '#fa7c22'], [0.677, 0.6831, 0.0221, 0.0492, '#f88c2e']] },
+    { box: { x: 0.0993, y: 0.3783, w: 0.122, h: 0.5122 }, head: 0.1977 / 0.5122, eyes: [[0.7034, 0.629, 0.0196, 0.0484, '#f07e29'], [0.7941, 0.6, 0.0147, 0.046, '#f38d41']] },
   ],
 };
 
 /**
- * The two islanders come alive a little: each breathes (rising a touch from the feet) and now and
- * then turns or tips its head, the two out of step. Their cut-outs only ever grow over the picture
- * underneath, never shrink from it, so the still image never shows round them.
+ * The two islanders blink, and that is all: an eyelid the colour of their skin drops over each eye
+ * for an instant every few seconds, the two of them out of step. Nothing else about them moves.
  */
 class Figures {
   private readonly root = document.querySelector<HTMLElement>('.splash-figures');
@@ -290,7 +292,15 @@ class Figures {
     if (this.img.complete) this.place();
     this.img.addEventListener('load', this.onResize);
     addEventListener('resize', this.onResize);
+    // The picture's frame can change size without the window doing so (the layout settling, the
+    // device turning): follow the picture itself, or the lids end up beside the eyes.
+    if (typeof ResizeObserver !== 'undefined') {
+      this.watch = new ResizeObserver(this.onResize);
+      this.watch.observe(this.img);
+    }
   }
+
+  private watch: ResizeObserver | null = null;
 
   private place(): void {
     const root = this.root!, img = this.img!, r = artRect(img);
@@ -298,7 +308,9 @@ class Figures {
     const which = img.currentSrc.includes('splash-desktop') ? 'desktop' : 'portrait';
     if (this.set !== which) {
       this.set = which;
-      root.innerHTML = FIGURES[which].map((f, k) => `<div class="sf sf-${k}"><img class="sf-body" alt="" src="./ui/${f.src}.png?v=1"><img class="sf-head" alt="" src="./ui/${f.src}-head.png?v=1" style="height:${(f.head * 100).toFixed(2)}%"></div>`).join('');
+      // Each lid is a little bigger than the eye it covers, placed in the head's own frame.
+      root.innerHTML = FIGURES[which].map((f, k) => `<div class="sf sf-${k}">${f.eyes.map(([x, y, w, h, skin]) =>
+        `<i class="sf-lid" style="left:${((x - w * 0.85) * 100).toFixed(2)}%;top:${((y - h * 0.85) * f.head * 100).toFixed(2)}%;width:${(w * 1.7 * 100).toFixed(2)}%;height:${(h * 1.7 * f.head * 100).toFixed(2)}%;background:${skin}"></i>`).join('')}</div>`).join('');
     }
     FIGURES[which].forEach((f, k) => {
       const el = root.children[k] as HTMLElement;
@@ -308,6 +320,7 @@ class Figures {
 
   stop(): void {
     removeEventListener('resize', this.onResize);
+    this.watch?.disconnect();
     this.root?.replaceChildren();
   }
 }

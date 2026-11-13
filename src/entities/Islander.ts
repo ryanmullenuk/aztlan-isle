@@ -173,6 +173,8 @@ export interface Islander {
   /** Assigned by the player (plant id to work first). */
   focusPlant: number;
   sleeping: boolean;
+  /** In the god's hand, thrown, swimming back or dazed (see GodHand): the colony leaves them alone. Never saved. */
+  flung?: import('./GodHand').Flung;
 }
 
 export function makeIslander(id: number, name: string, gender: Gender, x: number, z: number, rnd: () => number, child = false): Islander {

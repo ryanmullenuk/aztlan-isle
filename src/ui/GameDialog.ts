@@ -4,6 +4,9 @@
  * is open (or while the player is busy dragging, sculpting or placing) waits its turn; several
  * pieces of everyday news waiting together are shown as one list, so they never stack up.
  */
+import { artFor, artSrc, type ArtKey } from './eventArt';
+import { AZ_CORNERS, AZ_LEAVES } from './aztecKit';
+
 export type DialogIcon = 'tick' | 'star' | 'warn' | 'ask' | 'info' | 'home';
 
 export interface DialogAction {
@@ -22,7 +25,10 @@ export interface DialogItem {
   body?: string;
   html?: boolean;
   benefit?: string | null;
+  /** A picture of the thing itself (a building drawn on its own), shown beside the words. */
   image?: string | null;
+  /** Its own drawn picture (a volcano, a whale…); without one, a picture is chosen from the words. Null for none. */
+  art?: ArtKey | null;
   actions?: DialogAction[];
   /** Everyday news (a building finished, a birth): merged with other news waiting at the same time. */
   news?: boolean;
@@ -51,6 +57,12 @@ const ICONS: Record<DialogIcon, string> = {
 
 /** Everyday news gathers for at least this long between pop-ups. */
 const NEWS_GAP_MS = 40_000;
+
+/** A small picture on the secondary buttons that take you somewhere or look at something. */
+const PIN = '<svg class="gd-bi" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5c-3.9 0-7 3-7 6.9 0 5 7 12.1 7 12.1s7-7.1 7-12.1c0-3.9-3.1-6.9-7-6.9z" fill="#f2c14e" stroke="#7a4c10" stroke-width="1.4"/><circle cx="12" cy="9.4" r="2.6" fill="#3a2410"/></svg>';
+function buttonIcon(label: string): string {
+  return /^(show|go|watch|look|see)\b/i.test(label) ? PIN : '';
+}
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
@@ -125,15 +137,28 @@ export class GameDialog {
       this.offered(offer.key);
       actions = [{ label: offer.label, run: offer.run }, ...actions];
     }
-    this.el.innerHTML = `<div class="gd-card${d.image ? ' has-pic' : ''}" role="dialog" aria-modal="true" aria-labelledby="gd-title">
-      <div class="gd-emblem" aria-hidden="true">${ICONS[d.icon]}</div>
-      ${d.kicker ? `<div class="gd-kicker">${esc(d.kicker)}</div>` : ''}
-      <div class="gd-title" id="gd-title">${esc(d.title)}</div>
-      ${d.image ? `<img class="gd-pic" alt="" src="${d.image}">` : ''}
-      ${d.body ? `<div class="gd-body">${d.html ? d.body : esc(d.body)}</div>` : ''}
-      ${d.benefit ? `<div class="gd-benefit">${esc(d.benefit)}</div>` : ''}
+    // The picture: the thing itself (a building), or the event's own picture in its gold ring.
+    let pic = '';
+    const art = d.art === undefined ? (d.html ? null : artFor(`${d.title} ${d.body ?? ''}`)) : d.art;
+    if (d.image) pic = `<div class="gd-pic"><img alt="" src="${d.image}"></div>`;
+    else if (art) pic = `<div class="gd-pic gd-art"><img alt="" src="${artSrc(art)}"></div>`;
+    this.el.innerHTML = `<div class="gd-card az-plate${pic ? ' has-pic' : ''}${d.html ? ' stack' : ''}${d.icon === 'warn' ? ' warn' : ''}" role="dialog" aria-modal="true" aria-labelledby="gd-title">
+      ${AZ_CORNERS}
+      <div class="gd-emblem" aria-hidden="true">${AZ_LEAVES}<span class="gd-medal">${ICONS[d.icon]}</span></div>
+      ${d.kicker ? `<div class="gd-kicker az-rule"><span>${esc(d.kicker)}</span></div>` : ''}
+      <div class="gd-main">
+        ${pic}
+        <div class="gd-text">
+          <div class="gd-title" id="gd-title">${esc(d.title)}</div>
+          ${d.body ? `<div class="gd-body">${d.html ? d.body : esc(d.body)}</div>` : ''}
+          ${d.benefit ? `<div class="gd-benefit">${esc(d.benefit)}</div>` : ''}
+        </div>
+      </div>
       ${offer ? '<div class="gd-optout">Don’t want these? You can turn them off here, and change it any time in Settings.</div>' : ''}
-      <div class="gd-actions">${actions.map((a, i) => `<button type="button" class="gd-btn${a.primary || actions.length === 1 ? ' primary' : ''}" data-i="${i}">${esc(a.label)}</button>`).join('')}</div>
+      <div class="gd-actions">${actions.map((a, i) => {
+        const primary = a.primary || actions.length === 1;
+        return `<button type="button" class="gd-btn az-btn${primary ? ' primary' : ''}" data-i="${i}">${!primary ? buttonIcon(a.label) : ''}<span>${esc(a.label)}</span></button>`;
+      }).join('')}</div>
     </div>`;
     this.el.classList.remove('hidden', 'gd-out');
     // Restart the entrance each time.

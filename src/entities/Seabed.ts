@@ -5,6 +5,8 @@ import { PresetName } from '../config';
 import { Simplex2 } from '../world/noise';
 import { RNG, hash2 } from '../world/rng';
 import { World } from '../world/World';
+import { BASE_PALETTE, branchingCoral, coralBaseGeometry, tableCoral } from './coralModels';
+import { bakeCreature, CreatureName, loadCreature, simplifyGeometry } from './creatureAssets';
 
 /**
  * The richer sea floor: large reef fields (elkhorn, pillar, plate, mushroom, finger and boulder
@@ -41,22 +43,9 @@ function meadowField(n: Simplex2, x: number, z: number): number {
 const WHITE = 0xf4f0ea;
 const lerpHex = (a: number, b: number, t: number) => new THREE.Color(a).lerp(new THREE.Color(b), THREE.MathUtils.clamp(t, 0, 1));
 
-/** Elkhorn: broad, flattened antler limbs spreading out and forking. */
+/** Branching coral: rounded limbs leaning out and curving up, forking once; nods a little in the current. */
 function elkhorn(): THREE.BufferGeometry {
-  const b = new GeoBuilder(), rng = new RNG(23);
-  const col = (p: THREE.Vector3) => lerpHex(0xc8bfae, WHITE, p.y / 0.4);
-  b.add(P.cyl(0.05, 0.07, 0.12, 5, true), { color: 0xc0b8a8 }, M.t(0, 0.06, 0));
-  for (let k = 0; k < 4; k++) {
-    const a = (k / 4) * Math.PI * 2 + rng.range(-0.3, 0.3), lean = rng.range(0.6, 0.95), len = rng.range(0.24, 0.32);
-    const limb = M.t(0, 0.1, 0, 0, a, 0).multiply(M.t(0, 0, 0, lean, 0, 0));
-    b.add(P.cyl(0.035, 0.045, len, 5, true), { color: col }, limb.clone().multiply(M.t(0, len / 2, 0, 0, 0, 0, 1.7, 1, 0.45)));
-    for (const side of [-1, 1]) {
-      const l2 = len * rng.range(0.6, 0.8);
-      const tip = limb.clone().multiply(M.t(0, len, 0, rng.range(0.1, 0.3), 0, side * rng.range(0.35, 0.6)));
-      b.add(P.cone(0.04, l2, 5), { color: col }, tip.multiply(M.t(0, l2 / 2, 0, 0, 0, 0, 1.5, 1, 0.4)));
-    }
-  }
-  return b.build();
+  return branchingCoral(23, { height: 0.46, primaries: 3, depth: 1, smooth: true, sway: (p) => Math.max(0, p.y) * 0.3 });
 }
 
 /** Pillar coral: a stand of upright, fuzzy-topped columns. */
@@ -72,15 +61,9 @@ function pillar(): THREE.BufferGeometry {
   return b.build();
 }
 
-/** Plate coral: tiers of broad, thin plates off a short stalk. */
+/** Table coral: rigid, dished tables with uneven edges, flaring up from a stout stalk. */
 function plates(): THREE.BufferGeometry {
-  const b = new GeoBuilder();
-  b.add(P.cyl(0.035, 0.05, 0.22, 5, true), { color: 0xc8c0b2 }, M.t(0, 0.11, 0));
-  const tiers: [number, number, number, number, number, number][] = [[0, 0.2, 0, 0.34, 0.06, 0.04], [0.09, 0.27, -0.05, 0.23, -0.1, 0.08], [-0.07, 0.32, 0.05, 0.16, 0.08, -0.1]];
-  for (const [x, y, z, r, rx, rz] of tiers) {
-    b.add(P.cyl(r, r * 0.86, 0.035, 9), { color: (p) => lerpHex(0xcfc6b6, WHITE, Math.hypot(p.x - x, p.z - z) / r) }, M.t(x, y, z, rx, 0, rz));
-  }
-  return b.build();
+  return tableCoral(41, true);
 }
 
 /** Boulder / brain mound: a big lumpy dome with meandering grooves. */
@@ -138,22 +121,25 @@ function ridgedLathe(pts: [number, number][], segs: number, ridges: number, dept
   return g;
 }
 
-/** Barrel sponge: a big ridged barrel, open at the top with a dark hollow. */
+/** Barrel sponge: a big ridged barrel, open at the top; the hollow is its own colour, a little shaded (never a black hole). */
 function barrel(): THREE.BufferGeometry {
   const b = new GeoBuilder();
   b.add(ridgedLathe([[0.13, -0.02], [0.17, 0.12], [0.18, 0.26], [0.155, 0.36], [0.14, 0.38]], 10, 8, 0.07), { color: (p) => lerpHex(0xb4ab9c, WHITE, p.y / 0.38) });
-  // Inner wall (points top-down so it faces inwards) and the dark floor of the hollow.
-  b.add(ridgedLathe([[0.125, 0.375], [0.13, 0.22], [0.1, 0.08]], 10, 8, 0.05), { color: 0x5a4a44 });
-  b.add(new THREE.CircleGeometry(0.105, 8), { color: 0x3a2e2a }, M.t(0, 0.08, 0, -Math.PI / 2, 0, 0));
+  // Inner wall (points top-down so it faces inwards) and the floor of the hollow: pale at the lip,
+  // shading gently towards the bottom, and shallow, so it reads as a soft cup.
+  b.add(ridgedLathe([[0.125, 0.375], [0.125, 0.3], [0.1, 0.22]], 10, 8, 0.05), { color: (p) => lerpHex(0xb8aea0, 0xe6dfd2, (p.y - 0.22) / 0.15) });
+  b.add(new THREE.CircleGeometry(0.105, 8), { color: 0xb0a698 }, M.t(0, 0.22, 0, -Math.PI / 2, 0, 0));
   return b.build();
 }
 
-/** Vase sponges: two flared, open vases. */
+/** Vase sponges: two flared, open vases, pale inside. */
 function vase(): THREE.BufferGeometry {
   const b = new GeoBuilder();
   const one = (m: THREE.Matrix4) => {
     b.add(ridgedLathe([[0.04, -0.02], [0.06, 0.1], [0.1, 0.3], [0.15, 0.48], [0.17, 0.52]], 8, 5, 0.06), { color: (p) => lerpHex(0xc0b8aa, WHITE, p.y / 0.5) }, m);
-    b.add(ridgedLathe([[0.158, 0.515], [0.12, 0.35], [0.06, 0.15]], 8, 5, 0.05), { color: 0x4a3a44 }, m);
+    // The inside: pale at the lip, a little shaded lower down, closed by a floor part-way in.
+    b.add(ridgedLathe([[0.158, 0.515], [0.125, 0.42], [0.085, 0.33]], 8, 5, 0.05), { color: (p) => lerpHex(0xb8aea0, 0xe6dfd2, (p.y - 0.3) / 0.2) }, m);
+    b.add(new THREE.CircleGeometry(0.09, 6), { color: 0xb0a698 }, m.clone().multiply(M.t(0, 0.33, 0, -Math.PI / 2, 0, 0)));
   };
   one(M.t(0, 0, 0, 0.06, 0, -0.05));
   one(M.t(0.15, 0, 0.06, 0.12, 0.6, 0.25, 0.7));
@@ -228,6 +214,68 @@ function fan(): THREE.BufferGeometry {
   return b.build();
 }
 
+/**
+ * A creature model made ready for the habitat shader, fitted over a procedural stand-in: baked
+ * (bind pose), scaled so its footprint matches the stand-in's widest span (and, with `fitHeight`,
+ * its height too, so anything sized off the stand-in's top still lines up), its colours turned to
+ * light and shade only (each instance carries its own colour, as the stand-ins do), with `aVeg`
+ * (x = `sway` at each point) and `aMat` (zeros). `maxVerts`: simplified until it has fewer
+ * vertices than this (it is drawn by the thousand). Never resolves in Node (no models there).
+ */
+export function habitatCreature(name: CreatureName, proto: THREE.BufferGeometry, opts: { fitHeight?: boolean; sway?: (p: THREE.Vector3) => number; maxVerts?: number } = {}): Promise<THREE.BufferGeometry> {
+  if (typeof document === 'undefined') return new Promise(() => undefined);
+  return loadCreature(name).then(async (asset) => {
+    let geo = bakeCreature(asset);
+    proto.computeBoundingBox();
+    const pb = proto.boundingBox!, gb = geo.boundingBox!;
+    const span = (b: THREE.Box3) => Math.max(1e-4, b.max.x - b.min.x, b.max.z - b.min.z);
+    const k = span(pb) / span(gb), ky = opts.fitHeight ? (pb.max.y - pb.min.y) / Math.max(1e-4, gb.max.y - gb.min.y) : k;
+    geo.scale(k, ky, k);
+    if (opts.maxVerts) {
+      for (let ratio = 0.5; geo.getAttribute('position').count >= opts.maxVerts && ratio > 0.005; ratio *= 0.6) {
+        geo = compact(await simplifyGeometry(geo, ratio));
+      }
+    }
+    // Light and shade only: luminance, lifted so the instance colour stays bright.
+    const C = geo.getAttribute('color'), P = geo.getAttribute('position'), n = P.count;
+    let top = 1e-4;
+    const lum = new Float32Array(n);
+    for (let i = 0; i < n; i++) top = Math.max(top, (lum[i] = 0.3 * C.getX(i) + 0.59 * C.getY(i) + 0.11 * C.getZ(i)));
+    const v = new THREE.Vector3(), veg = new Float32Array(n * 2);
+    for (let i = 0; i < n; i++) {
+      const l = 0.55 + 0.45 * (lum[i] / top);
+      C.setXYZ(i, l, l, l);
+      veg[i * 2] = opts.sway ? opts.sway(v.fromBufferAttribute(P, i)) : 0;
+    }
+    geo.setAttribute('aVeg', new THREE.BufferAttribute(veg, 2));
+    geo.setAttribute('aMat', new THREE.BufferAttribute(new Float32Array(n), 1));
+    geo.computeVertexNormals();
+    geo.computeBoundingBox();
+    geo.computeBoundingSphere();
+    return geo;
+  });
+}
+
+/** Drop the vertices an index no longer uses (the simplifier only rewrites the index). */
+function compact(geo: THREE.BufferGeometry): THREE.BufferGeometry {
+  const I = geo.index!, remap = new Map<number, number>(), order: number[] = [];
+  const idx = new Uint32Array(I.count);
+  for (let i = 0; i < I.count; i++) {
+    const o = I.getX(i);
+    let m = remap.get(o);
+    if (m === undefined) { remap.set(o, (m = order.length)); order.push(o); }
+    idx[i] = m;
+  }
+  const out = new THREE.BufferGeometry();
+  for (const [key, a] of Object.entries(geo.attributes)) {
+    const src = a as THREE.BufferAttribute, sz = src.itemSize, arr = new Float32Array(order.length * sz);
+    order.forEach((o, j) => { for (let c = 0; c < sz; c++) arr[j * sz + c] = src.array[o * sz + c]; });
+    out.setAttribute(key, new THREE.BufferAttribute(arr, sz));
+  }
+  out.setIndex(new THREE.BufferAttribute(idx, 1));
+  return out;
+}
+
 /** Soft coral / anemone: a tuft of waving tentacles on a squat base. */
 function soft(): THREE.BufferGeometry {
   const b = new GeoBuilder();
@@ -296,7 +344,7 @@ function rubble(): THREE.BufferGeometry {
 
 // ---------------- Kinds ----------------
 
-type Kind = 'elkhorn' | 'pillar' | 'plates' | 'mound' | 'mushroom' | 'finger' | 'fan' | 'soft' | 'barrel' | 'vase' | 'ball' | 'kelp' | 'meadow' | 'star' | 'urchin' | 'clam' | 'rubble';
+type Kind = 'base' | 'elkhorn' | 'pillar' | 'plates' | 'mound' | 'mushroom' | 'finger' | 'fan' | 'soft' | 'barrel' | 'vase' | 'ball' | 'kelp' | 'meadow' | 'star' | 'urchin' | 'clam' | 'rubble';
 
 interface KindDef {
   geo: () => THREE.BufferGeometry;
@@ -317,6 +365,7 @@ interface KindDef {
 }
 
 const KINDS: Record<Kind, KindDef> = {
+  base: { geo: () => coralBaseGeometry(), pal: BASE_PALETTE, size: 1, sat: 1, radius: 0.3 },
   elkhorn: { geo: elkhorn, pal: [0xe0a868, 0xd9925a, 0xeab87a, 0xf08c7a, 0xc9a070], size: 1.5, minFit: 0.45, radius: 0.35 },
   pillar: { geo: pillar, pal: [0xe6cfa0, 0xf2b98a, 0xd9a6c8, 0xb9d98f, 0xa8d8d0], size: 1.15, minFit: 0.45, radius: 0.2 },
   plates: { geo: plates, pal: [0x7fc8b8, 0x9fd48a, 0xc8a2e8, 0x7fa8e0, 0xf0a868, 0xe890a8], size: 1.45, minFit: 0.4, radius: 0.35 },
@@ -336,6 +385,8 @@ const KINDS: Record<Kind, KindDef> = {
   rubble: { geo: rubble, pal: [0xf0e8da, 0xe8dccc, 0xf0dcd4, 0xdcd8cc], size: 1.2, sat: 1, minor: true, radius: 0.2, tilt: 0.06 },
 };
 
+/** The kinds that stand on a rocky base (not the loose or lying ones: mushrooms, stars, clams, rubble, weed). */
+const BASED = new Set<Kind>(['elkhorn', 'pillar', 'plates', 'mound', 'finger', 'fan', 'soft', 'barrel', 'vase', 'ball']);
 const CORE: [Kind, number][] = [['elkhorn', 3], ['pillar', 2], ['plates', 3], ['mound', 3], ['barrel', 2], ['fan', 2], ['finger', 2], ['vase', 1.2], ['soft', 1]];
 const MID: [Kind, number][] = [['finger', 3], ['mushroom', 2], ['fan', 1.5], ['soft', 2], ['vase', 1.5], ['ball', 2.5], ['plates', 1], ['mound', 1.5], ['barrel', 0.8], ['elkhorn', 0.5], ['star', 0.5], ['clam', 0.8], ['urchin', 0.5]];
 const EDGE: [Kind, number][] = [['rubble', 4], ['ball', 2], ['mushroom', 1.5], ['urchin', 1.2], ['star', 1], ['clam', 0.4], ['finger', 1], ['soft', 0.5]];
@@ -359,19 +410,26 @@ const CH = 32;
 
 interface Cand { kind: Kind; x: number; z: number; s: number; sx: number; sz: number; ry: number; tx: number; tz: number; c: THREE.Color; rank: number; core: boolean }
 
+/** Kinds drawn with one of the artist's creature models once it loads (see habitatCreature). */
+const MODELS: Partial<Record<Kind, { name: CreatureName; opts: Parameters<typeof habitatCreature>[2] }>> = {
+  star: { name: 'starfish', opts: { maxVerts: 300 } },
+  soft: { name: 'sea-anemone', opts: { fitHeight: true, maxVerts: 300, sway: (p) => Math.max(0, p.y - 0.05) * 5 } },
+};
+
 export class Seabed {
   readonly group = new THREE.Group();
   private instances: HabitatInstances;
   private noise: Simplex2;
   private geos = new Map<Kind, THREE.BufferGeometry>();
-  private mat = habitatMaterial();
+  private mat = habitatMaterial(true);
   private dblMat = habitatMaterial();
   private range = 36;
   /** Chunks built so far, and the middles of the reef fields in each (for the reef fish). */
   private built = new Map<number, { x: number; z: number }[]>();
   private chunksX: number;
 
-  constructor(private world: World) {
+  /** `clear`: spots to leave open (the big anemones the clownfish live in, placed by Coral.ts from the seed alone). */
+  constructor(private world: World, private clear: { x: number; z: number; r: number }[] = []) {
     this.instances = new HabitatInstances(world);
     this.noise = new Simplex2(new RNG(world.seed * 7 + 3));
     this.dblMat.side = THREE.DoubleSide;
@@ -399,12 +457,21 @@ export class Seabed {
         fn((gx + rng.range(-0.45, 0.45)) * S, (gz + rng.range(-0.45, 0.45)) * S, rng);
       }
     };
-    const add = (kind: Kind, x: number, z: number, size: number, rng: RNG, core = false) => {
+    const near = this.clear.filter((c) => c.x > x0 - 2 && c.x < x0 + CH + 2 && c.z > z0 - 2 && c.z < z0 + CH + 2);
+    const add = (kind: Kind, x: number, z: number, size: number, rng: RNG, core = false, based = false) => {
       const def = KINDS[kind], tilt = def.tilt ?? 0.08;
+      if (near.some((c) => Math.hypot(c.x - x, c.z - z) < c.r + (def.radius ?? 0.25) * def.size * size)) return;
       const c = new THREE.Color(def.pal[Math.floor(rng.next() * def.pal.length)]), hsl = { h: 0, s: 0, l: 0 };
       c.getHSL(hsl);
       c.setHSL(hsl.h + rng.range(-0.015, 0.015), hsl.s * (def.sat ?? 0.9), hsl.l * rng.range(0.86, 1));
-      out.push({ kind, x, z, s: def.size * size, sx: rng.range(0.85, 1.15), sz: rng.range(0.85, 1.15), ry: rng.range(0, Math.PI * 2), tx: rng.range(-tilt, tilt), tz: rng.range(-tilt, tilt), c, rank: def.minor ? 0.5 + 0.5 * rng.next() : rng.next(), core });
+      const cand: Cand = { kind, x, z, s: def.size * size, sx: rng.range(0.85, 1.15), sz: rng.range(0.85, 1.15), ry: rng.range(0, Math.PI * 2), tx: rng.range(-tilt, tilt), tz: rng.range(-tilt, tilt), c, rank: def.minor ? 0.5 + 0.5 * rng.next() : rng.next(), core };
+      out.push(cand);
+      // A lone coral or sponge out on the sand grows from its own low mound of old reef rock
+      // (thinned out with it on lower presets). In the reef fields they share broad slabs instead.
+      if (!based || !BASED.has(kind)) return;
+      const R = (def.radius ?? 0.25) * cand.s * 0.8 * rng.range(1.5, 1.9), h = R * rng.range(0.28, 0.4), wide = rng.range(0.85, 1.15);
+      const bc = new THREE.Color(BASE_PALETTE[rng.int(0, BASE_PALETTE.length - 1)]).multiplyScalar(rng.range(0.9, 1.05));
+      out.push({ kind: 'base', x, z, s: h, sx: (R * wide) / h, sz: R / wide / h, ry: rng.range(0, Math.PI * 2), tx: 0, tz: 0, c: bc, rank: cand.rank, core: false });
     };
     // Reef fields: big corals in the middle, mixed growth further out, rubble at the edges.
     grid(0.7, 1, (x, z, rng) => {
@@ -428,7 +495,17 @@ export class Seabed {
     // A light scatter of sponges, urchins, starfish, clams and weed across the rest of the shelf.
     grid(2.6, 4, (x, z, rng) => {
       if (!rng.chance(0.4) || reefField(n, x, z) > 0.25) return;
-      add(pick(rng, SCATTER), x, z, rng.range(0.7, 1.1), rng);
+      add(pick(rng, SCATTER), x, z, rng.range(0.7, 1.1), rng, false, true);
+    });
+    // The reef fields grow on old reef rock: broad, low slabs under the corals, so nothing stands
+    // straight out of bare sand. Thickest in the middle of a field, patchier towards its edges.
+    grid(1.8, 5, (x, z, rng) => {
+      const f = reefField(n, x, z);
+      if (f < 0.15 || !rng.chance(0.45 + 0.55 * f)) return;
+      if (near.some((c) => Math.hypot(c.x - x, c.z - z) < c.r + 0.3)) return;
+      const R = rng.range(0.75, 1.15) * (0.75 + 0.35 * f), h = R * rng.range(0.22, 0.32), wide = rng.range(0.8, 1.2);
+      const c = new THREE.Color(BASE_PALETTE[rng.int(0, BASE_PALETTE.length - 1)]).multiplyScalar(rng.range(0.9, 1.05));
+      out.push({ kind: 'base', x, z, s: h, sx: (R * wide) / h, sz: R / wide / h, ry: rng.range(0, Math.PI * 2), tx: 0, tz: 0, c, rank: rng.next(), core: false });
     });
     return out;
   }
@@ -439,6 +516,14 @@ export class Seabed {
       g = KINDS[kind].geo();
       g.computeBoundingBox();
       this.geos.set(kind, g);
+      const model = MODELS[kind];
+      // The artist's model replaces the stand-in when it loads: chunks built later read it from
+      // the cache, chunks built already swap over now. Same footprint and height, so the habitat
+      // fitting (sized off the stand-in's top) is unchanged.
+      if (model) habitatCreature(model.name, g, model.opts).then((m) => {
+        this.geos.set(kind, m);
+        for (const o of this.group.children) if (o.name === `seabed-${kind}`) (o as THREE.InstancedMesh).geometry = m;
+      }).catch(() => undefined);
     }
     return g;
   }

@@ -3,6 +3,7 @@ import { GeoBuilder, M, P } from '../render/GeoBuilder';
 import { HabitatInstances, habitatMaterial, habitatPreset } from './Habitat';
 import { PresetName } from '../config';
 import { RNG } from '../world/rng';
+import { coralBase, coralBaseGeometry } from './coralModels';
 import { World } from '../world/World';
 import { SEA_SURFACE } from '../water/Water';
 
@@ -29,13 +30,15 @@ const TALL = 0.62;
 export function tubeCoralGeometry(seed: number, pal: Palette = CORAL_PALETTES.purple, shape: CoralShape = 'clump'): THREE.BufferGeometry {
   const rng = new RNG(seed);
   const b = new GeoBuilder();
-  const base = new THREE.Color(pal.base), tip = new THREE.Color(pal.tip), rim = new THREE.Color(pal.rim), hole = new THREE.Color(pal.hole);
+  const base = new THREE.Color(pal.base), tip = new THREE.Color(pal.tip), rim = new THREE.Color(pal.rim), hole = base.clone().lerp(tip, 0.3).multiplyScalar(0.82);
   const tube = (x: number, z: number, r: number, h: number, rx: number, rz: number) => {
     const m = M.t(x, -0.02, z, rx, 0, rz);
-    b.add(P.cyl(r, r * 1.12, h, shape === 'pipes' ? 7 : 9), { color: (p) => base.clone().lerp(tip, Math.min(1, Math.max(0, p.y / TALL) * 0.95)), sway: 0.02 }, m.clone().multiply(M.t(0, h / 2, 0)));
-    // The mouth: a pale lip round a dark hollow.
-    b.add(P.torus(r * 0.82, r * 0.28, 5, 12), { color: rim, sway: 0.03 }, m.clone().multiply(M.t(0, h, 0, Math.PI / 2, 0, 0)));
-    b.add(P.cyl(r * 0.66, r * 0.66, 0.006, 9), { color: hole }, m.clone().multiply(M.t(0, h + 0.002, 0)));
+    // The tubes nod in the current: nothing at the root, a little at the mouths (the hollow moves with its lip).
+    const nod = (p: THREE.Vector3) => Math.max(0, p.y) * 0.4;
+    b.add(P.cyl(r, r * 1.12, h, shape === 'pipes' ? 7 : 9), { color: (p) => base.clone().lerp(tip, Math.min(1, Math.max(0, p.y / TALL) * 0.95)), sway: nod }, m.clone().multiply(M.t(0, h / 2, 0)));
+    // The mouth: a pale lip round a hollow in the tube's own colour, a little shaded (never a black hole).
+    b.add(P.torus(r * 0.82, r * 0.28, 5, 12), { color: rim, sway: nod }, m.clone().multiply(M.t(0, h, 0, Math.PI / 2, 0, 0)));
+    b.add(P.cyl(r * 0.66, r * 0.66, 0.006, 9), { color: hole, sway: nod }, m.clone().multiply(M.t(0, h + 0.002, 0)));
   };
   if (shape === 'pipes') {
     // A tight bundle: the middle ones tallest, all nearly upright.
@@ -146,7 +149,8 @@ export class TubeCoral {
     const totW = kinds.reduce((t, k) => t + k.w, 0);
     const geos = kinds.map((k, i) => tubeCoralGeometry(11 + i * 13, CORAL_PALETTES[k.pal], k.shape));
     const pick = () => { let r = rng.next() * totW; for (let i = 0; i < kinds.length; i++) if ((r -= kinds[i].w) <= 0) return i; return 0; };
-    const mat = habitatMaterial();
+    const mat = habitatMaterial(), solid = habitatMaterial(true);
+    const bases: { m: THREE.Matrix4; c: THREE.Color }[] = [];
     // Chunked so clusters off screen are culled.
     const CH = 24;
     const buckets = new Map<string, { m: THREE.Matrix4; c: THREE.Color; g: number }[]>();
@@ -160,6 +164,22 @@ export class TubeCoral {
       let list = buckets.get(key);
       if (!list) buckets.set(key, (list = []));
       list.push({ m, c, g: spot.g ?? pick() });
+      // Each cluster grows from a low mound of old reef rock.
+      bases.push(coralBase(spot.x, w.heightAt(spot.x, spot.z), spot.z, 0.17 * spot.s));
+    }
+    if (bases.length) {
+      const mesh = new THREE.InstancedMesh(coralBaseGeometry(), solid, bases.length);
+      bases.forEach((it, i) => {
+        mesh.setMatrixAt(i, it.m);
+        mesh.setColorAt(i, it.c);
+      });
+      mesh.castShadow = false;
+      mesh.receiveShadow = true;
+      mesh.computeBoundingSphere();
+      mesh.name = 'tube coral base';
+      mesh.renderOrder = 8;
+      this.group.add(mesh);
+      this.instances.add(mesh, bases.map((it) => it.m.clone()), 0.45, 0.4);
     }
     for (const list of buckets.values()) {
       for (let gi = 0; gi < geos.length; gi++) {

@@ -8,6 +8,7 @@ import { SpatialHash } from '../world/SpatialHash';
 import { World } from '../world/World';
 import { Islander } from './Islander';
 import { QuadMeshes } from './quadRig';
+import { CreatureAsset, CreatureRig, loadCreature } from './creatureAssets';
 
 type AState = 'float' | 'swim' | 'dive' | 'crawl' | 'bask' | 'lunge' | 'retreat' | 'dead';
 
@@ -64,6 +65,14 @@ const ALG = {
   reach: 0.075,
   stride: 0.16,
 };
+
+/** The procedural alligator's length, snout to tail tip (scale 1), which the artist's crocodile is sized to; its spine joint's height standing. */
+const GATOR_LEN = 0.93, SPINE_Y = 0.045;
+/** Distance the crocodile model covers per Walk and per Run cycle, in body lengths (to match its legs to its speed). */
+const WALK_STRIDE = 0.35, RUN_STRIDE = 0.6;
+const WALK_SECS = 1.7, RUN_SECS = 0.85;
+/** Rigs further than this from the camera pause. */
+const RIG_FAR2 = 80 * 80;
 
 /** Gait: fraction of the cycle a foot is planted, step lift, how much the spine and tail swing. */
 const GATOR_GAIT = { duty: 0.6, lift: 0.028, spine: 0.16, walkTail: 0.3 };
@@ -221,8 +230,13 @@ export class Alligators {
   private time = 0;
   /** Swamps waiting for a new alligator (one was shot there), and when it turns up. */
   private pending: { swamp: number; at: number }[] = [];
+  /** The artist's crocodile once loaded (the procedural alligator stands in until then, and in tests), and a rig per live alligator. */
+  private model: CreatureAsset | null = null;
+  private rigs = new Map<Gator, CreatureRig>();
 
   constructor(private world: World) {
+    // No models where there's no page to load them into (tests): the stand-in stays.
+    if (typeof document !== 'undefined') try { loadCreature('crocodile').then((a) => (this.model = a)).catch(() => undefined); } catch { /* stand-in stays */ }
     this.rng = new RNG(world.seed * 173 + 61);
     this.findPlaces();
     this.spawn();
@@ -557,10 +571,44 @@ export class Alligators {
     const m = this.meshes;
     m.begin();
     for (const g of this.list) {
-      if (!View.sees(g.x, g.y, g.z, 0.6)) continue;
+      const rig = this.rigs.get(g);
+      if (!View.sees(g.x, g.y, g.z, 0.6) || (this.model && View.dist2(g.x, g.y, g.z) > RIG_FAR2)) {
+        if (rig) rig.root.visible = false;
+        continue;
+      }
       this.drawGator(g, dt);
     }
     m.end();
+    // Rigs of alligators that have gone (shot and sunk) are dropped.
+    if (this.rigs.size > this.list.length) for (const [g, rig] of this.rigs) if (!this.list.includes(g)) { rig.dispose(); this.rigs.delete(g); }
+  }
+
+  /**
+   * Pose the artist's crocodile (instead of the procedural parts): Walk on the bank with its beat
+   * matched to the ground speed, Run when retreating or lunging, a slow Walk as the legs and tail
+   * scull it along swimming, and Idle afloat, basking or diving. A dead one lies still.
+   */
+  private poseRig(g: Gator, body: THREE.Matrix4, dt: number): void {
+    let rig = this.rigs.get(g);
+    if (!rig) {
+      rig = new CreatureRig(this.model!, GATOR_LEN);
+      rig.body.position.y = -this.model!.box.min.y * (GATOR_LEN / this.model!.length) - SPINE_Y;
+      rig.root.matrixAutoUpdate = false;
+      this.meshes.group.add(rig.root);
+      this.rigs.set(g, rig);
+    }
+    rig.root.visible = true;
+    rig.root.matrix.copy(body);
+    rig.root.matrixWorldNeedsUpdate = true;
+    const len = GATOR_LEN * g.scale;
+    switch (g.state) {
+      case 'crawl': rig.play('Walk', 0.3, (g.speed * WALK_SECS) / (WALK_STRIDE * len)); break;
+      case 'retreat': case 'lunge': rig.play('Run', 0.15, Math.min(2.5, (g.speed * RUN_SECS) / (RUN_STRIDE * len))); break;
+      case 'swim': rig.play('Walk', 0.6, 0.5); break;
+      case 'dead': return;
+      default: rig.play('Idle', 0.6, g.state === 'float' ? 0.7 : 1);
+    }
+    rig.update(dt);
   }
 
   private drawGator(g: Gator, dt: number): void {
@@ -584,6 +632,11 @@ export class Alligators {
     const roll = Math.sin(gp) * 0.035 * g.walkW;
     const by = g.y + g.lift * s;
     compose(_r, g.x, by, g.z, pitch, g.heading, roll, s);
+    if (this.model) {
+      // The clips carry the body's own lift and sway: just place, turn and tip it.
+      this.poseRig(g, compose(_r, g.x, g.y, g.z, pitch, g.heading, 0, s), dt);
+      return;
+    }
     _b.multiplyMatrices(_r, compose(_t, 0, 0, 0, 0, g.spine * 0.5, 0));
     m.put('bodyF', _b, WHITE);
     _f.multiplyMatrices(_r, compose(_t, 0, 0, 0, 0, -g.spine * 0.5, 0));

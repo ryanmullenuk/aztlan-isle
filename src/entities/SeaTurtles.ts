@@ -7,6 +7,7 @@ import { SpatialHash } from '../world/SpatialHash';
 import { World } from '../world/World';
 import { Islander } from './Islander';
 import { QuadMeshes } from './quadRig';
+import { CreatureAsset, CreatureRig, loadCreature } from './creatureAssets';
 
 type TState = 'rest' | 'crawl' | 'enter' | 'swim' | 'breathe' | 'approach' | 'exit';
 
@@ -255,6 +256,10 @@ const CRAWL = { power: 0.6, lift: 0.014, roll: 0.05 };
 const SWIM = { flap: 0.7, bob: 0.012 };
 
 const FAMILY_COUNT = 2, BABIES = 3;
+/** The procedural turtle's length, beak to tail tip (scale 1), which the artist's model is sized to. */
+const TURTLE_LEN = 0.44;
+/** Rigs further than this from the camera pause (a turtle is a speck beyond it). */
+const RIG_FAR2 = 70 * 70;
 /** Shell colours: olive green, warm brown, dark and a chestnut. */
 const SHELL = [0x7b7a3c, 0xa0532a, 0x5e5650, 0x8a5a30];
 
@@ -264,6 +269,8 @@ const SHELL = [0x7b7a3c, 0xa0532a, 0x5e5650, 0x8a5a30];
  * shallows and deeper coastal water with synchronised front-flipper strokes, surfacing to breathe,
  * and now and then hauling out onto a beach again.
  */
+const UP_AXIS = new THREE.Vector3(0, 1, 0), NOSE_AXIS = new THREE.Vector3(0, 0, 1);
+
 export class SeaTurtles {
   readonly meshes = new QuadMeshes();
   list: Turtle[] = [];
@@ -271,8 +278,14 @@ export class SeaTurtles {
   private beaches: { x: number; z: number }[] = [];
   people: SpatialHash<Islander> | null = null;
   private time = 0;
+  /** The artist's sea-turtle model once loaded (the procedural turtle stands in until then, and in tests). */
+  private model: CreatureAsset | null = null;
+  /** One skinned rig per turtle, made the first time it is seen. */
+  private rigs: (CreatureRig | undefined)[] = [];
 
   constructor(private world: World, private sea: number) {
+    // No models where there's no page to load them into (tests): the stand-in stays.
+    if (typeof document !== 'undefined') try { loadCreature('sea-turtle').then((a) => (this.model = a)).catch(() => undefined); } catch { /* stand-in stays */ }
     this.rng = new RNG(world.seed * 67 + 41);
     this.findBeaches();
     this.spawn();
@@ -625,18 +638,77 @@ export class SeaTurtles {
   private draw(dt: number): void {
     const m = this.meshes;
     m.begin();
-    for (const t of this.list) {
+    for (let i = 0; i < this.list.length; i++) {
+      const t = this.list[i];
       // Turning rate (for the rudders and banking), tracked on or off screen.
       const dh = wrapA(t.heading - t.prevH);
       t.prevH = t.heading;
       if (dt > 0) t.turnRate += (dh / dt - t.turnRate) * Math.min(1, dt * 3);
-      if (!View.sees(t.x, t.y, t.z, 0.4)) continue;
-      this.drawTurtle(t, dt);
+      const rig = this.rigs[i];
+      if (!View.sees(t.x, t.y, t.z, 0.4) || (this.model && View.dist2(t.x, t.y, t.z) > RIG_FAR2)) {
+        if (rig) rig.root.visible = false;
+        continue;
+      }
+      this.drawTurtle(t, dt, i);
     }
     m.end();
   }
 
-  private drawTurtle(t: Turtle, dt: number): void {
+  /** The rig for turtle `i` (made on first sight), or null while the model is still loading. */
+  private rigFor(i: number): CreatureRig | null {
+    if (!this.model || i < 0) return null;
+    let rig = this.rigs[i];
+    if (!rig) {
+      rig = new CreatureRig(this.model, TURTLE_LEN);
+      // The model's lowest point sits a little above its origin: drop it onto the plastron line.
+      // Belly on the sand in its resting pose (the clips lift the body off the bind pose's floor).
+      rig.groundTo('Idle');
+      rig.root.matrixAutoUpdate = false;
+      this.meshes.group.add(rig.root);
+      this.rigs[i] = rig;
+    }
+    return rig;
+  }
+
+  /**
+   * Pose the artist's model with the body frame the procedural turtle uses: Idle resting on the
+   * sand, a slowed Swim for the heaving crawl (there is no walk clip), Swim through the water with
+   * its stroke rate matched to the swimming speed, and a slow scull while breathing at the surface.
+   */
+  private poseRig(rig: CreatureRig, t: Turtle, body: THREE.Matrix4, dt: number): void {
+    rig.root.visible = true;
+    rig.root.matrix.copy(body);
+    rig.root.matrixWorldNeedsUpdate = true;
+    // Small turtles stroke a little faster than big ones.
+    const size = 1 / Math.sqrt(Math.max(0.3, t.scale));
+    switch (t.state) {
+      case 'rest': rig.play('Idle', 0.6, 1 - t.shy * 0.6); break;
+      // (The crawl is made by hand below: the model has no walk, and its swim flaps like flight.)
+      case 'crawl': case 'exit': rig.play('Idle', 0.5, 0.5); break;
+      case 'breathe': rig.play('Swim', 0.8, 0.55 * size); break;
+      default: rig.play('Swim', 0.6, Math.min(1.8, (t.speed / TURTLES.swimSpeed) * 1.2 * size));
+    }
+    rig.update(dt);
+    // Hauling up the sand: flippers work in diagonal pairs, in time with the body's heave. Each
+    // reaches forward, digs in and drags back while its pair comes forward again, lifted clear.
+    if (t.state === 'crawl' || t.state === 'exit') {
+      const effort = 1 - t.shy, th = (((t.stroke % 1) + 1) % 1) * Math.PI * 2;
+      const stroke = (name: string, phase: number, reach: number) => {
+        const sd = rig.side(name);
+        if (!sd) return;
+        const c = Math.cos(th + phase), returning = Math.sin(th + phase) < 0 ? 1 : 0;
+        rig.swing(name, UP_AXIS, -sd * reach * c * effort);
+        rig.swing(name, NOSE_AXIS, sd * (returning ? 0.3 : -0.12) * Math.abs(Math.sin(th + phase)) * effort);
+      };
+      stroke('LeftFore', 0, 0.8);
+      stroke('RightHind', 0, 0.3);
+      stroke('RightFore', Math.PI, 0.8);
+      stroke('LeftHind', Math.PI, 0.3);
+      rig.swing('Head', UP_AXIS, Math.sin(th) * 0.12 * effort);
+    }
+  }
+
+  private drawTurtle(t: Turtle, dt: number, i = -1): void {
     const m = this.meshes;
     const s = t.scale;
     const inWater = t.state === 'swim' || t.state === 'approach' || t.state === 'breathe' || t.state === 'enter';
@@ -662,6 +734,11 @@ export class SeaTurtles {
     const pitch = lerp(-heave * 0.07, t.pitchS - t.gasp * 0.22, W);
     const roll = lerp(pull * heave * CRAWL.roll, t.roll, W);
     compose(_b, t.x, t.y + 0.02 * s + (heave * CRAWL.lift * L + bob * W) * s, t.z, pitch, t.heading, roll, s);
+    const rig = this.rigFor(i);
+    if (rig) {
+      this.poseRig(rig, t, _b, dt);
+      return;
+    }
     m.put('shell', _b, t.color);
     // ---- Neck and head: lifted with each heave and to look about; raised to breathe; tucked when shy ----
     const look = Math.max(0, Math.sin(this.time * 0.22 + t.seed));

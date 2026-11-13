@@ -3124,6 +3124,8 @@ export class Colony {
       isl.animT += dt;
       isl.age += dt;
       if (isl.injured > 0) isl.injured = Math.max(0, isl.injured - dt);
+      // In the god's hand, flying, swimming back or dazed: GodHand moves them, not the colony.
+      if (isl.flung) { isl.anim = isl.flung.mode === 'dazed' ? 'idle' : 'run'; continue; }
       if (isl.condition !== 'well' && this.ail(isl, dt)) continue;
       isl.hunger = Math.max(0, isl.hunger - ISLANDER.hungerDrain * dt * (isl.child ? 0.6 : 1));
       if (!isl.sleeping) isl.rest = Math.max(0, isl.rest - ISLANDER.restDrain * dt);

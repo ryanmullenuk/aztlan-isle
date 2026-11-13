@@ -10,6 +10,7 @@ import { PartKey, SKELETON, Skeleton, buildPeopleParts } from './PeopleModels';
 import { BI, BONE_COUNT, GlbModel, type ClipName } from './glbPeople';
 import { loadIslanderModels } from './islanderModels';
 import { CarryPose } from './CarryPose';
+import { applyGesture, applyLook, applySlump, blankPlan, blankState, bodyScale, easeActing, planActing, tradeCloth, LOOK_REACH, type ActPlan, type ActState } from './IslanderActing';
 
 /** World units per metre: islanders are modelled at ~1.8 m and stand ~0.62 units tall. */
 const S0 = 0.62 / 1.8;
@@ -139,6 +140,8 @@ const DANCES: ClipName[] = ['twerk', 'dance_long', 'arms_dance', 'dance_sway', '
  */
 export function clipFor(isl: Islander, celebrating = false): ClipName | null {
   if (isl.hidden || isl.sleeping || isl.floorY !== null) return null;
+  // In the god's hand or the air: kicking and flailing; in the sea: a crawl stroke; dazed: slumped.
+  if (isl.flung) return isl.flung.mode === 'swim' ? 'zombie_crawl' : isl.flung.mode === 'dazed' ? 'sad_idle' : 'run_look_back';
   const a = isl.anim, moving = a === 'walk' || a === 'run';
   if (isl.condition === 'mauled' && isl.injured > 0 && moving && !isl.carry) return 'zombie_crawl';
   if ((isl.condition !== 'well' || isl.injured > 0) && moving && !isl.carry) return 'injured_run';
@@ -547,6 +550,39 @@ const BLEND_KEYS = ['drop', 'bob', 'lean', 'twist', 'headX', 'headY', 'headZ', '
   'hipYaw', 'roll', 'hipPitch', 'spineX', 'chestX', 'wrLx', 'wrLz', 'wrRx', 'wrRz', 'ftL', 'ftR', 'spread', 'shrugL', 'shrugR', 'plantL', 'plantR'] as const;
 const KNEE_R = 0.06;
 
+/**
+ * Cloth by trade: the red of the tunic (its bands, sash and sleeves) is redrawn in the colour sent
+ * for each islander in `iAccent` (black: left as painted), keeping the texture's own shading. Red
+ * cloth is told from skin by how little green it has beside its red (under a tenth; skin has a
+ * quarter), as measured from the models' textures.
+ */
+function tradeCloths(mat: THREE.Material): void {
+  const base = mat.onBeforeCompile;
+  mat.onBeforeCompile = (shader, r) => {
+    base.call(mat, shader, r);
+    const v = shader.vertexShader, f = shader.fragmentShader;
+    // Only on the shader this was written against (per-islander colours in, a texture to read).
+    if (!v.includes('attribute vec3 iAccent') || !v.includes('#include <begin_vertex>') || !f.includes('#include <map_fragment>')) return;
+    shader.vertexShader = v
+      .replace('#include <common>', `#include <common>
+        varying vec3 vTrade;`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        vTrade = iAccent;`);
+    shader.fragmentShader = f
+      .replace('#include <common>', `#include <common>
+        varying vec3 vTrade;`)
+      .replace('#include <map_fragment>', `#include <map_fragment>
+        #ifdef USE_MAP
+          if (vTrade.r + vTrade.g + vTrade.b > 0.003) {
+            vec3 tc = diffuseColor.rgb;
+            float tk = smoothstep(0.08, 0.16, tc.r) * (1.0 - smoothstep(0.08, 0.16, tc.g / max(tc.r, 1e-3)));
+            diffuseColor.rgb = mix(tc, vTrade * min(1.25, tc.r / 0.62), tk);
+          }
+        #endif`);
+  };
+  mat.customProgramCacheKey = () => 'people-skinned-trades';
+}
+
 /** One character model drawn with GPU skinning: every islander of that model in one draw. */
 interface SkinSet {
   model: GlbModel;
@@ -682,6 +718,7 @@ export class IslanderRig {
     const tex = new THREE.DataTexture(data, BONE_COUNT * 4, rows, THREE.RGBAFormat, THREE.FloatType);
     tex.needsUpdate = true;
     const { mat, depth } = peopleSkinnedMaterial(tex, model.map, model.skinUv);
+    tradeCloths(mat);
     const geo = model.geometry;
     const accent = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3).fill(1), 3);
     accent.setUsage(THREE.DynamicDrawUsage);
@@ -817,7 +854,57 @@ export class IslanderRig {
   private clipStates = new Map<number, { name: ClipName | null; t: number; fade: number; from: Float32Array; last: Float32Array }>();
   /** Fireworks are lighting the sky (islanders standing about dance). */
   celebrate = false;
+  /** The village is frightened (an eruption, a darkened sun): people out of doors cower, or run looking back. */
+  afraid = false;
+  /** Where a funeral is being held now (those gathered there grieve), or null. */
+  mournAt: { x: number; z: number } | null = null;
   private frameDt = 0;
+  /** Acting (see IslanderActing): each islander's eased state, the plan being filled, and the clock all share. */
+  private acts = new Map<number, ActState>();
+  private plan = blankPlan();
+  private clock = 0;
+  /** The islanders near enough to act in full, and when they were last matched with their nearest neighbour. */
+  private nearby: Islander[] = [];
+  private searchT = 0;
+  private searchN = 0;
+  private trade = new THREE.Color();
+
+  private actState(id: number): ActState {
+    // (Created on first use: a rig made without its constructor, as in tests, still works.)
+    this.acts ??= new Map();
+    let st = this.acts.get(id);
+    if (!st) this.acts.set(id, (st = blankState()));
+    return st;
+  }
+
+  /**
+   * Find each nearby islander's nearest neighbour (several times a second, not every frame): who
+   * they turn to talk to, play with, or follow with their eyes. Only those on screen and close
+   * enough to the camera to be seen acting take part.
+   */
+  private matchNeighbours(list: Islander[], act2: number): void {
+    const near = (this.nearby ??= []);
+    near.length = 0;
+    this.searchN = (this.searchN ?? 0) + 1;
+    for (const isl of list) {
+      if (isl.hidden || isl.sleeping || isl.npc) continue;
+      if (View.dist2(isl.x, isl.y, isl.z) > act2 || !View.sees(isl.x, isl.y + 0.35, isl.z, 0.6)) continue;
+      near.push(isl);
+    }
+    const reach2 = LOOK_REACH * LOOK_REACH;
+    for (let i = 0; i < near.length; i++) {
+      const a = near[i];
+      let best: Islander | null = null, bd = reach2;
+      for (let j = 0; j < near.length; j++) {
+        if (j === i) continue;
+        const b = near[j], dx = b.x - a.x, dz = b.z - a.z, d = dx * dx + dz * dz;
+        if (d < bd) { bd = d; best = b; }
+      }
+      const st = this.actState(a.id);
+      st.near = best;
+      st.stamp = this.searchN;
+    }
+  }
 
   /** Ease from the previous activity's pose into the new one over a fraction of a second. */
   private blend(isl: Islander, p: Pose, dt: number): Pose {
@@ -861,24 +948,36 @@ export class IslanderRig {
 
   update(list: Islander[], selected: number, _dt: number, group?: ReadonlySet<number>): void {
     this.frameDt = _dt;
+    this.clock = (this.clock ?? 0) + Math.max(0, _dt);
     this.count.clear();
     const M = this.m;
     const skinned = !!this.skins.m && !!this.skins.f;
     if (skinned) for (const set of new Set(Object.values(this.skins))) if (set) set.n = 0;
     let pawns = 0;
     this.contact.begin();
-    const contact = (isl: Islander, sc: number) => this.contact.add(isl.x, isl.y, isl.z, sc * 1.35);
+    const contact = (x: number, y: number, z: number, sc: number) => this.contact.add(x, y, z, sc * 1.35);
     const far2 = this.lodDist * this.lodDist;
+    // Acting in full (gestures, turning to one another, children at play) only close enough to be seen.
+    const act2 = far2 * 0.6;
+    this.searchT = (this.searchT ?? 0) - _dt;
+    if (skinned && this.searchT <= 0) {
+      this.searchT = 0.15;
+      this.matchNeighbours(list, act2);
+    }
+    const world = this.actWorld;
+    world.clock = this.clock;
+    world.afraid = this.afraid;
+    world.mournAt = this.mournAt;
     for (const isl of list) {
       if (isl.hidden) continue;
       // Off screen: skip posing the jointed body (the villager keeps working as normal).
       if (!View.sees(isl.x, isl.y + 0.35, isl.z, 0.6)) continue;
       if (skinned && isl.id !== selected && !group?.has(isl.id) && View.dist2(isl.x, isl.y, isl.z) > far2) {
         // Far away: the simple figure, bobbing a little as they walk.
-        const sc = S0 * (isl.child ? ISLANDER.childScale : 1);
+        const sc = S0 * bodyScale(isl);
         const bob = isl.speed > 0.05 ? Math.abs(Math.sin(isl.x * 3.1 + isl.z * 2.7)) * 0.02 : 0;
         this.rot(M.base, isl.x, isl.y + bob, isl.z, 0, isl.heading, 0, 'XYZ', sc);
-        contact(isl, sc);
+        contact(isl.x, isl.y, isl.z, sc);
         this.pawnBody.setMatrixAt(pawns, M.base);
         this.pawnHead.setMatrixAt(pawns, M.base);
         this.pawnBody.setColorAt(pawns, this.accent.setHex(isl.cloth));
@@ -891,19 +990,44 @@ export class IslanderRig {
       const p = this.blend(isl, poseFor(isl, g === 'f', sk, this.pose), _dt);
       this.skin.setHex(isl.skin);
       this.accent.setHex(isl.cloth2);
-      const sc = S0 * (isl.child ? ISLANDER.childScale : 1) * (g === 'f' ? 0.98 : 1);
-      this.rot(M.base, isl.x, isl.y, isl.z, 0, isl.heading, 0, 'XYZ', sc);
-      if (!p.lying && !isl.sleeping) contact(isl, sc);
+      const sc = S0 * bodyScale(isl) * (g === 'f' ? 0.98 : 1);
+      // What they are seen doing on top of their task (see IslanderActing), eased from frame to frame.
+      let plan: ActPlan | undefined, st: ActState | undefined, base: ClipName | null = null;
+      if (skinned && !p.lying && (isl.id === selected || View.dist2(isl.x, isl.y, isl.z) <= act2)) {
+        st = this.actState(isl.id);
+        const near = st.stamp === this.searchN ? st.near : null;
+        const back = near ? this.acts.get(near.id) : undefined;
+        base = clipFor(isl, this.celebrate);
+        plan = planActing(this.plan, isl, base, shownAnim(isl), world, near, !!back && back.stamp === this.searchN && back.near === isl);
+        easeActing(st, plan, isl, _dt);
+      }
+      // Drawn where the game has them, but for children chasing round in play, a turn of the body
+      // to face a friend, and the spring of a skip or a jump.
+      let x = isl.x, y = isl.y, z = isl.z, facing = isl.heading;
+      if (st) {
+        facing += st.yaw;
+        if (Math.abs(st.ox) + Math.abs(st.oz) > 1e-3) {
+          x += st.ox; z += st.oz;
+          if (this.groundAt && isl.floorY === null) y = this.groundAt(x, z);
+        }
+      }
+      const hop = st && st.hop > 0.01 ? st.hop * Math.abs(Math.sin(this.clock * 8.5 + isl.id * 1.9)) * 0.11 * sc : 0;
+      // (Held, thrown or swimming: the body hangs, tumbles or lies along the water as GodHand has it.)
+      const fl = isl.flung;
+      if (fl) this.rot(M.base, x, y, z, fl.rx, facing, fl.rz, 'YXZ', sc);
+      else this.rot(M.base, x, y + hop, z, 0, facing, 0, 'XYZ', sc);
+      if (!p.lying && !isl.sleeping && !(fl && fl.mode !== 'dazed')) contact(x, y, z, sc);
       // The children's own models have their big heads built in; only the founding pair's would need enlarging.
       const hs = isl.child && !hasChildModel(this.skins) ? 1.22 : 1;
       // Nothing to draw until the character models have loaded.
-      if (skinned) this.drawSkinned(isl, this.skins[characterModelKey(isl)] ?? this.skins[g]!, p, hs, sc);
+      if (skinned) this.drawSkinned(isl, this.skins[characterModelKey(isl)] ?? this.skins[g]!, p, hs, sc, plan, st, base, x, z, facing);
     }
     // Forget the blends of islanders who have gone.
     if (this.blends.size > list.length + 16) {
       const alive = new Set(list.map((l) => l.id));
       for (const id of this.blends.keys()) if (!alive.has(id)) this.blends.delete(id);
       for (const id of this.clipStates?.keys() ?? []) if (!alive.has(id)) this.clipStates.delete(id);
+      for (const id of this.acts.keys()) if (!alive.has(id)) this.acts.delete(id);
     }
     for (const m of [this.pawnBody, this.pawnHead]) {
       m.count = pawns;
@@ -954,6 +1078,9 @@ export class IslanderRig {
     void TOOLS;
   }
 
+  /** What is going on round the islanders, for their acting (reused). */
+  private actWorld = { clock: 0, afraid: false, mournAt: null as { x: number; z: number } | null };
+
   private clipState(id: number) {
     // (Created on first use: a rig made without its constructor, as in tests, still works.)
     this.clipStates ??= new Map();
@@ -969,9 +1096,9 @@ export class IslanderRig {
    * Pose the skeleton from one of the model's clips. Moving clips play at the pace the islander
    * actually covers ground (their own root speed scaled to the islander), so feet don't slide.
    */
-  private playClip(isl: Islander, clip: NonNullable<GlbModel['clips']>[ClipName], hs: number, sc: number): void {
+  private playClip(isl: Islander, clip: NonNullable<GlbModel['clips']>[ClipName], hs: number, sc: number, speed = isl.speed): void {
     const st = this.clipState(isl.id);
-    const rate = clip!.speed > 0.01 ? THREE.MathUtils.clamp(isl.speed / (clip!.speed * sc), 0.5, 2) : 1;
+    const rate = clip!.speed > 0.01 ? THREE.MathUtils.clamp(speed / (clip!.speed * sc), 0.5, 2) : 1;
     st.t += (this.frameDt || 0) * rate;
     const c = clip!, f = ((st.t + isl.id * 0.731) % c.duration) * c.fps, i0 = Math.min(c.count - 1, Math.floor(f)), i1 = Math.min(c.count - 1, i0 + 1), k = f - Math.floor(f);
     const W = this.W, D = c.data;
@@ -1003,7 +1130,8 @@ export class IslanderRig {
   }
 
   /** Skinned character model: pose the skeleton, write its skin matrices, then attach props. */
-  private drawSkinned(isl: Islander, set: SkinSet, p: Pose, hs: number, sc = S0): void {
+  private drawSkinned(isl: Islander, set: SkinSet, p: Pose, hs: number, sc = S0, plan?: ActPlan, act?: ActState, base?: ClipName | null,
+    x = isl.x, z = isl.z, facing = isl.heading): void {
     const i = set.n;
     if (i >= set.mesh.instanceMatrix.count) return;
     const M = this.m, W = this.W, J = set.model.joint;
@@ -1018,11 +1146,13 @@ export class IslanderRig {
       set.tex.image = { data, width: BONE_COUNT * 4, height: rows };
       set.tex.needsUpdate = true;
     }
-    const name = p.lying ? null : clipFor(isl, this.celebrate);
+    // The clip their task calls for, unless they are acting something else (cowering, grieving, talking, at play).
+    const usual = p.lying ? null : base !== undefined ? base : clipFor(isl, this.celebrate);
+    const name = plan && plan.clip !== undefined && !p.lying ? plan.clip : usual;
     // A clip the model doesn't have: its stand-in (the man has no sway dance, the woman no punch).
     const clip = name ? set.model.clips?.[name] ?? (name === 'dance_sway' ? set.model.clips?.dance_long : undefined) : undefined;
     let gripping = false;
-    if (clip) this.playClip(isl, clip, hs, sc);
+    if (clip) this.playClip(isl, clip, hs, sc, plan && plan.speed >= 0 ? plan.speed : isl.speed);
     else {
       const [gL, gR] = this.feetGround(isl, set.model, p, sc);
       this.poseSkeleton(set.model, p, hs, gL, gR);
@@ -1030,6 +1160,16 @@ export class IslanderRig {
       gripping = !!load && !p.lying && this.carryPose.apply(load, set.model, W, hs);
     }
     this.crossfade(isl, clip ? name : null, clip);
+    // Acting laid over the body (after the fade, so it is never blended twice): a weary slump, the
+    // gesture of the moment, and the head turned to whoever they are looking at. Hands holding a
+    // load stay on it.
+    if (plan && act && !p.lying) {
+      if (!gripping && !isl.carry) {
+        applySlump(W, act.slump);
+        applyGesture(W, set.model, act.gesture, ease(act.g), this.clock, isl.id);
+      }
+      applyLook(W, act, plan, x, z, facing, this.frameDt || 0);
+    }
     const row = i * BONE_COUNT * 16;
     for (let b = 0; b < BONE_COUNT; b++) {
       this.tmp2.multiplyMatrices(W[b], set.model.bindInv[b]);
@@ -1037,7 +1177,9 @@ export class IslanderRig {
     }
     set.mesh.setMatrixAt(i, M.base);
     set.mesh.setColorAt(i, this.skin);
-    set.accent.setXYZ(i, this.accent.r, this.accent.g, this.accent.b);
+    // The cloth of their trade (the tunic's red bands redrawn in it; black leaves them as painted).
+    const cloth = (this.trade ??= new THREE.Color()).setHex(tradeCloth(isl));
+    set.accent.setXYZ(i, cloth.r, cloth.g, cloth.b);
     // Elders: grey hair for women, white hair and beard for men (linear tones). Boys: no beard.
     // The elders' own models already have grey and white hair; only greyed when drawn on the founding pair.
     const elder = isElder(isl) && !set.model.ownElders;

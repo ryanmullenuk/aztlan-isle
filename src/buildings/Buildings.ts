@@ -10,6 +10,7 @@ import { needsStonemason, masonryCost, STONEMASON, BOAT_WORKSHOP, DECREES, PALAC
 import { BUILDINGS, BUILD_RISE, BUILD_SITES, BuildingDef, BuildingKey, ECONOMY, FARM, HOMES, JETTY, TEMPLE, FARM_TYPES, isFarm, isDecor, isPhased, isWonder } from '../config';
 import { Economy, Cost } from '../economy/Economy';
 import { BeliefBubbles } from '../economy/BeliefBubbles';
+import { finerFaces } from './handmade';
 import { buildingMaterial, canopyMaterial, fireMaterial, flameMaterial, FX, patchStylised } from '../render/materials';
 import { Terrain } from '../terrain/Terrain';
 import { Vegetation } from '../vegetation/Vegetation';
@@ -36,6 +37,10 @@ import { Particles } from '../render/Particles';
 import { GeoBuilder } from '../render/GeoBuilder';
 import { FireLights, FireSpot } from './FireLights';
 import { BATCHED_LAYER, BuildingShadows, batchingWorks } from './BuildingShadows';
+import { VillageSmoke, hearthStrength, type SmokeSpot } from './VillageSmoke';
+import { homeProps, type Cloth } from './HomeProps';
+import { Doors, Washing } from './Doors';
+import { wearInPlace, wearLean, wearLevel, withWearMarks } from './Wear';
 
 /**
  * Round and square-plinthed pieces that can face any way: the model turns freely within its plot
@@ -133,6 +138,13 @@ export class Building {
   /** Lamplight in its windows and doorways at night, and how deep into dusk it comes on (0..1). */
   glow?: THREE.Mesh;
   glowAt?: number;
+  /** Its doors (open by day, shut at night: see Doors) and how far each stands open just now. */
+  doors?: models.Door[];
+  doorOpen?: number[];
+  /** Washing on its line (see Washing). */
+  cloths?: Cloth[];
+  /** How worn its model was last drawn (0 sound, 1 damaged, 2 badly damaged: see Wear). */
+  wear = 0;
   /** Seconds left of the drop as a new foundation is set down (see BuildingSystem.updateDrops). */
   drop = 0;
   /** The look its houses were built in (the district style when it was built or last upgraded). */
@@ -255,6 +267,14 @@ const CROP_LOS = new Set<THREE.BufferGeometry>();
 export function modelLo(hi: THREE.BufferGeometry): THREE.BufferGeometry {
   let lo = LO_GEOS.get(hi);
   if (lo) return lo;
+  // A model whose faces were split finer (handmade.ts) is judged on its faces as built: split
+  // faces are all small, and dropping them would leave nothing of the building.
+  const whole = hi.userData.whole as THREE.BufferGeometry | undefined;
+  if (whole) {
+    lo = modelLo(whole);
+    LO_GEOS.set(hi, lo);
+    return lo;
+  }
   const P = hi.getAttribute('position');
   const I = hi.index;
   const n = I ? I.count / 3 : P.count / 3;
@@ -283,6 +303,14 @@ export function modelLo(hi: THREE.BufferGeometry): THREE.BufferGeometry {
 export function cropLo(hi: THREE.BufferGeometry): THREE.BufferGeometry {
   let lo = LO_GEOS.get(hi);
   if (lo) return lo;
+  // A model whose faces were split finer (handmade.ts) is judged on its faces as built: split
+  // faces are all small, and dropping them would leave nothing of the building.
+  const whole = hi.userData.whole as THREE.BufferGeometry | undefined;
+  if (whole) {
+    lo = modelLo(whole);
+    LO_GEOS.set(hi, lo);
+    return lo;
+  }
   const P = hi.getAttribute('position'), C = hi.getAttribute('color'), V = hi.getAttribute('aVeg');
   const cell = 0.32;
   const cells = new Map<string, { x: number; z: number; xx: number; zz: number; top: number; r: number; g: number; b: number; w: number; n: number }>();
@@ -339,11 +367,17 @@ const GLOW_MAT = new THREE.ShaderMaterial({
   vertexShader: /* glsl */ `
     attribute vec3 aGlow; // x: dusk threshold, y: flicker phase, z: kind (0 opening, 1 halo, 2 ground pool)
     varying vec2 vUv;
-    varying float vOn, vKind, vFlick;
+    varying float vOn, vKind, vFlick, vWho;
     uniform float uNight, uTime;
     void main() {
       vUv = uv;
       vKind = aGlow.z;
+      // Someone inside crosses a window now and then (each window in its own time): where their
+      // shadow is across it, from just off one side to just off the other, or far off when no one is.
+      float walk = fract(uTime * 0.021 + aGlow.y * 0.37);
+      float dir = step(0.5, fract(aGlow.y * 0.61));
+      float across = walk / 0.13;
+      vWho = walk < 0.13 ? mix(-0.4, 1.4, mix(across, 1.0 - across, dir)) : -9.0;
       vOn = smoothstep(aGlow.x, aGlow.x + 0.1, uNight);
       float p = aGlow.y;
       vFlick = 0.88 + 0.07 * sin(uTime * 6.3 + p) + 0.05 * sin(uTime * 15.7 + p * 2.3) * sin(uTime * 2.1 + p);
@@ -351,7 +385,7 @@ const GLOW_MAT = new THREE.ShaderMaterial({
     }`,
   fragmentShader: /* glsl */ `
     varying vec2 vUv;
-    varying float vOn, vKind, vFlick;
+    varying float vOn, vKind, vFlick, vWho;
     void main() {
       vec2 c = vUv - 0.5;
       vec3 ember = vec3(0.55, 0.13, 0.02), flame = vec3(1.0, 0.56, 0.18);
@@ -360,6 +394,11 @@ const GLOW_MAT = new THREE.ShaderMaterial({
         // The opening: hottest low and central, darker at the frame.
         float h = clamp(1.0 - length(c * vec2(1.3, 1.0)) * 1.5 + (0.5 - vUv.y) * 0.35, 0.0, 1.0);
         col = mix(ember, flame, h) * (0.55 + 0.6 * h);
+        // A window (not a doorway): the soft shadow of a head and shoulders passing the fire.
+        if (vKind > 0.1) {
+          float body = smoothstep(0.34, 0.1, abs(vUv.x - vWho) * (1.0 + 1.6 * smoothstep(0.45, 0.8, vUv.y)));
+          col *= 1.0 - 0.78 * body * smoothstep(1.0, 0.82, vUv.y);
+        }
       } else {
         // Halo on the wall, or the pool on the ground: a soft round falloff.
         float f = 1.0 - smoothstep(0.0, 0.5, length(c));
@@ -383,7 +422,8 @@ function glowParts(g: models.Glow, at: number, phase: number): THREE.BufferGeome
     geo.setAttribute('aGlow', new THREE.BufferAttribute(a, 3));
     parts.push(geo);
   };
-  tag(new THREE.BoxGeometry(g.w, g.h, g.d).translate(g.x, g.y, g.z), 0);
+  // (A window's kind is 0.25: lit like any opening, and it shows who passes inside.)
+  tag(new THREE.BoxGeometry(g.w, g.h, g.d).translate(g.x, g.y, g.z), g.win ? 0.25 : 0);
   // Which way the opening faces: its thin axis, away from the middle of the building.
   const side = g.w < g.d;
   const out = Math.sign(side ? g.x : g.z) || 1;
@@ -423,6 +463,34 @@ function setGlow(b: Building, windows: models.Glow[] | undefined): void {
   b.glow.visible = false;
   b.glow.renderOrder = 2;
   b.finished.add(b.glow);
+}
+
+/** A building's look with the things that ride on it: its washing as well as its lights and doors. */
+type Look = models.BuildingModel & { cloths?: Cloth[] };
+
+/** A building's lit openings, its doors and its washing, from its (new) model. */
+function setOpenings(b: Building, model: Look): void {
+  setGlow(b, model.windows);
+  b.doors = model.doors?.length ? model.doors : undefined;
+  b.doorOpen = undefined;
+  b.cloths = model.cloths?.length ? model.cloths : undefined;
+}
+
+/** The seed of a building's own details (what stands round it, where it cracks): from where it stands, so it is the same every session. */
+const lookSeed = (b: Building): number => ((b.cx * 7919 + b.cz * 104729) ^ (b.def.size[0] * 97 + b.def.size[1] * 31)) >>> 0;
+
+/** Buildings that never show wear: fields, fires and other things with no walls to crack. */
+const NO_WEAR = new Set<BuildingKey>(['torch', 'campfire', 'bonfire', 'firepit', 'well', 'herbalgarden', 'graveyard', 'ceremony', 'jetty', 'tradedock']);
+/** How worn a building should look (see Wear). */
+const wearOf = (b: Building): number => (NO_WEAR.has(b.key) || isFarm(b.key) || isDecor(b.key) || isWonder(b.key) ? 0 : wearLevel(b));
+
+/** Where a home's hearth smoke leaves it (model-local), or null for a building with no hearth. */
+function hearthOf(b: Building): [number, number, number] | null {
+  if (b.key === 'hut') return models.HUT_HEARTH;
+  if (b.key === 'home') return models.HOME_HEARTH[Math.min(4, Math.max(1, b.tier))];
+  // The fisherman's hut stands on stilts from the sea bed: its ridge is a fixed height above the water.
+  if (b.key === 'fishhut') return [0.1, 1.5 - b.y, -0.32];
+  return null;
 }
 
 /** Seconds of work the current build (or upgrade) takes in all. */
@@ -483,6 +551,17 @@ export class BuildingSystem {
   lodDist = 60;
   /** Chimney and rack smoke from smokehouses. */
   private smoke = new Particles(360, 0xc9c2ba, 0.6);
+  /** Hearth smoke from every occupied home, cooking fire and working kiln (one draw: see VillageSmoke). */
+  readonly villageSmoke = new VillageSmoke();
+  /** Doors that open by day and shut at night, and the washing on the lines (one draw each). */
+  readonly doors = new Doors();
+  readonly washing = new Washing();
+  /**
+   * The day fraction (0..1), for meal-time smoke. Optional: the game may set it each frame; left
+   * at -1, dusk and dawn stand in for the meals.
+   */
+  dayTime = -1;
+  private livedTimer = 0;
   /** A puff of dust where a new foundation lands. */
   private dust = new Particles(160, 0xcdb894, 0.55);
   /** Finished buildings cast their shadows from one batched mesh (see BuildingShadows). */
@@ -524,6 +603,7 @@ export class BuildingSystem {
   constructor(private world: World, private veg: Vegetation, private eco: Economy, private terrain: Terrain, private scene: THREE.Scene) {
     this.bubbles = new BeliefBubbles(eco);
     this.group.add(this.smoke.points, this.dust.points, this.shadows.mesh, this.far.mesh);
+    this.group.add(this.villageSmoke.points, this.doors.mesh, this.washing.mesh);
     this.scene.add(this.spaceMesh);
     this.group.add(this.fireLights.group);
   }
@@ -908,7 +988,7 @@ export class BuildingSystem {
     this.eco.add('wood', this.veg.clearArea(cx, cz, b.w, b.d));
     this.markDoorway(b);
     this.setPen(b);
-    if (b.finished) { const model=this.modelFor(b); replaceFinished(b, withBuildingGround(model.finished,b,this.world)); model.canopy?.dispose(); setGlow(b, model.windows); }
+    if (b.finished) { const model=this.modelFor(b); replaceFinished(b, withBuildingGround(model.finished,b,this.world)); model.canopy?.dispose(); setOpenings(b, model); }
     b.group.position.set(b.x, b.y, b.z);
     b.group.rotation.y = b.angle;
     const e = new THREE.Euler(0, b.angle, 0);
@@ -1074,7 +1154,7 @@ export class BuildingSystem {
       const model = this.modelFor(b);
       replaceFinished(b, withBuildingGround(model.finished,b,this.world));
       this.setTorches(b, model.torches);
-      setGlow(b, model.windows);
+      setOpenings(b, model);
     }
     b.growth = d.growth;
     b.stock = d.stock;
@@ -1174,8 +1254,8 @@ export class BuildingSystem {
     else if (b.key === 'chickenpen') [b.penX, b.penZ] = b.local(...models.CHICKEN_PEN.centre(sw, sd));
   }
 
-  private modelFor(b: Building): models.BuildingModel {
-    const model = models.collectGlows(() => this.modelOf(b));
+  private modelFor(b: Building): Look {
+    const model: Look = models.collectGlows(() => this.modelOf(b));
     const n = upgrades(b);
     if (n > 0 && b.key !== 'torch') {
       // Each upgrade adds what it says (see looks/); a building without looks of its own shows a
@@ -1189,6 +1269,44 @@ export class BuildingSystem {
         model.torches.push(...extra.torches);
       }
       extra.geo.dispose();
+    }
+    // Lived in: the household's things round the house, different for every home and the same
+    // every session, more of them with each level (part of the one model, so they cost no draw).
+    const seed = lookSeed(b);
+    if (b.key === 'hut' || b.key === 'home') {
+      const props = homeProps(b.key, b.tier, seed, !b.style || b.style === 'village');
+      const merged = props.geo && mergeGeometries([model.finished, props.geo]);
+      if (merged) {
+        merged.userData = model.finished.userData;
+        model.finished.dispose();
+        model.finished = merged;
+      }
+      props.geo?.dispose();
+      model.cloths = props.cloths;
+    }
+    // Worn: a damaged building is cracked, patchy and leaning until it is repaired. Everything
+    // that rides on the model (flames, lit windows, doors, washing) leans with it.
+    const wear = wearOf(b);
+    b.wear = wear;
+    if (wear > 0) {
+      model.finished = withWearMarks(model.finished, wear, seed);
+      const [lx, lz] = wearLean(wear, seed);
+      for (const t of model.torches) { t.x += lx * t.y; t.z += lz * t.y; }
+      model.windows = model.windows?.map((g) => ({ ...g, x: g.x + lx * g.y, z: g.z + lz * g.y }));
+      model.doors = model.doors?.map((d) => ({ ...d, x: d.x + lx * d.y, z: d.z + lz * d.y }));
+      model.cloths = model.cloths?.map((c) => ({ ...c, x: c.x + lx * c.y, z: c.z + lz * c.y }));
+    }
+    // Finer faces, so the hand-made lean and sag bend walls and rooflines (not just tilt boxes).
+    // (The far-away copy is cut from the model as built, whose faces are still whole: see modelLo.)
+    const fine = finerFaces(model.finished);
+    if (fine !== model.finished) {
+      fine.userData = { ...model.finished.userData, whole: model.finished };
+      model.finished = fine;
+    }
+    if (wear > 0) {
+      wearInPlace(model.finished, wear, seed);
+      const whole = model.finished.userData.whole as THREE.BufferGeometry | undefined;
+      if (whole) wearInPlace(whole, wear, seed);
     }
     return model;
   }
@@ -1274,7 +1392,7 @@ export class BuildingSystem {
       b.finished.add(roof);
     }
     this.setTorches(b, model.torches);
-    setGlow(b, model.windows);
+    setOpenings(b, model);
 
     if (isFarm(b.key)) {
       b.crops = new THREE.Mesh(this.cropGeo(sw, sd, false, FARM_TYPES[b.key]!.crop), mat);
@@ -1371,6 +1489,48 @@ export class BuildingSystem {
         mine.push({ key: `${b.id}:${k}`, pos: t.pos, ground: this.world.heightAt(t.pos.x, t.pos.z), big, range: lightRange(b) });
       });
       out.push(...mine);
+    }
+    return out;
+  }
+
+  /** Redraw a building whose look has changed without an upgrade (it has been damaged, or repaired). */
+  private refreshLook(b: Building): void {
+    const model = this.modelFor(b);
+    replaceFinished(b, withBuildingGround(model.finished, b, this.world));
+    model.canopy?.dispose();
+    this.setTorches(b, model.torches);
+    setOpenings(b, model);
+    this.updateStageVisuals(b);
+  }
+
+  /**
+   * Every fire that is smoking: the hearths of occupied homes (a thin wisp by day, more at meal
+   * times and most in the evening, each house lighting and banking its fire in its own time), the
+   * village's open fires, and the firemaker's kiln while someone is at work.
+   */
+  private smokeSpots(time: number, night: number, raining: boolean): SmokeSpot[] {
+    const out: SmokeSpot[] = [];
+    const meal = hearthStrength(night, this.dayTime) * (raining ? 0.7 : 1);
+    for (const b of this.list) {
+      if (!buildingOperational(b) || b.upgrading || !b.finished?.visible) continue;
+      const hearth = hearthOf(b);
+      if (hearth) {
+        if (!b.residents.length) continue;
+        // Its own slow rhythm: between meals some fires are out; at meal times every house cooks.
+        const mood = 0.5 + 0.5 * Math.sin(time * 0.023 + b.id * 2.39);
+        const power = meal > 0.6 ? meal * (0.75 + 0.25 * mood) : mood > 0.3 ? meal * (0.55 + 0.6 * mood) : 0;
+        if (power <= 0) continue;
+        const [x, z] = b.local(hearth[0], hearth[2]);
+        out.push({ key: b.id, x, y: b.y + hearth[1], z, power });
+      } else if (b.key === 'firemaker') {
+        if (!b.workers.size || night > 0.6) continue;
+        const [x, z] = b.local(-0.82, -0.52);
+        out.push({ key: b.id, x, y: b.y + 2.0, z, power: 0.9 });
+      } else if ((b.key === 'campfire' || b.key === 'bonfire' || b.key === 'firepit') && b.torches.length) {
+        // Smouldering by day, burning from dusk.
+        const p = b.torches[0].pos;
+        out.push({ key: b.id, x: p.x, y: p.y + 0.3, z: p.z, power: night > 0.12 ? 0.85 : 0.3 });
+      }
     }
     return out;
   }
@@ -1529,7 +1689,7 @@ export class BuildingSystem {
       const model = this.modelFor(b);
       replaceFinished(b, withBuildingGround(model.finished,b,this.world));
       this.setTorches(b, model.torches);
-      setGlow(b, model.windows);
+      setOpenings(b, model);
       b.scaffold.geometry.dispose();
       b.scaffold.geometry = models.scaffoldGeometry(b.def.size[0], b.def.size[1], model.height + 1);
       b.modelHeight = model.height;
@@ -1726,7 +1886,21 @@ export class BuildingSystem {
     if (this.lodTimer <= 0) {
       this.lodTimer = 0.25;
       this.updateLod();
+      // A building whose condition has changed (damaged, or repaired) is redrawn: one at a time, so a
+      // storm that harms a whole street never stalls a frame.
+      const worn = this.list.find((b) => b.finished && b.finishedHi && b.complete && wearOf(b) !== b.wear);
+      if (worn) this.refreshLook(worn);
     }
+    // Lived in: doors, washing and hearth smoke.
+    const standing = (d: { id: number }) => { const b = d as Building; return b.complete && !b.ruined && b.finished.visible && b.group.visible; };
+    this.doors.update(this.list, dt, night, raining, (d) => standing(d) && !(d as Building).lodFar, (d) => !hearthOf(d as Building) || (d as Building).residents.length > 0);
+    this.washing.update(this.list, dt, raining, standing);
+    this.livedTimer -= dt;
+    if (this.livedTimer <= 0) {
+      this.livedTimer = 0.5;
+      this.villageSmoke.sync(this.smokeSpots(time, night, raining));
+    }
+    this.villageSmoke.light(night, this.lodDist * 2.2);
     for (const b of this.list) {
       if (!buildingOperational(b)) continue;
       if (b.key === 'herbalist') processMedicine(b, this.eco, dt);
