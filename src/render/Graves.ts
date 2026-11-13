@@ -2,9 +2,10 @@ import * as THREE from 'three';
 import { GeoBuilder, M, P } from './GeoBuilder';
 import { stylisedMaterial } from './materials';
 import { SoftShadows } from './SoftShadows';
+import { villageFire } from '../buildings/VillageFire';
 
 /** A resting place: who lies there, where, and the day they passed. */
-export interface Grave { name: string; x: number; z: number; y: number; yaw: number; day: number }
+export interface Grave { name: string; x: number; z: number; y: number; yaw: number; day: number; /** An urn of ashes from the pyre (a grave with a headstone otherwise: those from before the pyres). */ urn?: boolean }
 
 /** Most graves drawn (the oldest give way to the newest beyond this). */
 const MAX = 64;
@@ -41,6 +42,54 @@ function graveGeometry(): THREE.BufferGeometry {
 }
 
 /**
+ * An urn of ashes in its plot: a low stone slab, a lidded clay urn painted with a red band and a
+ * cream key, a carved name stone behind it, and marigolds laid round. Model units, a plot's size.
+ */
+function urnGeometry(): THREE.BufferGeometry {
+  const b = new GeoBuilder();
+  const stone = 0xc9c2b2, clay = 0xb8623a, clayDark = 0x8e4526, red = 0xa64032, cream = 0xefdfb8, leaf = 0x4f7a32;
+  b.add(P.box(0.52, 0.06, 0.62), { color: 0xb3ac9c, facet: true }, M.t(0, 0.03, -0.02));
+  b.add(P.box(0.44, 0.04, 0.5), { color: stone, facet: true }, M.t(0, 0.08, -0.02));
+  // The urn: foot, round belly, neck, lid and knob.
+  b.add(P.cyl(0.07, 0.085, 0.04, 8), { color: clayDark, facet: true }, M.t(0, 0.12, -0.04));
+  b.add(P.sphere(0.5, 1), { color: clay, facet: true }, M.t(0, 0.25, -0.04, 0, 0, 0, 0.3, 0.26, 0.3));
+  b.add(P.cyl(0.152, 0.152, 0.035, 10), { color: red, facet: true }, M.t(0, 0.26, -0.04));
+  b.add(P.cyl(0.154, 0.154, 0.012, 10), { color: cream, facet: true }, M.t(0, 0.285, -0.04));
+  b.add(P.cyl(0.075, 0.1, 0.05, 8), { color: clay, facet: true }, M.t(0, 0.385, -0.04));
+  b.add(P.cyl(0.095, 0.085, 0.025, 8), { color: clayDark, facet: true }, M.t(0, 0.42, -0.04));
+  b.add(P.sphere(0.03, 0), { color: cream, facet: true }, M.t(0, 0.455, -0.04));
+  // The name stone behind it.
+  b.add(P.box(0.26, 0.2, 0.07), { color: stone, facet: true }, M.t(0, 0.2, 0.25));
+  b.add(P.box(0.16, 0.02, 0.012), { color: 0x8e877a, facet: true }, M.t(0, 0.24, 0.212));
+  b.add(P.box(0.1, 0.02, 0.012), { color: 0x8e877a, facet: true }, M.t(0, 0.19, 0.212));
+  const petals = [0xf0a020, 0xd8322a, 0xf0a020, 0xf2a6c8];
+  [[-0.19, -0.2], [0.19, -0.16], [-0.17, 0.08], [0.18, 0.1], [0.0, -0.27]].forEach(([x, z], k) => {
+    b.add(P.box(0.02, 0.06, 0.02), { color: leaf, facet: true }, M.t(x, 0.13, z));
+    b.add(P.box(0.06, 0.03, 0.06), { color: petals[k % 4], facet: true }, M.t(x, 0.17, z));
+  });
+  return b.build();
+}
+
+/** The pyre: a square stack of crossed logs on a ring of stones, a bed of brushwood on top (about 0.45 high). */
+function pyreGeometry(): THREE.BufferGeometry {
+  const b = new GeoBuilder();
+  const log = [0x7a5230, 0x6a4628, 0x8a5e38];
+  for (let k = 0; k < 10; k++) {
+    const a = (k / 10) * Math.PI * 2;
+    b.add(P.sphere(0.11, 0), { color: k % 2 ? 0x8a8478 : 0x767064, facet: true }, M.t(Math.cos(a) * 0.72, 0.05, Math.sin(a) * 0.72, 0, a, 0, 1, 0.7, 1.2));
+  }
+  for (let tier = 0; tier < 4; tier++) {
+    const y = 0.07 + tier * 0.1, along = tier % 2 === 0, n = 4 - (tier > 2 ? 1 : 0), len = 1.25 - tier * 0.06;
+    for (let k = 0; k < n; k++) {
+      const off = (k - (n - 1) / 2) * 0.27;
+      b.add(P.cyl(0.05, 0.055, len, 6), { color: log[(k + tier) % 3], facet: true }, along ? M.t(off, y, 0, Math.PI / 2, 0, 0) : M.t(0, y, off, 0, 0, Math.PI / 2));
+    }
+  }
+  for (let k = 0; k < 7; k++) b.add(P.box(0.9, 0.02, 0.05), { color: 0x9a7a4a, facet: true }, M.t(0, 0.455, -0.3 + k * 0.1, 0, (k % 3 - 1) * 0.12, 0));
+  return b.build();
+}
+
+/**
  * The dead carried to the graveyard: a body wrapped in a white shroud bound with red cords, on a
  * litter of two poles (along +z, centred, poles at hand height for two bearers).
  */
@@ -61,6 +110,7 @@ export class Graves {
   private mesh: THREE.InstancedMesh;
   /** The body on its litter, lying where they passed or carried to the graveyard (hidden otherwise). */
   readonly bier = new THREE.Mesh(bierGeometry(), stylisedMaterial());
+  private urns!: THREE.InstancedMesh;
   /** Their soft shadows, one draw for all. */
   private shadows = new SoftShadows(MAX);
 
@@ -73,6 +123,23 @@ export class Graves {
     this.bier.castShadow = true;
     this.bier.scale.setScalar(0.8);
     this.group.add(this.mesh, this.shadows.mesh, this.bier);
+    // Urns of ashes (the dead since the pyres), drawn like the graves.
+    this.urns = new THREE.InstancedMesh(urnGeometry(), stylisedMaterial(), MAX);
+    this.urns.count = 0;
+    this.urns.receiveShadow = true;
+    this.urns.name = 'urns';
+    // The pyre, its fire (made when first lit) and the ash it leaves; the body has a material of
+    // its own so it can blacken and pale as it burns.
+    this.bierMat = (this.bier.material as THREE.MeshStandardMaterial).clone();
+    this.bier.material = this.bierMat;
+    this.pyre = new THREE.Mesh(pyreGeometry(), (stylisedMaterial() as THREE.MeshStandardMaterial).clone());
+    this.pyre.castShadow = true;
+    this.pyre.visible = false;
+    this.pyre.name = 'pyre';
+    this.ash = new THREE.Mesh(new THREE.CircleGeometry(0.95, 14).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x2a2623, transparent: true, opacity: 0, depthWrite: false }));
+    this.ash.visible = false;
+    this.ash.renderOrder = 3;
+    this.group.add(this.urns, this.pyre, this.ash);
     // The ghost: a see-through grave shown where one being moved would go (green if it can, red if not).
     this.ghost = new THREE.Mesh(this.mesh.geometry, new THREE.MeshBasicMaterial({ color: 0x8cf08c, transparent: true, opacity: 0.55, depthWrite: false }));
     this.ghost.scale.setScalar(0.85);
@@ -80,6 +147,93 @@ export class Graves {
     this.ghost.renderOrder = 20;
     this.ghost.name = 'grave ghost';
     this.group.add(this.ghost);
+  }
+
+  // ---------------- The funeral pyre ----------------
+
+  private pyre!: THREE.Mesh;
+  private ash!: THREE.Mesh;
+  private fire: THREE.Object3D | null = null;
+  private bierMat!: THREE.MeshStandardMaterial;
+  /** Where the pyre stands (null: none), and how the scorched ground it leaves is fading. */
+  pyreAt: { x: number; y: number; z: number } | null = null;
+  private ashLeft = 0;
+
+  /** Raise the pyre at a place (its logs stacked ready), or take it away (null). */
+  showPyre(at: { x: number; y: number; z: number; yaw?: number } | null): void {
+    this.pyreAt = at ? { x: at.x, y: at.y, z: at.z } : null;
+    this.pyre.visible = !!at;
+    if (this.fire) this.fire.visible = false;
+    if (!at) return;
+    this.pyre.position.set(at.x, at.y, at.z);
+    this.pyre.rotation.set(0, at.yaw ?? 0, 0);
+    this.pyre.scale.setScalar(1);
+    this.setBody(0);
+  }
+
+  /** Height of the pyre's top, where the body is laid. */
+  static readonly PYRE_TOP = 0.5;
+
+  /**
+   * The burning, `u` from 0 (the fire is lit) to 1 (out): the same fire as the village bonfire
+   * takes hold, the body darkens to black, pales to grey ash and crumbles to dust; the logs burn
+   * down with it, and the fire sinks and goes out over a bed of ash.
+   */
+  burn(u: number): void {
+    const at = this.pyreAt;
+    if (!at) return;
+    if (!this.fire && typeof document !== 'undefined') {
+      this.fire = villageFire();
+      this.group.add(this.fire);
+    }
+    const ss = (a: number, b: number, x: number) => THREE.MathUtils.smoothstep(x, a, b);
+    // The fire: up fast, roaring through the middle, sinking at the end.
+    const flame = ss(0, 0.08, u) * (1 - ss(0.78, 1, u));
+    if (this.fire) {
+      this.fire.visible = flame > 0.02;
+      this.fire.position.set(at.x, at.y + 0.3 * (1 - ss(0.3, 0.9, u)) + 0.04, at.z);
+      this.fire.scale.setScalar(0.25 + 0.75 * flame);
+    }
+    this.setBody(u);
+    // The logs char and settle into the ash.
+    const down = ss(0.35, 0.95, u);
+    this.pyre.scale.set(1, 1 - 0.8 * down, 1);
+    (this.pyre.material as THREE.MeshStandardMaterial).color.setScalar(1 - 0.8 * ss(0.1, 0.6, u));
+    this.bier.position.y = at.y + Graves.PYRE_TOP * (1 - 0.8 * down) + 0.03;
+    this.ash.visible = u > 0.2;
+    this.ash.position.set(at.x, at.y + 0.025, at.z);
+    (this.ash.material as THREE.MeshBasicMaterial).opacity = 0.75 * ss(0.2, 0.7, u);
+    this.ashLeft = 1;
+  }
+
+  /** The body on the pyre: white shroud, then black, then grey, then dust (gone). */
+  private setBody(u: number): void {
+    const ss = (a: number, b: number, x: number) => THREE.MathUtils.smoothstep(x, a, b);
+    const black = ss(0.08, 0.38, u), grey = ss(0.42, 0.68, u), dust = ss(0.66, 0.88, u);
+    // White → black → ash grey.
+    const v = (1 - black) * 1 + black * 0.06;
+    this.bierMat.color.setScalar(v + grey * 0.42);
+    this.bier.scale.set(0.8 * (1 - 0.25 * dust), 0.8 * (1 - 0.92 * dust), 0.8 * (1 - 0.2 * dust));
+    if (u > 0) this.bier.visible = dust < 0.995;
+  }
+
+  /** The burning is over: the pyre is gone, leaving scorched ground that fades over the day (call each frame with dt). */
+  endPyre(): void {
+    this.pyre.visible = false;
+    if (this.fire) this.fire.visible = false;
+    this.bier.visible = false;
+    this.bier.scale.setScalar(0.8);
+    this.bierMat.color.setScalar(1);
+    (this.pyre.material as THREE.MeshStandardMaterial).color.setScalar(1);
+    this.pyreAt = null;
+  }
+
+  /** The ash bed left by a pyre fades away (about a game day). */
+  fadeAsh(dt: number, dayLength: number): void {
+    if (!this.ash.visible || this.pyreAt) return;
+    this.ashLeft -= dt / dayLength;
+    (this.ash.material as THREE.MeshBasicMaterial).opacity = 0.75 * Math.max(0, this.ashLeft);
+    if (this.ashLeft <= 0) this.ash.visible = false;
   }
 
   private ghost: THREE.Mesh;
@@ -93,6 +247,22 @@ export class Graves {
     this.ghost.position.set(at.x, at.y + 0.02, at.z);
     this.ghost.rotation.set(0, at.yaw, 0);
     (this.ghost.material as THREE.MeshBasicMaterial).color.setHex(ok ? 0x8cf08c : 0xf06a5a);
+  }
+
+  /** Another shrouded body, lying where it fell until its turn at the pyre (see takeBody). */
+  layBody(at: { x: number; y: number; z: number; yaw: number }): THREE.Object3D {
+    const m = new THREE.Mesh(this.bier.geometry, stylisedMaterial());
+    m.position.set(at.x, at.y, at.z);
+    m.rotation.set(0, at.yaw, 0);
+    m.scale.setScalar(0.8);
+    m.castShadow = true;
+    this.group.add(m);
+    return m;
+  }
+
+  /** A waiting body is taken up (its funeral begins, and the bier itself takes its place). */
+  takeBody(m: THREE.Object3D): void {
+    this.group.remove(m);
   }
 
   /** Show the bier at (x, y, z), its length along `yaw`; or hide it (null). */
@@ -132,12 +302,18 @@ export class Graves {
 
   private draw(): void {
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(0.85, 0.85, 0.85), p = new THREE.Vector3();
-    this.list.forEach((g, i) => {
+    let ng = 0, nu = 0;
+    for (const g of this.list) {
       q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), g.yaw);
-      this.mesh.setMatrixAt(i, m.compose(p.set(g.x, g.y, g.z), q, s));
-    });
-    this.mesh.count = this.list.length;
+      m.compose(p.set(g.x, g.y, g.z), q, s);
+      if (g.urn) this.urns.setMatrixAt(nu++, m);
+      else this.mesh.setMatrixAt(ng++, m);
+    }
+    this.mesh.count = ng;
     this.mesh.instanceMatrix.needsUpdate = true;
+    this.urns.count = nu;
+    this.urns.instanceMatrix.needsUpdate = true;
+    this.urns.computeBoundingSphere();
     // Bounds round all the graves now (kept from the first draw, new ones far off would be culled).
     this.mesh.computeBoundingSphere();
     // A soft shadow under each.

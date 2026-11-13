@@ -21,6 +21,8 @@ export const PASSING = {
   mourners: 12,
   gatherSecs: 40,
   praySecs: 35,
+  /** Seconds the pyre burns: the fire takes, the body blackens, pales to ash and is gone, the fire sinks and dies. */
+  burnSecs: 55,
   grief: 0.06,
   honour: 10,
   /** Seconds the two bearers may take to reach the body, and to carry it to the graveyard. */
@@ -53,9 +55,7 @@ export class Passings {
   constructor(private game: Game) {}
 
   save(): { graves: Graves['list'] } {
-    // Someone not yet carried to the graveyard is saved as laid to rest in their plot.
-    const p = this.funeral?.procession;
-    return { graves: p ? [...this.graves.list, { name: this.funeral!.name, x: p.plot.x, z: p.plot.z, y: p.plot.y, yaw: p.plot.yaw, day: p.day }] : this.graves.list };
+    return { graves: this.graves.list };
   }
 
   restore(d: unknown): void {
@@ -67,6 +67,13 @@ export class Passings {
   update(dt: number): void {
     const g = this.game;
     if (this.funeral) this.runFuneral(dt);
+    else if (this.waiting.length && dt > 0) {
+      // The pyre is free: the next of the dead is taken up.
+      const next = this.waiting.shift()!;
+      this.graves.takeBody(next.body);
+      this.startFuneral(next.name, next.x, next.z, next.yaw, next.spouse);
+    }
+    if (dt > 0) this.graves.fadeAsh(dt, TIME.dayLength);
     if (g.eco.godMode || dt <= 0) return;
     // Elders' years run down (no lists made: this runs every frame).
     let adults = 0;
@@ -195,23 +202,37 @@ export class Passings {
    */
   take(isl: Islander, words: { kicker: string; line: string }, quiet = false): void {
     // One funeral at a time: anyone else who dies while one is under way (or in the same stroke)
-    // is laid straight into a grave, with no procession of their own.
+    // lies shrouded where they fell until the pyre is free for them.
     if (this.funeral || quiet) this.layToRest(isl, quiet ? null : words);
     else this.pass(isl, words);
   }
 
-  /** Bury at once: the next graveyard plot, or a quiet spot near the temple or fire. */
+  /**
+   * After the burning: an urn of their ashes is set in the next free plot of a graveyard (true),
+   * or, with no graveyard or no room, the ashes are scattered on the wind (false).
+   */
+  private keepAshes(name: string): boolean {
+    const plot = this.graveyardPlot();
+    if (!plot) return false;
+    this.graves.add({ name, x: plot.x, z: plot.z, y: plot.y, yaw: plot.yaw, day: this.game.time.day, urn: true });
+    this.game.world.blockCircle(plot.x, plot.z, 0.2);
+    return true;
+  }
+
+  /** The dead waiting for the pyre: each lies shrouded where they fell and is carried there in turn. */
+  private waiting: { name: string; x: number; z: number; yaw: number; spouse?: number; body: import('three').Object3D }[] = [];
+
+  /** Their funeral must wait for the one under way: the body lies where it fell (a few at most; beyond that they are burned quietly). */
   private layToRest(isl: Islander, words: { kicker: string; line: string } | null): void {
     const g = this.game, c = g.colony;
     const spouse = isl.spouse !== undefined ? c.byId(isl.spouse) : undefined;
-    const plot = this.graveyardPlot(), spot = plot ? null : this.restingPlace();
     c.remove(isl);
     c.moodBoost -= PASSING.grief * 0.5;
     if (spouse) spouse.happy = Math.max(0, spouse.happy - 0.3);
-    if (plot) this.graves.add({ name: isl.name, x: plot.x, z: plot.z, y: plot.y, yaw: plot.yaw, day: g.time.day });
-    else if (spot) this.graves.add({ name: isl.name, x: spot.x, z: spot.z, y: g.world.groundY(spot.x, spot.z), yaw: Math.atan2(spot.venue.x - spot.x, spot.venue.z - spot.z), day: g.time.day });
-    const at = plot ?? spot;
-    if (at) g.world.blockCircle(at.x, at.z, 0.2);
+    if (this.waiting.length < 6 && this.restingPlace()) {
+      const y = g.world.groundY(isl.x, isl.z);
+      this.waiting.push({ name: isl.name, x: isl.x, z: isl.z, yaw: isl.heading, spouse: spouse?.id, body: this.graves.layBody({ x: isl.x, y: y + 0.02, z: isl.z, yaw: isl.heading }) });
+    } else this.keepAshes(isl.name);
     if (words) g.ui?.toast(words.line, 'warn');
   }
 
@@ -232,7 +253,7 @@ export class Passings {
     g.ui?.dialog.push({
       icon: 'home', kicker: words?.kicker ?? 'An elder passes', important: true, art: 'death',
       title: `Farewell, ${isl.name}`,
-      body: `${lines} The village gathers to lay them to rest.`,
+      body: `${lines} The village will carry them to the pyre.`,
       actions: [
         { label: 'Go to the funeral', primary: true, run: () => g.focusAt(spot ?? { x, z }) },
         { label: 'OK' },
@@ -240,23 +261,25 @@ export class Passings {
     });
     g.audio?.sfx('select');
     haptic('light');
-    // With a graveyard: they lie shrouded where they were found until two bearers carry them there.
-    const plot = this.graveyardPlot();
-    if (plot) {
-      const y = g.world.groundY(x, z);
-      this.graves.showBier({ x, y: y + 0.02, z, yaw: isl.heading });
-      this.funeral = {
-        name: isl.name, t: 0, phase: 'wait', crowd: new Gathering(c, 'idle', plot.x, plot.z), spot: { x: plot.x, z: plot.z }, spouse: spouse?.id,
-        procession: { bearers: new Gathering(c, 'idle', x, z), body: { x, z, y }, plot, day: g.time.day },
-      };
-      return;
-    }
-    if (!spot) return;
-    const y = g.world.groundY(spot.x, spot.z);
-    this.graves.add({ name: isl.name, x: spot.x, z: spot.z, y, yaw: Math.atan2(spot.venue.x - spot.x, spot.venue.z - spot.z), day: g.time.day });
-    // Nothing is built on a grave.
-    g.world.blockCircle(spot.x, spot.z, 0.2);
-    this.funeral = { name: isl.name, t: 0, phase: 'wait', crowd: new Gathering(c, 'idle', spot.x, spot.z), spot, spouse: spouse?.id };
+    this.startFuneral(isl.name, x, z, isl.heading, spouse?.id);
+  }
+
+  /** Raise the pyre and begin the rite for someone lying at (x, z). */
+  private startFuneral(name: string, x: number, z: number, heading: number, spouseId?: number): void {
+    const g = this.game, c = g.colony, spot = this.restingPlace();
+    const isl = { name, heading }, spouse = spouseId !== undefined ? { id: spouseId } : undefined;
+    // No fire or temple to gather by (the very first days): burned quietly.
+    if (!spot) { this.keepAshes(isl.name); return; }
+    // A pyre is stacked at the resting place near the temple (or the tribal fire). They lie
+    // shrouded where they were found until two bearers carry them to it.
+    const py = g.world.groundY(spot.x, spot.z), yaw = Math.atan2(spot.venue.x - spot.x, spot.venue.z - spot.z);
+    this.graves.showPyre({ x: spot.x, y: py, z: spot.z, yaw });
+    const y = g.world.groundY(x, z);
+    this.graves.showBier({ x, y: y + 0.02, z, yaw: isl.heading });
+    this.funeral = {
+      name: isl.name, t: 0, phase: 'wait', crowd: new Gathering(c, 'idle', spot.x, spot.z), spot: { x: spot.x, z: spot.z }, spouse: spouse?.id,
+      procession: { bearers: new Gathering(c, 'idle', x, z), body: { x, z, y }, plot: { x: spot.x, z: spot.z, y: py, yaw, venue: spot.venue }, day: g.time.day },
+    };
   }
 
   /**
@@ -279,7 +302,7 @@ export class Passings {
         const yard = g.buildings.list.find((b) => b.key === 'graveyard' && Math.hypot(b.x - p.plot.venue.x, b.z - p.plot.venue.z) < 0.1);
         p.bearers.release();
         const [, lz] = yard ? yard.toLocal(p.plot.x, p.plot.z) : [0, 0];
-        const ends = yard ? [yard.local(0, lz + 0.75), yard.local(0, lz - 0.75)] : [[p.plot.x, p.plot.z + 0.75], [p.plot.x, p.plot.z - 0.75]];
+        const ends = yard ? [yard.local(0, lz + 0.75), yard.local(0, lz - 0.75)] : [[p.plot.x, p.plot.z + 1.05], [p.plot.x, p.plot.z - 1.05]];
         p.bearers = new Gathering(c, 'idle', p.plot.x, p.plot.z);
         p.bearers.join(ids[0], ends[0][0], ends[0][1]);
         // The second goes the same way (kept busy, so no other work calls them off), held just behind.
@@ -308,12 +331,12 @@ export class Passings {
   private bury(): void {
     const g = this.game, f = this.funeral!, p = f.procession!;
     p.bearers.release();
-    this.graves.showBier(null);
-    this.graves.add({ name: f.name, x: p.plot.x, z: p.plot.z, y: p.plot.y, yaw: p.plot.yaw, day: p.day });
+    // Laid on top of the pyre.
+    this.graves.showBier({ x: p.plot.x, y: p.plot.y + Graves.PYRE_TOP + 0.03, z: p.plot.z, yaw: p.plot.yaw });
     f.procession = undefined;
     f.phase = 'gather';
     f.t = 0;
-    this.callMourners(this.pathSlots(p.plot));
+    this.callMourners();
   }
 
   /** Mid-morning: the village comes to stand round the grave (or along the graveyard path). */
@@ -321,13 +344,14 @@ export class Passings {
     const f = this.funeral!, c = this.game.colony, { x, z } = f.spot;
     const slots: { x: number; z: number }[] = at?.length ? at.slice() : [];
     for (let k = 0; k < 14 && !at?.length; k++) {
-      const ring = k < 8 ? 1.1 : 1.7, n = k < 8 ? 8 : 6, a = ((k < 8 ? k : k - 8) / n) * Math.PI * 2 + (k < 8 ? 0 : 0.3);
+      // (Standing well back: the pyre burns as big as the village bonfire.)
+      const ring = k < 8 ? 1.9 : 2.6, n = k < 8 ? 8 : 6, a = ((k < 8 ? k : k - 8) / n) * Math.PI * 2 + (k < 8 ? 0 : 0.3);
       slots.push({ x: x + Math.cos(a) * ring, z: z + Math.sin(a) * ring });
     }
     const spouse = f.spouse !== undefined ? c.byId(f.spouse) : undefined;
     if (spouse && !spouse.hidden && spouse.condition === 'well') { const s0 = slots.shift()!; f.crowd.join(spouse, s0.x, s0.z); }
     f.crowd.call(PASSING.mourners, slots, (i) => !!i.warrior);
-    this.game.ui?.toast(`The village gathers to lay ${f.name} to rest.`, 'info', { x, z });
+    this.game.ui?.toast(`The village gathers at the pyre for ${f.name}.`, 'info', { x, z });
   }
 
   private runFuneral(dt: number): void {
@@ -341,7 +365,7 @@ export class Passings {
         const p = f.procession, { x, z } = p.body;
         p.bearers.call(2, [{ x: x - 0.75, z }, { x: x + 0.75, z }], (i) => !!i.warrior);
         f.phase = 'fetch';
-        g.ui?.toast(`Two islanders go to carry ${f.name} to the graveyard.`, 'info', { x, z });
+        g.ui?.toast(`Two islanders go to carry ${f.name} to the pyre.`, 'info', { x, z });
         return;
       }
       f.phase = 'gather';
@@ -358,11 +382,18 @@ export class Passings {
       }
       return;
     }
-    if (f.t < PASSING.praySecs) return;
+    // The pyre is lit as the prayers begin and burns while the village prays: the body blackens,
+    // pales to ash and is gone, and the fire sinks and goes out.
+    this.graves.burn(Math.min(1, f.t / PASSING.burnSecs));
+    if (f.t < PASSING.burnSecs) return;
+    this.graves.endPyre();
     f.crowd.release();
     this.funeral = null;
     g.eco.add('belief', PASSING.honour);
     g.colony.moodBoost += PASSING.grief * 0.5;
-    g.ui?.toast(`The village has laid ${f.name} to rest. Their memory comforts the village (+${PASSING.honour} Belief).`, 'info');
+    const kept = this.keepAshes(f.name);
+    g.ui?.toast(kept
+      ? `The pyre has burned out. ${f.name}’s ashes rest in an urn in the graveyard. Their memory comforts the village (+${PASSING.honour} Belief).`
+      : `The pyre has burned out, and ${f.name}’s ashes are given to the wind. Their memory comforts the village (+${PASSING.honour} Belief).`, 'info');
   }
 }

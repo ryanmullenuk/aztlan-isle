@@ -63,3 +63,37 @@ test('the platform must stand with its back to the sea', () => {
   assert.ok(!sys.seaBehind(40, 61, 6, 6, 2), 'arch toward the land');
   assert.ok(!sys.seaBehind(40, 75, 6, 6, 0), 'too far inland');
 });
+
+test('the pyre: ashes are kept in an urn in the next graveyard plot, or given to the wind without one; the fire blackens, greys and takes the body', async () => {
+  const { Passings } = await import('../src/economy/Passings');
+  const yard = built('graveyard');
+  const world = { blockCircle() {} };
+  const withYard = new Passings({ buildings: { list: [yard] }, world, time: { day: 7 } } as any) as any;
+  const plot = withYard.graveyardPlot();
+  assert.equal(withYard.keepAshes('Tochtli'), true);
+  const urn = withYard.graves.list[0];
+  assert.ok(urn.urn && urn.name === 'Tochtli' && urn.day === 7);
+  assert.ok(Math.hypot(urn.x - plot.x, urn.z - plot.z) < 1e-6, 'the urn is not in the first free plot');
+  // The next urn takes the next plot; old graves (no urn flag) and urns share the plots.
+  withYard.keepAshes('Xolo');
+  assert.ok(Math.hypot(withYard.graves.list[1].x - urn.x, withYard.graves.list[1].z - urn.z) > 0.5);
+  const none = new Passings({ buildings: { list: [] }, world, time: { day: 7 } } as any) as any;
+  assert.equal(none.keepAshes('Itzel'), false);
+  assert.equal(none.graves.list.length, 0, 'no marker is left without a graveyard');
+  // The burning: white shroud, black by a third of the way, ash grey later, gone before the fire is out.
+  const G = withYard.graves;
+  G.showPyre({ x: 0, y: 0, z: 0 });
+  G.showBier({ x: 0, y: 0.5, z: 0, yaw: 0 });
+  G.burn(0);
+  const white = G.bierMat.color.r;
+  G.burn(0.4);
+  const black = G.bierMat.color.r;
+  G.burn(0.66);
+  const grey = G.bierMat.color.r;
+  assert.ok(white > 0.9 && black < 0.15 && grey > black + 0.2 && grey < 0.7, `shroud ${white}, burnt ${black}, ash ${grey}`);
+  G.burn(0.95);
+  assert.equal(G.bier.visible, false, 'the body is still there as the fire dies');
+  G.endPyre();
+  assert.equal(G.pyreAt, null);
+  assert.equal(G.pyre.visible, false);
+});

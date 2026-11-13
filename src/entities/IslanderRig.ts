@@ -141,7 +141,7 @@ const DANCES: ClipName[] = ['twerk', 'dance_long', 'arms_dance', 'dance_sway', '
 export function clipFor(isl: Islander, celebrating = false): ClipName | null {
   if (isl.hidden || isl.sleeping || isl.floorY !== null) return null;
   // In the god's hand or the air: kicking and flailing; in the sea: a crawl stroke; dazed: slumped.
-  if (isl.flung) return isl.flung.mode === 'swim' ? 'zombie_crawl' : isl.flung.mode === 'dazed' ? 'sad_idle' : 'run_look_back';
+  if (isl.flung) return isl.flung.mode === 'swim' ? 'zombie_crawl' : isl.flung.mode === 'dazed' || isl.flung.mode === 'dead' ? 'sad_idle' : 'run_look_back';
   const a = isl.anim, moving = a === 'walk' || a === 'run';
   if (isl.condition === 'mauled' && isl.injured > 0 && moving && !isl.carry) return 'zombie_crawl';
   if ((isl.condition !== 'well' || isl.injured > 0) && moving && !isl.carry) return 'injured_run';

@@ -2035,13 +2035,13 @@ export class Game {
     if (grave) {
       const yard = this.passings.inGraveyard(grave), free = this.passings.plotFree;
       this.ui.dialog.push({
-        icon: 'home', kicker: `Laid to rest on day ${grave.day}`, always: true, art: 'death',
-        title: `Here lies ${grave.name}`,
-        body: yard ? 'This grave lies in the graveyard. You can move it to open ground of your choosing.'
-          : free ? 'You can move this grave to open ground of your choosing, or into a free plot in the graveyard.'
-          : 'You can move this grave to open ground of your choosing. Build a graveyard (or free a plot) to move it there.',
+        icon: 'home', kicker: `${grave.urn ? 'Given to the pyre' : 'Laid to rest'} on day ${grave.day}`, always: true, art: 'death',
+        title: grave.urn ? `The ashes of ${grave.name}` : `Here lies ${grave.name}`,
+        body: yard ? `This ${grave.urn ? 'urn rests' : 'grave lies'} in the graveyard. You can move it to open ground of your choosing.`
+          : free ? `You can move this ${grave.urn ? 'urn' : 'grave'} to open ground of your choosing, or into a free plot in the graveyard.`
+          : `You can move this ${grave.urn ? 'urn' : 'grave'} to open ground of your choosing. Build a graveyard (or free a plot) to move it there.`,
         actions: [
-          { label: 'Move grave', primary: true, run: () => { this.movingGrave = grave; this.graveYaw = grave.yaw; this.ui.setHint(`Choose where ${grave.name}’s grave should go. Turn it with R (Shift+R the other way), or press, hold and drag (tap the grave to cancel).`); } },
+          { label: grave.urn ? 'Move urn' : 'Move grave', primary: true, run: () => { this.movingGrave = grave; this.graveYaw = grave.yaw; this.ui.setHint(`Choose where ${grave.name}’s grave should go. Turn it with R (Shift+R the other way), or press, hold and drag (tap the grave to cancel).`); } },
           ...(!yard && free ? [{ label: 'Move to graveyard', run: () => { if (this.passings.moveToGraveyard(grave)) this.ui.toast(`${grave.name} now rests in the graveyard.`); } }] : []),
           { label: 'Leave it' },
         ],
@@ -2876,10 +2876,42 @@ export class Game {
     haptic('medium');
     this.select(null);
     this.colony.moodBoost -= Math.min(0.3, 0.06 * doomed.length);
-    const [first, ...rest] = doomed;
-    for (const p of rest) this.passings.take(p, { kicker: '', line: '' }, true);
-    const others = rest.length ? ` ${rest.length === 1 ? `${rest[0].name} fell` : `${rest.length} others fell`} with them.` : '';
-    this.passings.take(first, { kicker: 'Struck down', line: `${first.name} was struck down by a bolt from a clear sky.${others} The village is afraid.` });
+    // They drop where they stand and lie there a moment (see fallen) before the village is told
+    // and comes for the body.
+    for (const p of doomed) {
+      this.colony.cancelTask(p);
+      p.sleeping = false;
+      p.flung = { mode: 'dead', rx: 0, rz: 0, vx: 0, vy: 0, vz: 0, t: 0, wx: (p.id % 2 ? 1 : -1) * (0.8 + (p.id % 5) * 0.1), wz: 0 };
+    }
+    this.struck.push({ people: doomed, t: 0 });
+  }
+
+  /** Islanders struck down and fallen, not yet mourned: each batch waits a moment on the ground. */
+  private struck: { people: Islander[]; t: number }[] = [];
+  private fallen(dt: number): void {
+    if (!this.struck.length || dt <= 0) return;
+    for (const s of this.struck) {
+      s.t += dt;
+      for (const p of s.people) {
+        const f = p.flung;
+        if (!f) continue;
+        // Knees give, then over onto the ground (some forward, some back), with a small settle.
+        const u = Math.min(1, s.t / 0.55), fall = u * u * (3 - 2 * u), settle = s.t > 0.55 ? Math.exp(-(s.t - 0.55) * 7) * Math.sin((s.t - 0.55) * 22) * 0.06 : 0;
+        f.rx = Math.sign(f.wx) * (Math.PI / 2) * fall * (1 + settle);
+        f.rz = (f.wx - Math.sign(f.wx)) * 0.5 * fall;
+        p.y = this.world.groundY(p.x, p.z) + 0.03 * fall;
+      }
+    }
+    while (this.struck.length && this.struck[0].t >= 2.2) {
+      const { people } = this.struck.shift()!;
+      const here = people.filter((p) => this.colony.list.includes(p));
+      for (const p of here) p.flung = undefined;
+      const [first, ...rest] = here;
+      if (!first) continue;
+      for (const p of rest) this.passings.take(p, { kicker: '', line: '' }, true);
+      const others = rest.length ? ` ${rest.length === 1 ? `${rest[0].name} fell` : `${rest.length} others fell`} with them.` : '';
+      this.passings.take(first, { kicker: 'Struck down', line: `${first.name} was struck down by a bolt from a clear sky.${others} The village is afraid.` });
+    }
   }
 
   /** How things are round the island, for reading moods. */
@@ -3578,6 +3610,7 @@ export class Game {
     // After everything has moved: nothing stands in a rock, a building or another animal.
     this.crowding.update();
     this.hand.update(realDt > 0 && dt > 0 ? Math.min(realDt, 0.05) : 0);
+    this.fallen(dt > 0 ? Math.min(realDt, 0.05) : 0);
     this.defence.update(dt);
     this.buildings.camPos.copy(this.rig.camera.position);
     this.buildings.lodDist = RENDER.presets[this.preset].lodDist;

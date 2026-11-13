@@ -4,7 +4,8 @@ import { SEA_SURFACE } from '../water/Water';
 
 /** What the hand has done to an islander: held, flying, swimming for shore, or picking themselves up. */
 export interface Flung {
-  mode: 'held' | 'air' | 'swim' | 'dazed';
+  /** ('dead': struck down by the god, fallen where they stood until the village comes for the body.) */
+  mode: 'held' | 'air' | 'swim' | 'dazed' | 'dead';
   /** How the body hangs or tumbles: pitch and roll in its own frame (drawn by the rig). */
   rx: number;
   rz: number;
