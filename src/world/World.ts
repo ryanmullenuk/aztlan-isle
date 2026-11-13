@@ -103,6 +103,12 @@ export class World {
   isle = new Uint8Array(this.N * this.N);
   /** Water canals dug by the player from existing water (1 = channel). */
   canal = new Uint8Array(this.N * this.N);
+  /**
+   * The canal cells blurred into a smooth field (0..~0.6), so the channel is cut as a flowing,
+   * round-banked ditch along the cells (diagonal runs come out as smooth curves, not stairs)
+   * instead of square notches. Derived from `canal` (never saved): see countCanals.
+   */
+  canalField = new Float32Array(this.N * this.N);
   /** Number of canal cells (0 skips the channel carve in height lookups). */
   canalCount = 0;
   /** Swampland 0..1 per cell (wet ground → mud → pools), and how deep each cell is dug into pools. */
@@ -358,17 +364,25 @@ export class World {
 
   /**
    * Canals are one cell wide, too narrow for the blurred layer field to show, so their channel
-   * is cut into the surface directly: a ditch with steep banks at the cell edges.
+   * is cut into the surface directly, from the smooth canal field: a rounded ditch whose banks
+   * slope in and follow the run of the channel, curving with it.
    */
   private canalCarve(x: number, z: number): number {
+    const v = this.canalAt(x, z);
+    return v > 0.18 ? CANAL_DEPTH * smoothstep(0.18, 0.44, v) : 0;
+  }
+
+  /** The smooth canal field at a point (0 away from any canal); bilinear between cell centres. */
+  canalAt(x: number, z: number): number {
     const gx = x + this.half - 0.5, gz = z + this.half - 0.5;
     const x0 = Math.floor(gx), z0 = Math.floor(gz);
-    const fx = gx - x0, fz = gz - z0;
-    const c = (cx: number, cz: number) => (this.inBounds(cx, cz) ? this.canal[cz * this.N + cx] : 0);
+    const fx = gx - x0, fz = gz - z0, N = this.N, F = this.canalField;
+    const c = (cx: number, cz: number) => (cx >= 0 && cz >= 0 && cx < N && cz < N ? F[cz * N + cx] : 0);
     const a = c(x0, z0), b = c(x0 + 1, z0), cc = c(x0, z0 + 1), d = c(x0 + 1, z0 + 1);
-    if (!(a | b | cc | d)) return 0;
-    const v = (a * (1 - fx) + b * fx) * (1 - fz) + (cc * (1 - fx) + d * fx) * fz;
-    return CANAL_DEPTH * smoothstep(0.15, 0.62, v);
+    if (a + b + cc + d === 0) return 0;
+    // Smoothstepped weights (not straight lines between cell centres), so banks bend, not kink.
+    const sx = fx * fx * (3 - 2 * fx), sz = fz * fz * (3 - 2 * fz);
+    return (a * (1 - sx) + b * sx) * (1 - sz) + (cc * (1 - sx) + d * sx) * sz;
   }
 
   /** Recount canal cells after digging, filling or loading. */
@@ -376,6 +390,27 @@ export class World {
     let n = 0;
     for (let i = 0; i < this.canal.length; i++) n += this.canal[i];
     this.canalCount = n;
+    this.blurCanals();
+  }
+
+  /** Rebuild the smooth canal field: a soft (Gaussian, about 0.75 cell) blur of the canal cells. */
+  private blurCanals(): void {
+    const N = this.N, F = this.canalField;
+    F.fill(0);
+    if (!this.canalCount) return;
+    const R = 2, k: number[] = [];
+    let sum = 0;
+    for (let dz = -R; dz <= R; dz++) for (let dx = -R; dx <= R; dx++) { const w = Math.exp(-(dx * dx + dz * dz) / (2 * 0.75 * 0.75)); k.push(w); sum += w; }
+    for (let i = 0; i < k.length; i++) k[i] /= sum;
+    for (let i = 0; i < this.canal.length; i++) {
+      if (!this.canal[i]) continue;
+      const cx = i % N, cz = (i / N) | 0;
+      for (let dz = -R; dz <= R; dz++) for (let dx = -R; dx <= R; dx++) {
+        const x = cx + dx, z = cz + dz;
+        if (x < 0 || z < 0 || x >= N || z >= N) continue;
+        F[z * N + x] += k[(dz + R) * (2 * R + 1) + dx + R];
+      }
+    }
   }
 
   /** Flat top height of a given layer. */

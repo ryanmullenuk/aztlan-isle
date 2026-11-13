@@ -1120,38 +1120,81 @@ export class Water {
 
   private canalMesh: THREE.Mesh | null = null;
 
-  /** Rebuild the water surface of all player-dug canals (one quad per channel cell). */
+  /**
+   * Rebuild the water surface of all player-dug canals: one continuous sheet on a fine grid (a
+   * quarter cell) following the smooth channel, its level eased from cell to cell. It reaches a
+   * little past the water's edge and sits below the banks, so the land itself draws the shoreline
+   * where the sloping banks rise out of it: a smooth, curving edge, never a square.
+   */
   setCanals(): void {
     const w = this.world;
     const N = w.N;
     const pos: number[] = [], idx: number[] = [];
     let n = 0;
+    // Each channel cell's water level: just below its lowest bank (so it never floats over the
+    // land) and above its bed. Cells flooded by the sea (no level of their own) are the sea's.
+    const level = new Map<number, number>();
+    let x0 = N, z0 = N, x1 = -1, z1 = -1;
     for (let i = 0; i < N * N; i++) {
-      if (!w.canal[i]) continue;
-      if (Number.isNaN(w.riverY[i])) continue;
+      if (!w.canal[i] || Number.isNaN(w.riverY[i])) continue;
       const cx = i % N, cz = (i / N) | 0;
-      const x = w.centerX(cx), z = w.centerZ(cz);
-      // Sit just below the lowest bank (so it never floats over the land) and above the bed.
       let bank = Infinity;
-      for (const [ox, oz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      for (const [ox, oz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
         if (!w.inBounds(cx + ox, cz + oz)) continue;
         const j = w.idx(cx + ox, cz + oz);
         if (w.canal[j] || w.layer[j] <= 0 || !Number.isNaN(w.riverY[j])) continue;
         bank = Math.min(bank, w.heightAt(w.centerX(cx + ox), w.centerZ(cz + oz)));
       }
-      const bed = w.heightAt(x, z);
-      const y = Math.max(bed + 0.1, Math.min(w.riverY[i], bank - 0.08));
-      const h = 0.53;
-      pos.push(x - h, y, z - h, x + h, y, z - h, x + h, y, z + h, x - h, y, z + h);
-      idx.push(n, n + 2, n + 1, n, n + 3, n + 2);
-      n += 4;
+      const bed = w.heightAt(w.centerX(cx), w.centerZ(cz));
+      level.set(i, Math.max(bed + 0.1, Math.min(w.riverY[i], bank - 0.08)));
+      x0 = Math.min(x0, cx); z0 = Math.min(z0, cz); x1 = Math.max(x1, cx); z1 = Math.max(z1, cz);
+    }
+    if (level.size) {
+      const S = 4, step = 1 / S;
+      const gx0 = x0 - 1, gz0 = z0 - 1, cols = (x1 - x0 + 3) * S + 1, rows = (z1 - z0 + 3) * S + 1;
+      // Level at a grid point: the nearby cells' levels, weighted by closeness (NaN: no channel near).
+      const levelAt = (px: number, pz: number): number => {
+        const ccx = Math.floor(px + w.half), ccz = Math.floor(pz + w.half);
+        let sum = 0, wt = 0;
+        for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) {
+          const cx = ccx + dx, cz = ccz + dz;
+          if (!w.inBounds(cx, cz)) continue;
+          const y = level.get(w.idx(cx, cz));
+          if (y === undefined) continue;
+          const d2 = (w.centerX(cx) - px) ** 2 + (w.centerZ(cz) - pz) ** 2;
+          const k = Math.exp(-d2 / 0.6);
+          sum += y * k; wt += k;
+        }
+        return wt > 1e-4 ? sum / wt : NaN;
+      };
+      const vid = new Int32Array(cols * rows).fill(-1);
+      const vertex = (c: number, r: number): number => {
+        const k = r * cols + c;
+        if (vid[k] >= 0) return vid[k];
+        const px = gx0 - w.half + c * step, pz = gz0 - w.half + r * step;
+        const y = levelAt(px, pz);
+        if (Number.isNaN(y)) return -1;
+        pos.push(px, y, pz);
+        vid[k] = n++;
+        return vid[k];
+      };
+      for (let r = 0; r < rows - 1; r++) for (let c = 0; c < cols - 1; c++) {
+        const px = gx0 - w.half + (c + 0.5) * step, pz = gz0 - w.half + (r + 0.5) * step;
+        // Wherever the channel is cut (with a margin the banks hide) and it is not the sea's own water.
+        if (w.canalAt(px, pz) < 0.14) continue;
+        const ci = w.cellIndexAt(px, pz);
+        if (ci >= 0 && w.layer[ci] <= 0 && !w.canal[ci]) continue;
+        const a = vertex(c, r), b = vertex(c + 1, r), cc = vertex(c + 1, r + 1), d = vertex(c, r + 1);
+        if (a < 0 || b < 0 || cc < 0 || d < 0) continue;
+        idx.push(a, cc, b, a, d, cc);
+      }
     }
     if (this.canalMesh) {
       this.group.remove(this.canalMesh);
       this.canalMesh.geometry.dispose();
       this.canalMesh = null;
     }
-    if (!n) return;
+    if (!idx.length) return;
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setIndex(idx);
