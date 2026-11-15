@@ -114,6 +114,8 @@ export class Colony {
   hooks: ColonyHooks = {};
   /** A lift (or dent) to everyone's spirits from something that happened (an omen, a rescue), wearing off over a few minutes. */
   moodBoost = 0;
+  /** How the islanders feel about their god (see Devotion): their pace of work, a lift or weight on their mood, and their Belief. */
+  devotion = { pace: 1, mood: 0, belief: 1 };
   private lastDay = -1;
   /** Game-time clock for blacklist expiry. */
   private clock = 0;
@@ -923,7 +925,7 @@ export class Colony {
 
   /** How fast an islander works: those taught by an elder work faster. */
   private pace(isl: Islander): number {
-    return isl.skilled ? ISLANDER.skilledPace : 1;
+    return (isl.skilled ? ISLANDER.skilledPace : 1) * this.devotion.pace;
   }
 
   /**
@@ -998,7 +1000,7 @@ export class Colony {
     const r2 = COMFORTS.wellRadius * COMFORTS.wellRadius;
     if (this.bld.list.some((w) => w.key === 'well' && w.complete && (w.x - hx) ** 2 + (w.z - hz) ** 2 < r2)) target += COMFORTS.wellHappy;
     target += upgradeMood(this.bld.list, hx, hz);
-    target += this.moodBoost;
+    target += this.moodBoost + this.devotion.mood;
     isl.happy += (Math.min(1, Math.max(0, target)) - isl.happy) * 0.08;
 
     // Sick or hurt: off to a Healing Centre (or home to rest) until cured.
@@ -3189,7 +3191,7 @@ export class Colony {
     // Contented islanders' belief gathers in the bubble over their home (more in a better home), or
     // over the Tribal Fire for anyone without one.
     const fire = this.bld.list.find((b) => b.key === 'campfire');
-    const each = ISLANDER.beliefPerHappyPerSecond * this.sacredFactor() * (this.bld.decreeFactor?.('gods') ?? 1) * dt;
+    const each = ISLANDER.beliefPerHappyPerSecond * this.sacredFactor() * (this.bld.decreeFactor?.('gods') ?? 1) * this.devotion.belief * dt;
     for (const isl of content) {
       const home = isl.home >= 0 ? this.bld.byId(isl.home) : undefined;
       this.gatherBelief(home ?? fire, each * (home ? homeMult(home) : 1));

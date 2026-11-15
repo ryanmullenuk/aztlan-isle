@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { flowerOnStem } from '../vegetation/flowerParts';
+import { RNG } from '../world/rng';
 import { GeoBuilder, M, P } from './GeoBuilder';
 import { stylisedMaterial } from './materials';
 import { SoftShadows } from './SoftShadows';
@@ -32,12 +34,12 @@ function graveGeometry(): THREE.BufferGeometry {
     box(w, h, 0.012, x, y, fz, carve);
   }
   // Flowers along both sides of the mound.
-  const petals = [0xf0a020, 0xd8322a, 0xf2a6c8, 0xf0a020];
+  // (Marigolds, with a red and a pink bloom, as the island's own flowers.)
+  const petals = ['marigold', 'red', 'pink', 'gold', 'marigold'] as const, fr = new RNG(77);
   [[-0.24, 0.12], [0.24, -0.02], [-0.22, -0.22], [0.23, 0.16], [0.0, -0.36]].forEach(([x, z], k) => {
-    box(0.02, 0.08, 0.02, x, 0.1, z, leaf);
-    box(0.07, 0.015, 0.03, x, 0.08, z, leaf);
-    box(0.06, 0.03, 0.06, x, 0.15, z, petals[k % 4]);
+    flowerOnStem(b, x, 0.06, z, 0.09, 0.05, petals[k], fr);
   });
+  void leaf;
   return b.build();
 }
 
@@ -62,11 +64,11 @@ function urnGeometry(): THREE.BufferGeometry {
   b.add(P.box(0.26, 0.2, 0.07), { color: stone, facet: true }, M.t(0, 0.2, 0.25));
   b.add(P.box(0.16, 0.02, 0.012), { color: 0x8e877a, facet: true }, M.t(0, 0.24, 0.212));
   b.add(P.box(0.1, 0.02, 0.012), { color: 0x8e877a, facet: true }, M.t(0, 0.19, 0.212));
-  const petals = [0xf0a020, 0xd8322a, 0xf0a020, 0xf2a6c8];
+  const petals = ['marigold', 'red', 'gold', 'pink', 'marigold'] as const, fr = new RNG(78);
   [[-0.19, -0.2], [0.19, -0.16], [-0.17, 0.08], [0.18, 0.1], [0.0, -0.27]].forEach(([x, z], k) => {
-    b.add(P.box(0.02, 0.06, 0.02), { color: leaf, facet: true }, M.t(x, 0.13, z));
-    b.add(P.box(0.06, 0.03, 0.06), { color: petals[k % 4], facet: true }, M.t(x, 0.17, z));
+    flowerOnStem(b, x, 0.1, z, 0.07, 0.048, petals[k], fr);
   });
+  void leaf;
   return b.build();
 }
 

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { Building } from '../src/buildings/Buildings';
 import { ancestorAltarModel, decorModel } from '../src/buildings/models';
 import { BUILDINGS, isDecor } from '../src/config';
-import { ANCESTORS, AncestorNight, mayAsk, spiritHours } from '../src/economy/AncestorNight';
+import { ANCESTORS, AncestorNight, deathStory, mayAsk, spiritHours } from '../src/economy/AncestorNight';
 
 const stub = { half: 50, layerY: () => 0 } as any;
 
@@ -102,6 +102,34 @@ test('the dead are remembered across saves', () => {
   a.night.remember('Itzel', true);
   b.night.restore(JSON.parse(JSON.stringify(a.night.save())));
   assert.deepEqual(b.night.dead, [{ name: 'Itzel', f: true }]);
+  // How and when they died is kept too.
+  a.night.remember('Cuauh', false, { day: 40, season: 'Spring', year: 1, cause: 'struck down by the gods' });
+  const c = village(true);
+  c.night.restore(JSON.parse(JSON.stringify(a.night.save())));
+  assert.deepEqual(c.night.dead[1], { name: 'Cuauh', f: false, day: 40, season: 'Spring', year: 1, cause: 'struck down by the gods' });
+  // Old saves (names only) still load.
+  const d = village(true);
+  d.night.restore({ state: 'quiet', dead: [{ name: 'Old', f: false }, { nope: 1 }], held: 2 });
+  assert.deepEqual(d.night.dead, [{ name: 'Old', f: false }]);
+  assert.equal(d.night.held, 2);
+});
+
+test('each spirit has a story', () => {
+  assert.equal(deathStory({ name: 'Itzel', f: true, season: 'spring', year: 1, cause: 'struck down by the gods' }), 'Itzel, who died in the spring of year 1, struck down by the gods.');
+  assert.equal(deathStory({ name: 'Itzel', f: true }), "Itzel, one of the island's dead.");
+  assert.equal(deathStory({ name: 'Itzel', f: true, day: 12 }), 'Itzel, who died on day 12.');
+  assert.equal(deathStory({ name: 'Itzel', f: true, cause: 'lost at sea.' }), 'Itzel, who died lost at sea.');
+  // The ghost index maps to the dead standing there tonight, oldest first.
+  const v = village(true, 21);
+  v.night.remember('Itzel', true, { season: 'spring', year: 1, cause: 'struck down by the gods' });
+  v.night.remember('Cuauh', false);
+  v.night.honour();
+  assert.equal(v.night.state, 'night');
+  assert.equal(v.night.story(0), 'Itzel, who died in the spring of year 1, struck down by the gods.');
+  assert.equal(v.night.story(1), "Cuauh, one of the island's dead.");
+  assert.equal(v.night.story(7), "One of the island's dead.");
+  // Not drawn in Node: nobody stands anywhere yet.
+  assert.equal(v.night.ghosts.ghostAt(50, 50), -1);
 });
 
 test('the player may call the ancestors any night from the altar, once a night; those who come are happier', () => {

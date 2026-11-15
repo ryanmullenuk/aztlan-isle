@@ -16,24 +16,43 @@ export function habitatFit(w: World, x: number, z: number, height: number, radiu
   return Math.min(1,(SEA_SURFACE-.12-high)/Math.max(.01,height));
 }
 
+/** How the starfish creep over the sand (world units and seconds; see StarfishCrawl.ts). */
+export const STARFISH = {
+  /** Average creeping speed: a few centimetres a second. */
+  speed: 0.03,
+  /** How far one stretch of crawling takes it, how long it lies still between stretches, and how far from home it strays. */
+  step: [0.1, 0.34] as [number, number],
+  pause: [2, 11] as [number, number],
+  roam: 0.6,
+  /** Arm span (model units) the arm wave is measured against. */
+  reach: 0.13,
+  /** Stretches started per frame at most, over the whole sea. */
+  budget: 12,
+};
+
 /**
  * The shared underwater material. Everything on the sea floor lives in the same water:
  *  - one current surges back and forth across the reef as a travelling wave (in world space, so
  *    neighbours lean the same way one after another), on top of each piece's own slow wobble;
  *    taller parts lag behind their roots, so kelp whips and coral only nods;
  *  - sunlight dances over it: the same caustic net the sea draws on the sand, here on the coral.
+ * `star`: the starfish's own variant. Each instance carries `aCrawl` (xyz: the stretch of sand it is
+ * creeping across, from where its matrix puts it; w: when it set off) and `aStar` (its own phase):
+ * it eases along that stretch, a slow wave lifts and curls its arm tips one after another, and
+ * its body flexes; all in the vertex shader (StarfishCrawl.ts only hands out the stretches).
  */
-export function habitatMaterial(solid=false): THREE.MeshStandardMaterial {
+export function habitatMaterial(solid=false,star=false): THREE.MeshStandardMaterial {
   const mat=new THREE.MeshStandardMaterial({vertexColors:true,roughness:.82,transparent:true,depthWrite:false});
   // Solid pieces hide what is behind them (no coral showing through a boulder or a plate);
   // pixels that have faded right out are dropped, so they never hide a fish.
   if(solid){mat.depthWrite=true;mat.alphaTest=.04;}
   const range={value:36};mat.userData.habitatRange=range;
-  mat.customProgramCacheKey=()=> 'underwater-habitat-v4';
+  mat.customProgramCacheKey=()=> star?'underwater-habitat-v4-star':'underwater-habitat-v4';
   mat.onBeforeCompile=shader=>{
     shader.uniforms.uHabitatTime=FX.uTime;shader.uniforms.uHabitatWind=FX.uWind;shader.uniforms.uHabitatRange=range;shader.uniforms.uHabitatNight=FX.uNight;
     shader.vertexShader=shader.vertexShader.replace('#include <common>',`#include <common>
       attribute vec2 aVeg; uniform float uHabitatTime; uniform float uHabitatWind;
+      ${star?'attribute vec4 aCrawl; attribute float aStar;':''}
       varying float vHabitatDepth; varying float vHabitatDistance; varying vec3 vHabitatWorld;`)
     .replace('#include <begin_vertex>',`#include <begin_vertex>
       #ifdef USE_INSTANCING
@@ -46,6 +65,25 @@ export function habitatMaterial(solid=false): THREE.MeshStandardMaterial {
       float sway=aVeg.x*step(.001,uHabitatWind);
       transformed.x+=sin(uHabitatTime*.42+phase)*.032*sway;
       transformed.z+=cos(uHabitatTime*.31+phase*1.3)*.025*sway;
+      ${star?`
+      // Creeping: eased along this stretch of sand (slow away, slow to a stop).
+      float starLen=length(aCrawl.xz);
+      float starP=starLen>1e-4?clamp((uHabitatTime-aCrawl.w)*${STARFISH.speed.toFixed(4)}/starLen,0.,1.):1.;
+      float starMove=4.*starP*(1.-starP);
+      vec3 habitatCrawl=aCrawl.xyz*(starP*starP*(3.-2.*starP));
+      // A wave going round the five arms: each tip lifts and curls in turn, more while it creeps.
+      float starR=length(transformed.xz)/${STARFISH.reach.toFixed(3)};
+      float starTip=smoothstep(.3,1.,starR);starTip*=starTip;
+      float starT=uHabitatTime*.9+aStar*6.2832;
+      float starWave=.5+.5*sin(atan(transformed.z,transformed.x)-starT);
+      float starAmp=(.3+.7*starMove)*starTip*starWave;
+      transformed.y+=starAmp*.026;
+      transformed.xz*=1.-starAmp*.1;
+      // The body swells and sinks a little, and the whole star twists slowly from side to side.
+      transformed.y*=1.+(1.-starTip)*.16*(.4+.6*starMove)*sin(starT*.7+starR*2.);
+      float starTw=.1*sin(starT*.31)*min(starR,1.2);
+      transformed.xz=mat2(cos(starTw),sin(starTw),-sin(starTw),cos(starTw))*transformed.xz;
+      habitatOrigin+=habitatCrawl;`:''}
       vHabitatDepth=max(0.0,${SEA_SURFACE}-habitatOrigin.y);
       vHabitatDistance=distance(cameraPosition,habitatOrigin);`)
     .replace('#include <project_vertex>',`#include <project_vertex>
@@ -57,11 +95,17 @@ export function habitatMaterial(solid=false): THREE.MeshStandardMaterial {
         float s2=sin(uHabitatTime*.47+(habitatOrigin.x*.11-habitatOrigin.z*.17)-lag*.6);
         vec3 push=vec3(.8,0.,.6)*(s1*.07+s2*.05)*sway;
         push.y=-abs(s1)*.012*sway;
+        ${star?'push+=habitatCrawl;':''}
         hw+=push;
         mvPosition.xyz+=(viewMatrix*vec4(push,0.0)).xyz;
         gl_Position=projectionMatrix*mvPosition;
         vHabitatWorld=hw;
       }`);
+    // Shadows fall on the starfish where it has crept to, not where its stretch began.
+    if(star)shader.vertexShader=shader.vertexShader.replace('#include <worldpos_vertex>',`#include <worldpos_vertex>
+      #if defined( USE_ENVMAP ) || defined( DISTANCE ) || defined ( USE_SHADOWMAP ) || defined ( USE_TRANSMISSION ) || NUM_SPOT_LIGHT_COORDS > 0
+        worldPosition.xyz+=habitatCrawl;
+      #endif`);
     shader.fragmentShader=shader.fragmentShader.replace('#include <common>',`#include <common>
       uniform float uHabitatRange;uniform float uHabitatTime;uniform float uHabitatNight;
       varying float vHabitatDepth;varying float vHabitatDistance;varying vec3 vHabitatWorld;
@@ -133,8 +177,10 @@ export class HabitatInstances {
         matrix.compose(p,q,s);r.mesh.setMatrixAt(count,matrix);r.mesh.setColorAt(count,color.fromArray(r.mesh.userData.habitatColors,k*3));count++;
       }
       r.mesh.count=count;r.mesh.userData.habitatAny=count>0;r.mesh.visible=count>0;r.mesh.instanceMatrix.needsUpdate=true;
+      // Whoever moves these instances about (the starfish) starts again from the new list.
+      r.mesh.userData.habitatVersion=(r.mesh.userData.habitatVersion??0)+1;
       if(r.mesh.instanceColor)r.mesh.instanceColor.needsUpdate=true;
-      if(count)r.mesh.computeBoundingSphere();
+      if(count){r.mesh.computeBoundingSphere();r.mesh.boundingSphere!.radius+=r.mesh.userData.habitatPad??0;}
     }
   }
 }

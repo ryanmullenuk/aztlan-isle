@@ -3,8 +3,13 @@
  * an emblem on its top edge, a title, a few lines and big buttons. Anything that arrives while one
  * is open (or while the player is busy dragging, sculpting or placing) waits its turn; several
  * pieces of everyday news waiting together are shown as one list, so they never stack up.
+ *
+ * News with nothing to decide (a building finished, a milestone, a wedding) is not a card at all:
+ * it passes by in the notice banner at the top and goes by itself, and news arriving together
+ * shares one banner (see newsOnly and combineNotices).
  */
 import { artFor, artSrc, type ArtKey } from './eventArt';
+import { combineNotices, type Notice } from './NoticeBanner';
 import { AZ_CORNERS, AZ_LEAVES } from './aztecKit';
 
 export type DialogIcon = 'tick' | 'star' | 'warn' | 'ask' | 'info' | 'home';
@@ -41,6 +46,35 @@ export interface DialogItem {
    * kind, `label` the button, and `run` turns them off.
    */
   optOut?: { key: string; label: string; run: () => void };
+  /** Seconds of play this session before it may show, and never straight after another pop-up (the daily chest). */
+  minPlay?: number;
+}
+
+/**
+ * News with nothing to decide: no picture-book page (html), no danger, not a reward to collect,
+ * and no button that does anything (news may keep one, "Show me", which becomes a tap on the banner).
+ */
+export function newsOnly(d: DialogItem): boolean {
+  if (d.always || d.html || d.icon === 'warn' || d.minPlay) return false;
+  const acts = d.actions ?? [];
+  const doing = acts.filter((a) => a.run).length;
+  return d.news ? doing <= 1 : doing === 0 && acts.length <= 1;
+}
+
+/** Long first lines are moved down into the line, under the kicker as the heading. */
+const TITLE_MAX = 26;
+
+/** The banner for a piece of news. */
+export function toNotice(d: DialogItem): Notice {
+  const short = d.body?.match(/^(.+?) (?:constructed successfully|built|upgraded)$/)?.[1] ?? d.body?.match(/^([^:]{2,24}): /)?.[1];
+  const long = d.title.length > TITLE_MAX && !!d.kicker;
+  const go = d.actions?.find((a) => a.run)?.run;
+  return {
+    title: long ? d.kicker! : d.title,
+    line: long ? [d.title + (/[.!?…]$/.test(d.title) ? '' : '.'), d.body].filter(Boolean).join(' ') : d.body ?? '',
+    benefit: d.benefit, image: d.image, icon: d.icon === 'star' ? 'star' : 'tick', important: d.important,
+    kicker: long ? undefined : d.kicker, onClick: go, group: d.title, short: short ?? d.title,
+  };
 }
 
 /** Which pop-ups the player wants: all of them, only the important ones, or none. */
@@ -57,6 +91,8 @@ const ICONS: Record<DialogIcon, string> = {
 
 /** Everyday news gathers for at least this long between pop-ups. */
 const NEWS_GAP_MS = 40_000;
+/** A pop-up that waits for play (the daily chest) also leaves this long after the last one closed. */
+const CALM_MS = 4_000;
 
 /** A small picture on the secondary buttons that take you somewhere or look at something. */
 const PIN = '<svg class="gd-bi" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5c-3.9 0-7 3-7 6.9 0 5 7 12.1 7 12.1s7-7.1 7-12.1c0-3.9-3.1-6.9-7-6.9z" fill="#f2c14e" stroke="#7a4c10" stroke-width="1.4"/><circle cx="12" cy="9.4" r="2.6" fill="#3a2410"/></svg>';
@@ -72,7 +108,18 @@ export class GameDialog {
   private open: DialogItem | null = null;
   /** When news was last shown (ms): everyday news waits a while between pop-ups, gathering up. */
   private lastNews = -Infinity;
-  /** Whether a pop-up may appear now (not mid-drag, not while placing, not in Photo Mode). */
+  /** News waiting for the banner, gathered so that what arrives together shows together. */
+  private notices: Notice[] = [];
+  /** Time played this session (ms), and when the last pop-up closed. */
+  private played = 0;
+  private lastTick = -1;
+  private lastClosed = -Infinity;
+  /** Where news goes instead of a card; without one, news is a card as before. */
+  banner: { push(n: Notice): void; readonly pending: number } | null = null;
+  /** Whether the banner may show now (not in Photo Mode, not with the interface hidden). */
+  canBanner: () => boolean = () => true;
+  /** Whether the island is being played (counts towards `minPlay`). */
+  playing: () => boolean = () => true;  /** Whether a pop-up may appear now (not mid-drag, not while placing, not in Photo Mode). */
   canShow: () => boolean = () => true;
   /** The player's choice in Settings (see PopupMode). */
   mode: () => PopupMode = () => 'all';
@@ -96,13 +143,25 @@ export class GameDialog {
     if (!item.always && (mode === 'off' || (mode === 'important' && !item.important))) return;
     // The same thing said twice while waiting (a repeated warning) only shows once.
     if (this.queue.some((q) => q.title === item.title && q.body === item.body) || (this.open?.title === item.title && this.open?.body === item.body)) return;
+    if (this.banner && newsOnly(item)) {
+      const n = toNotice(item);
+      if (!this.notices.some((q) => q.title === n.title && q.line === n.line)) this.notices.push(n);
+      return;
+    }
     this.queue.push(item);
     this.next();
   }
 
-  /** Called every frame or so: show the next pop-up once the player is free. */
+  /** Called every frame or so: show the next pop-up once the player is free, and pass news to the banner. */
   tick(): void {
+    const now = performance.now();
+    if (this.lastTick >= 0 && this.playing()) this.played += Math.min(now - this.lastTick, 250);
+    this.lastTick = now;
     if (!this.open && this.queue.length) this.next();
+    // News gathers while a banner is showing, then goes up together in the next one.
+    if (this.notices.length && this.banner && !this.banner.pending && this.canBanner()) {
+      for (const n of combineNotices(this.notices.splice(0))) this.banner.push(n);
+    }
   }
 
   /** Drop waiting pop-ups that match (a request granted before it was shown, say). */
@@ -110,16 +169,24 @@ export class GameDialog {
     this.queue = this.queue.filter((d) => !match(d));
   }
 
+  /** May this pop-up show yet? One that waits for play waits, and gives the player a moment after the last. */
+  private ready(d: DialogItem): boolean {
+    return !d.minPlay || (this.played >= d.minPlay * 1000 && performance.now() - this.lastClosed >= CALM_MS);
+  }
+
   private next(): void {
     if (this.open || !this.queue.length || !this.canShow()) return;
     // Important pop-ups first, in order; then all the waiting news together.
-    const first = this.queue.findIndex((d) => !d.news);
+    // Those waiting for play (the daily chest) go after everything else that is ready.
+    let first = this.queue.findIndex((d) => !d.news && !d.minPlay);
+    if (first < 0) first = this.queue.findIndex((d) => !d.news && this.ready(d));
     let item: DialogItem;
     if (first >= 0) item = this.queue.splice(first, 1)[0];
     else {
-      if (performance.now() - this.lastNews < NEWS_GAP_MS) return;
+      if (!this.queue.some((d) => d.news) || performance.now() - this.lastNews < NEWS_GAP_MS) return;
       this.lastNews = performance.now();
-      const news = this.queue.splice(0);
+      const news = this.queue.filter((d) => d.news);
+      this.queue = this.queue.filter((d) => !d.news);
       item = news.length === 1 ? news[0] : {
         icon: 'info', kicker: 'Village news', title: `${news.length} things happened`, html: true,
         body: `<ul class="gd-news">${news.map((n) => `<li>${ICONS[n.icon]}<span><b>${esc(n.title)}</b>${n.body && !n.html ? `<br>${esc(n.body)}` : ''}</span></li>`).join('')}</ul>`,
@@ -177,6 +244,7 @@ export class GameDialog {
 
   private close(): void {
     this.open = null;
+    this.lastClosed = performance.now();
     this.el.classList.remove('gd-in');
     this.el.classList.add('gd-out');
     setTimeout(() => {

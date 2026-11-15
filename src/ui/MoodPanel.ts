@@ -60,7 +60,8 @@ export class MoodPanel {
   sync(): void {
     const g = this.game, m = this.read();
     const open = !this.panel.classList.contains('hidden');
-    const key = `${m.score}|${JSON.stringify(m.counts)}|${open}|${g.buildings.list.length}|${g.time.day}`;
+    const dv = g.devotion;
+    const key = `${m.score}|${JSON.stringify(m.counts)}|${open}|${g.buildings.list.length}|${g.time.day}|${Math.round(dv.value * 20)}`;
     if (key === this.key) return;
     this.key = key;
     this.button.innerHTML = `<span class="az-ico" aria-hidden="true">${face(m.score)}</span><span class="az-lbl"><span class="az-pre">Mood · </span>${m.total ? `${m.score}% ${m.label}` : '—'}</span><span class="inventory-chevron" aria-hidden="true">⌄</span>`;
@@ -73,8 +74,22 @@ export class MoodPanel {
       <div class="mood-score"><b>${m.score}%</b> ${m.label}</div>
       <div class="nb ${m.score >= 60 ? 'good' : m.score < 40 ? 'low' : ''}"><div style="width:${m.score}%"></div></div>
       <p class="muted small">Happy islanders bring Belief. The badges over their heads show who needs something.</p>
+      ${this.devotionHtml()}
       ${rows ? `<ul class="mood-list">${rows}</ul>` : '<p class="small">Nobody needs anything right now.</p>'}
       ${tips.length ? `<h3>To lift spirits</h3><ul class="mood-tips">${tips.map((t) => `<li>${t}</li>`).join('')}</ul>` : ''}`;
+  }
+
+  /** Fear or love: a meter from Feared to Loved, where the village stands, and what it means. */
+  private devotionHtml(): string {
+    const d = this.game.devotion, pct = Math.round(Math.abs(d.value) * 100);
+    const what = d.fear > 0.05
+      ? `They work ${Math.round((d.pace - 1) * 100)}% faster, but are less happy.`
+      : d.love > 0.05 ? `They are happier, and bring ${Math.round((d.belief - 1) * 100)}% more Belief.` : 'Neither afraid of you nor devoted.';
+    const fill = d.value < 0 ? `right:50%;width:${pct / 2}%` : `left:50%;width:${pct / 2}%`;
+    return `<h3>How they see you: ${d.label}</h3>
+      <div class="devotion-meter ${d.value < 0 ? 'fear' : 'love'}" role="meter" aria-label="Fear or love" aria-valuemin="-100" aria-valuemax="100" aria-valuenow="${Math.round(d.value * 100)}"><i style="${fill}"></i><b></b></div>
+      <div class="devotion-ends"><span>Feared</span><span>Loved</span></div>
+      <p class="muted small">${what} Smiting and throwing islanders makes them afraid; blessings, rain, calming storms, granted wishes and nights with the ancestors win their love. Either fades slowly.</p>`;
   }
 
   private facts(m: IslandMood) {

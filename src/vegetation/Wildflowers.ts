@@ -7,8 +7,9 @@ import { RNG } from '../world/rng';
 import { Simplex2 } from '../world/noise';
 import { World } from '../world/World';
 import { groundSeason } from '../terrain/groundFx';
-import { leafGeometry } from './detail';
+import { addLeaf, curvedLeaf, leafGeometry, leafMatrix } from './detail';
 import { fernGeometry } from './models';
+import { flowerHead, LEAF, LEAF_LIGHT, STEM } from './flowerParts';
 
 /** Tuning for the wildflowers. */
 export const WILDFLOWERS = {
@@ -42,33 +43,28 @@ const PETAL: Record<string, [number, number]> = {
   orange: [0xe8701a, 0xffa13d], purple: [0x8e44c9, 0xb877e6], pink: [0xe0629e, 0xf59ac4],
   white: [0xeee9df, 0xffffff], blue: [0x3f6fd6, 0x7fa4f0],
 };
-export const LEAF = new THREE.Color(0x3f7a31), LEAF_LIGHT = new THREE.Color(0x6aa33f), STEM = new THREE.Color(0x4a7a2c);
+export { flowerHead, LEAF, LEAF_LIGHT, STEM };
 
-/** A flower head: petals radiating round a small centre, facing up and a little outward. */
-export function flowerHead(b: GeoBuilder, at: THREE.Vector3, size: number, c0: THREE.Color, c1: THREE.Color, rng: RNG, petals = 5, cup = 0.5): void {
-  const q = new THREE.Quaternion(), q2 = new THREE.Quaternion(), ax = new THREE.Vector3(), z = new THREE.Vector3(0, 0, 1);
-  const tilt = rng.range(0, Math.PI * 2);
-  for (let k = 0; k < petals; k++) {
-    const a = tilt + (k / petals) * Math.PI * 2;
-    ax.set(Math.cos(a), cup, Math.sin(a)).normalize();
-    q.setFromUnitVectors(z, ax);
-    q2.setFromAxisAngle(ax, rng.range(-0.3, 0.3));
-    const col = c0.clone().lerp(c1, rng.next());
-    b.add(leafGeometry(size, size * 0.5, 0.2), { color: col, leaf: 1, sway: 0.6 }, new THREE.Matrix4().compose(at, q2.multiply(q), new THREE.Vector3(1, 1, 1)));
+/** A low rosette of leaves round the base: each arches over, darker at the stalk and lighter along its midrib. */
+function rosette(b: GeoBuilder, n: number, len: number, rng: RNG, up = 0.35, wide = 0.33): void {
+  const a0 = rng.range(0, Math.PI * 2);
+  for (let k = 0; k < n; k++) {
+    const a = a0 + (k / n) * Math.PI * 2 + rng.range(-0.3, 0.3);
+    const l = len * rng.range(0.75, 1.25), w = l * wide;
+    const tone = LEAF.clone().lerp(LEAF_LIGHT, rng.next() * 0.7), dark = tone.clone().multiplyScalar(0.7);
+    const m = leafMatrix(new THREE.Vector3(0, 0.01, 0), a, Math.atan(up + rng.range(-0.1, 0.2)) + 0.2, rng.range(-0.25, 0.25));
+    addLeaf(b, curvedLeaf(l, w, 0.4, 0.35, 2, 0.45, true), m, l, w, (t, e, top) => (top ? dark.clone().lerp(tone, Math.min(1, t * 2)).lerp(LEAF_LIGHT, (1 - e) * 0.35) : dark), 0.3);
   }
-  b.add(new THREE.OctahedronGeometry(size * 0.28, 0), { color: 0xf6d34a, sway: 0.6 }, M.t(at.x, at.y + size * 0.1, at.z));
 }
 
-/** A low rosette of leaves round the base. */
-function rosette(b: GeoBuilder, n: number, len: number, rng: RNG, up = 0.35): void {
-  const q = new THREE.Quaternion(), ax = new THREE.Vector3(), z = new THREE.Vector3(0, 0, 1);
-  for (let k = 0; k < n; k++) {
-    const a = (k / n) * Math.PI * 2 + rng.range(-0.3, 0.3);
-    ax.set(Math.cos(a), up + rng.range(-0.1, 0.15), Math.sin(a)).normalize();
-    q.setFromUnitVectors(z, ax);
-    const l = len * rng.range(0.8, 1.2);
-    b.add(leafGeometry(l, l * 0.32, 0.35), { color: LEAF.clone().lerp(LEAF_LIGHT, rng.next() * 0.7), leaf: 1, sway: 0.3 }, new THREE.Matrix4().compose(new THREE.Vector3(0, 0.01, 0), q, new THREE.Vector3(1, 1, 1)));
-  }
+/** A flower's stalk from `foot` up to `top`, bowing out a little, with a small leaf part-way up it. */
+function stalk(b: GeoBuilder, foot: THREE.Vector3, top: THREE.Vector3, rng: RNG): void {
+  const midway = foot.clone().lerp(top, 0.55);
+  midway.x = foot.x + (top.x - foot.x) * 0.3;
+  midway.z = foot.z + (top.z - foot.z) * 0.3;
+  b.add(tube([foot, midway, top], () => 0.005, 3, 2), { color: STEM, sway: (p) => p.y * 2.5 });
+  const at = foot.clone().lerp(midway, rng.range(0.55, 0.9));
+  b.add(leafGeometry(rng.range(0.035, 0.05), 0.013, 0.35), { color: LEAF.clone().lerp(LEAF_LIGHT, rng.range(0.3, 0.9)), leaf: 1, sway: at.y * 2.5 }, leafMatrix(at, rng.range(0, Math.PI * 2), rng.range(0.5, 0.9)));
 }
 
 export function plantGeometry(kind: Kind, seed: number): THREE.BufferGeometry {
@@ -80,36 +76,42 @@ export function plantGeometry(kind: Kind, seed: number): THREE.BufferGeometry {
   }
   const b = new GeoBuilder();
   if (kind === 'tropical') {
-    // Small broad-leaved plant: big glossy arching leaves on short stalks.
-    const q = new THREE.Quaternion(), ax = new THREE.Vector3(), z = new THREE.Vector3(0, 0, 1);
-    const n = rng.int(5, 7);
-    for (let k = 0; k < n; k++) {
-      const a = (k / n) * Math.PI * 2 + rng.range(-0.3, 0.3);
-      ax.set(Math.cos(a), rng.range(0.5, 0.9), Math.sin(a)).normalize();
-      q.setFromUnitVectors(z, ax);
-      const l = rng.range(0.16, 0.24);
-      b.add(leafGeometry(l, l * 0.48, 0.3), { color: LEAF.clone().lerp(LEAF_LIGHT, rng.next()), leaf: 1, sway: 0.45 }, new THREE.Matrix4().compose(new THREE.Vector3(0, 0.02, 0), q, new THREE.Vector3(1, 1, 1)));
+    // Small broad-leaved plant: big glossy leaves arching out on short stalks, pale down the midrib
+    // and deep green at the edge, round a young leaf still standing in the middle.
+    const n = rng.int(4, 5), a0 = rng.range(0, Math.PI * 2);
+    const deep = new THREE.Color(0x2b6230), young = new THREE.Color(0x9acb4e);
+    for (let k = 0; k <= n; k++) {
+      const inner = k === n;
+      const a = a0 + (k / n) * Math.PI * 2 + rng.range(-0.3, 0.3);
+      const l = inner ? rng.range(0.11, 0.14) : rng.range(0.17, 0.24), w = l * (inner ? 0.28 : 0.4);
+      const edge = inner ? LEAF_LIGHT.clone().lerp(young, 0.5) : deep.clone().lerp(LEAF, rng.next()), rib = edge.clone().lerp(inner ? young : new THREE.Color(0x86bb48), 0.65);
+      const m = leafMatrix(new THREE.Vector3(0, 0.015, 0), a, inner ? 1.3 : rng.range(0.8, 1.05), rng.range(-0.3, 0.3));
+      addLeaf(b, curvedLeaf(l, w, inner ? 0.15 : rng.range(0.5, 0.7), 0.4, 2, 0.56, true), m, l, w, (t, e, top) => (top ? rib.clone().lerp(edge, e * (0.6 + 0.4 * t)) : edge.clone().multiplyScalar(0.82)), 0.45);
     }
     return b.build();
   }
   const [h0, h1] = PETAL[kind];
   const c0 = new THREE.Color(h0), c1 = new THREE.Color(h1);
   if (kind === 'orchid') {
-    // Red orchid: two broad leaves and an arching spray of blooms.
-    rosette(b, 3, 0.13, rng, 0.2);
+    // Red orchid: broad strap leaves and an arching spray of blooms, the last of it still in bud.
+    rosette(b, 3, 0.14, rng, 0.2, 0.3);
     const pts = [new THREE.Vector3(0, 0, 0), new THREE.Vector3(0.02, 0.12, 0.01), new THREE.Vector3(0.07, 0.2, 0.03), new THREE.Vector3(0.13, 0.22, 0.05)];
     b.add(tube(pts, () => 0.005, 3, 3), { color: STEM, sway: (p) => p.y * 2.5 });
     const curve = new THREE.CatmullRomCurve3(pts);
-    for (let k = 0; k < 4; k++) flowerHead(b, curve.getPoint(0.45 + k * 0.17), 0.035, c0, c1, rng, 5, 0.1);
+    for (let k = 0; k < 4; k++) flowerHead(b, curve.getPoint(0.42 + k * 0.15), 0.037 - k * 0.002, c0, c1, rng, 5, 0.1);
+    for (let k = 0; k < 2; k++) {
+      const at = curve.getPoint(0.95 + k * 0.05);
+      b.add(new THREE.OctahedronGeometry(0.011 - k * 0.003, 0), { color: c0.clone().multiplyScalar(0.85), leaf: 1, sway: 0.6 }, M.t(at.x + k * 0.012, at.y - k * 0.006, at.z + k * 0.004, 0, 0, 0, 1, 1.5, 1));
+    }
     return b.build();
   }
-  // Plain flower clump: leaves and two to four blooms on stems.
+  // Plain flower clump: leaves and two or three blooms on stalks of different heights.
   rosette(b, rng.int(4, 6), 0.1, rng);
   const n = rng.int(2, 3);
   for (let k = 0; k < n; k++) {
     const a = rng.range(0, Math.PI * 2), r = rng.range(0, 0.05);
     const top = new THREE.Vector3(Math.cos(a) * r * 2, rng.range(0.1, 0.18), Math.sin(a) * r * 2);
-    b.add(tube([new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r), top.clone().multiply(new THREE.Vector3(0.7, 0.55, 0.7)), top], () => 0.005, 3, 2), { color: STEM, sway: (p) => p.y * 2.5 });
+    stalk(b, new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r), top, rng);
     flowerHead(b, top, rng.range(0.035, 0.05), c0, c1, rng, kind === 'purple' ? 6 : 5);
   }
   return b.build();

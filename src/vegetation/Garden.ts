@@ -1,12 +1,12 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { GeoBuilder, M, P, tube } from '../render/GeoBuilder';
+import { GeoBuilder, tube } from '../render/GeoBuilder';
 import { stylisedMaterial } from '../render/materials';
 import { followerShadows } from '../render/SoftShadows';
 import { Particles } from '../render/Particles';
 import { RNG } from '../world/rng';
 import { World } from '../world/World';
-import { leafGeometry } from './detail';
+import { addLeaf, curvedLeaf, leafGeometry, leafMatrix } from './detail';
 import { bushGeometry, fernGeometry } from './models';
 import { Kind, LEAF, STEM, flowerHead, plantGeometry } from './Wildflowers';
 import { springPop } from './pop';
@@ -55,83 +55,153 @@ interface Variant {
   r: number;
 }
 
-/** A flowering shrub: a small bush studded with big blooms of one colour. */
-function bloomBush(seed: number, c0: number, c1: number, petals: number, size: number): THREE.BufferGeometry {
+/**
+ * A flowering shrub: a small bush with blooms of one colour sitting on its leaves, `n` sprays of
+ * `cluster` blooms each (single big flowers for a hibiscus, hanging bunches for a bougainvillea).
+ */
+function bloomBush(seed: number, c0: number, c1: number, petals: number, size: number, n = 12, cluster = 1, cup = 0.35): THREE.BufferGeometry {
   const rng = new RNG(seed);
   const bush = bushGeometry(false, false, seed);
   const b = new GeoBuilder();
   const col0 = new THREE.Color(c0), col1 = new THREE.Color(c1);
-  for (let k = 0; k < 16; k++) {
-    const th = rng.range(0, Math.PI * 2), ph = rng.range(0.15, 1.25);
-    const r = 0.52;
-    flowerHead(b, new THREE.Vector3(Math.cos(th) * Math.sin(ph) * r, 0.42 + Math.cos(ph) * r * 0.78, Math.sin(th) * Math.sin(ph) * r), size * rng.range(0.85, 1.15), col0, col1, rng, petals, 0.35);
+  // How far the leaves reach from the bush's middle in a direction: blooms sit on the foliage there.
+  const P3 = bush.getAttribute('position'), mid = new THREE.Vector3(0, 0.4, 0), v = new THREE.Vector3(), dir = new THREE.Vector3();
+  const reach = (d: THREE.Vector3) => {
+    let best = 0.3;
+    for (let i = 0; i < P3.count; i++) {
+      v.fromBufferAttribute(P3, i).sub(mid);
+      const along = v.dot(d);
+      if (along > best && v.lengthSq() - along * along < 0.012) best = along;
+    }
+    return best;
+  };
+  for (let k = 0; k < n; k++) {
+    const th = rng.range(0, Math.PI * 2), ph = rng.range(0.1, 1.3);
+    for (let j = 0; j < cluster; j++) {
+      // The rest of a bunch hangs just below and beside its first bloom.
+      const t2 = th + (j ? rng.range(-0.28, 0.28) : 0), p2 = ph + (j ? rng.range(0.05, 0.3) : 0);
+      dir.set(Math.cos(t2) * Math.sin(p2), Math.cos(p2), Math.sin(t2) * Math.sin(p2));
+      const r = reach(dir) - size * 0.35;
+      flowerHead(b, new THREE.Vector3(dir.x * r, mid.y + dir.y * r, dir.z * r), size * rng.range(0.85, 1.15) * (j ? 0.85 : 1), col0, col1, rng, petals, cup);
+    }
   }
   const g = mergeGeometries([bush, b.build()])!;
   bush.dispose();
   return g;
 }
 
-/** An agave: a stiff rosette of thick, pointed blue-green leaves. */
+/**
+ * An agave: a spiral rosette of thick, pointed leaves, the outer ones splayed low and the young
+ * ones standing in the heart, blue-green with pale edges and a dark spine at each tip (every other
+ * shape is the striped kind, edged in cream).
+ */
 function agave(seed: number): THREE.BufferGeometry {
   const rng = new RNG(seed);
   const b = new GeoBuilder();
-  const c0 = new THREE.Color(0x5f8f80), c1 = new THREE.Color(0x8fb8a4);
-  for (let ring = 0; ring < 3; ring++) {
-    const n = 7 - ring;
-    for (let k = 0; k < n; k++) {
-      const a = (k / n) * Math.PI * 2 + ring * 0.45 + rng.range(-0.15, 0.15);
-      const tilt = 0.35 + ring * 0.38 + rng.range(-0.08, 0.08);
-      const len = (0.34 - ring * 0.07) * rng.range(0.9, 1.1);
-      // A flattened cone, its tip outward and up.
-      const m = new THREE.Matrix4().makeRotationY(-a).multiply(new THREE.Matrix4().makeRotationZ(-tilt)).multiply(M.t(0, len / 2, 0, 0, 0, 0, 1, 1, 0.35));
-      b.add(P.cone(0.045, len, 4), { color: c0.clone().lerp(c1, rng.next()), sway: 0.05 }, m);
-    }
+  const striped = seed % 2 === 0;
+  const heart = new THREE.Color(0x52857a), body = new THREE.Color(striped ? 0x659c7e : 0x74a898), pale = new THREE.Color(striped ? 0xdcd890 : 0xa6ccb6);
+  const under = new THREE.Color(0x4c7a70), spine = new THREE.Color(0x6a4636);
+  const n = 22;
+  for (let k = 0; k < n; k++) {
+    // Oldest leaves first: low, wide and all round; each younger one stands a little straighter.
+    const u = k / (n - 1);
+    const a = k * 2.39996 + rng.range(-0.2, 0.2);
+    const elev = 0.28 + 1.1 * Math.pow(u, 0.8) + rng.range(-0.06, 0.06);
+    const len = (0.195 + 0.13 * u) * rng.range(0.92, 1.08), w = len * (0.2 - 0.05 * u), thick = w * 0.55;
+    const tone = rng.range(-0.12, 0.12);
+    const m = leafMatrix(new THREE.Vector3(Math.cos(a) * 0.012, 0.005, Math.sin(a) * 0.012), a, elev, rng.range(-0.12, 0.12));
+    addLeaf(b, agaveLeaf(len, w, thick, 0.1 * (1 - u)), m, len, w, (t, edge, top) => {
+      const c = top ? heart.clone().lerp(body, Math.min(1, t * 2.4)).lerp(pale, edge * 0.85) : under.clone().lerp(body, edge * 0.5);
+      return c.lerp(spine, t > 0.9 ? 0.55 : 0).offsetHSL(0, 0, tone * 0.25);
+    }, 0.05, 0);
   }
   return b.build();
 }
 
-/** Ornamental grass: a fountain of fine arching blades with a few pale feathery plumes. */
+/** One agave leaf along +z: a shallow channel on top, a keel underneath, curling up to its point (6 triangles). */
+function agaveLeaf(len: number, w: number, thick: number, curl: number): THREE.BufferGeometry {
+  const z1 = len * 0.36;
+  const B = [0, 0, 0], T = [0, curl * len, len], L = [-w, w * 0.35, z1], R = [w, w * 0.35, z1], K = [0, -thick, z1 * 0.9];
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute([B, L, T, B, T, R, B, K, L, L, K, T, B, R, K, K, R, T].flat(), 3));
+  g.computeVertexNormals();
+  return g;
+}
+
+/**
+ * Ornamental grass: a fountain of fine blades arching over from a tight foot, green at the base and
+ * straw-gold at the tips, with pale feathery plumes nodding above it on thin stalks.
+ */
 function grassClump(seed: number): THREE.BufferGeometry {
   const rng = new RNG(seed);
   const b = new GeoBuilder();
-  const q = new THREE.Quaternion(), ax = new THREE.Vector3(), z = new THREE.Vector3(0, 0, 1);
-  const g0 = new THREE.Color(0x7c9a3c), g1 = new THREE.Color(0xb8b860);
-  for (let k = 0; k < 26; k++) {
-    const a = rng.range(0, Math.PI * 2);
-    ax.set(Math.cos(a) * rng.range(0.15, 0.6), 1, Math.sin(a) * rng.range(0.15, 0.6)).normalize();
-    q.setFromUnitVectors(z, ax);
-    const l = rng.range(0.22, 0.36);
-    b.add(leafGeometry(l, 0.012, 0.6), { color: g0.clone().lerp(g1, rng.next()), leaf: 1, sway: (p) => 0.4 + p.y * 2 }, new THREE.Matrix4().compose(new THREE.Vector3(0, 0, 0), q, new THREE.Vector3(1, 1, 1)));
+  const golden = seed % 2 === 0;
+  const g0 = new THREE.Color(golden ? 0x7f9438 : 0x6f9a3c), g1 = new THREE.Color(golden ? 0xd2bf62 : 0xb9bd5e);
+  const blades = 30;
+  for (let k = 0; k < blades; k++) {
+    // Inner blades stand tall, outer ones arch right over.
+    const u = (k + 0.5) / blades;
+    const a = k * 2.39996 + rng.range(-0.4, 0.4);
+    const elev = 1.47 - 0.27 * u + rng.range(-0.06, 0.06);
+    const len = rng.range(0.29, 0.4) * (1 - 0.25 * u);
+    const tone = rng.next();
+    const m = leafMatrix(new THREE.Vector3(Math.cos(a) * 0.025 * u, 0, Math.sin(a) * 0.025 * u), a, elev, rng.range(-0.5, 0.5));
+    b.add(curvedLeaf(len, 0.013, 0.12 + 0.3 * u + rng.range(0, 0.1), 0.6, 2, 0.35), {
+      color: (p) => g0.clone().lerp(g1, THREE.MathUtils.clamp(p.y * 2.6 - 0.15 + tone * 0.35, 0, 1)),
+      leaf: 1,
+      sway: (p) => 0.4 + p.y * 2,
+    }, m);
   }
-  for (let k = 0; k < 4; k++) {
-    const a = rng.range(0, Math.PI * 2), r = rng.range(0.02, 0.07);
-    const top = new THREE.Vector3(Math.cos(a) * r * 2, rng.range(0.36, 0.46), Math.sin(a) * r * 2);
-    b.add(tube([new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r), top], () => 0.004, 3, 2), { color: new THREE.Color(0xa8a060), sway: (p) => p.y * 2.5 });
-    // A soft, nodding plume: a few downy tufts along the tip.
-    const lean = Math.atan2(top.x, top.z);
-    for (let j = 0; j < 3; j++) {
-      const y = top.y + 0.015 + j * 0.035;
-      b.add(P.sphere(0.022 - j * 0.004, 1), { color: new THREE.Color(0xe9d29a).lerp(new THREE.Color(0xd8b48c), j / 3), sway: 1 }, M.t(top.x + Math.sin(lean) * j * 0.012, y, top.z + Math.cos(lean) * j * 0.012, 0, 0, 0, 0.9, 2.2, 0.9));
+  const plume0 = new THREE.Color(0xf0dca6), plume1 = new THREE.Color(0xd9b98c);
+  const plumes = golden ? 6 : 5;
+  for (let k = 0; k < plumes; k++) {
+    const a = (k / plumes) * Math.PI * 2 + rng.range(-0.5, 0.5), r = rng.range(0.01, 0.03);
+    const h = rng.range(0.36, 0.46), lean = rng.range(0.03, 0.09);
+    const foot = new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r);
+    const top = new THREE.Vector3(Math.cos(a) * (r + lean), h, Math.sin(a) * (r + lean));
+    b.add(tube([foot, foot.clone().lerp(top, 0.5).setY(h * 0.55), top], () => 0.004, 3, 2), { color: new THREE.Color(0xa8a060), sway: (p) => p.y * 2.5 });
+    // The plume: two crossed feathers nodding outward, with barbs breaking from their sides.
+    const elev = 1.2 - lean * 4;
+    const shade = plume0.clone().lerp(plume1, rng.next());
+    for (let j = 0; j < 2; j++) b.add(leafGeometry(0.12, 0.017, 0.5), { color: shade, sway: 1 }, leafMatrix(top, a, elev, j * Math.PI / 2));
+    for (let j = 0; j < 4; j++) {
+      const at = top.clone().add(new THREE.Vector3(Math.cos(a) * Math.cos(elev), Math.sin(elev), Math.sin(a) * Math.cos(elev)).multiplyScalar(0.012 + j * 0.02));
+      b.add(leafGeometry(0.06 - j * 0.008, 0.011, 0.5), { color: shade.clone().lerp(plume0, 0.5), sway: 1 }, leafMatrix(at, a + (j % 2 ? 1.9 : -1.9) + j * 0.8, elev - 0.55, j));
     }
   }
   return b.build();
 }
 
-/** Croton: glossy leaves splashed red, orange, yellow and green. */
+/**
+ * Croton: a few leaning stems thick with broad glossy leaves, each stem's old leaves at the foot
+ * deep red and maroon, turning orange and then green toward the young leaves standing at its tip,
+ * every leaf splashed with yellow toward its edge.
+ */
 function croton(seed: number): THREE.BufferGeometry {
   const rng = new RNG(seed);
   const b = new GeoBuilder();
-  const q = new THREE.Quaternion(), ax = new THREE.Vector3(), z = new THREE.Vector3(0, 0, 1);
-  const cols = [0xc23b22, 0xe0782a, 0xe8c23a, 0x4f7a2a, 0x8a2a2a].map((h) => new THREE.Color(h));
-  for (let k = 0; k < 24; k++) {
-    const a = (k / 24) * Math.PI * 2 * 3.3 + rng.range(-0.3, 0.3);
-    const h = 0.03 + (k / 24) * 0.16 + rng.range(-0.02, 0.02);
-    ax.set(Math.cos(a), rng.range(0.2, 0.8) + h * 2, Math.sin(a)).normalize();
-    q.setFromUnitVectors(z, ax);
-    const l = rng.range(0.08, 0.12) * (1.15 - h * 2);
-    b.add(leafGeometry(l, l * 0.3, 0.3), { color: rng.pick(cols).clone().lerp(LEAF, rng.next() * 0.25), leaf: 1, sway: 0.35 }, new THREE.Matrix4().compose(new THREE.Vector3(0, h, 0), q, new THREE.Vector3(1, 1, 1)));
+  const old = [0x7e2428, 0xb0301f, 0x8f2a36].map((h) => new THREE.Color(h));
+  const mid = [0xd2602a, 0xb8341f, 0x47762a, 0xc8842a].map((h) => new THREE.Color(h));
+  const young = [0x47762a, 0x5c8f2e, 0x86a834].map((h) => new THREE.Color(h));
+  const splash = new THREE.Color(0xf2cf45);
+  const stems = 3, a0 = rng.range(0, Math.PI * 2);
+  for (let st = 0; st < stems; st++) {
+    const sa = a0 + (st / stems) * Math.PI * 2 + rng.range(-0.3, 0.3);
+    const H = st === 0 ? 0.17 : rng.range(0.11, 0.15), out = st === 0 ? 0.01 : rng.range(0.03, 0.045);
+    const top = new THREE.Vector3(Math.cos(sa) * out, H, Math.sin(sa) * out);
+    b.add(tube([new THREE.Vector3(0, 0, 0), top], (t) => 0.008 * (1 - 0.4 * t), 3, 1), { color: STEM });
+    const n = st === 0 ? 8 : 7, turn = rng.range(0, Math.PI * 2);
+    for (let k = 0; k < n; k++) {
+      const u = k / (n - 1);
+      const at = top.clone().multiplyScalar(0.3 + 0.7 * u);
+      const len = (0.092 - 0.024 * u) * rng.range(0.88, 1.1), w = len * 0.4;
+      const main = rng.pick(u < 0.3 ? old : u < 0.7 ? mid : young).clone().lerp(LEAF, rng.next() * 0.15);
+      const edge = main.clone().lerp(splash, rng.range(0.15, 0.3 + 0.5 * u));
+      // Old leaves hang level, young ones stand up round the tip.
+      const m = leafMatrix(at, turn + k * 2.39996 + rng.range(-0.25, 0.25), 0.05 + 1.05 * u * u + rng.range(-0.1, 0.1), rng.range(-0.35, 0.35));
+      addLeaf(b, curvedLeaf(len, w, 0.4 - 0.3 * u, 0.3, 2, 0.45, true), m, len, w, (_t, e, up) => (up ? main.clone().lerp(edge, e) : main.clone().multiplyScalar(0.7)), 0.35);
+    }
   }
-  b.add(tube([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0.17, 0)], () => 0.008, 3, 2), { color: STEM });
   return b.build();
 }
 
@@ -155,10 +225,10 @@ export const VARIANTS: Variant[] = [
     [0, 1].map((n) => ({ brush: 'flowers' as const, group: k, geo: () => plantGeometry(k, 3100 + i * 11 + n), s: [1.5, 1.9] as [number, number], r: 0.1 })),
   ),
   ...[0, 1].map((n) => ({ brush: 'bushes' as const, group: 'green', geo: () => greenBush(61 + n * 2), s: [0.42, 0.62] as [number, number], r: 0.55 })),
-  ...[0, 1].map((n) => ({ brush: 'bushes' as const, group: 'hibiscus', geo: () => bloomBush(71 + n, 0xd8263a, 0xf0566a, 5, 0.09), s: [0.42, 0.6] as [number, number], r: 0.55 })),
-  ...[0, 1].map((n) => ({ brush: 'bushes' as const, group: 'bougainvillea', geo: () => bloomBush(81 + n, 0xc8327e, 0xf06ab4, 4, 0.08), s: [0.45, 0.62] as [number, number], r: 0.55 })),
-  { brush: 'bushes', group: 'allamanda', geo: () => bloomBush(91, 0xf2c21c, 0xffe57a, 5, 0.085), s: [0.42, 0.58], r: 0.55 },
-  { brush: 'bushes', group: 'gardenia', geo: () => bloomBush(95, 0xf2eee4, 0xffffff, 6, 0.08), s: [0.42, 0.58], r: 0.55 },
+  ...[0, 1].map((n) => ({ brush: 'bushes' as const, group: 'hibiscus', geo: () => bloomBush(71 + n, 0xd8263a, 0xf0566a, 5, 0.13, 9, 1, 0.3), s: [0.42, 0.6] as [number, number], r: 0.55 })),
+  ...[0, 1].map((n) => ({ brush: 'bushes' as const, group: 'bougainvillea', geo: () => bloomBush(81 + n, 0xc8327e, 0xf06ab4, 4, 0.075, 8, 3, 0.45), s: [0.45, 0.62] as [number, number], r: 0.55 })),
+  { brush: 'bushes', group: 'allamanda', geo: () => bloomBush(91, 0xf2c21c, 0xffe57a, 5, 0.1, 13, 1, 0.8), s: [0.42, 0.58], r: 0.55 },
+  { brush: 'bushes', group: 'gardenia', geo: () => bloomBush(95, 0xf2eee4, 0xffffff, 6, 0.1, 11, 1, 0.4), s: [0.42, 0.58], r: 0.55 },
   ...[0, 1].map((n) => ({ brush: 'shrubs' as const, group: 'fern', geo: () => gardenFern(141 + n), s: [1.1, 1.45] as [number, number], r: 0.22 })),
   ...[0, 1].map((n) => ({ brush: 'shrubs' as const, group: 'tropical', geo: () => plantGeometry('tropical', 151 + n), s: [1.1, 1.4] as [number, number], r: 0.18 })),
   ...[0, 1].map((n) => ({ brush: 'shrubs' as const, group: 'croton', geo: () => croton(161 + n), s: [1.3, 1.6] as [number, number], r: 0.14 })),

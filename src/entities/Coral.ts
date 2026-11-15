@@ -8,6 +8,8 @@ import { angularRockGeometry } from '../render/rocks';
 import { RNG, hash2 } from '../world/rng';
 import { Simplex2 } from '../world/noise';
 import { habitatCreature, reefField } from './Seabed';
+import { StarfishCrawl } from './StarfishCrawl';
+import { FX } from '../render/materials';
 import { branchingCoral, coralBase, coralBaseGeometry, BASE_PALETTE, limb, LIT, SHADE, soup as triSoup, tableCoral } from './coralModels';
 import { AnemoneHost, Clownfish } from './Clownfish';
 import { ReefBubbles } from './ReefBubbles';
@@ -304,7 +306,9 @@ export class Coral {
       }
     }
     this.bubbles = new ReefBubbles(w, this.patches);
-    const mat = habitatMaterial(true),grassMat=habitatMaterial();
+    const mat = habitatMaterial(true),grassMat=habitatMaterial(),starMat=habitatMaterial(true,true);
+    // The starfish creep about on the sand, keeping out from under the reefs.
+    this.stars = new StarfishCrawl(w, (x, z) => this.patches.some((r) => Math.hypot(r.x - x, r.z - z) < r.r + 0.15), w.seed + 11);
     grassMat.side=THREE.DoubleSide;grassMat.forceSinglePass=true;
     // Split each kind into spatial chunks so reefs off screen are culled (one island-wide mesh
     // per kind would always be drawn).
@@ -319,12 +323,12 @@ export class Coral {
         if (!b) buckets.set(k, (b = []));
         b.push(it);
       }
-      for (const list of buckets.values()) this.addChunk(geos[kind], kind==='weed'?grassMat:mat, list,kind);
+      for (const list of buckets.values()) this.addChunk(geos[kind], kind==='weed'?grassMat:kind==='star'?starMat:mat, list,kind);
     }
     // The artist's starfish and anemone replace the stand-ins once they load. The anemone keeps
     // the stand-in's footprint and height, so the clownfish (sized off its top) still fit.
     const swap = (kind: CoralKind, m: THREE.BufferGeometry) => { for (const o of this.group.children) if (o.name === `habitat-${kind}`) (o as THREE.InstancedMesh).geometry = m; };
-    habitatCreature('starfish', geos.star).then((m) => swap('star', m)).catch(() => undefined);
+    habitatCreature('starfish', geos.star).then((m) => this.stars.setGeometry(m)).catch(() => undefined);
     habitatCreature('sea-anemone', geos.anemone, { fitHeight: true, sway: (p) => Math.max(0, p.y - 0.07) * 4 }).then((m) => swap('anemone', m)).catch(() => undefined);
   }
 
@@ -342,6 +346,7 @@ export class Coral {
       mesh.computeBoundingSphere();
       mesh.renderOrder=8;mesh.name=`habitat-${kind}`;
       this.group.add(mesh);
+      if (kind === 'star') this.stars.add(mesh);
       geo.computeBoundingBox();
       this.instances.add(mesh,list.map(it=>it.m.clone()),Math.max(.05,geo.boundingBox!.max.y),kind==='rock'?.4:.25,{lifts:list.map(it=>it.lift??0)});
     }
@@ -351,7 +356,9 @@ export class Coral {
   setPreset(preset:PresetName):void{habitatPreset(this.group,preset);this.range={low:24,medium:36,high:48,ultra:60}[preset];}
   private range=36;
   /** Hide patches beyond the fade-out distance from the camera. */
-  cull(cam:THREE.Vector3):void{this.instances.cull(cam,this.range);}
+  cull(cam:THREE.Vector3):void{this.instances.cull(cam,this.range);this.stars.update(FX.uTime.value);}
+  /** The starfish creeping round the reefs. */
+  stars!: StarfishCrawl;
   hotspots():ReefPatch[]{return [...this.patches,...this.grassPatches].filter(p=>habitatFit(this.world,p.x,p.z,.2)>0);}
 
   /** Grid cells covered by reefs (boats steer around them). */

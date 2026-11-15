@@ -1,3 +1,4 @@
+import { AZ_CORNERS, AZ_LEAVES } from './aztecKit';
 import { ICONS } from './icons';
 
 const switchRow = (key: string, label: string, note = '', inverted = false) => `<label class="settings-row settings-switch-row"><span>${label}${note ? `<small>${note}</small>` : ''}</span><input type="checkbox" role="switch" data-k="${key}"${inverted ? ' data-invert="true"' : ''}></label>`;
@@ -5,7 +6,7 @@ const action = (name: string, label: string, icon: string) => `<button type="but
 const slider = (key: string, label: string, max = 1) => `<label class="settings-slider"><span>${label}<output data-value="${key}"></output></span><input type="range" min="0" max="${max}" step="0.05" data-k="${key}"></label>`;
 
 export function settingsMarkup(): string {
-  return `<header class="settings-header"><span class="settings-ornament" aria-hidden="true">◇</span><h1 id="settings-title">Settings</h1><span class="settings-ornament" aria-hidden="true">◇</span><button type="button" class="settings-close" data-a="close" aria-label="Close settings">${ICONS.close}</button></header>
+  return `${AZ_CORNERS}<div class="gd-emblem settings-emblem" aria-hidden="true">${AZ_LEAVES}<span class="gd-medal">${ICONS.gear}</span></div><header class="settings-header"><span class="settings-ornament" aria-hidden="true">◇</span><h1 id="settings-title">Settings</h1><span class="settings-ornament" aria-hidden="true">◇</span><button type="button" class="settings-close" data-a="close" aria-label="Close settings">${ICONS.close}</button></header>
   <nav class="settings-tabs" role="tablist" aria-label="Settings categories">${['Game', 'Graphics', 'Sound'].map((name, i) => `<button type="button" role="tab" id="settings-tab-${name.toLowerCase()}" aria-controls="settings-${name.toLowerCase()}" aria-selected="${i === 0}" tabindex="${i === 0 ? 0 : -1}">${name}</button>`).join('')}</nav>
   <div class="settings-body">
     <section id="settings-game" role="tabpanel" aria-labelledby="settings-tab-game">
@@ -21,7 +22,7 @@ export function settingsMarkup(): string {
         <div class="settings-row testrow"><label for="settings-add-count">Add islanders</label><span class="settings-add"><input id="settings-add-count" type="number" inputmode="numeric" min="1" max="100" value="10" data-t="count" aria-label="How many islanders"><button type="button" class="settings-add-btn" data-t="add">Add</button></span></div>
         <p class="settings-note testrow">Testing tools are for play-testing only and are not in the released game.</p>
       </div>
-      <details class="settings-disclosure settings-new"><summary>Start a new island<span aria-hidden="true">›</span></summary><div class="settings-details"><p class="settings-note">Starting again replaces your current island. Copy it first to keep it.</p>${action('new', 'Normal game', 'o_new')}<div class="godrow hidden">${action('sandbox', 'Sandbox · unlimited resources', 'o_new')}</div></div></details>
+      <h2>New island</h2>${action('new', 'Start new island', 'o_new')}
       <input type="file" data-a="island-file" accept=".json,application/json" hidden>
     </section>
     <section id="settings-graphics" role="tabpanel" aria-labelledby="settings-tab-graphics" hidden>

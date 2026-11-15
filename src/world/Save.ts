@@ -53,6 +53,7 @@ export interface SaveData {
   passings?: unknown;
   lanterns?: { held: number };
   ancestors?: unknown;
+  devotion?: unknown;
   volcano?: VolcanoSave;
   fires?: StormFireSave;
   encounters?: EncounterSave;
@@ -218,6 +219,7 @@ export function serialize(g: Game): SaveData {
     ...(g.passings ? { passings: g.passings.save() } : {}),
     ...(g.lanternNight ? { lanterns: g.lanternNight.save() } : {}),
     ...(g.ancestors ? { ancestors: g.ancestors.save() } : {}),
+    ...(g.devotion ? { devotion: g.devotion.save() } : {}),
     ...(g.rareSales ? { rareSales: { day: g.rareSales.day, bought: { ...g.rareSales.bought } } } : {}),
     ...(g.volcano ? { volcano: g.volcano.save() } : {}),
     world: { layer: toB64(layerU), sandy: q8(w.sandy), forest: q8(w.forest), rocky: q8(w.rocky), wear: q8(w.wear), path: toB64(w.path), bridge: toB64(w.bridge), canal: toB64(w.canal) },
@@ -391,6 +393,7 @@ export function applyRest(g: Game, d: SaveData): void {
   if (!d.islanders.some((i) => i.spouse !== undefined) && g.colony.marryHousemates) g.colony.marryHousemates();
   g.lanternNight?.restore(d.lanterns);
   g.ancestors?.restore(d.ancestors);
+  g.devotion?.restore(d.devotion);
   if (g.research) {
     if (d.research) g.research.restore(d.research);
     else {

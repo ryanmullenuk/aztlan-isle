@@ -3,7 +3,7 @@
  * public/ui/notice-frame.webp, with text, an icon and a picture laid over its dark centre). It
  * slides in from the top with a little scale and fade, the frame catches a golden shimmer and the
  * tick draws itself in; it stays four seconds, then fades away. Notices that arrive together queue
- * and show one after another. It never takes input, so play carries on underneath.
+ * and show one after another. It never blocks play: only news about a place can be tapped, to go there.
  *
  * Kept general (an icon, a heading, a line, a highlighted line, an optional picture) so research,
  * population and achievement notices can use it too.
@@ -15,15 +15,55 @@ export interface Notice {
   benefit?: string | null;
   /** Picture on the right (a data URL or image path), or none. */
   image?: string | null;
-  icon?: 'tick';
+  icon?: 'tick' | 'star';
   /** A big moment (a new title, a wish granted): shown on its own, never merged with other news. */
   important?: boolean;
   /** Small line above the title (defaults to "Complete", or "Milestone" when important). */
   kicker?: string;
+  /** Tapping the banner does this (takes the camera to the news); without it the banner ignores input. */
+  onClick?: () => void;
+  /** A short name for it when listed with others ("Hut"), and what it is ("Building Complete"). */
+  short?: string;
+  group?: string;
+}
+
+/** How a group of several reads in one banner's heading. */
+const PLURAL: Record<string, string> = {
+  'Building Complete': 'Buildings Complete',
+  'Upgrade Complete': 'Upgrades Complete',
+};
+
+/** Names listed in a combined banner before "+N more". */
+const LIST_MAX = 4;
+
+/**
+ * Everyday notices arriving together become one banner ("3 Buildings Complete: Hut, Well, Torch");
+ * big moments (`important`) keep a banner of their own, in the order they came.
+ */
+export function combineNotices(list: Notice[]): Notice[] {
+  const news = list.filter((n) => !n.important);
+  if (news.length < 2) return list;
+  const group = news[0].group ?? news[0].title;
+  const same = news.every((n) => (n.group ?? n.title) === group);
+  const names = news.map((n) => n.short ?? n.title);
+  const shown = names.slice(0, LIST_MAX).join(same ? ', ' : ' · ') + (names.length > LIST_MAX ? ` +${names.length - LIST_MAX} more` : '');
+  const merged: Notice = {
+    title: same && PLURAL[group] ? `${news.length} ${PLURAL[group]}` : 'Village News',
+    line: shown,
+    kicker: same ? news[0].kicker : undefined,
+    icon: news.every((n) => n.icon === 'star') ? 'star' : 'tick',
+    group,
+  };
+  const first = list.indexOf(news[0]);
+  const out = list.filter((n) => n.important);
+  out.splice(list.slice(0, first).filter((n) => n.important).length, 0, merged);
+  return out;
 }
 
 /** Seconds a notice stays fully shown, and its entrance and exit. */
 const HOLD = 4, ENTER = 0.5, LEAVE = 0.6;
+
+const STAR_SVG = `<svg viewBox="0 0 48 48" aria-hidden="true"><circle class="nb-tick-ring nb-star-ring" cx="24" cy="24" r="20"/><path class="nb-star" d="M24 11l4 8.5 9.3 1.1-6.9 6.4 1.8 9.2L24 31.6l-8.2 4.6 1.8-9.2-6.9-6.4 9.3-1.1z"/></svg>`;
 
 const TICK_SVG = `<svg viewBox="0 0 48 48" aria-hidden="true"><circle class="nb-tick-ring" cx="24" cy="24" r="20"/><path class="nb-tick-mark" d="M14.5 24.5l6.5 6.5 13-14"/></svg>`;
 
@@ -109,20 +149,31 @@ export class NoticeBanner {
     this.line.textContent = n.line;
     this.benefit.textContent = n.benefit ?? '';
     this.benefit.hidden = !n.benefit;
-    this.icon.innerHTML = n.icon === 'tick' || !n.icon ? TICK_SVG : '';
+    this.icon.innerHTML = n.icon === 'star' ? STAR_SVG : TICK_SVG;
+    // Longer news may run onto a second line.
+    this.line.classList.toggle('wrap', !n.benefit && n.line.length > 48);
+    // News about a place: tapping the banner goes there.
+    this.el.classList.toggle('nb-click', !!n.onClick);
+    this.el.onclick = n.onClick ? () => { n.onClick!(); this.el.classList.remove('nb-click'); this.el.onclick = null; } : null;
+    if (n.onClick) this.el.title = 'Show me';
+    else this.el.removeAttribute('title');
     this.el.classList.toggle('has-pic', !!n.image);
     if (n.image) this.image.src = n.image;
     else this.image.removeAttribute('src');
     document.body.classList.add('notice-showing');
     // Long names: shrink a line's type until it fits (never below 80%) before resorting to "…".
-    for (const t of [this.title, this.line, this.benefit]) fitLine(t);
+    for (const t of [this.title, this.line, this.benefit]) {
+      if (t.classList.contains('wrap')) t.style.fontSize = '';
+      else fitLine(t);
+    }
     // Restart the entrance animations (shimmer, tick) for every notice.
     this.el.classList.remove('nb-in', 'nb-out');
     void this.el.offsetWidth;
     this.el.classList.add('nb-in');
     this.timers.push(window.setTimeout(() => this.el.classList.add('nb-out'), (ENTER + HOLD) * 1000));
     this.timers.push(window.setTimeout(() => {
-      this.el.classList.remove('nb-in', 'nb-out');
+      this.el.classList.remove('nb-in', 'nb-out', 'nb-click');
+      this.el.onclick = null;
       this.next();
     }, (ENTER + HOLD + LEAVE) * 1000));
   }

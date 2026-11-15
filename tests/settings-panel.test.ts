@@ -34,7 +34,6 @@ test('settings tabs show one category at a time and retain controls when navigat
   assert.equal(q('[data-k="volume"]'),input);assert.equal(input.value,'0.4');
   assert.equal(q('[data-value="volume"]').value,'40%');
   assert.equal(q('#settings-graphics details').open,false);
-  assert.equal(q('.settings-new').open,false);
 });
 
 test('Sound switch inverts mute correctly and chatter preference persists across reload',()=>{
@@ -63,16 +62,22 @@ test('save/help/new-game handlers survive layout change and new games retain con
   const {ui,game,q}=setup();
   q('[data-a="save"]').click();assert.equal(game.saved,true);
   for(const name of ['copy','load','rename'])assert.equal(typeof q(`[data-a="${name}"]`).onclick,'function');
-  // A new island: choose its kind, then confirm.
-  const pick=(t:string)=>(document.querySelector(`.island-modal [data-type="${t}"]`) as HTMLElement).click();
-  (globalThis as any).confirm=()=>false;q('[data-a="new"]').click();pick('classic');assert.equal(game.newMode,undefined);
-  document.querySelector('.island-modal')?.remove();
-  game.islandName='GODMODE';ui.updateIslandName();
-  (globalThis as any).confirm=()=>true;q('[data-a="sandbox"]').click();
+  // A new island: one button opens a pop-up; choose its kind, then confirm in the same pop-up.
+  const m=(sel:string)=>document.querySelector(`.island-modal ${sel}`) as HTMLElement;
+  const pick=(t:string)=>m(`[data-type="${t}"]`).click();
+  q('[data-a="new"]').click();pick('classic');assert.equal(game.newMode,undefined,'started without confirming');
+  assert.match(m('.gd-title').textContent!,/Start a new/);
+  m('[data-a="back"]').click();
   // The other kinds of island are coming soon: shown, but they can't be started yet.
   pick('archipelago');assert.equal(game.newMode,undefined);
-  assert.ok((document.querySelector('.island-modal [data-type="archipelago"]') as HTMLButtonElement).disabled);
-  pick('classic');assert.equal(game.newMode,'sandbox');assert.equal(game.newType,'classic');
+  assert.ok((m('[data-type="archipelago"]') as HTMLButtonElement).disabled);
+  m('[data-a="close"]').click();document.querySelector('.island-modal')?.remove();
+  // With the testing options, the pop-up offers a Sandbox.
+  game.islandName='GODMODE';ui.updateIslandName();
+  q('[data-a="new"]').click();
+  const sb=m('[data-a="sandbox"]') as HTMLInputElement;sb.click();
+  pick('classic');m('[data-a="start"]').click();
+  assert.equal(game.newMode,'sandbox');assert.equal(game.newType,'classic');
   q('[data-a="tutorial"]').click();assert.equal(ui.tutorialStarted,true);
 });
 
@@ -98,12 +103,12 @@ test('Testing tools show in Settings while they are switched on for play-testing
 });
 
 test('Sandbox and Instant Build only unlock through the GODMODE island name',{skip:TEST_TOOLS&&'testing tools unlock them'},()=>{
- const {ui,game,q}=setup(),sandbox=q('[data-a="sandbox"]'),instant=q('[data-k="instantBuild"]');
- const hidden=()=>sandbox.closest('.godrow').classList.contains('hidden')&&instant.closest('.godrow').classList.contains('hidden');
- assert.ok(hidden());assert.ok(sandbox.disabled&&instant.disabled);
- game.eco.godMode=true;ui.updateIslandName();assert.ok(hidden(),'an existing sandbox alone must not reveal the controls');
- game.islandName=' godmode ';ui.updateIslandName();assert.equal(hidden(),false);assert.equal(sandbox.disabled,false);assert.equal(instant.disabled,false);
- game.islandName='Aztlan';ui.updateIslandName();assert.ok(hidden());assert.ok(sandbox.disabled&&instant.disabled);
- (globalThis as any).confirm=()=>true;sandbox.onclick();assert.equal(game.newMode,undefined);
+ const {ui,game,q}=setup(),instant=q('[data-k="instantBuild"]');
+ const hidden=()=>instant.closest('.godrow').classList.contains('hidden');
+ const offersSandbox=()=>{q('[data-a="new"]').click();const has=!!document.querySelector('.island-modal [data-a="sandbox"]');document.querySelectorAll('.island-modal').forEach(e=>e.remove());return has;};
+ assert.ok(hidden());assert.ok(instant.disabled);assert.equal(offersSandbox(),false);
+ game.eco.godMode=true;ui.updateIslandName();assert.ok(hidden(),'an existing sandbox alone must not reveal the controls');assert.equal(offersSandbox(),false);
+ game.islandName=' godmode ';ui.updateIslandName();assert.equal(hidden(),false);assert.equal(instant.disabled,false);assert.equal(offersSandbox(),true);
+ game.islandName='Aztlan';ui.updateIslandName();assert.ok(hidden());assert.ok(instant.disabled);assert.equal(offersSandbox(),false);
  game.islandName='GODMODE';ui.syncSettingsControls();assert.equal(hidden(),false);
 });

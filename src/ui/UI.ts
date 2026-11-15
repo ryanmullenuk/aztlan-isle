@@ -1,4 +1,4 @@
-import { AZ_CORNERS } from './aztecKit';
+import { AZ_CORNERS, AZ_LEAVES } from './aztecKit';
 import { STAGES, TITLES } from '../economy/Progression';
 import { HOUSE_STYLES, isHouseStyle, type HouseStyle } from '../buildings/models';
 import { buildingOperational } from '../buildings/BuildingCondition';
@@ -227,6 +227,10 @@ export class UI {
     this.toasts = el('div', 'toasts');
     this.root.appendChild(this.toasts);
     this.dialog = new GameDialog(this.root);
+    // News with nothing to decide passes by in the banner at the top instead of a card.
+    this.dialog.banner = new NoticeBanner(this.root);
+    this.dialog.canBanner = () => !this.zen && !this.photo?.open && this.game.isPlaying;
+    this.dialog.playing = () => this.game.isPlaying;
     this.dialog.mode = () => this.game.settings.popups ?? 'all';
     this.dialog.wasOffered = (key) => { try { return (localStorage.getItem(SAVE.optOutKey) ?? '').split(',').includes(key); } catch { return true; } };
     this.dialog.offered = (key) => { try { const had = localStorage.getItem(SAVE.optOutKey); localStorage.setItem(SAVE.optOutKey, had ? `${had},${key}` : key); } catch { /* ignore */ } };
@@ -583,7 +587,7 @@ export class UI {
   zen = false;
   /** Pop-ups in the middle of the screen (see GameDialog). */
   dialog!: GameDialog;
-  /** Announce something in the banner (not while the interface is hidden). */
+  /** Announce something in the banner (not while the interface is hidden; see GameDialog.newsOnly). */
   notice(n: Notice): void {
     if (this.zen || this.photo?.open) return;
     this.dialog.push({
@@ -1047,11 +1051,7 @@ export class UI {
       const n = this.game.addTestIslanders(Math.min(100, parseInt(count.value, 10) || 0));
       this.toast(n ? `${n} islander${n === 1 ? '' : 's'} added.` : 'The island is full.');
     };
-    card.querySelector<HTMLButtonElement>('[data-a="new"]')!.onclick = () => this.chooseIsland(false);
-    card.querySelector<HTMLButtonElement>('[data-a="sandbox"]')!.onclick = () => {
-      if (!this.godOptionsUnlocked()) return;
-      this.chooseIsland(true);
-    };
+    card.querySelector<HTMLButtonElement>('[data-a="new"]')!.onclick = () => this.chooseIsland();
     card.querySelector<HTMLButtonElement>('[data-a="save"]')!.onclick = () => {
       this.game.save();
       this.toast('Island saved.');
@@ -1492,7 +1492,8 @@ export class UI {
     // Keep warnings in the inbox while the interface is hidden.
     if (this.zen) return;
     // Anything worth stopping for is a pop-up in the middle of the screen, cleared by the player:
-    // milestones, events with a choice, and news or warnings about a place on the island.
+    // events with a choice and warnings about a place. Milestones and news about a place pass by
+    // in the banner instead (GameDialog sends them there; tapping news about a place goes there).
     const split = splitMessage(text);
     if (kind === 'milestone') {
       this.dialog.push({ icon: 'star', kicker: 'Milestone', title: split.title, body: split.body, important: true, art: 'sun' });
@@ -2376,31 +2377,58 @@ export class UI {
   /** Island types open to new games: the original island; the others are coming soon. */
   private static readonly OPEN_ISLANDS: IslandType[] = ['classic'];
 
-  /** Starting a new island: pick the kind of island, then confirm (the current one is replaced). */
-  private chooseIsland(sandbox: boolean): void {
+  /**
+   * Starting a new island, in a pop-up like the game's others: pick the kind of island (and, with
+   * the testing options, a Sandbox), then confirm in the same card (the current island is replaced).
+   */
+  private chooseIsland(): void {
     const current = this.game.world?.islandType;
-    const modal = el('div', 'modal island-modal');
-    const cards = (Object.keys(ISLAND_TYPES) as IslandType[]).map((t) => {
-      const it = ISLAND_TYPES[t], open = UI.OPEN_ISLANDS.includes(t);
-      return `<button type="button" class="island-pick${open ? '' : ' soon'}" data-type="${t}"${open ? '' : ' disabled aria-disabled="true"'}>
-        <span class="ip-map" aria-hidden="true">${ISLAND_ICONS[t]}</span>
-        <span class="ip-text"><span class="ip-name"><b>${it.name}</b>${t === current ? '<span class="ip-now">Current</span>' : ''}${open ? '' : '<span class="ip-soon">Coming soon</span>'}</span><span>${it.about}</span><em>${it.resources}</em></span>
-      </button>`;
-    }).join('');
-    modal.innerHTML = `<div class="panel card island-card" role="dialog" aria-labelledby="ip-title">
-      <div class="card-head"><span id="ip-title">${sandbox ? 'New Sandbox island' : 'Choose your island'}</span><button class="ib small" data-a="close" aria-label="Close">${ICONS.close}</button></div>
-      <p class="muted small">Your current island will be replaced. Copy it first (Settings → Copy island) to keep it.</p>
-      <div class="island-picks">${cards}</div>
+    const canSandbox = this.godOptionsUnlocked();
+    let sandbox = false;
+    const wrap = el('div', 'gd-backdrop island-modal');
+    const close = () => { wrap.classList.add('gd-out'); setTimeout(() => wrap.remove(), 220); };
+    const frame = (kicker: string, title: string, inner: string, actions: string) => `<div class="gd-card az-plate island-card" role="dialog" aria-modal="true" aria-labelledby="ip-title">
+      ${AZ_CORNERS}
+      <div class="gd-emblem" aria-hidden="true">${AZ_LEAVES}<span class="gd-medal">${ICONS.o_new}</span></div>
+      <div class="gd-kicker az-rule"><span>${kicker}</span></div>
+      <div class="gd-title" id="ip-title">${title}</div>
+      ${inner}
+      <div class="gd-actions">${actions}</div>
     </div>`;
-    modal.onclick = (e) => {
-      const target = e.target as HTMLElement;
-      if (target === modal || target.closest('[data-a="close"]')) { modal.remove(); return; }
-      const pick = target.closest<HTMLButtonElement>('[data-type]');
-      if (!pick || pick.disabled) return;
-      const t = pick.dataset.type as IslandType;
-      if (confirm(`Start a new ${ISLAND_TYPES[t].name}${sandbox ? ' Sandbox' : ''}? Your progress on this island will be lost.`)) this.game.newIsland(sandbox, t);
+    const pick = () => {
+      const cards = (Object.keys(ISLAND_TYPES) as IslandType[]).map((t) => {
+        const it = ISLAND_TYPES[t], open = UI.OPEN_ISLANDS.includes(t);
+        return `<button type="button" class="island-pick${open ? '' : ' soon'}" data-type="${t}"${open ? '' : ' disabled aria-disabled="true"'}>
+          <span class="ip-map" aria-hidden="true">${ISLAND_ICONS[t]}</span>
+          <span class="ip-text"><span class="ip-name"><b>${it.name}</b>${t === current ? '<span class="ip-now">Current</span>' : ''}${open ? '' : '<span class="ip-soon">Coming soon</span>'}</span><span>${it.about}</span><em>${it.resources}</em></span>
+        </button>`;
+      }).join('');
+      const sand = canSandbox ? `<label class="island-sandbox"><span>Sandbox<small>Unlimited resources, for testing</small></span><input type="checkbox" role="switch" data-a="sandbox"${sandbox ? ' checked' : ''}></label>` : '';
+      wrap.innerHTML = frame('New island', 'Choose your island', `<div class="gd-body island-body"><p class="island-note">Your current island will be replaced. Copy it first (Settings → Copy island) to keep it.</p><div class="island-picks">${cards}</div>${sand}</div>`,
+        `<button type="button" class="gd-btn az-btn" data-a="close"><span>Cancel</span></button>`);
     };
-    this.root.appendChild(modal);
+    const confirmStart = (t: IslandType) => {
+      const name = `${ISLAND_TYPES[t].name}${sandbox ? ' Sandbox' : ''}`;
+      wrap.innerHTML = frame('New island', `Start a new ${name}?`, `<div class="gd-body"><p>Your progress on ${this.game.islandName.replace(/[<>&"]/g, '')} will be lost. Copy your island first if you want to keep it.</p></div>`,
+        `<button type="button" class="gd-btn az-btn primary" data-a="start" data-type="${t}"><span>Start new island</span></button><button type="button" class="gd-btn az-btn" data-a="back"><span>Back</span></button>`);
+      wrap.querySelector<HTMLElement>('[data-a="start"]')?.focus();
+    };
+    wrap.onclick = (e) => {
+      const target = e.target as HTMLElement;
+      if (target === wrap || target.closest('[data-a="close"]')) return close();
+      if (target.closest('[data-a="back"]')) return pick();
+      const sb = target.closest<HTMLInputElement>('[data-a="sandbox"]');
+      if (sb) { sandbox = sb.checked; return; }
+      const start = target.closest<HTMLButtonElement>('[data-a="start"]');
+      if (start) { close(); this.toggle(this.settings, false); this.game.newIsland(sandbox && canSandbox, start.dataset.type as IslandType); return; }
+      const p = target.closest<HTMLButtonElement>('.island-pick');
+      if (p && !p.disabled) confirmStart(p.dataset.type as IslandType);
+    };
+    wrap.onkeydown = (e) => { e.stopPropagation(); if (e.key === 'Escape') { e.preventDefault(); close(); } };
+    pick();
+    this.root.appendChild(wrap);
+    void wrap.offsetWidth;
+    wrap.classList.add('gd-in');
   }
 
   /** Back after a while: how long, what the islanders gathered, and what the village needs next. */
@@ -2437,6 +2465,8 @@ export class UI {
     }).join('');
     this.dialog.push({
       icon: 'star', kicker: day > 1 ? `${day} days in a row` : 'A gift from the sea', title: 'Daily chest', html: true, always: true, art: 'chest',
+      // Not the moment the island loads: once the player has been playing a little, with nothing else open.
+      minPlay: 20,
       body: `<div class="dc-week">${week}</div><p>Open a chest every day to keep your streak going: the pearls grow each day. Spend them to finish a build straight away, or trade them on a voyage.</p>`,
       actions: [{ label: `Open · ${pearls} pearl${pearls === 1 ? '' : 's'}`, primary: true, run: claim }],
     });

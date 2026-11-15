@@ -364,8 +364,9 @@ function replaceFinished(b: Building, geo: THREE.BufferGeometry): void {
 const GLOW_UNIFORMS = { uNight: { value: 0 }, uTime: { value: 0 } };
 const GLOW_MAT = new THREE.ShaderMaterial({
   uniforms: GLOW_UNIFORMS,
+  defines: { CANDLE_SIZE: '0.2' },
   vertexShader: /* glsl */ `
-    attribute vec3 aGlow; // x: dusk threshold, y: flicker phase, z: kind (0 opening, 1 halo, 2 ground pool)
+    attribute vec3 aGlow; // x: dusk threshold, y: flicker phase, z: kind (0 opening, 1 halo, 2 ground pool, 3 candle)
     varying vec2 vUv;
     varying float vOn, vKind, vFlick, vWho;
     uniform float uNight, uTime;
@@ -381,7 +382,13 @@ const GLOW_MAT = new THREE.ShaderMaterial({
       vOn = smoothstep(aGlow.x, aGlow.x + 0.1, uNight);
       float p = aGlow.y;
       vFlick = 0.88 + 0.07 * sin(uTime * 6.3 + p) + 0.05 * sin(uTime * 15.7 + p * 2.3) * sin(uTime * 2.1 + p);
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      // A candle: every corner of its quad sits at the flame, spread out here to face the camera.
+      if (vKind > 2.5) {
+        mv.xy += (uv - 0.5) * CANDLE_SIZE;
+        vFlick = 0.85 + 0.1 * sin(uTime * 9.1 + p * 3.0) + 0.05 * sin(uTime * 23.0 + p);
+      }
+      gl_Position = projectionMatrix * mv;
     }`,
   fragmentShader: /* glsl */ `
     varying vec2 vUv;
@@ -399,6 +406,12 @@ const GLOW_MAT = new THREE.ShaderMaterial({
           float body = smoothstep(0.34, 0.1, abs(vUv.x - vWho) * (1.0 + 1.6 * smoothstep(0.45, 0.8, vUv.y)));
           col *= 1.0 - 0.78 * body * smoothstep(1.0, 0.82, vUv.y);
         }
+      } else if (vKind > 2.5) {
+        // A candle: a small white-hot flame drawn upward, inside a soft warm halo.
+        float r = length(c * vec2(1.0, 0.9));
+        float halo = 1.0 - smoothstep(0.0, 0.5, r);
+        float core = 1.0 - smoothstep(0.0, 0.09, length((c - vec2(0.0, 0.015)) * vec2(1.6, 0.75)));
+        col = mix(ember, flame, halo) * halo * halo * 0.55 + vec3(1.0, 0.82, 0.5) * core * 1.3;
       } else {
         // Halo on the wall, or the pool on the ground: a soft round falloff.
         float f = 1.0 - smoothstep(0.0, 0.5, length(c));
@@ -448,17 +461,37 @@ function glowParts(g: models.Glow, at: number, phase: number): THREE.BufferGeome
  * finished model. Each building lights at its own point in the dusk, so the village's windows
  * come on one by one.
  */
-function setGlow(b: Building, windows: models.Glow[] | undefined): void {
+/** A candle's glow: one quad whose corners all sit at the flame (the shader turns it to face the camera). */
+function candleGlow(p: THREE.Vector3, at: number, phase: number): THREE.BufferGeometry {
+  const geo = new THREE.PlaneGeometry(1, 1);
+  const pos = geo.getAttribute('position') as THREE.BufferAttribute;
+  for (let i = 0; i < pos.count; i++) pos.setXYZ(i, p.x, p.y, p.z);
+  const a = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) a.set([at, phase, 3], i * 3);
+  geo.setAttribute('aGlow', new THREE.BufferAttribute(a, 3));
+  return geo;
+}
+
+/** Candles come on together, early in the dusk. */
+const CANDLE_AT = 0.12;
+
+function setGlow(b: Building, windows: models.Glow[] | undefined, candles?: THREE.Vector3[]): void {
   if (b.glow) {
     b.glow.removeFromParent();
     b.glow.geometry.dispose();
     b.glow = undefined;
   }
-  if (!windows?.length || !b.finished) return;
-  b.glowAt = 0.12 + (Math.abs(Math.sin(b.id * 91.7 + 13.1)) % 1) * 0.6;
-  const parts = windows.flatMap((g, k) => glowParts(g, b.glowAt!, b.id * 1.7 + k * 0.6));
+  if ((!windows?.length && !candles?.length) || !b.finished) return;
+  const at = 0.12 + (Math.abs(Math.sin(b.id * 91.7 + 13.1)) % 1) * 0.6;
+  // (The mesh shows from the earliest of its lights; each part fades in at its own threshold.)
+  b.glowAt = candles?.length ? Math.min(at, CANDLE_AT) : at;
+  const parts = (windows ?? []).flatMap((g, k) => glowParts(g, at, b.id * 1.7 + k * 0.6));
+  candles?.forEach((p, k) => parts.push(candleGlow(p, CANDLE_AT, b.id * 1.3 + k * 2.17)));
   const geo = mergeGeometries(parts)!;
   for (const p of parts) p.dispose();
+  // Candle quads spread out in the shader: make room for them when culling.
+  geo.computeBoundingSphere();
+  if (candles?.length && geo.boundingSphere) geo.boundingSphere.radius += 0.15;
   b.glow = new THREE.Mesh(geo, GLOW_MAT);
   b.glow.visible = false;
   b.glow.renderOrder = 2;
@@ -470,7 +503,7 @@ type Look = models.BuildingModel & { cloths?: Cloth[] };
 
 /** A building's lit openings, its doors and its washing, from its (new) model. */
 function setOpenings(b: Building, model: Look): void {
-  setGlow(b, model.windows);
+  setGlow(b, model.windows, model.candles);
   b.doors = model.doors?.length ? model.doors : undefined;
   b.doorOpen = undefined;
   b.cloths = model.cloths?.length ? model.cloths : undefined;
@@ -1293,6 +1326,7 @@ export class BuildingSystem {
       const [lx, lz] = wearLean(wear, seed);
       for (const t of model.torches) { t.x += lx * t.y; t.z += lz * t.y; }
       model.windows = model.windows?.map((g) => ({ ...g, x: g.x + lx * g.y, z: g.z + lz * g.y }));
+      for (const p of model.candles ?? []) { p.x += lx * p.y; p.z += lz * p.y; }
       model.doors = model.doors?.map((d) => ({ ...d, x: d.x + lx * d.y, z: d.z + lz * d.y }));
       model.cloths = model.cloths?.map((c) => ({ ...c, x: c.x + lx * c.y, z: c.z + lz * c.y }));
     }

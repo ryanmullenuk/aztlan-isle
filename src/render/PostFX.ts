@@ -174,11 +174,13 @@ const GradeShader = {
     uDusk: { value: 0 },
     /** Pixel style: colour quantisation with ordered dithering (0 = off). */
     uPixel: { value: 0 },
+    /** How the village feels about its god, -1 (terror) to 1 (adoration): a cooler, greyer, darker-edged island, or a warmer, richer one. */
+    uMood: { value: 0 },
   },
   vertexShader: quadVert.replace('gl_Position = vec4(position.xy, 0.0, 1.0);', 'gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);'),
   fragmentShader: /* glsl */ `
     uniform sampler2D tDiffuse;
-    uniform float uSat, uWarm, uTeal, uContrast, uVig, uNight, uPixel, uGolden, uDusk;
+    uniform float uSat, uWarm, uTeal, uContrast, uVig, uNight, uPixel, uGolden, uDusk, uMood;
     varying vec2 vUv;
     float bayer4(vec2 p) {
       vec2 q = mod(floor(p), 4.0);
@@ -199,9 +201,13 @@ const GradeShader = {
       c += mix(vec3(-0.05, 0.28, 0.32), vec3(-0.05, 0.05, 0.35), max(uNight, uDusk)) * uTeal * (1.0 + 0.8 * uDusk) * (1.0 - smoothstep(0.0, 0.45, l));
       // Moonlight is cooler and less saturated; golden light a little richer.
       c = mix(vec3(l), c, uSat * (1.0 - uNight * 0.3) * (1.0 + 0.07 * uGolden));
+      // Feared: a little greyer and cooler, the edges darker. Loved: a little warmer and richer.
+      float fear = max(0.0, -uMood), love = max(0.0, uMood);
+      c = mix(vec3(l), c, 1.0 - 0.22 * fear + 0.1 * love);
+      c += vec3(-0.012, -0.004, 0.018) * fear + vec3(0.02, 0.008, -0.012) * love;
       c = (c - 0.5) * uContrast + 0.5;
       vec2 d = vUv - 0.5;
-      c *= clamp(1.0 - dot(d, d) * uVig * 2.2, 0.0, 1.0);
+      c *= clamp(1.0 - dot(d, d) * uVig * (2.2 + 1.6 * fear), 0.0, 1.0);
       if (uPixel > 0.5) {
         // Limited palette per channel with a gentle ordered dither, like hand-made pixel art.
         float lv = 18.0;
@@ -441,6 +447,8 @@ export class PostFX {
   readonly dof: DofPass;
   private bloom: UnrealBloomPass;
   private output: OutputPass;
+  /** How the village feels about its god (-1 terror to 1 adoration), shown faintly in the colours. */
+  mood = 0;
   private grade: ShaderPass;
   private flare: ShaderPass;
   /** Lens flare: sun position in screen uv and strength (0 = none). */
@@ -572,6 +580,7 @@ export class PostFX {
     g.uNight.value = night;
     g.uGolden.value = ls ? ls.golden : 0;
     g.uDusk.value = ls ? ls.dusk : 0;
+    g.uMood.value = this.mood;
     const rays = this.shafts();
     this.flare.enabled = this.flareK > 0.002 || rays > 0.002 || this.warmFlare;
     this.composer.render(dt);

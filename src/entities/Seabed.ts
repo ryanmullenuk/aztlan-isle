@@ -7,6 +7,8 @@ import { RNG, hash2 } from '../world/rng';
 import { World } from '../world/World';
 import { BASE_PALETTE, branchingCoral, coralBaseGeometry, tableCoral } from './coralModels';
 import { bakeCreature, CreatureName, loadCreature, simplifyGeometry } from './creatureAssets';
+import { StarfishCrawl } from './StarfishCrawl';
+import { FX } from '../render/materials';
 
 /**
  * The richer sea floor: large reef fields (elkhorn, pillar, plate, mushroom, finger and boulder
@@ -422,6 +424,9 @@ export class Seabed {
   private noise: Simplex2;
   private geos = new Map<Kind, THREE.BufferGeometry>();
   private mat = habitatMaterial(true);
+  private starMat = habitatMaterial(true, true);
+  /** The starfish creeping over the sand. */
+  stars: StarfishCrawl;
   private dblMat = habitatMaterial();
   private range = 36;
   /** Chunks built so far, and the middles of the reef fields in each (for the reef fish). */
@@ -431,6 +436,7 @@ export class Seabed {
   /** `clear`: spots to leave open (the big anemones the clownfish live in, placed by Coral.ts from the seed alone). */
   constructor(private world: World, private clear: { x: number; z: number; r: number }[] = []) {
     this.instances = new HabitatInstances(world);
+    this.stars = new StarfishCrawl(world, undefined, world.seed + 5);
     this.noise = new Simplex2(new RNG(world.seed * 7 + 3));
     this.dblMat.side = THREE.DoubleSide;
     this.dblMat.forceSinglePass = true;
@@ -522,7 +528,8 @@ export class Seabed {
       // fitting (sized off the stand-in's top) is unchanged.
       if (model) habitatCreature(model.name, g, model.opts).then((m) => {
         this.geos.set(kind, m);
-        for (const o of this.group.children) if (o.name === `seabed-${kind}`) (o as THREE.InstancedMesh).geometry = m;
+        if (kind === 'star') this.stars.setGeometry(m);
+        else for (const o of this.group.children) if (o.name === `seabed-${kind}`) (o as THREE.InstancedMesh).geometry = m;
       }).catch(() => undefined);
     }
     return g;
@@ -548,7 +555,8 @@ export class Seabed {
     const p = new THREE.Vector3(), q = new THREE.Quaternion(), e = new THREE.Euler(), s = new THREE.Vector3();
     for (const [kind, list] of byKind) {
       const def = KINDS[kind], geo = this.geo(kind);
-      const mesh = new THREE.InstancedMesh(geo, def.double ? this.dblMat : this.mat, list.length);
+      const mesh = new THREE.InstancedMesh(geo, kind === 'star' ? this.starMat : def.double ? this.dblMat : this.mat, list.length);
+      if (kind === 'star') this.stars.add(mesh);
       const homes = list.map((c, i) => {
         const m = new THREE.Matrix4().compose(p.set(c.x, w.heightAt(c.x, c.z) - 0.02, c.z), q.setFromEuler(e.set(c.tx, c.ry, c.tz)), s.set(c.s * c.sx, c.s, c.s * c.sz));
         mesh.setMatrixAt(i, m);
@@ -574,13 +582,14 @@ export class Seabed {
   setPreset(preset: PresetName): void {
     habitatPreset(this.group, preset);
     this.range = RANGE[preset];
-    for (const m of [this.mat, this.dblMat]) m.userData.habitatRange.value = this.range;
+    for (const m of [this.mat, this.dblMat, this.starMat]) m.userData.habitatRange.value = this.range;
     this.instances.setDensity(SEABED_DENSITY[preset]);
   }
 
   /** Hide chunks beyond the fade-out distance from the camera. */
   cull(cam: THREE.Vector3): void {
     this.instances.cull(cam, this.range);
+    this.stars.update(FX.uTime.value);
   }
 
   /**

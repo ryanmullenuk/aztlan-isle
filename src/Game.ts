@@ -94,6 +94,7 @@ import { WeddingSystem } from './economy/Weddings';
 import { SeasonGoals } from './economy/SeasonGoals';
 import { Raids } from './economy/Raids';
 import { Passings } from './economy/Passings';
+import { Devotion, DEVOTION } from './economy/Devotion';
 import { AncestorNight } from './economy/AncestorNight';
 import { LanternNight } from './economy/LanternNight';
 import { MONKEY_BASE } from './entities/Monkeys';
@@ -294,6 +295,9 @@ export class Game {
   /** Lantern Night, once a year after the harvest. */
   lanternNight!: LanternNight;
   ancestors!: AncestorNight;
+  /** Fear or love: how the islanders see their god. */
+  readonly devotion = new Devotion();
+  private ancestorNightsSeen = 0;
   /** Firework displays over the village. */
   readonly fireworks = new Fireworks();
   /** Rare goods bought from the traders today (saved). */
@@ -548,6 +552,7 @@ export class Game {
     };
     this.requests.onGranted = (r, who) => {
       this.eco.add('belief', r.belief);
+      this.devotion.shift(DEVOTION.wish);
       if (who) who.happy = Math.min(1, who.happy + REQUESTS.happy);
       this.ui?.dialog.forget((d) => d.body === r.text);
       this.ui?.notice({ title: 'Wish granted', line: r.thanks, benefit: `+${r.belief} Belief · ${who?.name ?? 'They'} ${who ? 'is' : 'are'} happier`, icon: 'tick', important: true, kicker: who ? `${who.name} is delighted` : 'A wish' });
@@ -688,6 +693,7 @@ export class Game {
         // Thrown into the sea and caught before reaching the shore.
         this.marine.splash(isl.x, isl.z, 14, 2.2, 0.4);
         if (this.selectedIslander === isl.id) this.select(null);
+        this.devotion.shift(DEVOTION.drowned);
         this.passings.take(isl, by === 'shark'
           ? { kicker: 'Taken by a shark', line: `${isl.name} was thrown into the sea and taken by a shark before reaching the shore.` }
           : { kicker: 'Stung by jellyfish', line: `${isl.name} was thrown into the sea among the jellyfish, and was stung and drowned before reaching the shore.` });
@@ -696,6 +702,7 @@ export class Game {
         // Shaken, not hurt: a knock to their happiness, and the village has seen what you can do.
         isl.happy = Math.max(0, isl.happy - 0.15);
         this.colony.moodBoost -= 0.01;
+        this.devotion.shift(DEVOTION.thrown);
         if (swam) this.ui?.toast(`${isl.name} swam back to shore, shaken but unharmed.`);
       },
     });
@@ -722,6 +729,18 @@ export class Game {
     // Falling rain is left out of the sea's mirror: streaks do not belong in a reflection.
     for (const o of this.powers.group.children) if ((o as THREE.LineSegments).isLineSegments) this.water.reflection?.exclude(o);
     this.scene.add(this.powers.group);
+    this.powers.onKindness = (kind) => this.devotion.shift(DEVOTION[kind]);
+    this.devotion.onChange = (now, was) => {
+      const worse = ['Terrified', 'Fearful', 'Respectful', 'Devoted', 'Adoring'].indexOf(now) < ['Terrified', 'Fearful', 'Respectful', 'Devoted', 'Adoring'].indexOf(was);
+      const line: Record<string, string> = {
+        Terrified: 'The islanders are terrified of you. They toil without rest, and without joy.',
+        Fearful: worse ? 'The islanders have come to fear you: they work harder, but they are less happy.' : 'The islanders still fear you, though less than they did.',
+        Respectful: worse ? 'The islanders’ love has cooled to plain respect.' : 'The islanders’ fear has eased into respect.',
+        Devoted: worse ? 'The islanders are still devoted to you, though less than they were.' : 'The islanders have come to love you: they are happier, and their Belief flows more freely.',
+        Adoring: 'The islanders adore you. Belief pours from their contented homes.',
+      };
+      this.ui?.toast(line[now], worse && now !== 'Respectful' ? 'warn' : 'milestone');
+    };
     this.fires = new StormFire(this.world, this.veg, this.eco, this.buildings, this.colony, () => this.rng.next());
     this.scene.add(this.fires.group);
     this.audio = new AudioEngine();
@@ -1940,8 +1959,12 @@ export class Game {
         this.clearAreaSelection();
         return;
       case 'select':
-      case 'build':
+      case 'build': {
+        // A spirit of the dead under the finger: who they were.
+        const k = p && this.ancestors.ghosts.shown > 0.3 ? this.ancestors.ghosts.ghostAt(p.x, p.z) : -1;
+        if (k >= 0) { this.ui.toast(this.ancestors.story(k), 'info', { x: p!.x, z: p!.z }); return; }
         return this.selectAt(x, y, p);
+      }
       case 'harvest': {
         const rect = this.canvas.getBoundingClientRect();
         const an = this.wildlife.animals.pick(this.rig.camera, x, y, rect, 18);
@@ -2883,6 +2906,7 @@ export class Game {
     haptic('medium');
     this.select(null);
     this.colony.moodBoost -= Math.min(0.3, 0.06 * doomed.length);
+    this.devotion.smote(doomed.length);
     // They drop where they stand and lie there a moment (see fallen) before the village is told
     // and comes for the body.
     for (const p of doomed) {
@@ -3651,6 +3675,11 @@ export class Game {
     this.passings.update(dt);
     this.lanternNight.update(dt);
     this.ancestors.update(dt);
+    // A night with the ancestors wins the village's love.
+    if (this.ancestors.held > this.ancestorNightsSeen) { if (this.ancestorNightsSeen || this.ancestors.held === 1) this.devotion.shift(DEVOTION.ancestors); this.ancestorNightsSeen = this.ancestors.held; }
+    this.devotion.update(dt);
+    this.colony.devotion = { pace: this.devotion.pace, mood: this.devotion.mood, belief: this.devotion.belief };
+    if (this.post) this.post.mood = this.devotion.value;
     // The Sun Stone's favour: a steady trickle of Belief.
     if (dt > 0 && this.wonder('sunstone')) this.eco.add('belief', (WONDER_EFFECT.beliefPerMinute * dt) / 60);
     this.updateBelief(dt, realDt);

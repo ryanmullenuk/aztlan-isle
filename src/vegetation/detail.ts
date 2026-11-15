@@ -298,3 +298,219 @@ export function trunkVine(b: GeoBuilder, h: number, r: number, rng: RNG, col: TH
     }
   }
 }
+
+// ---------- Small plants: curving leaves and fern fronds ----------
+
+/**
+ * A leaf that curves: folded along its midrib like `leafGeometry`, but the midrib bends over toward
+ * the tip (`droop`, as a fraction of its length; negative curls it up) in `segs` steps, and the
+ * blade is widest `widest` of the way along. Lies along +z from the origin, top side +y, closed
+ * underneath so it shows from both sides with a single-sided material. `flatUnder` closes it with
+ * two triangles under the arch instead of following the curve (cheaper; only for droop >= 0).
+ * Triangles: segs 2 -> 8 (6 with flatUnder), segs 3 -> 16 (10).
+ */
+export function curvedLeaf(len: number, w: number, droop = 0.3, fold = 0.35, segs = 2, widest = 0.4, flatUnder = false): THREE.BufferGeometry {
+  type V3 = [number, number, number];
+  const M: V3[] = [], L: V3[] = [], R: V3[] = [], Lb: V3[] = [], Rb: V3[] = [];
+  for (let i = 0; i <= segs; i++) {
+    const u = i / segs;
+    const t = u < 0.5 ? (u / 0.5) * widest : widest + ((u - 0.5) / 0.5) * (1 - widest);
+    const wi = i === 0 || i === segs ? 0 : w * Math.pow(t < widest ? t / widest : (1 - t) / (1 - widest), 0.7);
+    const y = -droop * len * t * t, z = len * t * (1 - 0.25 * Math.abs(droop) * t);
+    M.push([0, y, z]);
+    L.push([-wi, y + wi * fold, z]);
+    R.push([wi, y + wi * fold, z]);
+    Lb.push([-wi * 0.9, y + wi * fold - 0.006, z]);
+    Rb.push([wi * 0.9, y + wi * fold - 0.006, z]);
+  }
+  const tris: V3[] = [];
+  for (let i = 0; i < segs; i++) {
+    const last = i === segs - 1, both = i > 0 && !last;
+    if (both) tris.push(M[i], L[i], L[i + 1], M[i], R[i + 1], R[i]);
+    if (!last) tris.push(M[i], L[i + 1], M[i + 1], M[i], M[i + 1], R[i + 1]);
+    else tris.push(M[i], L[i], M[i + 1], M[i], M[i + 1], R[i]);
+    if (flatUnder) continue;
+    if (both) tris.push(M[i], Lb[i + 1], Lb[i], M[i], Rb[i], Rb[i + 1]);
+    if (!last) tris.push(M[i], M[i + 1], Lb[i + 1], M[i], Rb[i + 1], M[i + 1]);
+    else tris.push(M[i], M[i + 1], Lb[i], M[i], Rb[i], M[i + 1]);
+  }
+  if (flatUnder) {
+    // The widest station, dropped just under the blade.
+    const k = Math.max(1, Math.round(segs / 2));
+    tris.push(M[0], M[segs], Lb[k], M[0], Rb[k], M[segs]);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(tris.flat(), 3));
+  g.computeVertexNormals();
+  return g;
+}
+
+/**
+ * A fern frond: `pairs` of pointed leaflets down an arching midrib, longest a third of the way
+ * along, swept toward the tip and tapering to a point, each leaflet one facet. Grows from the
+ * origin along +z, `len` long, its midrib at height up*t - down*t*t. Faces up only: draw it with a
+ * double-sided material (or where it is only seen from above). Triangles: 2 * pairs + 1.
+ */
+export function frondGeometry(len: number, up: number, down: number, pairs: number, w: number, seed: number): THREE.BufferGeometry {
+  const rng = new RNG(seed);
+  const t0 = 0.1, t1 = 0.84;
+  const rib = (t: number): [number, number, number] => [0, up * t - down * t * t, len * t];
+  const pos: number[] = [];
+  for (let i = 0; i < pairs; i++) {
+    const ta = t0 + ((t1 - t0) * i) / pairs, tb = t0 + ((t1 - t0) * (i + 1)) / pairs;
+    const a = rib(ta), c = rib(tb);
+    const tm = (ta + tb) / 2;
+    // Leaflets fill out quickly from the stalk, then taper all the way to the tip.
+    const wi = w * Math.min(1, 0.5 + 2.2 * tm) * (1 - 0.72 * Math.pow(tm, 1.5));
+    for (const s of [-1, 1]) {
+      const reach = wi * rng.range(0.85, 1.12);
+      const m = rib(ta + (tb - ta) * 0.7);
+      const apex: [number, number, number] = [s * reach, m[1] + reach * (0.28 - 0.5 * tm) + rng.range(-0.012, 0.012), m[2] + reach * 0.4];
+      if (s < 0) pos.push(...a, ...apex, ...c);
+      else pos.push(...a, ...c, ...apex);
+    }
+  }
+  // The tip: a last narrow blade.
+  const e = rib(t1), tip = rib(1), we = w * 0.16;
+  pos.push(-we, e[1], e[2], we, e[1], e[2], tip[0], tip[1], tip[2]);
+  // (wound to face up)
+  const n = pos.length;
+  [pos[n - 9], pos[n - 6]] = [pos[n - 6], pos[n - 9]];
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  return g;
+}
+
+export interface ClumpOpts {
+  dark: THREE.Color;
+  light: THREE.Color;
+  /** Colour of the sunlit top leaves, and of the odd sprig of new growth. */
+  sun: THREE.Color;
+  fresh: THREE.Color;
+  /** Leaf length and half-width at full detail. */
+  len: number;
+  w: number;
+  /** Sway weight at the clump's foot. */
+  sway: number;
+  /** Sprigs per unit of radius squared. */
+  density?: number;
+}
+
+const _ax = new THREE.Vector3();
+const _ay = new THREE.Vector3();
+const _az = new THREE.Vector3();
+const _down = new THREE.Vector3();
+const _side = new THREE.Vector3();
+const _m4 = new THREE.Matrix4();
+const LEAF_SIZES = [0.82, 0.92, 1, 1.1, 1.2];
+
+/**
+ * One leafy clump of a bush: a small shaded heart of flat facets wrapped in sprigs of three leaves
+ * that lie over one another like shingles, each sprig fanning out and down over the clump with its
+ * tips lifted clear, so the clump reads as layers of leaves (sunlit and yellow-green on top, deep
+ * green underneath, the odd sprig of pale new growth) instead of a ball. Sprigs buried inside one of
+ * the `others` ([x, y, z, radius] of neighbouring clumps) or under the ground are left out. All
+ * levels share one layout (every random number is always drawn):
+ *   far  (lo)        - every third sprig as one big leaf over a larger, lighter heart
+ *   mid  (FINE off)  - one bigger leaf per sprig
+ *   near (FINE on)   - all three leaves of every sprig
+ * Returns points on its sunlit upper side, for flowers to sit on.
+ */
+export function leafClump(b: GeoBuilder, cx: number, cy: number, cz: number, R: number, squash: number, seed: number, lo: boolean, o: ClumpOpts, others: number[][] = []): THREE.Vector3[] {
+  const rng = new RNG(seed * 7 + 3);
+  const fine = FINE.on && !lo;
+  const shade = o.dark.clone().multiplyScalar(0.7);
+  const heart = mix(o.dark, o.light, lo ? 0.45 : 0.3);
+  b.add(lumpy(P.sphere(R * (lo ? 0.84 : 0.7), lo ? 0 : 1), 0.2, seed, squash), {
+    color: (p, nn) => mix(shade, heart, nn.y * 0.55 + 0.25 + (p.y - cy) / (R * 2.5) + (phash(p.x, p.y, p.z) - 0.5) * 0.3),
+    leaf: 1,
+    sway: o.sway,
+    facet: true,
+    ao: { y0: cy - R, y1: cy + R * 0.5, min: 0.55 },
+  }, M.t(cx, cy, cz));
+  const sites: THREE.Vector3[] = [];
+  const n = Math.max(8, Math.round(R * R * (o.density ?? 175)));
+  const sz = lo ? 1.85 : fine ? 1.12 : 1.4;
+  for (let k = 0; k < n; k++) {
+    // Spread evenly from the crown to under the waist (golden-angle spiral) with jitter.
+    const cph = THREE.MathUtils.clamp(0.97 - 1.55 * ((k + 0.5) / n) + rng.range(-0.06, 0.06), -0.62, 0.98);
+    const th = k * 2.39996 + rng.range(-0.35, 0.35);
+    const reach = rng.range(0.8, 0.98);
+    const tone = rng.range(0.2, 0.95);
+    const yaw = rng.range(-1.15, 1.15);
+    const lift = rng.range(0.3, 0.75);
+    const size = LEAF_SIZES[rng.int(0, LEAF_SIZES.length - 1)];
+    const fresh = rng.chance(0.16);
+    const bright = rng.range(0.9, 1.1);
+    const sph = Math.sqrt(1 - cph * cph);
+    _d.set(Math.cos(th) * sph, cph, Math.sin(th) * sph);
+    _p.set(cx + _d.x * R * reach, cy + _d.y * R * squash * reach, cz + _d.z * R * reach);
+    if (_p.y < 0.03) continue;
+    if (others.some((q) => Math.hypot(_p.x - q[0], (_p.y - q[1]) / squash, _p.z - q[2]) < q[3] * 0.8)) continue;
+    const up = _d.y * 0.5 + 0.5;
+    if (_d.y > 0.2) sites.push(new THREE.Vector3(cx + _d.x * R * 1.08, cy + _d.y * R * squash * 1.08, cz + _d.z * R * 1.08));
+    if (lo && k % 3 !== 0) continue;
+    // Tangent frame on the clump: `down` runs over the surface away from the crown.
+    _side.set(-_d.z, 0, _d.x);
+    if (_side.lengthSq() < 1e-4) _side.set(1, 0, 0);
+    _side.normalize();
+    _down.crossVectors(_side, _d).normalize();
+    if (_down.y > 0) _down.negate();
+    let col = mix(o.dark, o.light, tone * 0.5 + up * 0.75 - 0.2);
+    col = mix(col, o.sun, Math.max(0, up - 0.6) * 1.7 * tone);
+    if (_d.y < -0.15) col = mix(col, shade, 0.4);
+    const sway = o.sway + Math.max(0, _p.y) * 0.12;
+    const crown = Math.max(0, _d.y) ** 4;
+    for (let j = 0; j < 3; j++) {
+      if (j > 0 && !fine) break;
+      // (On the crown the sprigs turn every way, lying across it, so no bald patch shows from above.)
+      const a = yaw * (1 + 1.8 * crown) + (j === 1 ? 0.85 : j === 2 ? -0.85 : 0);
+      // Along the surface, tip lifted clear of it; lower leaves hang out rather than straight down.
+      _az.copy(_down).multiplyScalar(Math.cos(a)).addScaledVector(_side, Math.sin(a)).addScaledVector(_d, lift * (1 - 0.6 * crown) + (1 - up) * 0.35);
+      _az.normalize();
+      _ay.copy(_d).addScaledVector(_az, -_d.dot(_az)).normalize();
+      _ax.crossVectors(_ay, _az);
+      _m4.makeBasis(_ax, _ay, _az).setPosition(_p);
+      const s = size * sz * (j ? 0.85 : 1);
+      const c = j ? col.clone().multiplyScalar(bright * 0.9) : (fresh && up > 0.45 ? mix(col, o.fresh, 0.6) : col.clone()).multiplyScalar(bright);
+      b.add(cachedLeaf(o.len * s, o.w * s), { color: c, leaf: 1, sway }, _m4);
+    }
+  }
+  return sites;
+}
+
+/**
+ * The transform that lays a leaf (grown along +z, top side +y: leafGeometry, curvedLeaf, a frond)
+ * at `at`, pointing `azimuth` round the plant and tilted `elev` above level, its top side up;
+ * `roll` twists it about its own length.
+ */
+export function leafMatrix(at: THREE.Vector3, azimuth: number, elev: number, roll = 0): THREE.Matrix4 {
+  const ca = Math.cos(azimuth), sa = Math.sin(azimuth), ce = Math.cos(elev), se = Math.sin(elev);
+  _az.set(ca * ce, se, sa * ce);
+  _ay.set(-ca * se, ce, -sa * se);
+  _ax.crossVectors(_ay, _az);
+  const m = new THREE.Matrix4().makeBasis(_ax, _ay, _az);
+  if (roll) m.multiply(new THREE.Matrix4().makeRotationZ(roll));
+  return m.setPosition(at);
+}
+
+/**
+ * Add a leaf (grown along +z: leafGeometry, curvedLeaf) under `m`, coloured by where each corner
+ * sits on it: `t` runs 0 at the stalk to 1 at the tip (`len` long), `edge` 0 on the midrib to 1 at
+ * the margin (`w` half-width), `top` says the facet is on the leaf's upper side. For veined,
+ * edged and variegated leaves.
+ */
+export function addLeaf(b: GeoBuilder, geo: THREE.BufferGeometry, m: THREE.Matrix4, len: number, w: number, colour: (t: number, edge: number, top: boolean) => THREE.Color, sway: number | ((p: THREE.Vector3) => number), leaf = 1): void {
+  const inv = m.clone().invert();
+  const upAxis = new THREE.Vector3().setFromMatrixColumn(m, 1).normalize();
+  const q = new THREE.Vector3();
+  b.add(geo, {
+    color: (p, n) => {
+      q.copy(p).applyMatrix4(inv);
+      return colour(THREE.MathUtils.clamp(q.z / len, 0, 1), Math.min(1, Math.abs(q.x) / w), n.dot(upAxis) > 0);
+    },
+    leaf,
+    sway,
+  }, m);
+}

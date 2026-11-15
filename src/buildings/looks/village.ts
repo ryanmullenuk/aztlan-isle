@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GeoBuilder, M, P, lumpy } from '../../render/GeoBuilder';
 import { RNG } from '../../world/rng';
+import { marigoldHead } from '../../vegetation/flowerParts';
 import { HALL, OBS, PALACE } from '../models';
 import type { Look, Looks } from './types';
 
@@ -125,10 +126,11 @@ function basket(b: GeoBuilder, x: number, y: number, z: number, r: number, fill:
 
 /** A string of marigold balls along a curve. */
 function garland(b: GeoBuilder, from: THREE.Vector3, to: THREE.Vector3, sag: number, n: number): void {
+  const rng = new RNG(Math.round(from.x * 97 + from.z * 31 + to.x * 13) + n);
   for (let k = 0; k <= n; k++) {
     const t = k / n, p = from.clone().lerp(to, t);
     p.y -= Math.sin(t * Math.PI) * sag;
-    b.add(P.sphere(0.045, 0), { color: k % 3 === 1 ? c(0xf2c53a) : k % 3 ? c(0xd8322a) : c(0xef7a22) }, M.t(p.x, p.y, p.z));
+    marigoldHead(b, p, 0.055, rng, k % 3 === 1, 0);
   }
 }
 

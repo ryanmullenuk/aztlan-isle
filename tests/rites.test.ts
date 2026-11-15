@@ -159,3 +159,27 @@ test('a smiting sends everyone near running away from it', async () => {
   assert.equal(set[0][0], 1);
   assert.ok(set[0][1] > 3 + 6, 'ran toward the bolt, or not far enough');
 });
+
+test('the dead not yet burned are kept in the save: on the pyre, on the way, or waiting their turn', async () => {
+  const v = await pyreVillage(9);
+  v.passings.take(v.people[0], { kicker: 'Struck down', line: 'P0 was struck down.' });
+  v.passings.take(v.people[0], { kicker: 'Struck down', line: 'P1 was struck down.' });
+  // P0 is fetched and laid on the pyre; P1 lies waiting.
+  for (let t = 0; t < 30 && v.passings.funeral.phase !== 'gather'; t++) v.passings.update(1);
+  assert.equal(v.passings.funeral.phase, 'gather');
+  const saved = JSON.parse(JSON.stringify(v.passings.save()));
+  assert.deepEqual(saved.dead.map((d: any) => [d.name, !!d.atPyre]), [['P0', true], ['P1', false]]);
+  // Loaded into a fresh village: P0 goes straight back on the pyre and the mourners are called, then P1's turn.
+  const w = await pyreVillage(7);
+  w.passings.restore(saved);
+  w.passings.update(1);
+  assert.equal(w.passings.funeral.name, 'P0');
+  assert.equal(w.passings.funeral.phase, 'gather');
+  for (let t = 0; t < 120 && w.passings.funeral?.name === 'P0'; t++) w.passings.update(1);
+  w.passings.update(1);
+  assert.equal(w.passings.funeral?.name, 'P1', 'the second body was lost');
+  // Old saves (graves only) still load.
+  const x = await pyreVillage(3);
+  x.passings.restore({ graves: [] });
+  assert.equal(x.passings.save().dead.length, 0);
+});

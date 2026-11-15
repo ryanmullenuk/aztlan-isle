@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { GeoBuilder, M, P, doubleSide, lumpy } from '../../render/GeoBuilder';
 import { TOWER } from '../models';
+import { RNG } from '../../world/rng';
+import { bloomAt, marigoldHead } from '../../vegetation/flowerParts';
 import type { Look, Looks } from './types';
 
 // Upgrade looks for the safety and healing buildings: the watchtower, the dog kennel, the warrior
@@ -540,16 +542,17 @@ const rareHerbs: Look = (b) => {
   // Magenta flowering bush.
   y = planter(-0.45, 1.3);
   b.add(lumpy(P.sphere(0.12, 1), 0.2, 41, 0.8), { color: c(0x2f5e2c), leaf: 1, sway: 0.15 }, M.t(-0.45, y + 0.1, 1.3));
+  const fr = new RNG(541);
   for (let k = 0; k < 9; k++) {
     const a = k * 2.4, r = 0.05 + (k % 3) * 0.03;
-    b.add(P.sphere(0.04, 0), { color: k % 2 ? c(0xd8378f) : c(0xb0247a), leaf: 1, sway: 0.2 }, M.t(-0.45 + Math.cos(a) * r, y + 0.19 + (k % 3) * 0.025, 1.3 + Math.sin(a) * r));
+    bloomAt(b, new THREE.Vector3(-0.45 + Math.cos(a) * r, y + 0.18 + (k % 3) * 0.025, 1.3 + Math.sin(a) * r), 0.045, 'magenta', fr, 5, 0.6, 0.2);
   }
   // Golden marigolds.
   y = planter(0.45, 1.3);
   b.add(lumpy(P.sphere(0.11, 1), 0.2, 43, 0.7), { color: c(0x4c8a34), leaf: 1, sway: 0.15 }, M.t(0.45, y + 0.08, 1.3));
   for (let k = 0; k < 6; k++) {
     const a = k * 1.05, r = k ? 0.075 : 0;
-    b.add(P.sphere(0.045, 1), { color: k % 2 ? c(0xf2a51e) : c(0xf5c030), leaf: 1, sway: 0.2 }, M.t(0.45 + Math.cos(a) * r, y + 0.17 + (k ? 0 : 0.04), 1.3 + Math.sin(a) * r));
+    marigoldHead(b, new THREE.Vector3(0.45 + Math.cos(a) * r, y + 0.16 + (k ? 0 : 0.065), 1.3 + Math.sin(a) * r), 0.047, fr, k % 2 === 0, 0.2);
   }
   // Dark purple herb with white flower spikes (far right).
   y = planter(1.05, 1.3);

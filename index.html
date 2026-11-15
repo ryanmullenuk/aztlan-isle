@@ -42,7 +42,7 @@
       .rh-shock { position: absolute; left: 50%; top: 50%; width: 260%; aspect-ratio: 1; transform: translate(-50%, -50%); pointer-events: none; overflow: visible; z-index: -1; }
       .rh-shock circle { fill: none; stroke: var(--rh-red); transform-origin: 50% 50%; transform-box: fill-box; opacity: 0; }
       .rh-glow { position: absolute; left: 50%; top: 50%; width: 150%; aspect-ratio: 1; transform: translate(-50%, -50%); border-radius: 50%; background: radial-gradient(circle, rgba(255,30,30,.55) 0%, rgba(255,30,30,0) 65%); opacity: 0; pointer-events: none; z-index: -1; }
-      .rh-word { margin-top: 3.3%; }
+      .rh-word { margin-top: 3.3%; will-change: transform, opacity; }
       .rh-games { width: 48.4%; margin: 1.7% auto 0; }
       .rh-logo.rh-play .rh-left { animation: rh-in-left .55s cubic-bezier(.55,0,1,.45) both; }
       .rh-logo.rh-play .rh-right { animation: rh-in-right .55s cubic-bezier(.55,0,1,.45) both; }
@@ -52,14 +52,14 @@
       .rh-logo.rh-play .rh-ring1 { animation: rh-ring .9s .55s cubic-bezier(.1,.7,.3,1) forwards; }
       .rh-logo.rh-play .rh-ring2 { animation: rh-ring 1s .68s cubic-bezier(.1,.7,.3,1) forwards; }
       .rh-logo.rh-play .rh-word { animation: rh-punch .6s .8s cubic-bezier(.2,1.5,.4,1) both; }
-      .rh-logo.rh-play .rh-games { animation: rh-reveal .55s 1.15s cubic-bezier(.2,.8,.2,1) both; }
+      .rh-logo.rh-play .rh-games { animation: rh-reveal .55s 1.3s cubic-bezier(.2,.8,.2,1) both; }
       @keyframes rh-in-left { from { transform: translateX(-140%) rotate(-18deg); opacity: 0 } 30% { opacity: 1 } to { transform: none; opacity: 1 } }
       @keyframes rh-in-right { from { transform: translateX(140%) rotate(18deg); opacity: 0 } 30% { opacity: 1 } to { transform: none; opacity: 1 } }
       @keyframes rh-squash { 0% { transform: scale(1.12, .86) } 100% { transform: none } }
       @keyframes rh-shake { 0%, 100% { transform: none } 15% { transform: translate(-6px, 3px) rotate(-1.5deg) } 30% { transform: translate(5px, -4px) rotate(1.2deg) } 45% { transform: translate(-4px, 2px) } 60% { transform: translate(3px, -2px) } 80% { transform: translate(-1px, 1px) } }
       @keyframes rh-glow { 0% { opacity: 0; transform: translate(-50%, -50%) scale(.4) } 20% { opacity: 1 } 100% { opacity: 0; transform: translate(-50%, -50%) scale(1.2) } }
       @keyframes rh-ring { 0% { opacity: 1; transform: scale(.15); stroke-width: 14 } 100% { opacity: 0; transform: scale(1); stroke-width: 1 } }
-      @keyframes rh-punch { 0% { opacity: 0; transform: scale(2.4); filter: blur(10px) } 60% { opacity: 1; filter: blur(0) } 100% { opacity: 1; transform: none } }
+      @keyframes rh-punch { 0% { opacity: 0; transform: scale(2.4) } 60% { opacity: 1 } 100% { opacity: 1; transform: none } }
       @keyframes rh-reveal { 0% { opacity: 0; clip-path: inset(0 50% 0 50%); transform: translateY(30%) } 100% { opacity: 1; clip-path: inset(0 0 0 0); transform: none } }
       /* Hidden until the images are in and it plays, so nothing flashes. */
       .rh-logo:not(.rh-play) .rh-half, .rh-logo:not(.rh-play) .rh-word, .rh-logo:not(.rh-play) .rh-games { opacity: 0; }
@@ -156,11 +156,12 @@
         var title = document.querySelector('.splash-art');
         var started = false;
         function ready(image) {
-          if (image.complete) return Promise.resolve();
-          return new Promise(function (resolve) {
+          // Loaded and decoded, so no picture is still being drawn when the animation starts.
+          var loaded = image.complete ? Promise.resolve() : new Promise(function (resolve) {
             image.addEventListener('load', resolve, { once: true });
             image.addEventListener('error', resolve, { once: true });
           });
+          return loaded.then(function () { return image.decode ? image.decode().catch(function () {}) : null; });
         }
         function remove() {
           splash.remove();
@@ -177,6 +178,9 @@
         Promise.all([
           // Once its pictures are in, the logo plays (about 1.7 s) and holds a moment.
           Promise.all(parts.map(ready)).then(function () {
+            // Start on a fresh frame, after the decoded pictures have been painted once (hidden).
+            return new Promise(function (resolve) { requestAnimationFrame(function () { requestAnimationFrame(resolve); }); });
+          }).then(function () {
             mark.classList.add('rh-play');
             return new Promise(function (resolve) { setTimeout(resolve, 2900); });
           }),

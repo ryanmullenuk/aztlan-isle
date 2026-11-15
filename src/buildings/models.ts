@@ -4,6 +4,7 @@ import { COLORS } from '../config';
 import { FX as UPGRADE_FX } from './Upgrades';
 import { GeoBuilder, M, P, doubleSide, lumpy, outward, ribbon, tube } from '../render/GeoBuilder';
 import { RNG } from '../world/rng';
+import { bloomAt, flowerOnStem, marigoldHead } from '../vegetation/flowerParts';
 
 const c = (h: number) => new THREE.Color(h);
 const K = {
@@ -38,6 +39,8 @@ export interface BuildingModel {
   windows?: Glow[];
   /** Doors that stand open by day and are shut at night (drawn apart from the model: see Doors). */
   doors?: Door[];
+  /** Candle flames (local centres), each lit with a small bright glow and halo at night. */
+  candles?: THREE.Vector3[];
 }
 
 /**
@@ -55,18 +58,23 @@ export interface Door { x: number; y: number; z: number; w: number; h: number; c
 let glowSink: Glow[] | null = null;
 /** Collects the moving doors of the model being built (models made on their own keep a fixed, shut door). */
 let doorSink: Door[] | null = null;
+/** Collects the candle flames of the model being built. */
+let candleSink: THREE.Vector3[] | null = null;
 /** Build a model, recording its window and doorway openings for the night glow, and its doors. */
 export function collectGlows(make: () => BuildingModel): BuildingModel {
   glowSink = [];
   doorSink = [];
+  candleSink = [];
   try {
     const m = make();
     m.windows = glowSink;
     m.doors = doorSink;
+    m.candles = candleSink;
     return m;
   } finally {
     glowSink = null;
     doorSink = null;
+    candleSink = null;
   }
 }
 
@@ -339,7 +347,7 @@ export function kennelModel(): BuildingModel {
   for (const y of [0.13, 0.3]) b.add(P.box(0.43, 0.04, 0.03), { color: K.timber }, gate.clone().multiply(M.t(0.22, y, 0)));
   b.add(P.box(0.03, 0.34, 0.03), { color: K.timber }, gate.clone().multiply(M.t(0.42, 0.2, 0)));
   b.add(P.box(0.5, 0.035, 0.03), { color: K.timberDark }, gate.clone().multiply(M.t(0.22, 0.21, 0, 0, 0, 0.6)));
-  for (const [x, z] of [[-0.94, 0.5], [0.94, -0.6], [0.2, -0.94]] as const) blooms(b, x, 0.03, z, 3, 0.02, 0.08, Math.round(x * 40 + z * 13));
+  for (const [x, z] of [[-0.88, 0.5], [0.88, -0.6], [0.2, -0.88]] as const) blooms(b, x, 0.03, z, 3, 0.02, 0.08, Math.round(x * 40 + z * 13));
   const torch = torchPole(b, 0.78, 0.78, 0.62, 0.05);
   return { finished: b.build(), torches: [torch], height: 0.95 };
 }
@@ -1364,7 +1372,7 @@ export function chinampaModel(w: number, d: number): BuildingModel {
     const z = k < 8 ? rng.range(-hd + 0.2, CHB.z0 - 0.06) : rng.range(CHB.z0, CHB.z1);
     const r = rng.range(0.04, 0.075);
     b.add(new THREE.CircleGeometry(r, 9, 0.35, 5.9).rotateX(-Math.PI / 2), { color: vary(rng, c(0x4f8f3e), 0.12), leaf: 1 }, M.t(x, wy + 0.006, z, 0, rng.range(0, 6.28), 0));
-    if (k % 4 === 0) b.add(FLOWER, { color: c(0xf0a4c0), leaf: 1 }, M.t(x + 0.02, wy + 0.025, z, 0, k, 0, 0.7, 0.5, 0.7));
+    if (k % 4 === 0) bloomAt(b, new THREE.Vector3(x + 0.02, wy + 0.02, z), 0.032, 'pink', rng, 8, 0.25, 0.1);
   }
   // Reeds along the banks.
   for (let k = 0; k < 14; k++) {
@@ -2432,13 +2440,11 @@ const FLOWER = new THREE.OctahedronGeometry(0.045, 0);
 
 /** A clump of red (and a few orange) tropical flowers on short stems. */
 function blooms(b: GeoBuilder, x: number, y: number, z: number, n: number, sx: number, sz: number, seed: number, redShare = 0.75): void {
+  // (The same petalled flowers on stems as the island's wildflowers.)
   const r = new RNG(seed);
   for (let k = 0; k < n; k++) {
     const px = x + r.range(-sx, sx), pz = z + r.range(-sz, sz);
-    const h = r.range(0.1, 0.2);
-    b.add(P.cyl(0.008, 0.01, h, 3), { color: c(0x3c7a2e) }, M.t(px, y + h / 2, pz));
-    const petal = r.next() < redShare ? c(0xd8322a) : c(0xef7a22);
-    b.add(FLOWER, { color: (q) => (q.y > y + h + 0.035 ? c(0xf2d04a) : petal.clone()), leaf: 1 }, M.t(px, y + h + 0.02, pz, 0, r.next() * 3, 0, 1, 0.6, 1));
+    flowerOnStem(b, px, y, pz, r.range(0.1, 0.18), r.range(0.04, 0.052), r.next() < redShare ? 'red' : 'orange', r);
   }
 }
 
@@ -3419,7 +3425,7 @@ export function marketSquareModel(): BuildingModel {
   // A woven rug laid out before the back stalls.
   for (let k = 0; k < 5; k++) b.add(P.box(0.8, 0.008, 0.11), { color: [0xb2412f, 0xd7a53e, 0x3f6f9a, 0xd7a53e, 0xb2412f][k] }, M.t(-0.75, H + 0.025, -0.95 + k * 0.11, 0, 0.05, 0));
   // Planting along the outside of the walls.
-  for (const [x, z] of [[-2.43, -1.2], [-2.43, 0.9], [2.43, -0.6], [2.43, 1.5]] as const) blooms(b, x, 0.02, z, 4, 0.02, 0.3, Math.round(x * 31 + z * 17));
+  for (const [x, z] of [[-2.38, -1.2], [-2.38, 0.9], [2.38, -0.6], [2.38, 1.5]] as const) blooms(b, x, 0.02, z, 4, 0.02, 0.3, Math.round(x * 31 + z * 17));
   blooms(b, -1.4, 0.02, 2.43, 5, 0.3, 0.02, 77);
   blooms(b, 1.4, 0.02, 2.43, 5, 0.3, 0.02, 78);
   return { finished: b.build(), torches, height: 1.35 };
@@ -3710,7 +3716,7 @@ export function palaceModel(): BuildingModel {
     for (let k = 0; k < 9; k++) {
       const px = p.x + rng.range(-p.w / 2 + 0.15, p.w / 2 - 0.15), pz = p.z + rng.range(-p.d / 2 + 0.15, p.d / 2 - 0.15);
       b.add(P.cyl(0.11, 0.11, 0.008, 8), { color: c(0x3f8a34), leaf: 1 }, M.t(px, 0.135, pz));
-      if (k % 3 === 0) b.add(FLOWER, { color: c(0xef9ab0), leaf: 1 }, M.t(px + 0.04, 0.16, pz, 0, k, 0, 0.9, 0.6, 0.9));
+      if (k % 3 === 0) bloomAt(b, new THREE.Vector3(px + 0.04, 0.15, pz), 0.04, 'pink', rng, 8, 0.25, 0.1);
     }
   }
   // Banner poles at the plaza's front corners.
@@ -4447,7 +4453,7 @@ export function decorModel(key: string): BuildingModel {
         b.add(P.cone(0.04, 0.07, 6), { color: K.timberDark }, M.t(x, top + 0.14, 0));
         for (let k = 0; k < 6; k++) {
           const a = (k / 6) * Math.PI * 2;
-          b.add(FLOWER, { color: k % 2 ? c(0xf08a1c) : c(0xf6c22e), leaf: 1 }, M.t(x + Math.cos(a) * 0.15, 0.2, Math.sin(a) * 0.15, 0, a, 0, 1.3, 1, 1.3));
+          marigoldHead(b, new THREE.Vector3(x + Math.cos(a) * 0.15, 0.19, Math.sin(a) * 0.15), 0.05, r, k % 2 === 1);
         }
       }
       const ropeY = (x: number) => top - sag * (1 - (2 * x / span) ** 2);
@@ -5317,6 +5323,8 @@ export function graveyardModel(w: number, d: number): BuildingModel {
   for (const [x, col] of [[-0.06, 0xf08a24], [0.05, 0xe8c040], [0.0, 0xd8322a]] as const) b.add(P.sphere(0.035, 0), { color: c(col) }, M.t(x, ty + 0.27, sz + 0.12 + (x ? 0 : 0.03)));
   frettedPot(b, -0.72, ty, sz + 0.1, 1.1);
   frettedPot(b, 0.72, ty, sz + 0.1, 1.1, 0xb85a2e);
+  // Candles left for the dead along the foot of the shrine.
+  for (const s of [-1, 1]) for (let j = 0; j < 3; j++) candle(b, s * (0.62 + j * 0.13), 0.12, sz + 0.5 + (j % 2) * 0.07, 0.06 + ((j + 1) % 3) * 0.02);
   // Growing as it pleases: ferns bunched along the walls (thick in places, bare in others),
   // flowers come up between the graves and round the shrine.
   for (const side of [-1, 1]) {
@@ -5399,11 +5407,12 @@ export function pyreModel(): BuildingModel {
 function candle(b: GeoBuilder, x: number, y: number, z: number, h = 0.09): void {
   b.add(P.cyl(0.018, 0.02, h, 5), { color: c(0xf3ead2), leaf: CLOTH }, M.t(x, y + h / 2, z));
   b.add(P.cone(0.014, 0.05, 4), { color: (p) => (p.y > y + h + 0.025 ? c(0xffe9a0) : c(0xffa93a)), leaf: 1 }, M.t(x, y + h + 0.027, z));
+  candleSink?.push(new THREE.Vector3(x, y + h + 0.024, z));
 }
 
 /** A marigold head, orange or gold. */
 function marigold(b: GeoBuilder, x: number, y: number, z: number, r: RNG, s = 1): void {
-  b.add(FLOWER, { color: r.chance(0.6) ? c(0xf08a1c) : c(0xf6c22e), leaf: 1 }, M.t(x, y, z, r.range(0, 3), r.range(0, 3), 0, s * 0.72, s * 0.6, s * 0.72));
+  marigoldHead(b, new THREE.Vector3(x, y, z), 0.04 * s, r);
 }
 
 /** A red block painted with a square spiral on its front. */

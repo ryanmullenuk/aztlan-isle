@@ -39,7 +39,18 @@ export function mayAsk(altar: boolean, dead: number, state: AncestorState): bool
 /** quiet: nothing; asked: an islander's wish is open; granted: waiting for nightfall; night: the spirits are out. */
 export type AncestorState = 'quiet' | 'asked' | 'granted' | 'night';
 
-interface Dead { name: string; f: boolean }
+/** One of the dead: who they were, and (when known) when and how they died. */
+export interface Dead { name: string; f: boolean; day?: number; season?: string; year?: number; cause?: string }
+
+/** A short line about one of the dead, e.g. "Itzel, who died in the spring of year 1, struck down by the gods." */
+export function deathStory(d: Dead | null | undefined): string {
+  if (!d?.name) return 'One of the island\'s dead.';
+  const season = d.season?.trim().toLowerCase(), cause = d.cause?.trim().replace(/[.\s]+$/, '');
+  const year = Number.isFinite(d.year) ? d.year : undefined, day = Number.isFinite(d.day) ? d.day : undefined;
+  const when = season && year !== undefined ? `in the ${season} of year ${year}` : season ? `in the ${season}` : year !== undefined ? `in year ${year}` : day !== undefined ? `on day ${day}` : '';
+  if (!when && !cause) return `${d.name}, one of the island's dead.`;
+  return `${d.name}, who died${when ? ` ${when}` : ''}${cause ? `${when ? ',' : ''} ${cause}` : ''}.`;
+}
 
 /**
  * The Night of the Ancestors. Once an Ancestor Altar stands and the island has known a death, an
@@ -67,9 +78,24 @@ export class AncestorNight {
   constructor(private game: Game, private rnd: () => number = Math.random) {}
 
   /** Someone has died: they join the ancestors. */
-  remember(name: string, female: boolean): void {
-    this.dead.push({ name, f: female });
+  remember(name: string, female: boolean, info?: { day?: number; season?: string; year?: number; cause?: string }): void {
+    const d: Dead = { name, f: female };
+    if (info) {
+      if (Number.isFinite(info.day)) d.day = info.day;
+      if (typeof info.season === 'string' && info.season) d.season = info.season;
+      if (Number.isFinite(info.year)) d.year = info.year;
+      if (typeof info.cause === 'string' && info.cause) d.cause = info.cause;
+    }
+    this.dead.push(d);
     if (this.dead.length > 24) this.dead.shift();
+  }
+
+  /** Who each spirit out tonight is, by ghost index (as `ghosts.ghostAt` gives it). */
+  private tonight: (Dead | null)[] = [];
+
+  /** A line about the spirit at index `k` (from `ghosts.ghostAt`), for the player who taps them. */
+  story(k: number): string {
+    return deathStory(this.tonight[k]);
   }
 
   /** How many of the dead are remembered (those buried before the altar was known count too). */
@@ -89,7 +115,14 @@ export class AncestorNight {
   restore(d: unknown): void {
     const s = d as Partial<ReturnType<AncestorNight['save']>> | null;
     if (!s || typeof s !== 'object') return;
-    if (Array.isArray(s.dead)) this.dead = s.dead.filter((x) => x && typeof x.name === 'string').map((x) => ({ name: x.name, f: !!x.f })).slice(-24);
+    if (Array.isArray(s.dead)) this.dead = s.dead.filter((x) => x && typeof x.name === 'string').map((x) => {
+      const d: Dead = { name: x.name, f: !!x.f };
+      if (Number.isFinite(x.day)) d.day = x.day;
+      if (typeof x.season === 'string' && x.season) d.season = x.season;
+      if (Number.isFinite(x.year)) d.year = x.year;
+      if (typeof x.cause === 'string' && x.cause) d.cause = x.cause;
+      return d;
+    }).slice(-24);
     if (Number.isFinite(s.held)) this.held = s.held!;
     if (Number.isFinite(s.timer)) this.timer = s.timer!;
     if (Number.isFinite(s.lastNight)) this.lastNight = s.lastNight!;
@@ -203,13 +236,20 @@ export class AncestorNight {
     const fx = altar.door.x, fz = altar.door.z;
     // The spirits stand in a shallow arc before the stair; the living a few steps further out.
     const n = Math.max(2, Math.min(ANCESTORS.ghosts, this.deadCount));
-    const who = this.dead.slice(-n);
+    const who: (Dead | null)[] = this.dead.slice(-n);
+    // Those buried before the altar was known fill any places left, by the names on their graves.
+    const graves = (g.passings?.graves.list ?? []).filter((gr) => !this.dead.some((d) => d.name === gr.name));
+    for (let k = who.length, j = graves.length - 1; k < n; k++, j--) {
+      const gr = graves[j];
+      who.push(gr ? { name: gr.name, f: k % 2 === 1, day: gr.day } : null);
+    }
+    this.tonight = who;
     const at = [];
     for (let k = 0; k < n; k++) {
       const u = n === 1 ? 0 : k / (n - 1) - 0.5, side = u * Math.min(3.2, 0.75 * (n - 1) + 0.6), out = 0.9 + (1 - Math.abs(u) * 2) * 0.5 + (k % 2) * 0.25;
       const x = fx + dx * out + px * side, z = fz + dz * out + pz * side;
-      const gender: 'm' | 'f' = who[k] ? (who[k].f ? 'f' : 'm') : k % 2 ? 'f' : 'm';
-      at.push({ gender, x, z, y: g.world.groundY(x, z), heading: Math.atan2(dx, dz) + u * 0.5 });
+      const d = who[k], gender: 'm' | 'f' = d ? (d.f ? 'f' : 'm') : k % 2 ? 'f' : 'm';
+      at.push({ gender, name: who[k]?.name ?? '', x, z, y: g.world.groundY(x, z), heading: Math.atan2(dx, dz) + u * 0.5 });
     }
     this.ghosts.appear(at);
     const cx = fx + dx * 1.2, cz = fz + dz * 1.2;
@@ -230,7 +270,7 @@ export class AncestorNight {
     this.state = 'night';
     this.lastNight = nightOf(g.time.day, g.time.hour);
     this.night = { t: 0, altar: altar.id, crowd, cx, cz, wave: 0 };
-    const names = who.map((d) => d.name);
+    const names = who.filter((d): d is Dead => !!d).map((d) => d.name);
     const those = names.length > 2 ? `${names.slice(-3, -1).join(', ')} and ${names[names.length - 1]}` : names.join(' and ');
     g.ui?.dialog.push({
       icon: 'star', kicker: 'Night of the Ancestors', important: true, art: 'lantern',

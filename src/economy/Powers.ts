@@ -101,6 +101,9 @@ export class Powers {
 
   // ---------------- Powers ----------------
 
+  /** A kindness the islanders saw (they love their god for it): see Devotion. */
+  onKindness: (kind: 'bless' | 'rain' | 'calm') => void = () => {};
+
   bless(x: number, z: number): void {
     const farms = this.bld.list.filter((f) => f.complete && isFarm(f.key)).filter((f) => Math.hypot(f.x - x, f.z - z) < POWERS.bless.radius + 2);
     if (!farms.length) return this.notify('No farms here to bless.', 'warn');
@@ -110,6 +113,7 @@ export class Powers {
       for (let k = 0; k < 40; k++) this.spark(f.x + (this.rnd() - 0.5) * f.w, f.y + 0.2, f.z + (this.rnd() - 0.5) * f.d);
     }
     this.notify(`${farms.length} farm${farms.length > 1 ? 's' : ''} blessed: crops grow faster.`);
+    this.onKindness?.('bless');
   }
 
   summonRain(): void {
@@ -118,12 +122,14 @@ export class Powers {
     this.state = 'rain';
     this.timer = POWERS.rain.duration;
     this.notify('Rain falls on the island.');
+    this.onKindness?.('rain');
   }
 
   calm(): void {
     if (this.state !== 'storm') return this.notify('There is no storm to calm.', 'warn');
     if (!this.eco.spend({ wood: 0, stone: 0, belief: POWERS.calm.cost })) return this.notify('Not enough Belief.', 'warn');
     this.notify('The storm is calmed. The people rejoice.');
+    this.onKindness?.('calm');
     this.endWeather(true);
   }
 

@@ -35,6 +35,9 @@ export const PASSING = {
   pyreMourners: 5,
 };
 
+/** One of the dead not yet laid to rest, as saved. */
+interface SavedDead { name: string; x: number; z: number; yaw: number; spouse?: number; prompt?: boolean; atPyre?: boolean }
+
 /** A free plot in a graveyard: its world centre and the way its headstone faces. */
 interface Plot { x: number; z: number; y: number; yaw: number; venue: { x: number; z: number } }
 
@@ -59,15 +62,35 @@ export class Passings {
 
   constructor(private game: Game) {}
 
-  save(): { graves: Graves['list'] } {
-    // Someone being carried to their grave is saved as laid in it (a pyre funeral is not kept).
+  save(): { graves: Graves['list']; dead: SavedDead[] } {
+    // Someone being carried to their grave is saved as laid in it.
     const f = this.funeral, p = f?.procession;
-    return { graves: p && !f!.pyre ? [...this.graves.list, { name: f!.name, x: p.plot.x, z: p.plot.z, y: p.plot.y, yaw: p.plot.yaw, day: p.day }] : this.graves.list };
+    const graves = p && !f!.pyre ? [...this.graves.list, { name: f!.name, x: p.plot.x, z: p.plot.z, y: p.plot.y, yaw: p.plot.yaw, day: p.day }] : this.graves.list;
+    // The dead not yet laid to rest: the one on their way to the pyre (or lying on it), then those waiting their turn.
+    const dead: SavedDead[] = [];
+    if (f?.pyre) {
+      const atPyre = f.phase === 'gather' || f.phase === 'pray', b = this.graves.bier;
+      const at = atPyre ? f.spot : f.phase === 'carry' ? { x: b.position.x, z: b.position.z } : p ? p.body : f.spot;
+      dead.push({ name: f.name, x: at.x, z: at.z, yaw: b.rotation.y, spouse: f.spouse, prompt: f.prompt, atPyre });
+    }
+    for (const w of this.waiting) dead.push({ name: w.name, x: w.x, z: w.z, yaw: w.yaw, spouse: w.spouse, prompt: w.prompt, atPyre: w.atPyre });
+    return { graves, dead };
   }
 
   restore(d: unknown): void {
-    this.graves.restore((d as { graves?: unknown } | null)?.graves);
+    const s = d as { graves?: unknown; dead?: unknown } | null;
+    this.graves.restore(s?.graves);
     for (const gr of this.graves.list) this.game.world.blockCircle(gr.x, gr.z, 0.2);
+    for (const w of this.waiting) if (w.body) this.graves.takeBody(w.body);
+    this.waiting = [];
+    if (!Array.isArray(s?.dead)) return;
+    for (const r of s!.dead as SavedDead[]) {
+      if (!r || typeof r.name !== 'string' || !Number.isFinite(r.x) || !Number.isFinite(r.z)) continue;
+      const yaw = Number.isFinite(r.yaw) ? r.yaw : 0;
+      // Whoever lay on the pyre is laid there again when their funeral resumes; the rest lie where they were.
+      const body = r.atPyre ? null : this.graves.layBody({ x: r.x, y: this.game.world.groundY(r.x, r.z) + 0.02, z: r.z, yaw });
+      this.waiting.push({ name: r.name, x: r.x, z: r.z, yaw, spouse: Number.isFinite(r.spouse) ? r.spouse : undefined, prompt: !!r.prompt, atPyre: !!r.atPyre, body });
+    }
   }
 
   /** Game time `dt`. */
@@ -77,8 +100,11 @@ export class Passings {
     else if (this.waiting.length && dt > 0) {
       // The pyre is free: the next of the dead is taken up.
       const next = this.waiting.shift()!;
-      this.graves.takeBody(next.body);
+      if (next.body) this.graves.takeBody(next.body);
       this.startFuneral(next.name, next.x, next.z, next.yaw, next.spouse, next.prompt);
+      // Saved lying on the pyre: laid straight back on it, and the village called to mourn.
+      const begun = this.funeral as Passings['funeral'];
+      if (next.atPyre && begun?.pyre && begun.procession) this.bury();
     }
     if (dt > 0) this.graves.fadeAsh(dt, TIME.dayLength);
     if (g.eco.godMode || dt <= 0) return;
@@ -94,7 +120,7 @@ export class Passings {
     const h = g.time.hour;
     if (h < PASSING.hours[0] || h >= PASSING.hours[1] || this.funeral || adults < PASSING.minAdults) return;
     const due = g.colony.list.find((i) => !i.child && !i.npc && isElder(i) && (i.lifeLeft ?? 1) <= 0 && i.condition === 'well' && !i.warrior && (i.sleeping || i.hidden || !i.task));
-    if (due) this.pass(due);
+    if (due) { this.remember(due); this.pass(due); }
   }
 
   /**
@@ -208,11 +234,19 @@ export class Passings {
    * mourns and buries them as it does an elder, with words for how it happened.
    */
   take(isl: Islander, words: { kicker: string; line: string }, quiet = false): void {
-    this.game.ancestors?.remember(isl.name, isl.gender === 'f');
+    this.remember(isl, words.kicker);
     // One funeral at a time: anyone else who dies while one is under way (or in the same stroke)
     // lies shrouded where they fell until the pyre is free for them.
     if (this.funeral || quiet) this.layToRest(isl, quiet ? null : words);
     else this.pass(isl, words);
+  }
+
+  /** The dead join the ancestors, with when and how they died. */
+  private remember(isl: Islander, kicker?: string): void {
+    const t = this.game.time;
+    const cause = kicker === 'Struck down' ? 'struck down by the gods' : kicker === 'Taken by a shark' ? 'taken by a shark'
+      : kicker === 'Stung by jellyfish' ? 'stung by jellyfish' : kicker ? kicker.toLowerCase() : 'peacefully in their sleep';
+    this.game.ancestors?.remember(isl.name, isl.gender === 'f', { day: t?.day, season: t?.season, year: t?.year, cause });
   }
 
   /**
@@ -228,7 +262,7 @@ export class Passings {
   }
 
   /** The dead waiting for the pyre: each lies shrouded where they fell and is carried there in turn. */
-  private waiting: { name: string; x: number; z: number; yaw: number; spouse?: number; prompt?: boolean; body: import('three').Object3D }[] = [];
+  private waiting: { name: string; x: number; z: number; yaw: number; spouse?: number; prompt?: boolean; /** Already on the pyre when the game was saved. */ atPyre?: boolean; body: import('three').Object3D | null }[] = [];
 
   /** Their funeral must wait for the one under way: the body lies where it fell (a few at most; beyond that they are burned quietly). */
   private layToRest(isl: Islander, words: { kicker: string; line: string } | null): void {

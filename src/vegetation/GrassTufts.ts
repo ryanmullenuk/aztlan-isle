@@ -1,26 +1,56 @@
 import * as THREE from 'three';
 import { COLORS, VEG } from '../config';
-import { GeoBuilder, M } from '../render/GeoBuilder';
+import { GeoBuilder } from '../render/GeoBuilder';
 import { patchStylised } from '../render/materials';
 import { GROUND_FX, TRAMPLERS } from '../terrain/groundFx';
 import { RNG } from '../world/rng';
 import { World } from '../world/World';
 
-/** A clump of 5 thin blades, pivoting at the ground and swaying at the tips. */
+/**
+ * A clump of thin blades, pivoting at the ground and swaying at the tips: tall ones standing in the
+ * middle, shorter ones splayed round them, each a different height, width and lean, and every other
+ * blade bent over at the tip. (Blades alternate plain and bent, so doubling `n` doubles the vertices.)
+ */
 function tuftGeometry(n = 6): THREE.BufferGeometry {
   const b = new GeoBuilder();
-  const blade = new THREE.BufferGeometry();
-  blade.setAttribute('position', new THREE.Float32BufferAttribute([-0.03, 0, 0, 0.03, 0, 0, 0, 1, 0], 3));
+  const base = new THREE.Color(COLORS.grassOlive), tip = new THREE.Color(COLORS.grassBright), dry = new THREE.Color(0xc9c56a);
+  const hash = (k: number, s: number) => {
+    const v = Math.sin(k * 127.1 + s * 311.7) * 43758.5453;
+    return v - Math.floor(v);
+  };
   // Normals point up so blades light like the meadow under them (seen from above, not edge-on).
-  blade.setAttribute('normal', new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0], 3));
-  // Both windings share the upward normals, so either side lights the same (no back-face flip).
-  blade.setIndex([0, 1, 2, 2, 1, 0]);
-  const base = new THREE.Color(COLORS.grassOlive), tip = new THREE.Color(COLORS.grassBright);
   for (let k = 0; k < n; k++) {
-    const a = (k / n) * Math.PI * 2 + k * 0.7;
-    const h = 0.16 + ((k * 37) % 7) * 0.014;
-    // Blades fan outward so the clump reads from the tilted top-down camera.
-    b.add(blade, { color: (p) => base.clone().lerp(tip, Math.min(1, 0.35 + p.y / h)), sway: (p) => Math.min(1, p.y / h) * 0.9 }, M.t(Math.cos(a) * 0.03, 0, Math.sin(a) * 0.03, Math.sin(a) * 0.55, a, -Math.cos(a) * 0.55, 1, h, 1));
+    const bent = k % 2 === 1;
+    // Round the clump by the golden angle, so no two blades line up however many there are.
+    const a = k * 2.39996 + (hash(k, 1) - 0.5) * 0.6;
+    const out = 0.25 + 0.75 * hash(k, 2);
+    // Inner blades stand tall and straight; outer ones are shorter and lean right out.
+    const lean = 0.12 + out * 0.5, h = (0.27 - out * 0.09) * (0.85 + hash(k, 3) * 0.3), w = 0.02 + hash(k, 4) * 0.014;
+    const ca = Math.cos(a), sa = Math.sin(a), twist = a + Math.PI / 2 + (hash(k, 5) - 0.5) * 1.2;
+    const wx = Math.cos(twist) * w, wz = Math.sin(twist) * w;
+    const fx = ca * 0.025 * out, fz = sa * 0.025 * out;
+    const at = (d: number, l: number): [number, number, number] => [fx + ca * Math.sin(l) * d, Math.cos(l) * d, fz + sa * Math.sin(l) * d];
+    // Normals lean out with the blade (as the old clumps'), so the grass is shaded a little darker than the meadow, not paler.
+    const up = [ca * Math.sin(0.55), Math.cos(0.55), sa * Math.sin(0.55)];
+    const blade = new THREE.BufferGeometry();
+    let top = h;
+    if (bent) {
+      // A knee two thirds of the way up, the tip folding outward past it.
+      const knee = at(h * 0.62, lean), end = at(h * 0.42, lean + 0.8);
+      top = knee[1] + end[1];
+      blade.setAttribute('position', new THREE.Float32BufferAttribute([fx - wx, 0, fz - wz, fx + wx, 0, fz + wz, knee[0] - wx * 0.55, knee[1], knee[2] - wz * 0.55, knee[0] + end[0] - fx, top, knee[2] + end[2] - fz], 3));
+      blade.setAttribute('normal', new THREE.Float32BufferAttribute([...up, ...up, ...up, ...up], 3));
+      // Both windings share the upward normals, so either side lights the same (no back-face flip).
+      blade.setIndex([0, 1, 2, 2, 1, 0, 1, 3, 2, 2, 3, 1]);
+    } else {
+      blade.setAttribute('position', new THREE.Float32BufferAttribute([fx - wx, 0, fz - wz, fx + wx, 0, fz + wz, ...at(h, lean)], 3));
+      top = Math.cos(lean) * h;
+      blade.setAttribute('normal', new THREE.Float32BufferAttribute([...up, ...up, ...up], 3));
+      blade.setIndex([0, 1, 2, 2, 1, 0]);
+    }
+    // The odd blade drier and yellower than the rest.
+    const tipCol = tip.clone().lerp(dry, hash(k, 6) > 0.7 ? 0.45 : hash(k, 6) * 0.15);
+    b.add(blade, { color: (p) => base.clone().lerp(tipCol, Math.min(0.85, 0.2 + 0.7 * p.y / top)), sway: (p) => Math.min(1, p.y / top) * 0.9 });
   }
   return b.build();
 }

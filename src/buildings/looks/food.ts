@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { WORLD } from '../../config';
 import { GeoBuilder, M, P, doubleSide, lumpy, tube } from '../../render/GeoBuilder';
 import { RNG } from '../../world/rng';
+import { bloomAt, flowerHead, marigoldHead } from '../../vegetation/flowerParts';
 import { CHINAMPA_BED_Y, FARM_PEN, chinampaBeds } from '../models';
 import type { Look, Looks } from './types';
 
@@ -382,7 +383,7 @@ const maizeThreeSisters: Look = (b, w, d) => {
     for (let i = 2; i <= 8; i += 3) {
       const p = pts[i], a = ph + i;
       b.add(lumpy(P.sphere(0.035, 0), 0.2, i + 7, 0.4), { color: LEAF.light, leaf: 1 }, M.t(p.x + Math.cos(a) * 0.04, p.y, p.z + Math.sin(a) * 0.04));
-      if (i === 5) b.add(FLOWER, { color: c(0xe0452c), leaf: 1 }, M.t(p.x, p.y + 0.03, p.z, 0, 0, 0, 0.6, 0.6, 0.6));
+      if (i === 5) bloomAt(b, new THREE.Vector3(p.x, p.y + 0.025, p.z), 0.028, 'red', new RNG(i * 31 + Math.round(ph * 100)), 5, 0.5, 0);
       else b.add(P.cyl(0.008, 0.006, 0.08, 4), { color: i === 2 ? c(0x8fc24a) : c(0x6a3a72) }, M.t(p.x - Math.cos(a) * 0.04, p.y - 0.04, p.z - Math.sin(a) * 0.04, 0.2, 0, 0));
     }
   }
@@ -479,8 +480,9 @@ const chinampaFlowers: Look = (b, w) => {
   const clump = (x: number, yy: number, z: number, s = 1) => {
     b.add(lumpy(P.sphere(0.045 * s, 0), 0.3, rng.int(1, 9999), 0.8), { color: LEAF.mid.clone().multiplyScalar(rng.range(0.85, 1.1)), leaf: 1 }, M.t(x, yy + 0.03 * s, z));
     for (let k = 0; k < 2; k++) {
-      const col = c(rng.pick(cols));
-      b.add(FLOWER, { color: (q) => (q.y > yy + 0.1 * s ? c(0xf2d04a) : col.clone()), leaf: 1 }, M.t(x + rng.range(-0.03, 0.03) * s, yy + (0.075 + k * 0.02) * s, z + rng.range(-0.03, 0.03) * s, 0, rng.range(0, 3), 0, s, 0.6 * s, s));
+      const col = c(rng.pick(cols)), at = new THREE.Vector3(x + rng.range(-0.03, 0.03) * s, yy + (0.075 + k * 0.02) * s, z + rng.range(-0.03, 0.03) * s);
+      if (col.getHex() === 0xf08a1c || col.getHex() === 0xf4c430) marigoldHead(b, at, 0.04 * s, rng, col.getHex() === 0xf4c430, 0);
+      else flowerHead(b, at, 0.042 * s, col.clone().multiplyScalar(0.85), col.clone().lerp(c(0xffffff), 0.25), rng, 6, 0.45, 0);
     }
   };
   // Borders of marigolds, dahlias and cosmos along both long edges of every bed.
