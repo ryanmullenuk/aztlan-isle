@@ -17,7 +17,8 @@
     "islander:prepare": "for g in male female; do /Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup --python scripts/blender/prepare_islander.py -- art/islander_${g}_source.glb public/models/islander_${g}.glb 2000 512 art/islander_${g}_extra.glb; done",
     "test": "node --import tsx --test tests/*.test.ts",
     "perf": "node --import tsx scripts/performance.ts",
-    "perf:paths": "node --import tsx scripts/pathfinding-performance.ts"
+    "perf:paths": "node --import tsx scripts/pathfinding-performance.ts",
+    "build:web": "npm run build && node scripts/protect-web.mjs"
   },
   "dependencies": {
     "@capacitor/core": "^8.5.2",
