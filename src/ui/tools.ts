@@ -1,6 +1,13 @@
 import { BuildingKey, POWERS } from '../config';
+import { MIRACLES, MIRACLE_IDS, type MiracleId } from '../economy/Miracles';
 
-export type ToolId = 'select' | 'area' | 'build' | 'raise' | 'lower' | 'flatten' | 'harvest' | 'bless' | 'rain' | 'calm' | 'path' | 'dirtpath' | 'unpath' | 'bridge' | 'canal' | 'regrass' | 'flowers' | 'bushes' | 'shrubs' | 'trees' | 'unplant';
+export type ToolId = 'select' | 'area' | 'build' | 'raise' | 'lower' | 'flatten' | 'harvest' | 'bless' | 'rain' | 'calm' | 'path' | 'dirtpath' | 'unpath' | 'bridge' | 'canal' | 'regrass' | 'flowers' | 'bushes' | 'shrubs' | 'trees' | 'unplant' | MiracleTool;
+
+/** The miracles of fear and love that are cast on a place, as tools (see economy/Miracles). */
+export type MiracleTool = `m_${MiracleId}`;
+export const miracleTool = (id: MiracleId): MiracleTool => `m_${id}`;
+/** The miracle a tool casts, if it is one. */
+export const toolMiracle = (t: string): MiracleId | null => (t.startsWith('m_') && (MIRACLE_IDS as string[]).includes(t.slice(2)) ? t.slice(2) as MiracleId : null);
 
 /** The drag-to-paint Build tools (paths, bridges, canals, and planting the garden). */
 export const PAINT_TOOLS: ToolId[] = ['path', 'dirtpath', 'unpath', 'bridge', 'canal', 'regrass', 'flowers', 'bushes', 'shrubs', 'trees', 'unplant'];
@@ -28,6 +35,7 @@ export const TOOLS: ToolDef[] = [
   { id: 'bless', name: 'Bless crops', icon: 'bless', hint: 'Bless farms in an area: crops grow much faster for a while.', cost: POWERS.bless.cost },
   { id: 'rain', name: 'Rain', icon: 'rain', hint: 'Summon rain: crops and forests grow faster.', cost: POWERS.rain.cost },
   { id: 'calm', name: 'Calm', icon: 'calm', hint: 'Calm storms or an active volcano.', cost: POWERS.calm.cost },
+  ...MIRACLE_IDS.map((id): ToolDef => ({ id: miracleTool(id), name: MIRACLES[id].name, icon: MIRACLES[id].icon, hint: MIRACLES[id].hint, cost: POWERS.miracles[id].cost })),
 ];
 
 export const BUILD_MENU: BuildingKey[] = ['hut', 'stonemason', 'home', 'farm', 'herbalgarden', 'herbalist', 'maizefarm', 'chinampa', 'market', 'woodstore', 'grainstore', 'smokehouse', 'firepit', 'well', 'observatory', 'bonfire', 'torch', 'temple', 'greattemple', 'greathall', 'palace', 'healer', 'ceremony', 'graveyard', 'pyre', 'ancestoraltar', 'butcher', 'pigpen', 'chickenpen', 'kennel', 'boatworkshop', 'jetty', 'fishhut', 'tradedock', 'firemaker', 'warroom', 'watchtower'];
@@ -44,5 +52,5 @@ export const TOOLBAR: { id: SlotId; name: string; icon: string; hint: string; co
   { id: 'terrain', name: 'Terrain', icon: 'terrain', hint: 'Shape the land: raise, lower or flatten it. Hold and drag to sculpt.', cost: POWERS.sculptCostPerCell },
   { id: 'flora', name: 'Flora', icon: 'flora', hint: 'Plant flowers, bushes, shrubs and trees: hold and drag over open ground, like laying a path. Trees cost Belief; the rest are free.' },
   // (Harvesting is left to the islanders: they fell, mine and pick by themselves.)
-  { id: 'blessings', name: 'Power', icon: 'bless', hint: 'Choose Bless crops, Rain or Calm storms and volcanoes.' },
+  { id: 'blessings', name: 'Power', icon: 'bless', hint: 'Choose Bless crops, Rain or Calm storms and volcanoes, and the miracles your people’s fear or love unlocks.' },
 ];

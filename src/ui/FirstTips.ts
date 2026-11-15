@@ -6,7 +6,7 @@
  * feeds it a snapshot of the game and a yes or no for "may a tip show now".
  */
 
-export type TipKey = 'hand' | 'smite' | 'devotion' | 'death' | 'grave' | 'pyre' | 'altar' | 'ancestors' | 'swim';
+export type TipKey = 'hand' | 'smite' | 'devotion' | 'death' | 'grave' | 'pyre' | 'altar' | 'ancestors' | 'swim' | 'loveMiracle' | 'fearMiracle';
 
 export interface Tip { title: string; text: string }
 
@@ -19,6 +19,8 @@ export const TIPS: Record<TipKey, Tip> = {
   pyre: { title: 'Funeral Pyre', text: 'Now the dead are carried to the pyre and burned once five mourners have gathered. A Graveyard keeps their ashes in urns.' },
   altar: { title: 'Ancestor Altar', text: 'Islanders will ask to visit the ancestors, or tap the altar and choose Honour the ancestors tonight. Paper Flags make a fine decoration around it.' },
   ancestors: { title: 'Night of the Ancestors', text: 'The spirits of the dead are at the altar tonight. Tap a ghost to learn who they were.' },
+  loveMiracle: { title: 'Miracles of love', text: 'Your people love you: Healing Rain is yours under Power (6). Win more of their love for Bountiful Harvest and the Rainbow Blessing.' },
+  fearMiracle: { title: 'Miracles of fear', text: 'Your people fear you: Earthquake is yours under Power (6), and their frantic prayers repay it. Deeper fear brings Locusts and the Volcano.' },
   swim: { title: 'Swimming', text: 'Your islanders are swimming! They love a dip in the lakes, rivers and the waterfall pool, and come out happier.' },
 };
 
@@ -38,6 +40,9 @@ export interface TipState {
   /** The ancestors are out tonight. */
   ancestorNight: boolean;
   swimming: boolean;
+  /** A miracle of love (or of fear) is unlocked. */
+  loveMiracle?: boolean;
+  fearMiracle?: boolean;
 }
 
 /** May a tip show now: not in the tutorial, Photo Mode, a pop-up or a banner, and pop-ups not turned off. */
@@ -99,6 +104,8 @@ export class FirstTips {
     if (s.altar) this.want('altar');
     if (s.ancestorNight) this.want('ancestors');
     if (s.swimming) this.want('swim');
+    if (s.loveMiracle) this.want('loveMiracle');
+    if (s.fearMiracle) this.want('fearMiracle');
     if (this.open || gate.tutorial || gate.busy || gate.popups === 'off' || now - this.lastShown < TIP_GAP) return null;
     while (this.pending.length) {
       const k = this.pending.shift()!;

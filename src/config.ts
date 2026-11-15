@@ -929,6 +929,20 @@ export const POWERS = {
   calmHappy: 0.15,
   /** Game seconds between re-calls to shelter while a storm rages (villagers who wandered out go back in). */
   stormRecall: 20,
+  /**
+   * Miracles that follow fear or love (see economy/Miracles). Each path's three unlock as the
+   * Fear-or-love meter fills toward its end (`tiers`). Costs are Belief; cooldowns are game
+   * seconds (a day is 600). Fear miracles pay back in the frantic prayer that follows them.
+   */
+  miracles: {
+    tiers: [0.25, 0.5, 0.75] as [number, number, number],
+    healrain: { cost: 35, cooldown: 150, radius: 10, happy: 0.15, cropGrowth: 0.2, seconds: 7 },
+    harvest: { cost: 50, cooldown: 300, radius: 12, bonus: 0.5 },
+    rainbow: { cost: 80, cooldown: 900, seconds: 600, happy: 0.1, mood: 0.1, belief: 2 },
+    quake: { cost: 30, cooldown: 180, radius: 11, damage: 0.35, floor: 0.45, belief: 50, prayDelay: 15, seconds: 4.5 },
+    locusts: { cost: 45, cooldown: 300, radius: 12, seconds: 20, stock: 0.5, belief: 80, prayDelay: 10 },
+    volcano: { cost: 90, cooldown: 1200, rumble: 12, belief: 170 },
+  },
 };
 
 export const WILDLIFE = {

@@ -43,7 +43,9 @@ import { CameraRig } from './render/CameraRig';
 import { FX, setCanopyFade } from './render/materials';
 import { Input } from './ui/Input';
 import { UI } from './ui/UI';
-import { GARDEN_TOOLS, PAINT_TOOLS, TOOLBAR, TOOLS, ToolId } from './ui/tools';
+import { GARDEN_TOOLS, PAINT_TOOLS, TOOLBAR, TOOLS, ToolId, miracleTool, toolMiracle } from './ui/tools';
+import { MIRACLES, Miracles, miracleRadius, type MiracleId } from './economy/Miracles';
+import { MiracleFX } from './render/MiracleFX';
 import { PlantState, Vegetation, type Plant } from './vegetation/Vegetation';
 import { GrassTufts } from './vegetation/GrassTufts';
 import { Wildflowers } from './vegetation/Wildflowers';
@@ -303,6 +305,9 @@ export class Game {
   readonly blood = new BloodClouds();
   /** Fear or love: how the islanders see their god. */
   readonly devotion = new Devotion();
+  /** Miracles that follow fear or love (set up with the powers). */
+  miracles!: Miracles;
+  private miracleFX!: MiracleFX;
   private ancestorNightsSeen = 0;
   /** Firework displays over the village. */
   readonly fireworks = new Fireworks();
@@ -771,6 +776,7 @@ export class Game {
       };
       this.ui?.toast(line[now], worse && now !== 'Respectful' ? 'warn' : 'milestone');
     };
+    this.setupMiracles();
     this.fires = new StormFire(this.world, this.veg, this.eco, this.buildings, this.colony, () => this.rng.next());
     this.scene.add(this.fires.group);
     this.audio = new AudioEngine();
@@ -857,7 +863,7 @@ export class Game {
       }),
     }, save?.encounters);
     if (save) this.fires.announceRestored();
-    this.volcano.state.onErupt = () => { this.eco.res.belief = Math.max(0, this.eco.res.belief - 75); this.cinematics?.play('eruption', { x: this.volcano.x, z: this.volcano.z, radius: 14 }); };
+    this.volcano.state.onErupt = () => { if (!this.volcano.state.forced) this.eco.res.belief = Math.max(0, this.eco.res.belief - 75); this.cinematics?.play('eruption', { x: this.volcano.x, z: this.volcano.z, radius: 14 }); };
     // No lava early on: until the fifth day and a skilled village, the mountain only smokes.
     this.volcano.state.allowErupt = () => this.time.day >= 5 && this.progression.stage >= 3;
     this.volcano.notify = message => this.ui.toast(message, 'warn', () => ({ x: this.volcano.x, z: this.volcano.z }));
@@ -1102,7 +1108,9 @@ export class Game {
     };
     this.boatListHandler = () => this.boats.positions();
     this.powerHandler = (tool, p) => {
-      if (tool === 'bless') this.powers.bless(p.x, p.z);
+      const miracle = toolMiracle(tool);
+      if (miracle) { if (this.miracles.cast(miracle, p.x, p.z)) this.saveHandler?.(); }
+      else if (tool === 'bless') this.powers.bless(p.x, p.z);
       else if (tool === 'rain') this.powers.summonRain();
       else if (tool === 'calm') {
         const v = this.volcano;
@@ -1677,6 +1685,10 @@ export class Game {
       bless: 'Tap near your farms to bless their crops',
       rain: 'Tap anywhere to summon rain',
       calm: 'Tap the active volcano or a storm to calm it · 50 Belief',
+      m_healrain: `Tap near your people or fields to let the <b>healing rain</b> fall · ${POWERS.miracles.healrain.cost} Belief`,
+      m_harvest: `Tap over your fields for a <b>bountiful harvest</b> · ${POWERS.miracles.harvest.cost} Belief`,
+      m_quake: `Tap the ground to <b>shake</b> it · ${POWERS.miracles.quake.cost} Belief`,
+      m_locusts: `Tap over fields to send the <b>locusts</b> · ${POWERS.miracles.locusts.cost} Belief`,
       path: `Hold and drag to lay a <b>stone path</b> · ${PATHS.stonePerCell} stone per cell · Esc to finish`,
       dirtpath: 'Hold and drag to tread a <b>dirt path</b> · free · Esc to finish',
       unpath: 'Hold and drag over a path or bridge to <b>remove</b> it · Esc to finish',
@@ -1897,10 +1909,11 @@ export class Game {
     this.cursorWorld.copy(p);
     if (this.placing) this.updateGhost(p);
     const sculpt = this.tool === 'raise' || this.tool === 'lower' || this.tool === 'flatten';
-    const area = this.tool === 'harvest' || this.tool === 'bless' || PAINT_TOOLS.includes(this.tool);
+    const miracle = toolMiracle(this.tool);
+    const area = this.tool === 'harvest' || this.tool === 'bless' || PAINT_TOOLS.includes(this.tool) || (!!miracle && MIRACLES[miracle].area);
     this.brush.visible = sculpt || area;
     if (this.brush.visible) {
-      const r = this.tool === 'bless' ? POWERS.bless.radius : this.tool === 'harvest' ? 2 : this.tool === 'regrass' ? PATHS.regrassRadius + 0.3 : GARDEN_TOOLS.includes(this.tool) ? GARDEN.radius[this.tool as GardenBrush] + 0.15 : PAINT_TOOLS.includes(this.tool) ? PATHS.radius + 0.4 : POWERS.sculptRadius;
+      const r = miracle ? miracleRadius(miracle) : this.tool === 'bless' ? POWERS.bless.radius : this.tool === 'harvest' ? 2 : this.tool === 'regrass' ? PATHS.regrassRadius + 0.3 : GARDEN_TOOLS.includes(this.tool) ? GARDEN.radius[this.tool as GardenBrush] + 0.15 : PAINT_TOOLS.includes(this.tool) ? PATHS.radius + 0.4 : POWERS.sculptRadius;
       this.brush.scale.setScalar(r);
       this.brush.position.set(p.x, Math.max(0, p.y) + 0.08, p.z);
     }
@@ -3027,6 +3040,57 @@ export class Game {
     }
   }
 
+  /** Miracles of fear and love: the island they work on, and how they look and sound. */
+  private setupMiracles(): void {
+    this.miracleFX = new MiracleFX((x, z) => this.world.groundY(x, z));
+    this.scene.add(this.miracleFX.group);
+    this.miracles = new Miracles(this.eco, this.devotion, {
+      people: () => this.colony.list,
+      buildings: () => this.buildings.list,
+      heal: (i) => this.colony.heal(i),
+      scatter: (x, z, r) => this.colony.scatter(x, z, r, (i) => !!i.warrior),
+      flourish: (x, z, r, grow, fruit) => { this.veg.flourish(x, z, r, grow, fruit); },
+      canWakeVolcano: () => {
+        const v = this.volcano;
+        if (!v?.group.visible) return 'There is no volcano on this island.';
+        if (v.state.phase === 'dormant') return '';
+        return v.state.phase === 'cooling' ? 'The volcano is still cooling from its last stirring.' : 'The volcano is already awake.';
+      },
+      wakeVolcano: (rumble) => !!this.volcano?.state.wake(rumble),
+      volcanoPhase: () => (this.volcano?.group.visible ? this.volcano.state.phase : null),
+      moodShift: (d) => { this.colony.moodBoost += d; },
+      notify: (t, k, at) => this.ui?.toast(t, k ?? 'info', at),
+      effect: (id, x, z, r) => this.miracleEffect(id, x, z, r),
+      unlocked: (id, on) => this.ui?.toast(on
+        ? `A new miracle is yours: ${MIRACLES[id].name}. Find it under Power (6).`
+        : `${MIRACLES[id].name} is lost to you until your people ${MIRACLES[id].path === 'love' ? 'love' : 'fear'} you as they did.`, on ? 'milestone' : 'info'),
+    }, () => this.rng.next());
+  }
+
+  /** A miracle's sight and sound. */
+  private miracleEffect(id: MiracleId, x: number, z: number, r: number): void {
+    if (id === 'rainbow') {
+      const fire = this.buildings.list.find((b) => b.key === 'campfire');
+      x = fire?.x ?? this.rig.target.x; z = fire?.z ?? this.rig.target.z; r = 26;
+      this.rainbow.show(120, 2.2);
+    }
+    if (id === 'volcano') { x = this.volcano.x; z = this.volcano.z; }
+    this.miracleFX.start(id, x, z, r);
+    const sound: Record<MiracleId, string> = { healrain: 'miracleheal', harvest: 'miracleharvest', rainbow: 'miraclerainbow', quake: 'quake', locusts: 'locusts', volcano: 'quake' };
+    if (id === 'rainbow') this.audio?.sfx(sound[id]);
+    else this.audio?.sfx(sound[id], x, z);
+    if (MIRACLES[id].path === 'fear') haptic('medium');
+  }
+
+  /** Call one of the island-wide miracles (the Rainbow Blessing, Wake the Volcano), or pick up an area one to tap with. */
+  chooseMiracle(id: MiracleId): void {
+    const why = this.miracles.reason(id);
+    if (why) { this.ui.toast(why, 'warn'); this.audio?.sfx('deny'); return; }
+    if (MIRACLES[id].area) { if (this.tool !== miracleTool(id)) this.setTool(miracleTool(id)); return; }
+    if (this.tool !== 'select') this.setTool('select');
+    if (this.miracles.cast(id)) this.saveHandler?.();
+  }
+
   /** How things are round the island, for reading moods. */
   moodWorld(): MoodWorld {
     return { storm: this.powers.state === 'storm', night: this.time.isNight, winter: this.time.seasonIndex === 3, afraid: this.rare.afraid || this.eruptionFear };
@@ -3052,16 +3116,20 @@ export class Game {
   private quake(realDt: number): void {
     const v = this.volcano;
     const level = v ? v.shaking : 0;
-    if (level > 0 && this.settings.motion && !this.photoMode) {
+    // An Earthquake (the miracle) shakes the view too, hardest when looking at it.
+    const mq = this.miracleFX?.shaking ?? 0;
+    if ((level > 0 || mq > 0) && this.settings.motion && !this.photoMode) {
       this.quakeT += realDt;
       const cam = this.rig.camera, t = this.quakeT;
-      const near = 1 - THREE.MathUtils.smoothstep(Math.hypot(this.rig.target.x - v.x, this.rig.target.z - v.z), 25, 140);
+      const near = level > 0 ? 1 - THREE.MathUtils.smoothstep(Math.hypot(this.rig.target.x - v.x, this.rig.target.z - v.z), 25, 140) : 0;
+      const qa = this.miracleFX.quakeAt;
+      const nearQ = mq > 0 ? 1 - THREE.MathUtils.smoothstep(Math.hypot(this.rig.target.x - qa.x, this.rig.target.z - qa.z), 20, 120) : 0;
       // Scaled with the zoom, so it reads the same close in and far out.
-      const amp = level * (0.35 + 0.65 * near) * this.rig.cur.dist * 0.0075;
+      const amp = Math.max(level * (0.35 + 0.65 * near), mq * (0.3 + 0.7 * nearQ)) * this.rig.cur.dist * 0.0075;
       cam.position.x += (Math.sin(t * 37.1) + Math.sin(t * 61.7 + 1.3) * 0.6) * amp;
       cam.position.y += (Math.sin(t * 43.3 + 0.7) + Math.sin(t * 71.9) * 0.5) * amp * 0.7;
       cam.position.z += (Math.sin(t * 40.9 + 2.1) + Math.sin(t * 57.3) * 0.6) * amp;
-      cam.rotation.z += Math.sin(t * 29.3) * level * 0.004;
+      cam.rotation.z += Math.sin(t * 29.3) * Math.max(level, mq) * 0.004;
       cam.updateMatrixWorld();
     }
     // A buzz in the hand at each spurt.
@@ -3758,9 +3826,12 @@ export class Game {
     // A night with the ancestors wins the village's love.
     if (this.ancestors.held > this.ancestorNightsSeen) { if (this.ancestorNightsSeen || this.ancestors.held === 1) this.devotion.shift(DEVOTION.ancestors); this.ancestorNightsSeen = this.ancestors.held; }
     this.devotion.update(dt);
+    this.miracles.update(dt);
+    this.miracleFX.update(realDt, this.miracles.swarms[0] ?? null, this.rig.camera, this.renderer.domElement.height);
     this.fearOfTheHand(dt);
     this.offerings(dt);
-    this.colony.devotion = { pace: this.devotion.pace, mood: this.devotion.mood, belief: this.devotion.belief };
+    // The Rainbow Blessing cheers everyone and doubles the Belief of the happy.
+    this.colony.devotion = { pace: this.devotion.pace, mood: this.devotion.mood + this.miracles.mood, belief: this.devotion.belief * this.miracles.beliefFactor };
     if (this.post) this.post.mood = this.devotion.value;
     // The Sun Stone's favour: a steady trickle of Belief.
     if (dt > 0 && this.wonder('sunstone')) this.eco.add('belief', (WONDER_EFFECT.beliefPerMinute * dt) / 60);

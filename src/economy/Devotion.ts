@@ -16,6 +16,13 @@ export const DEVOTION = {
   calm: 0.06,
   wish: 0.03,
   ancestors: 0.08,
+  /** Miracles: each pushes the village further along its own path (see Miracles). */
+  healrain: 0.04,
+  harvest: 0.05,
+  rainbow: 0.08,
+  quake: -0.05,
+  locusts: -0.07,
+  volcano: -0.12,
   /** Game seconds for a feeling to fade halfway back to respect (four days). */
   halfLife: 2400,
   /** At full terror: work this much faster, this much less happy. At full adoration: this much happier, this much more Belief. */

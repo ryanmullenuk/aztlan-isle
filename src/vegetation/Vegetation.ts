@@ -1367,6 +1367,28 @@ export class Vegetation {
     return out;
   }
 
+  /**
+   * A miracle's touch on the plants within `r` of (x, z): saplings shoot up by `grow` (0..1 of their
+   * growing), and fruit trees and bushes fill by `fruit` of what they can hold. Returns how many changed.
+   */
+  flourish(x: number, z: number, r: number, grow: number, fruit: number): number {
+    let n = 0;
+    const r2 = r * r;
+    for (const p of this.plants) {
+      const dx = p.x - x, dz = p.z - z;
+      if (dx * dx + dz * dz > r2) continue;
+      if (p.state === PlantState.Sapling && grow > 0) {
+        p.growth = Math.min(1, p.growth + grow);
+        if (p.growth >= 1) { p.state = PlantState.Alive; p.fruit = 0; }
+      } else if (p.state === PlantState.Alive && p.fruitMax > 0 && p.fruit < p.fruitMax && fruit > 0) {
+        p.fruit = Math.min(p.fruitMax, p.fruit + p.fruitMax * fruit);
+      } else continue;
+      this.touch(p);
+      n++;
+    }
+    return n;
+  }
+
   /** Pick fruit. Returns fruit gained. */
   harvest(p: Plant, max: number): number {
     const n = Math.min(max, Math.floor(p.fruit));

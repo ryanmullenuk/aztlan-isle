@@ -1911,3 +1911,32 @@ body.cinematic #hud { opacity: 0.1; }
 .first-tip::after { content: ''; display: block; clear: both; }
 @keyframes ft-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .first-tip.ft-in { animation: none; } }
+
+/* Power popup: the god powers, then a column each for the miracles of love and of fear. */
+.power-pop { flex-direction: row; align-items: flex-start; gap: 10px; }
+.power-pop .pp-col { display: flex; flex-direction: column; gap: 6px; }
+.power-pop .pp-head { font-size: 10.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; opacity: .75; padding: 0 4px 2px; color: #f2e2b8; }
+.power-pop .pp-love .pp-head { color: #f5a0a8; }
+.power-pop .pp-fear .pp-head { color: #b9a2ec; }
+.tp-item.mi-item { min-width: 190px; }
+.mi-item .mi-txt { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left; }
+.mi-item .mi-state { display: inline-flex; align-items: center; gap: 3px; font-size: 10.5px; font-weight: 600; opacity: .8; }
+.mi-item .mi-state svg { width: 11px; height: 11px; }
+.mi-item.locked { opacity: .5; filter: grayscale(.85); }
+.mi-item.locked .ic { opacity: .7; }
+.mi-item.resting .cost { opacity: .55; }
+@media (max-width: 900px) {
+  .power-pop { flex-direction: column; max-height: calc(100vh - 170px); overflow-y: auto; }
+  .power-pop .pp-col { width: 100%; }
+  .tp-item.mi-item { min-width: 0; }
+}
+.mi-path { margin: 4px 0 8px; }
+.mi-path > b { font-size: 12px; }
+.mi-path.love > b { color: #f5a0a8; }
+.mi-path.fear > b { color: #b9a2ec; }
+.mi-path ul { list-style: none; margin: 4px 0 2px; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; }
+.mi-path li { display: inline-flex; align-items: center; gap: 4px; }
+.mi-path li.off { opacity: .55; }
+.mi-path li em { font-style: normal; font-size: 10px; opacity: .7; }
+.mi-path .mi-ic, .mi-path .mi-ic .ic { display: inline-flex; width: 16px; height: 16px; }
+.mi-path .mi-ic svg { width: 16px; height: 16px; }

@@ -14,7 +14,7 @@ import { rareBlock, rareLeft } from '../economy/RareGoods';
 import { settingsMarkup, wireSettingsTabs } from './SettingsPanel';
 import { serialize } from '../world/Save';
 import { islandFile, parseIslandFile, downloadIsland, MAX_ISLAND_FILE_BYTES } from '../world/IslandFile';
-import { DEFENCE, DOGS, GOODS, GOOD_KEYS, GoodKey, VOYAGE, FAUNA, PATHS, BUILDINGS, BuildingKey, CAMERA, JETTY, MILESTONES, PresetName, SAVE, SPECIES, WARRIOR, FARM_TYPES, SMOKE, TEST_TOOLS, type FixedTime, STONEMASON, BOAT_WORKSHOP, TRADE, TradeOffer, ResourceKey, FIREWORKS, RARE_GOODS, WONDER_KEYS, WONDERS, isWonder, DECREES, PALACE_RULES, type DecreeKey, RESEARCH, RESEARCH_UPGRADE_LABEL, OBSERVATORY, TIME, DECOR_KEYS } from '../config';
+import { DEFENCE, DOGS, GOODS, GOOD_KEYS, GoodKey, VOYAGE, FAUNA, PATHS, BUILDINGS, BuildingKey, CAMERA, JETTY, MILESTONES, PresetName, SAVE, SPECIES, WARRIOR, FARM_TYPES, SMOKE, TEST_TOOLS, type FixedTime, STONEMASON, BOAT_WORKSHOP, TRADE, TradeOffer, ResourceKey, FIREWORKS, RARE_GOODS, WONDER_KEYS, WONDERS, isWonder, DECREES, PALACE_RULES, type DecreeKey, RESEARCH, RESEARCH_UPGRADE_LABEL, OBSERVATORY, TIME, DECOR_KEYS, POWERS } from '../config';
 import { MONKEY_BASE } from '../entities/Monkeys';
 import { DOG_BASE } from '../entities/Dogs';
 import { JAG_BASE } from '../entities/Jaguars';
@@ -40,7 +40,8 @@ import { CARGO_KEYS, CargoKey, haulText, holdValue } from '../entities/Voyage';
 import { tradeBoatsAt } from '../entities/Trade';
 import { Research } from '../economy/Research';
 import { Forecaster } from '../economy/Forecast';
-import { BUILD_MENU, GARDEN_TOOLS, PAINT_TOOLS, TERRAIN_TOOLS, TOOLBAR, TOOLS, ToolId } from './tools';
+import { BUILD_MENU, GARDEN_TOOLS, PAINT_TOOLS, TERRAIN_TOOLS, TOOLBAR, TOOLS, ToolId, miracleTool } from './tools';
+import { MIRACLES, MIRACLE_IDS, miracleCost, miracleThreshold, pathAmount, unlockText, waitText, type MiracleId } from '../economy/Miracles';
 import { GARDEN } from '../vegetation/Garden';
 
 /** A building's price as icons and amounts. */
@@ -198,7 +199,7 @@ export class UI {
     { tut: 'build', title: 'Build', text: '<b>Build (3)</b> opens the building menu. Choose a Hut and place it on flat land: your builders bring the wood and put it up.', done: (g) => g.buildings.list.some((b) => b.key === 'hut' || b.key === 'home') },
     { tut: 'terrain', next: true, title: 'Terrain', text: '<b>Terrain (4)</b> shapes the land: raise, lower or flatten it by holding and dragging, to make level ground for bigger buildings, or dig canals. Sculpting costs Belief.', done: () => this.tutNext },
     { tut: 'flora', next: true, title: 'Flora', text: '<b>Flora (5)</b> plants gardens: hold and drag over open ground to lay flowers, bushes and shrubs (free) or trees (they cost Belief).', done: () => this.tutNext },
-    { tut: 'blessings', next: true, title: 'Power', text: '<b>Power (6)</b> holds your god powers, paid for in Belief (the bar under the toolbar): bless the crops, bring rain, and calm storms and the volcano.', done: () => this.tutNext },
+    { tut: 'blessings', next: true, title: 'Power', text: '<b>Power (6)</b> holds your god powers, paid for in Belief (the bar under the toolbar): bless the crops, bring rain, and calm storms and the volcano. As your people come to love or fear you, miracles unlock here too.', done: () => this.tutNext },
     // The buttons in the top right, top to bottom.
     { tut: 'speed', next: true, title: 'Time and speed', text: 'Beside the clock, <b>pause</b> stops time and the arrows play it at 1×, 2× or 3× speed. Space pauses too.', done: () => this.tutNext },
     { tut: 'menu', next: true, title: 'The menu button', text: 'The <b>☰</b> button at the top right tucks the buttons below it away for a clearer view, and brings them back. Tucked away, it shows how many alerts are waiting.', done: () => this.tutNext },
@@ -615,6 +616,34 @@ export class UI {
   private blessingPop!: HTMLDivElement;
   private blessingSlot!: HTMLButtonElement;
   private floraItems: HTMLButtonElement[] = [];
+  private miracleItems: HTMLButtonElement[] = [];
+  private miracleKey = '';
+
+  /** The miracles in the Power popup: locked (and what unlocks them), resting, or ready. */
+  private syncMiracleItems(): void {
+    const g = this.game, m = g.miracles;
+    if (!m || this.blessingPop.classList.contains('hidden')) return;
+    const states = this.miracleItems.map((b) => {
+      const id = b.dataset.miracle as MiracleId, d = MIRACLES[id];
+      if (!m.unlocked(id)) return `lock|${Math.round(pathAmount(d.path, g.devotion.value) * 100)}/${Math.round(miracleThreshold(d.tier) * 100)}%`;
+      if (!g.eco.godMode && m.cooldown[id] > 0) return `rest|${waitText(m.cooldown[id])}`;
+      const why = m.reason(id);
+      return why ? `dim|${why.startsWith('Not enough') ? 'Needs Belief' : 'Not now'}` : 'ready|Ready';
+    });
+    const key = `${states.join(',')}|${g.tool}`;
+    if (key === this.miracleKey) return;
+    this.miracleKey = key;
+    this.miracleItems.forEach((b, i) => {
+      const [kind, text] = states[i].split('|');
+      const id = b.dataset.miracle as MiracleId, d = MIRACLES[id];
+      b.classList.toggle('locked', kind === 'lock');
+      b.classList.toggle('resting', kind === 'rest' || kind === 'dim');
+      b.classList.toggle('on', g.tool === b.dataset.tool);
+      const who = d.path === 'love' ? (d.tier === 3 ? 'Adoring' : 'Devoted') : (d.tier === 3 ? 'Terrified' : 'Fearful');
+      b.querySelector('.mi-state')!.innerHTML = kind === 'lock' ? `${ICONS.lock} ${who} · ${text}` : kind === 'rest' ? `Ready in ${text}` : text;
+      b.setAttribute('aria-label', kind === 'lock' ? `${d.name}, locked. ${unlockText(id, g.devotion.value)}` : `${d.name}, ${miracleCost(id)} Belief. ${kind === 'rest' ? `Ready in ${text}` : text}`);
+    });
+  }
 
   /** Show a small popup menu next to the button that opened it (toggles if already open). */
   private openPopup(pop: HTMLElement, from: HTMLElement, side: 'above' | 'below'): void {
@@ -664,7 +693,9 @@ export class UI {
   }
 
   toggleBlessings(): void {
+    this.miracleKey = '';
     this.openPopup(this.blessingPop, this.blessingSlot, 'above');
+    this.syncMiracleItems();
     this.blessingSlot.setAttribute('aria-expanded', String(!this.blessingPop.classList.contains('hidden')));
   }
 
@@ -766,14 +797,36 @@ export class UI {
       this.floraPop.appendChild(b);
     }
     this.root.appendChild(this.floraPop);
-    this.blessingPop = el('div', 'panel popup terrain-pop hidden');
+    // Power: the god powers, then the miracles of love and of fear in a column each (locked ones
+    // shown greyed with what unlocks them, so players can see what is coming).
+    this.blessingPop = el('div', 'panel popup terrain-pop power-pop hidden');
+    const col = (title: string, cls: string) => {
+      const c = el('div', `pp-col ${cls}`, `<div class="pp-head">${title}</div>`);
+      this.blessingPop.appendChild(c);
+      return c;
+    };
+    const powersCol = col('Powers', 'pp-powers');
     for (const id of ['bless', 'rain', 'calm'] as ToolId[]) {
       const t = TOOLS.find(t => t.id === id)!;
       const b = el('button', 'tp-item', `${icon(t.icon)}<span class="nm">${t.name}</span><span class="cost">${icon('belief')}${t.cost}</span>`);
       b.dataset.tool = id;
       b.onclick = () => { this.closePopups(); this.game.setTool(id); };
       this.addTip(b, t.hint);
-      this.blessingPop.appendChild(b);
+      powersCol.appendChild(b);
+    }
+    const cols = { love: col('Miracles of love', 'pp-love'), fear: col('Miracles of fear', 'pp-fear') };
+    for (const id of MIRACLE_IDS) {
+      const d = MIRACLES[id];
+      const b = el('button', 'tp-item mi-item', `${icon(d.icon)}<span class="mi-txt"><span class="nm">${d.name}</span><span class="mi-state"></span></span><span class="cost">${icon('belief')}${miracleCost(id)}</span>`) as HTMLButtonElement;
+      b.dataset.tool = miracleTool(id);
+      b.dataset.miracle = id;
+      b.onclick = () => { this.closePopups(); this.game.chooseMiracle(id); };
+      this.addTip(b, () => {
+        const why = this.game.miracles?.reason(id) ?? '';
+        return `<b>${d.name}</b><br>${d.hint}<br><span class="c">${icon('belief')} ${miracleCost(id)} · ready again ${waitText(POWERS.miracles[id].cooldown)} after</span>${why ? `<br><i>${why}</i>` : ''}`;
+      });
+      this.miracleItems.push(b);
+      cols[d.path].appendChild(b);
     }
     this.root.appendChild(this.blessingPop);
     // Tapping anywhere else closes an open popup.
@@ -1168,6 +1221,15 @@ export class UI {
         <li><b>The god’s hand:</b> press on an islander and drag to pick them up; they dangle like a rag doll. Let go to throw them: on land they pick themselves up, and in the sea or a lake they swim back to shore, unless a shark or jellyfish gets them first.</li>
         <li><b>Smiting:</b> the <b>Smite</b> button on an islander’s card (or <b>Smite all</b> with several selected) strikes them dead at once. Those nearby run for their lives, and the village carries the dead to their funeral.</li>
         <li><b>Fear or love:</b> smiting and throwing islanders make the village fear you: they work harder but are less happy. Blessings, rain, calming storms, granted wishes and nights with the ancestors win their love: happier islanders and more Belief. The meter is in the <b>Mood</b> panel; either feeling slowly fades.</li>
+        <li><b>Miracles of love and fear</b> (under <b>Power</b>, 6): as the meter fills toward one end, that path's three miracles unlock (at 25%, 50% and 75%), and lock again if the feeling fades. Locked ones show what they need. Each costs Belief and needs a while before it can be called again, and each pushes the village further along its path.
+          <ul>
+            <li><b>Healing Rain</b> (love, 35): a golden shower over an area makes the sick and hurt well, cheers everyone under it and makes crops and plants flourish.</li>
+            <li><b>Bountiful Harvest</b> (love, 50): every field in the area ripens at once, and its next harvest is half as large again; fruit trees fill with fruit.</li>
+            <li><b>Rainbow Blessing</b> (love, 80): a rainbow over the island; for a day everyone is happier and happy islanders bring twice the Belief.</li>
+            <li><b>Earthquake</b> (fear, 30): the ground shakes in an area; people flee and buildings crack (repair them from their cards; they never fall). The frightened village then prays: +50 Belief.</li>
+            <li><b>Locust Swarm</b> (fear, 45): a black swarm strips the fields in an area back to bare earth over twenty seconds and eats half their gathered crop. Frantic prayer after: +80 Belief.</li>
+            <li><b>Wake the Volcano</b> (fear, 90): the sleeping volcano rumbles and erupts at once (with no Belief lost to it). When the lava stops, the terrified village prays: +170 Belief.</li>
+          </ul></li>
         <li>Temples upgrade twice into the Great Pyramid. The Great Temple is built in four phases.</li>
         <li><b>Wonders</b> (Capital of the Isle, one of each, built in four phases): the <b>Colossal Head</b> makes everyone a little happier, the <b>Sun Stone</b> brings a steady trickle of Belief, and the <b>Sky Tower</b> makes research half as fast again. Each wonder (and the Great Temple) also adds to your island’s <b>fame</b>: visiting traders come sooner and offer better deals.</li>
       </ul>
@@ -1297,6 +1359,8 @@ export class UI {
       altar: built('ancestoraltar'),
       ancestorNight: g.ancestors?.state === 'night',
       swimming: !!g.bathing?.list.some((s) => s.phase === 'swim'),
+      loveMiracle: !g.eco.godMode && (g.devotion?.value ?? 0) >= POWERS.miracles.tiers[0],
+      fearMiracle: !g.eco.godMode && -(g.devotion?.value ?? 0) >= POWERS.miracles.tiers[0],
     }, {
       tutorial: this.tutorialOpen,
       busy: this.zen || !!this.photo?.open || this.dialog.showing || !!this.dialog.banner?.pending || !this.dialog.canShow(),
@@ -1433,10 +1497,10 @@ export class UI {
     return closed;
   }
 
-  private addTip(target: HTMLElement, html: string): void {
+  private addTip(target: HTMLElement, html: string | (() => string)): void {
     target.addEventListener('pointerenter', (e) => {
       if ((e as PointerEvent).pointerType !== 'mouse') return;
-      this.tooltip.innerHTML = html;
+      this.tooltip.innerHTML = typeof html === 'function' ? html() : html;
       this.tooltip.classList.remove('hidden');
       const r = target.getBoundingClientRect();
       const tw = this.tooltip.offsetWidth, th = this.tooltip.offsetHeight;
@@ -1707,7 +1771,7 @@ export class UI {
       const tool = TOOLBAR[i];
       const terrain = tool.id === 'terrain' && TERRAIN_TOOLS.includes(g.tool);
       const flora = tool.id === 'flora' && GARDEN_TOOLS.includes(g.tool);
-      b.classList.toggle('on', g.tool === tool.id || terrain || flora || (tool.id === 'blessings' && ['bless', 'rain', 'calm'].includes(g.tool)) || (tool.id === 'build' && PAINT_TOOLS.includes(g.tool) && !GARDEN_TOOLS.includes(g.tool)));
+      b.classList.toggle('on', g.tool === tool.id || terrain || flora || (tool.id === 'blessings' && (['bless', 'rain', 'calm'].includes(g.tool) || g.tool.startsWith('m_'))) || (tool.id === 'build' && PAINT_TOOLS.includes(g.tool) && !GARDEN_TOOLS.includes(g.tool)));
       b.classList.toggle('dim', !!tool.cost && e.res.belief < tool.cost);
       // The Flora slot names the brush in use.
       if (tool.id === 'flora') {
@@ -1724,6 +1788,7 @@ export class UI {
     });
     for (const b of this.terrainItems) b.classList.toggle('on', g.tool === b.dataset.tool);
     for (const b of this.floraItems) b.classList.toggle('on', g.tool === b.dataset.tool);
+    this.syncMiracleItems();
     const pauseIcon = t.paused ? 'play' : 'pause';
     if (this.pauseBtn.dataset.icon !== pauseIcon) {
       this.pauseBtn.innerHTML = ICONS[pauseIcon];

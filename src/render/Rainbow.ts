@@ -77,9 +77,12 @@ export class Rainbow {
   }
 
   /** The rain has just cleared: show a rainbow if the sun is out to make one. */
-  show(seconds = 70): void {
+  show(seconds = 70, strength = 1): void {
     this.left = seconds;
+    this.strength = strength;
   }
+  /** A god's rainbow (the Rainbow Blessing) is bolder than one after rain, and bright whichever way you look. */
+  private strength = 1;
 
   update(dt: number, camera: THREE.PerspectiveCamera, target: THREE.Vector3, ls: LightState, overcast: number): void {
     const sunUp = THREE.MathUtils.smoothstep(ls.sunSky.y, 0.03, 0.15) * (1 - ls.night);
@@ -92,7 +95,9 @@ export class Rainbow {
     // Faint when facing the sun, full when facing away from it.
     const fl = Math.hypot(_f.x, _f.z) || 1, sl = Math.hypot(ls.sunSky.x, ls.sunSky.z) || 1;
     const away = -(_f.x * ls.sunSky.x + _f.z * ls.sunSky.z) / (fl * sl);
-    this.mat.uniforms.uAmt.value = this.amt * (0.35 + 0.65 * THREE.MathUtils.smoothstep(away, -0.3, 0.5));
+    const facing = THREE.MathUtils.smoothstep(away, -0.3, 0.5);
+    this.mat.uniforms.uAmt.value = this.amt * this.strength * (this.strength > 1 ? 0.75 + 0.25 * facing : 0.35 + 0.65 * facing);
+    if (this.left <= 0 && this.amt < 0.01) this.strength = 1;
     // Centred below the bottom of the screen at the target's depth, wide enough to span it.
     const depth = camera.position.distanceTo(target);
     const h = depth * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));

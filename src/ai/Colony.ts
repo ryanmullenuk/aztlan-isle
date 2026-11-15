@@ -1750,7 +1750,8 @@ export class Colony {
         if (harvesting) {
           if (f.key === 'herbalgarden' && !this.bld.list.some(b => b.key === 'herbalist' && buildingOperational(b) && !b.upgrading)) return this.releaseTask(isl);
           if (f.growth >= 1) {
-            f.stock += Math.round((FARM_TYPES[f.key]?.yield ?? FARM.grainYield) * (this.bld.decreeFactor?.('harvest') ?? 1) * harvestFactor(f));
+            f.stock += Math.round((FARM_TYPES[f.key]?.yield ?? FARM.grainYield) * (this.bld.decreeFactor?.('harvest') ?? 1) * harvestFactor(f) * (1 + (f.bounty > 0 ? f.bounty : 0)));
+            f.bounty = 0;
             f.growth = 0;
             // Fish caught in the chinampa's channels go straight to the stores.
             if (harvestFish(f)) this.eco.add('fish', harvestFish(f));
@@ -2744,8 +2745,8 @@ export class Colony {
     return true;
   }
 
-  /** Back on their feet: well again, and back to work. */
-  private heal(isl: Islander): void {
+  /** Back on their feet: well again, and back to work (a cure, or a miracle). */
+  heal(isl: Islander): void {
     isl.condition = 'well';
     isl.conditionT = 0;
     isl.injured = 0;

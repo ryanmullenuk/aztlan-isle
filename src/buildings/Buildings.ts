@@ -133,6 +133,8 @@ export class Building {
   marketStock: Partial<Record<import('../config').ResourceKey, number>> = {};
   tendTimer = 0;
   blessTimer = 0;
+  /** Bountiful Harvest: the next harvest yields this share more again (0 = none). */
+  bounty = 0;
   crops: THREE.Mesh | null = null;
   /** The finished model at full detail (the mesh shows a simpler copy when far away). */
   finishedHi: THREE.BufferGeometry | null = null;

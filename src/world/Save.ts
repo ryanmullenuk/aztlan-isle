@@ -54,6 +54,8 @@ export interface SaveData {
   lanterns?: { held: number };
   ancestors?: unknown;
   devotion?: unknown;
+  /** Miracles of fear and love: cooldowns, the rainbow's blessing, swarms and prayers to come. */
+  miracles?: unknown;
   volcano?: VolcanoSave;
   fires?: StormFireSave;
   encounters?: EncounterSave;
@@ -69,6 +71,8 @@ export interface SaveData {
     /** A free turn (radians) for pieces that face any way. */
     yaw?: number;
     upgrading: boolean; growth: number; stock: number; boats: number; bless: number;
+    /** Bountiful Harvest's extra share on the next harvest. */
+    bounty?: number;
     /** Kennel: litter timer, breeding rest, dog role (1 = guard). */
     breed?: number; cool?: number; guard?: number;
     monumentPaid?: number;
@@ -220,6 +224,7 @@ export function serialize(g: Game): SaveData {
     ...(g.lanternNight ? { lanterns: g.lanternNight.save() } : {}),
     ...(g.ancestors ? { ancestors: g.ancestors.save() } : {}),
     ...(g.devotion ? { devotion: g.devotion.save() } : {}),
+    ...(g.miracles ? { miracles: g.miracles.save() } : {}),
     ...(g.rareSales ? { rareSales: { day: g.rareSales.day, bought: { ...g.rareSales.bought } } } : {}),
     ...(g.volcano ? { volcano: g.volcano.save() } : {}),
     world: { layer: toB64(layerU), sandy: q8(w.sandy), forest: q8(w.forest), rocky: q8(w.rocky), wear: q8(w.wear), path: toB64(w.path), bridge: toB64(w.bridge), canal: toB64(w.canal) },
@@ -239,6 +244,7 @@ export function serialize(g: Game): SaveData {
       } : {}),
       ...(b.yaw ? { yaw: Math.round(b.yaw * 1000) / 1000 } : {}),
       ...(b.belief > 0 ? { belief: Math.round(b.belief * 100) / 100 } : {}),
+      ...(b.bounty > 0 ? { bounty: b.bounty } : {}),
       id: b.id, key: b.key, cx: b.cx, cz: b.cz, rot: b.rot, complete: b.complete, progress: b.progress, tier: b.tier,
       upgrading: b.upgrading, growth: b.growth, stock: b.stock, boats: b.key === 'tradedock' ? b.tradeBoats : b.boats.length, bless: b.blessTimer,
       ...(['jetty','tradedock'].includes(b.key) ? {boatBuild:b.boatBuild??0,boatSail:b.boatSail??false} : {}),
@@ -334,6 +340,7 @@ export function applyRest(g: Game, d: SaveData): void {
     const nb = g.buildings.restore(b.key, b.cx, b.cz, b.rot, b);
     nb.monumentPaid = b.monumentPaid;
     if (typeof b.belief === 'number' && b.belief > 0) nb.belief = b.belief;
+    if (typeof b.bounty === 'number' && b.bounty > 0 && b.bounty <= 2) nb.bounty = b.bounty;
     if (b.decree && b.decree in DECREES) nb.decree = b.decree;
     if (b.decree2 && b.decree2 in DECREES) nb.decree2 = b.decree2;
     nb.boatBuild = b.boatBuild??0;nb.boatSail=b.boatSail??false;
@@ -395,6 +402,7 @@ export function applyRest(g: Game, d: SaveData): void {
   g.lanternNight?.restore(d.lanterns);
   g.ancestors?.restore(d.ancestors);
   g.devotion?.restore(d.devotion);
+  g.miracles?.restore(d.miracles);
   if (g.research) {
     if (d.research) g.research.restore(d.research);
     else {

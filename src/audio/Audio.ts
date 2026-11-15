@@ -496,7 +496,7 @@ export class AudioEngine {
     if (!this.ready) return;
     const ctx = this.ctx!;
     const now = ctx.currentTime;
-    const minGap: Record<string, number> = { chop: 0.12, mine: 0.12, build: 0.1, sculpt: 0.09, drop: 0.1, waterdrop: 0.08, flap: 0.15, mark: 0.05, splash: 0.2, bark: 0.12, growl: 0.5, yelp: 0.3, bell: 3, fwlaunch: 0.1, fwbang: 0.06, whoosh: 0.15, wadein: 0.3, stroke: 0.3, paddle: 0.5, sharktake: 1, pyrelight: 2, ghostin: 2, ghostout: 2 };
+    const minGap: Record<string, number> = { chop: 0.12, mine: 0.12, build: 0.1, sculpt: 0.09, drop: 0.1, waterdrop: 0.08, flap: 0.15, mark: 0.05, splash: 0.2, bark: 0.12, growl: 0.5, yelp: 0.3, bell: 3, fwlaunch: 0.1, fwbang: 0.06, whoosh: 0.15, wadein: 0.3, stroke: 0.3, paddle: 0.5, sharktake: 1, pyrelight: 2, ghostin: 2, ghostout: 2, miracleheal: 2, miracleharvest: 2, miraclerainbow: 2, quake: 1, locusts: 3 };
     const lastT = this.last.get(name) ?? -Infinity;
     if (now - lastT < (minGap[name] ?? 0.03)) return;
     this.last.set(name, now);
@@ -504,7 +504,7 @@ export class AudioEngine {
     if (x !== undefined && z !== undefined) {
       const d = Math.hypot(x - this.listener.x, z - this.listener.z);
       // Small sounds (a swimmer's stroke) carry less far than the rest.
-      const reach: Record<string, number> = { stroke: 0.4, paddle: 0.35, wadein: 0.5, whoosh: 0.6, ghostin: 0.7, ghostout: 0.7 };
+      const reach: Record<string, number> = { stroke: 0.4, paddle: 0.35, wadein: 0.5, whoosh: 0.6, ghostin: 0.7, ghostout: 0.7, quake: 2.5, locusts: 1.6, miracleheal: 1.6, miracleharvest: 1.6 };
       const hear = AUDIO.hearingRadius * (reach[name] ?? 1) * (0.6 + this.listener.zoom / 120);
       vol = Math.max(0, 1 - d / hear) * Math.max(0.15, 1 - this.listener.zoom / 220);
       if (vol < 0.02) return;
@@ -703,6 +703,65 @@ export class AudioEngine {
           }
           burst('bandpass', 1600, 2, 0.035, 0.08, undefined, hit * 1.15);
         }
+        break;
+      }
+      // Miracles of love: a shimmer of soft high partials over a hush of rain (Healing Rain)…
+      case 'miracleheal': {
+        [1318.5, 1568, 1975.5, 2637, 3136].forEach((f, k) => {
+          hum('sine', f, f * 1.003, 0.25, 2.6, 0.02, k * 0.13);
+          hum('sine', f * 1.006, f * 1.006, 0.3, 2.2, 0.01, k * 0.13 + 0.05);
+        });
+        swell('highpass', 4000, 6500, 0.5, 0.8, 5.5, 0.05);
+        swell('bandpass', 1800, 2400, 0.6, 0.6, 5, 0.04);
+        break;
+      }
+      // …a rising chord, note on note (Bountiful Harvest)…
+      case 'miracleharvest': {
+        [0, 2, 4, 7].forEach((k, i) => setTimeout(() => this.ready && this.flute(this.scale[Math.min(7, k)] * 2, ctx.currentTime, 0.9, 0.7 * vol), i * 160));
+        [261.6, 329.6, 392, 523.3].forEach((f, i) => hum('triangle', f, f * 1.002, 0.5 + i * 0.15, 2.4, 0.035, i * 0.16));
+        swell('bandpass', 900, 3200, 0.8, 0.9, 1.8, 0.05);
+        break;
+      }
+      // …and a bright, broad swell (the Rainbow Blessing).
+      case 'miraclerainbow': {
+        [523.3, 659.3, 784, 1046.5, 1318.5, 1568].forEach((f, i) => hum('sine', f, f * 1.004, 1.2, 4.2, 0.03, i * 0.09));
+        [261.6, 392].forEach((f) => hum('triangle', f, f, 1.4, 4, 0.04));
+        swell('highpass', 3000, 8000, 0.5, 1.5, 3.8, 0.04);
+        break;
+      }
+      // Miracles of fear: a deep rumble, the ground grinding and cracking (Earthquake, a woken volcano)…
+      case 'quake': {
+        burst('lowpass', 160, 0.8, 4.6, 0.9, 50);
+        tone('sine', 48, 28, 4.2, 0.55);
+        tone('triangle', 36, 24, 3.6, 0.35);
+        swell('lowpass', 420, 120, 0.7, 0.4, 4.4, 0.35);
+        for (let k = 0; k < 6; k++) burst('bandpass', 500 + Math.random() * 900, 1.2, 0.09, 0.22, 140, 0.3 + k * 0.55 + Math.random() * 0.2);
+        break;
+      }
+      // …and the buzzing drone of a locust swarm, swelling and beating for its stay.
+      case 'locusts': {
+        const dur = 21;
+        for (const [f, g0] of [[118, 0.05], [123.5, 0.045], [236, 0.025]] as const) {
+          const o = ctx.createOscillator();
+          o.type = 'sawtooth';
+          o.frequency.setValueAtTime(f, t);
+          // Wings beat: a fast wobble in pitch and loudness.
+          const lfo = ctx.createOscillator(), depth = ctx.createGain();
+          lfo.frequency.value = 21 + Math.random() * 6;
+          depth.gain.value = f * 0.04;
+          lfo.connect(depth).connect(o.frequency);
+          const fl = ctx.createBiquadFilter();
+          fl.type = 'bandpass'; fl.frequency.value = 900; fl.Q.value = 0.8;
+          const g = ctx.createGain();
+          g.gain.setValueAtTime(0, t);
+          g.gain.linearRampToValueAtTime(g0 * vol, t + 2.5);
+          g.gain.setValueAtTime(g0 * vol, t + dur - 4);
+          g.gain.linearRampToValueAtTime(0.0001, t + dur);
+          o.connect(fl).connect(g).connect(this.sfxBus);
+          o.start(t); lfo.start(t);
+          o.stop(t + dur + 0.05); lfo.stop(t + dur + 0.05);
+        }
+        swell('bandpass', 3800, 3200, 2.5, 2.5, dur, 0.05);
         break;
       }
     }

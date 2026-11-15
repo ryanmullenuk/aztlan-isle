@@ -13,7 +13,7 @@ function lcg(seed: number): () => number {
 }
 
 export type VolcanoPhase = 'dormant' | 'smoking' | 'erupting' | 'cooling';
-export interface VolcanoSave { x: number; z: number; phase: VolcanoPhase; remaining: number; cycle: number; coolingHot?: boolean; warningVersion?: number }
+export interface VolcanoSave { x: number; z: number; phase: VolcanoPhase; remaining: number; cycle: number; coolingHot?: boolean; warningVersion?: number; forced?: boolean }
 export const VOLCANO_SMOKE_SECONDS = 300;
 export const VOLCANO_COST = 50;
 export const VOLCANO_HAPPINESS = 0.15;
@@ -36,6 +36,8 @@ export class VolcanoCycle {
   remaining = VOLCANO.firstStir;
   cycle = 0;
   coolingHot = false;
+  /** Woken by the god (Wake the Volcano): this stirring ends in lava, soon, whatever the cycle says. */
+  forced = false;
   /** Whether lava may come at all just now (none early in a game); set by the game. */
   allowErupt: () => boolean = () => true;
   constructor(private seed: number, saved?: VolcanoSave) {
@@ -47,13 +49,14 @@ export class VolcanoCycle {
         this.remaining = Math.max(0, VOLCANO_SMOKE_SECONDS - (35 - Math.min(35, saved.remaining)));
       this.coolingHot = saved.coolingHot === true;
       this.cycle = Number.isSafeInteger(saved.cycle) && saved.cycle >= 0 ? saved.cycle : 0;
+      this.forced = saved.forced === true && (this.phase === 'smoking' || this.phase === 'erupting');
     }
   }
   get active(): boolean { return this.phase === 'smoking' || this.phase === 'erupting'; }
   /** This stirring is one that ends in lava (fixed by the island and the cycle, so forecasts can read it). */
-  get erupts(): boolean { return new RNG(this.seed + this.cycle * 7919 + 13).next() < VOLCANO.eruptChance; }
+  get erupts(): boolean { return this.forced || new RNG(this.seed + this.cycle * 7919 + 13).next() < VOLCANO.eruptChance; }
   /** Smoking, and lava is on its way: the ground shakes. */
-  get rumbling(): boolean { return this.phase === 'smoking' && this.remaining <= VOLCANO.rumble && this.erupts && this.allowErupt(); }
+  get rumbling(): boolean { return this.phase === 'smoking' && this.remaining <= VOLCANO.rumble && this.erupts && (this.forced || this.allowErupt()); }
   onErupt: () => void = () => {};
   update(dt: number): void {
     if (!Number.isFinite(dt) || dt <= 0) return;
@@ -61,19 +64,33 @@ export class VolcanoCycle {
     while (this.remaining <= 0) {
       if (this.phase === 'dormant') { this.phase = 'smoking'; this.remaining += VOLCANO_SMOKE_SECONDS; }
       else if (this.phase === 'smoking') {
-        if (this.erupts && this.allowErupt()) { this.phase = 'erupting'; this.remaining += VOLCANO.eruptSecs; this.onErupt(); }
+        if (this.erupts && (this.forced || this.allowErupt())) { this.phase = 'erupting'; this.remaining += VOLCANO.eruptSecs; this.onErupt(); }
         // Only smoke this time: it thins away and the mountain sleeps again.
         else { this.coolingHot = false; this.phase = 'cooling'; this.remaining += VOLCANO.coolSecs; }
       }
-      else if (this.phase === 'erupting') { this.coolingHot = true; this.phase = 'cooling'; this.remaining += VOLCANO.coolSecs; }
+      else if (this.phase === 'erupting') { this.forced = false; this.coolingHot = true; this.phase = 'cooling'; this.remaining += VOLCANO.coolSecs; }
       else {
         this.phase = 'dormant'; this.cycle++;
         this.remaining += new RNG(this.seed + this.cycle * 7919).range(VOLCANO.quiet[0], VOLCANO.quiet[1]);
       }
     }
   }
+  /**
+   * The god wakes the mountain (a miracle of fear): from sleep it rumbles for `rumble` seconds and
+   * then erupts, whatever the cycle would have done and however young the village. Only from
+   * dormant (never while it already stirs or cools). Returns whether it woke.
+   */
+  wake(rumble: number): boolean {
+    if (this.phase !== 'dormant' || !(rumble > 0)) return false;
+    this.phase = 'smoking';
+    this.remaining = Math.min(VOLCANO.rumble, rumble);
+    this.forced = true;
+    this.coolingHot = false;
+    return true;
+  }
   calm(pay: (cost: number) => boolean): boolean {
     if (!this.active || !pay(VOLCANO_COST)) return false;
+    this.forced = false;
     this.coolingHot = this.phase === 'erupting';
     this.phase = 'cooling'; this.remaining = 25;
     return true;
@@ -702,7 +719,7 @@ export class Volcano {
     this.animate(0);
   }
   save(): VolcanoSave | undefined {
-    return this.group.visible ? { x: this.x, z: this.z, phase: this.state.phase, remaining: this.state.remaining, cycle: this.state.cycle, coolingHot: this.state.coolingHot, warningVersion: 2 } : undefined;
+    return this.group.visible ? { x: this.x, z: this.z, phase: this.state.phase, remaining: this.state.remaining, cycle: this.state.cycle, coolingHot: this.state.coolingHot, warningVersion: 2, ...(this.state.forced ? { forced: true } : {}) } : undefined;
   }
   /** The ground was shaking last update (to announce it once). */
   private rumbled = false;
@@ -714,12 +731,12 @@ export class Volcano {
     this.rumbled = this.state.rumbling;
     if (previous !== this.state.phase && this.state.phase === 'smoking')
       this.notify('The volcano is smoking. It may settle, or it may erupt: calm it now for 50 Belief, or wait and watch (an eruption costs 75 Belief).');
-    if (this.rumbled && !wasRumbling)
+    if (this.rumbled && !wasRumbling && !this.state.forced)
       this.notify('The ground is shaking and the smoke turns black: lava is coming! Calm the volcano now for 50 Belief.');
     if (previous === 'smoking' && this.state.phase === 'cooling')
       this.notify('The volcano’s smoke thins away. It has settled, this time.');
     if (previous !== this.state.phase && this.state.phase === 'erupting')
-      this.notify('The volcano is erupting! 75 Belief lost. Use Calm for 50 Belief to stop the lava.');
+      this.notify(this.state.forced ? 'The volcano erupts at your word! The village cowers by the fire and prays.' : 'The volcano is erupting! 75 Belief lost. Use Calm for 50 Belief to stop the lava.');
     this.animate(dt);
   }
   private animate(dt: number): void {
