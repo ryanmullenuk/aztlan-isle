@@ -1,6 +1,7 @@
 import { AUDIO } from '../config';
 import type { Islander } from '../entities/Islander';
 import { canChatter, chatterGain, chatterPan, chatterPhrase, type ChatterCamera } from './Chatter';
+import { Soundscape, type SoundWorld } from './Soundscape';
 
 /**
  * Audio with the Web Audio API. The island's theme is a recorded track (public/audio); everything
@@ -46,6 +47,23 @@ export class AudioEngine {
   private mood = { night: 0, storm: 0 };
   private drone: GainNode | null = null;
   waterfall: { x: number; y: number; z: number } | null = null;
+  /** The island's newer happenings, listened for each frame (see Soundscape). */
+  private scape: Soundscape | null = null;
+  /** The camera, for panning the positional loops (set with the chatter each frame). */
+  private cam: ChatterCamera | null = null;
+  /** Fountains' trickle and splash, the spirits' pad: one shared loop each, levels set per frame. */
+  private fountain!: GainNode;
+  private fountainPan!: StereoPannerNode;
+  private pad!: GainNode;
+  private padPan!: StereoPannerNode;
+  private dripTimer = 0.3;
+
+  /** Listen to the game for the sounds of fountains, swimmers, the pyre, the spirits and sharks. */
+  watch(world: SoundWorld): void {
+    this.scape = new Soundscape(world, (n, x, z) => {
+      if (!this.muted && this.volume > 0) this.sfx(n, x, z);
+    });
+  }
 
   get ready(): boolean {
     return !!this.ctx && this.ctx.state === 'running';
@@ -285,6 +303,77 @@ export class AudioEngine {
     this.fallPanner.rolloffFactor = 1.6;
     this.fallPanner.maxDistance = 200;
     fn.connect(ff).connect(this.fall).connect(this.fallPanner).connect(this.ambBus);
+    // Fountains: bright noise babbling under two quick tremolos (the trickle), over a soft, low
+    // splash; silent until the view is close to one (see update).
+    const tn = this.loopSource(this.noise);
+    const tbp = ctx.createBiquadFilter();
+    tbp.type = 'bandpass';
+    tbp.frequency.value = 2600;
+    tbp.Q.value = 0.8;
+    const babble = ctx.createGain();
+    babble.gain.value = 0.55;
+    for (const [f, depth] of [[4.7, 0.2], [7.3, 0.16], [11.9, 0.1]]) {
+      const o = ctx.createOscillator();
+      o.frequency.value = f;
+      const og = ctx.createGain();
+      og.gain.value = depth;
+      o.connect(og).connect(babble.gain);
+      o.start();
+    }
+    const sn = this.loopSource(this.brown);
+    const slp = ctx.createBiquadFilter();
+    slp.type = 'lowpass';
+    slp.frequency.value = 900;
+    const splashG = ctx.createGain();
+    splashG.gain.value = 0.7;
+    this.fountain = ctx.createGain();
+    this.fountain.gain.value = 0;
+    this.fountainPan = ctx.createStereoPanner();
+    tn.connect(tbp).connect(babble).connect(this.fountain);
+    sn.connect(slp).connect(splashG).connect(this.fountain);
+    this.fountain.connect(this.fountainPan).connect(this.ambBus);
+    // The spirits: a low, hollow open fifth breathing slowly, silent until they are out.
+    const pf = ctx.createBiquadFilter();
+    pf.type = 'lowpass';
+    pf.frequency.value = 650;
+    pf.Q.value = 0.4;
+    const breathe = ctx.createGain();
+    breathe.gain.value = 0.75;
+    const blfo = ctx.createOscillator();
+    blfo.frequency.value = 0.09;
+    const blg = ctx.createGain();
+    blg.gain.value = 0.25;
+    blfo.connect(blg).connect(breathe.gain);
+    blfo.start();
+    for (const [f, type, g0] of [[110, 'sine', 1], [110.6, 'triangle', 0.5], [164.8, 'sine', 0.7], [220.9, 'sine', 0.35], [329.2, 'sine', 0.12]] as [number, OscillatorType, number][]) {
+      const o = ctx.createOscillator();
+      o.type = type;
+      o.frequency.value = f;
+      const og = ctx.createGain();
+      og.gain.value = g0;
+      o.connect(og).connect(pf);
+      o.start();
+    }
+    this.pad = ctx.createGain();
+    this.pad.gain.value = 0;
+    this.padPan = ctx.createStereoPanner();
+    pf.connect(breathe).connect(this.pad).connect(this.padPan).connect(this.ambBus);
+  }
+
+  /** How near the view a place is, 0 (out of earshot) to 1, for a sound heard over `radius` metres and gone by zoom `zoomOut`. */
+  private closeness(x: number, z: number, radius: number, zoomOut: number): number {
+    const L = this.listener;
+    const hear = radius * (0.6 + L.zoom / 120);
+    const near = Math.max(0, 1 - Math.hypot(x - L.x, z - L.z) / hear);
+    return near * near * Math.max(0, 1 - L.zoom / zoomOut);
+  }
+
+  /** Left or right of the camera, -0.7..0.7. */
+  private panAt(x: number, z: number): number {
+    const c = this.cam;
+    if (!c) return 0;
+    const dx = x - c.x, dz = z - c.z;
+    return Math.max(-0.7, Math.min(0.7, (dx * c.rightX + dz * c.rightZ) / Math.max(3, Math.hypot(dx, dz))));
   }
 
   // ---------------- Music ----------------
@@ -407,14 +496,16 @@ export class AudioEngine {
     if (!this.ready) return;
     const ctx = this.ctx!;
     const now = ctx.currentTime;
-    const minGap: Record<string, number> = { chop: 0.12, mine: 0.12, build: 0.1, sculpt: 0.09, drop: 0.1, waterdrop: 0.08, flap: 0.15, mark: 0.05, splash: 0.2, bark: 0.12, growl: 0.5, yelp: 0.3, bell: 3, fwlaunch: 0.1, fwbang: 0.06 };
+    const minGap: Record<string, number> = { chop: 0.12, mine: 0.12, build: 0.1, sculpt: 0.09, drop: 0.1, waterdrop: 0.08, flap: 0.15, mark: 0.05, splash: 0.2, bark: 0.12, growl: 0.5, yelp: 0.3, bell: 3, fwlaunch: 0.1, fwbang: 0.06, whoosh: 0.15, wadein: 0.3, stroke: 0.3, paddle: 0.5, sharktake: 1, pyrelight: 2, ghostin: 2, ghostout: 2 };
     const lastT = this.last.get(name) ?? -Infinity;
     if (now - lastT < (minGap[name] ?? 0.03)) return;
     this.last.set(name, now);
     let vol = 1;
     if (x !== undefined && z !== undefined) {
       const d = Math.hypot(x - this.listener.x, z - this.listener.z);
-      const hear = AUDIO.hearingRadius * (0.6 + this.listener.zoom / 120);
+      // Small sounds (a swimmer's stroke) carry less far than the rest.
+      const reach: Record<string, number> = { stroke: 0.4, paddle: 0.35, wadein: 0.5, whoosh: 0.6, ghostin: 0.7, ghostout: 0.7 };
+      const hear = AUDIO.hearingRadius * (reach[name] ?? 1) * (0.6 + this.listener.zoom / 120);
       vol = Math.max(0, 1 - d / hear) * Math.max(0.15, 1 - this.listener.zoom / 220);
       if (vol < 0.02) return;
     }
@@ -447,6 +538,39 @@ export class AudioEngine {
       n.connect(fl).connect(g).connect(this.sfxBus);
       n.start(t + delay, Math.random() * 2);
       n.stop(t + delay + dur + 0.05);
+    };
+    /** Filtered noise that swells in over `attack` and dies away by `dur` (a rush of air or water). */
+    const swell = (type: BiquadFilterType, f0: number, f1: number, q: number, attack: number, dur: number, g0: number, delay = 0) => {
+      const s = t + delay;
+      const n = ctx.createBufferSource();
+      n.buffer = this.noise;
+      const fl = ctx.createBiquadFilter();
+      fl.type = type;
+      fl.frequency.setValueAtTime(f0, s);
+      fl.frequency.exponentialRampToValueAtTime(f1, s + dur);
+      fl.Q.value = q;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, s);
+      g.gain.linearRampToValueAtTime(g0 * vol, s + attack);
+      g.gain.exponentialRampToValueAtTime(0.0001, s + dur);
+      n.connect(fl).connect(g).connect(this.sfxBus);
+      n.start(s, Math.random() * 2);
+      n.stop(s + dur + 0.05);
+    };
+    /** A held tone fading in over `attack` and away by `dur` (a swell, a shimmering partial). */
+    const hum = (type: OscillatorType, f0: number, f1: number, attack: number, dur: number, g0: number, delay = 0) => {
+      const s = t + delay;
+      const o = ctx.createOscillator();
+      o.type = type;
+      o.frequency.setValueAtTime(f0, s);
+      o.frequency.exponentialRampToValueAtTime(f1, s + dur);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, s);
+      g.gain.linearRampToValueAtTime(g0 * vol, s + attack);
+      g.gain.exponentialRampToValueAtTime(0.0001, s + dur);
+      o.connect(g).connect(this.sfxBus);
+      o.start(s);
+      o.stop(s + dur + 0.05);
     };
     switch (name) {
       case 'click': tone('sine', 900, 620, 0.07, 0.12); break;
@@ -525,6 +649,41 @@ export class AudioEngine {
       case 'arrowhit': burst('lowpass', 900, 1.5, 0.08, 0.35); tone('sine', 140, 90, 0.08, 0.2); break;
       // The Great Hall's bronze bell: three slow strikes, each a cluster of inharmonic partials
       // (hum, fundamental, minor third, fifth, octave, upper) ringing down at their own rates.
+      // An islander thrown by the god's hand: a soft rush of air.
+      case 'whoosh': swell('bandpass', 320, 1500, 1.3, 0.1, 0.42, 0.16); break;
+      // Bathing: off the shallows into swimming depth; a stroke (a scoop and its drips); a gentle paddle or slosh.
+      case 'wadein': burst('lowpass', 1500, 0.7, 0.45, 0.13, 240); burst('bandpass', 850, 1.5, 0.25, 0.05, undefined, 0.08); break;
+      case 'stroke':
+        swell('bandpass', 560 + Math.random() * 220, 340, 1.1, 0.06, 0.26, 0.07);
+        swell('highpass', 2600, 3400, 0.8, 0.02, 0.12, 0.018, 0.2);
+        break;
+      case 'paddle': swell('lowpass', 650 + Math.random() * 150, 360, 0.8, 0.09, 0.4, 0.045); break;
+      // A shark takes someone: a sudden thrash in the water, then a dull, ominous swell.
+      case 'sharktake':
+        for (let k = 0; k < 6; k++) burst('bandpass', 600 + Math.random() * 900, 1.2, 0.12 + Math.random() * 0.08, 0.24 * (1 - k / 8), undefined, k * 0.1 + Math.random() * 0.04);
+        burst('lowpass', 2200, 0.7, 1.3, 0.32, 180);
+        hum('sine', 49, 44, 1.1, 4.5, 0.2, 0.3);
+        hum('sine', 51.9, 46, 1.1, 4.5, 0.14, 0.3);
+        hum('triangle', 98, 73, 1.4, 3.8, 0.035, 0.5);
+        break;
+      // The pyre catching: a rising rush of flame over a low whump, the first pops.
+      case 'pyrelight':
+        swell('bandpass', 220, 1200, 0.7, 0.4, 1.6, 0.3);
+        swell('lowpass', 320, 110, 0.7, 0.15, 1.4, 0.22);
+        for (let k = 0; k < 4; k++) burst('bandpass', 1800 + Math.random() * 3000, 1.5, 0.03, 0.08, undefined, 0.6 + k * 0.25 + Math.random() * 0.15);
+        break;
+      // The spirits coming (rising) and going (falling): a high, airy shimmer of soft partials.
+      case 'ghostin':
+      case 'ghostout': {
+        const up = name === 'ghostin', notes = [880, 1108.7, 1318.5, 1760, 2217.5];
+        notes.forEach((f, k) => {
+          const d = (up ? k : notes.length - 1 - k) * 0.11;
+          hum('sine', f, f * (up ? 1.004 : 0.996), 0.3, 2.4, up ? 0.022 : 0.016, d);
+          hum('sine', f * 1.003, f * 1.003, 0.35, 2.0, 0.01, d + 0.02);
+        });
+        swell('bandpass', up ? 3500 : 7000, up ? 7000 : 3000, 0.8, 0.6, 1.8, 0.035);
+        break;
+      }
       case 'bell': {
         const f = 220;
         const partials: [number, number, number][] = [[0.5, 0.1, 4.5], [1, 0.14, 3.2], [1.19, 0.07, 2.4], [1.5, 0.05, 2.0], [2, 0.06, 1.7], [2.74, 0.035, 1.1], [3.76, 0.02, 0.7]];
@@ -556,6 +715,7 @@ export class AudioEngine {
 
   /** Sparse nearby conversation; never generates audio for every villager on every frame. */
   updateChatter(dt: number, people: Islander[], camera: ChatterCamera, quiet = false): void {
+    this.cam = camera;
     if (!this.ready) return;
     const silent = quiet || dt <= 0 || this.muted || this.volume <= 0;
     const now = this.ctx!.currentTime;
@@ -643,6 +803,7 @@ export class AudioEngine {
   // ---------------- Per frame ----------------
 
   update(dt: number): void {
+    this.scape?.update(dt);
     if (!this.ready) return;
     const ctx = this.ctx!;
     const L = this.listener;
@@ -686,13 +847,34 @@ export class AudioEngine {
     // The places round the view: rain hissing, a fire roaring and crackling, gulls over the shore,
     // frogs in the damp at night, and the knocks and taps of village work by day.
     this.rainBed.gain.setTargetAtTime(L.rain * (0.22 + L.storm * 0.18) * (0.5 + zoomFade * 0.5), t, 0.8);
-    const fire = L.fire * zoomFade * (1 - L.rain * 0.5);
+    // (A burning pyre near the view roars and crackles too, from its side of the view.)
+    const S = this.scape, pyre = S?.pyre ? S.pyre.flame * this.closeness(S.pyre.x, S.pyre.z, 22, 200) : 0;
+    const fire = Math.max(L.fire * zoomFade, pyre) * (1 - L.rain * 0.5);
     this.fireBed.gain.setTargetAtTime(fire * 0.18, t, 0.4);
     this.crackleTimer -= dt;
     if (this.crackleTimer <= 0) {
       this.crackleTimer = 0.04 + Math.random() * 0.35;
-      if (fire > 0.05) this.crackle(fire);
+      if (fire > 0.05) this.crackle(fire, pyre > L.fire * zoomFade ? this.panAt(S!.pyre!.x, S!.pyre!.z) : 0);
     }
+    // Fountains: one loop, as loud as the nearest (and most) fountains, from their side of the view.
+    let fl = 0, fp = 0;
+    for (const f of S?.fountains ?? []) {
+      const w = this.closeness(f.x, f.z, 14, 110) * Math.min(1, 0.45 + 0.12 * f.n);
+      if (w <= 0) continue;
+      fl += w;
+      fp += w * this.panAt(f.x, f.z);
+    }
+    this.fountain.gain.setTargetAtTime(Math.min(1, fl) * 0.2, t, 0.4);
+    if (fl > 0) this.fountainPan.pan.setTargetAtTime(fp / fl, t, 0.3);
+    this.dripTimer -= dt;
+    if (this.dripTimer <= 0) {
+      this.dripTimer = 0.15 + Math.random() * 0.5;
+      if (fl > 0.15) this.drip(Math.min(1, fl), fl > 0 ? fp / fl : 0);
+    }
+    // The spirits' pad, by the altar while they are out.
+    const gh = S?.ghosts, pad = gh ? gh.shown * this.closeness(gh.x, gh.z, 20, 170) : 0;
+    this.pad.gain.setTargetAtTime(pad * 0.05, t, 0.6);
+    if (gh) this.padPan.pan.setTargetAtTime(this.panAt(gh.x, gh.z), t, 0.5);
     this.gullTimer -= dt;
     if (this.gullTimer <= 0) {
       this.gullTimer = 3 + Math.random() * 7;
@@ -710,8 +892,27 @@ export class AudioEngine {
     }
   }
 
+  /** A drop falling into a fountain's basin: a tiny rising plink. */
+  private drip(vol: number, pan: number): void {
+    const ctx = this.ctx!;
+    const t = ctx.currentTime + 0.01, f = 900 + Math.random() * 900;
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(f, t);
+    o.frequency.exponentialRampToValueAtTime(f * 1.6, t + 0.05);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.018 * vol, t + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.07);
+    const p = ctx.createStereoPanner();
+    p.pan.value = Math.max(-0.8, Math.min(0.8, pan + Math.random() * 0.3 - 0.15));
+    o.connect(g).connect(p).connect(this.ambBus);
+    o.start(t);
+    o.stop(t + 0.09);
+  }
+
   /** A pop from a burning log. */
-  private crackle(vol: number): void {
+  private crackle(vol: number, at = 0): void {
     const ctx = this.ctx!;
     const t = ctx.currentTime + 0.01;
     const n = ctx.createBufferSource();
@@ -725,7 +926,7 @@ export class AudioEngine {
     g.gain.exponentialRampToValueAtTime(0.12 * vol * (0.4 + Math.random() * 0.6), t + 0.002);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.02 + Math.random() * 0.03);
     const pan = ctx.createStereoPanner();
-    pan.pan.value = Math.random() * 0.4 - 0.2;
+    pan.pan.value = Math.max(-0.8, Math.min(0.8, at + Math.random() * 0.4 - 0.2));
     n.connect(f).connect(g).connect(pan).connect(this.ambBus);
     n.start(t, Math.random() * 2);
     n.stop(t + 0.08);

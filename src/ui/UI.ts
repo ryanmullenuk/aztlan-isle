@@ -30,6 +30,7 @@ import { islanderLine } from './islanderLines';
 import { ISLAND_TYPES, type IslandType } from '../world/generator';
 import { PhotoMode } from './PhotoMode';
 import { GameDialog, type PopupMode } from './GameDialog';
+import { FirstTips, TipCard } from './FirstTips';
 import { islandMood } from '../economy/Mood';
 import { GOD_NAME, randomIslandName } from '../world/names';
 import { Ground } from '../world/World';
@@ -247,6 +248,7 @@ export class UI {
     this.buildSettings();
     this.buildHelp();
     this.buildTutorial();
+    this.buildTips();
     this.updateIslandName();
     this.refresh(true);
   }
@@ -1122,6 +1124,7 @@ export class UI {
           <li><b>Scroll</b>: zoom · <b>Q / E</b>, <b>middle-drag</b> or <b>Alt/Shift + drag</b>: rotate</li>
           <li>Or drag the <b>compass</b> at the end of the toolbar (double-click resets)</li>
           <li><b>Click</b>: select or place · <b>R</b>: rotate a building</li>
+          <li><b>Press on an islander and drag</b>: pick them up · <b>let go</b>: throw</li>
           <li><b>Hold and drag</b> with a Terrain tool: sculpt</li>
           <li><b>1–7</b>: toolbar · <b>Space</b>: pause · <b>Esc</b>: cancel</li>
         </ul></div>
@@ -1130,6 +1133,7 @@ export class UI {
           <li><b>Pinch</b>: zoom · <b>Twist</b> with two fingers: rotate</li>
           <li>Drag the <b>compass</b> at the end of the toolbar with one finger to rotate (double-tap resets)</li>
           <li><b>Tap</b>: select or place</li>
+          <li><b>Press on an islander and drag</b>: pick them up · <b>let go</b>: throw</li>
         </ul></div>
       </div>
       <h4>Your village</h4><ul>
@@ -1152,12 +1156,18 @@ export class UI {
         <li><b>The willow glade:</b> new islands have a larger main island with a quiet glade of weeping willows round a freshwater lake, with lily pads and lotus flowers. Its fresh fish bite readily: islanders come to fish from its shore.</li>
         <li><b>Ceremonial Platform:</b> a wooden deck on the beach, its arch facing the sea. Once built, weddings are held there: a priest marries the couple under the arch while the guests fill the benches.</li>
         <li><b>Graveyard:</b> once built, when an elder passes two islanders carry them there on a litter and a headstone is raised in the next plot, in neat rows either side of the path (sixteen in all).</li>
+        <li><b>Funeral Pyre:</b> with a pyre built, the dead are carried to it instead of buried, and it is lit once five mourners have gathered. Their ashes are kept in an urn in the Graveyard (or given to the wind without one). Tap a grave or urn and choose <b>Move</b> to set it somewhere else; turn it with R, or press, hold and drag.</li>
+        <li><b>Ancestor Altar:</b> once it stands and someone has died, islanders now and then ask to visit the ancestors, or tap the altar and choose <b>Honour the ancestors tonight</b>. That night the spirits of the dead gather at the altar to greet the living (+Belief, a comforted village); <b>tap a ghost</b> to learn who they were. <b>Paper Flags</b> make a fine decoration around it.</li>
+        <li><b>Swimming:</b> on fair days islanders go for a swim in the lakes, rivers and the waterfall pool, and come out happier.</li>
         <li>Elders don’t live for ever. After some weeks an elder passes away peacefully in their sleep, and the village gathers to lay them to rest near the temple (or the tribal fire). A grave with a carved stone and marigolds marks the spot; tap it to see who lies there. A small village (fewer than six grown islanders) keeps its elders a while longer.</li>
       </ul>
       <h4>Belief and the gods</h4><ul>
         <li><b>Belief bubbles</b>: happy islanders' belief gathers in a purple bubble over their home (bigger homes gather and hold more), priests' prayers over their temple, and bonfire evenings, the Tribal Fire and the Observatory over theirs. Bubbles grow as they fill; <b>tap one to collect it</b> (quick taps play a little tune). A full bubble stops filling, so come back now and then. Once the <b>Great Temple</b> stands, bubbles collect themselves.</li>
         <li>Belief also comes straight in from granted wishes, weddings, seasonal goals and celebrations. Spend it on god powers (<b>Power</b>, 6): rain, calming storms and the volcano, and more.</li>
         <li><b>Before a temple, Belief is a slow trickle.</b> A working Temple multiplies the Belief your happy islanders bring (two and a half times, more as it is upgraded), and a Great Temple adds more again.</li>
+        <li><b>The god’s hand:</b> press on an islander and drag to pick them up; they dangle like a rag doll. Let go to throw them: on land they pick themselves up, and in the sea or a lake they swim back to shore, unless a shark or jellyfish gets them first.</li>
+        <li><b>Smiting:</b> the <b>Smite</b> button on an islander’s card (or <b>Smite all</b> with several selected) strikes them dead at once. Those nearby run for their lives, and the village carries the dead to their funeral.</li>
+        <li><b>Fear or love:</b> smiting and throwing islanders make the village fear you: they work harder but are less happy. Blessings, rain, calming storms, granted wishes and nights with the ancestors win their love: happier islanders and more Belief. The meter is in the <b>Mood</b> panel; either feeling slowly fades.</li>
         <li>Temples upgrade twice into the Great Pyramid. The Great Temple is built in four phases.</li>
         <li><b>Wonders</b> (Capital of the Isle, one of each, built in four phases): the <b>Colossal Head</b> makes everyone a little happier, the <b>Sun Stone</b> brings a steady trickle of Belief, and the <b>Sky Tower</b> makes research half as fast again. Each wonder (and the Great Temple) also adds to your island’s <b>fame</b>: visiting traders come sooner and offer better deals.</li>
       </ul>
@@ -1253,6 +1263,45 @@ export class UI {
     } catch {
       /* ignore */
     }
+  }
+
+  // ---------------- First-time tips ----------------
+
+  private firstTips?: FirstTips;
+  private tipCard?: TipCard;
+
+  /** A short one-off word the first time each newer feature matters (see FirstTips), shown above the toolbar. */
+  private buildTips(): void {
+    let store: Storage | null = null;
+    try { store = localStorage; } catch { /* storage unavailable */ }
+    const card = new TipCard();
+    this.tipCard = card;
+    this.firstTips = new FirstTips(store, (_k, tip) => card.show(tip));
+    card.onClose = () => this.firstTips?.closed(performance.now() / 1000);
+    this.hint.before(card.el);
+  }
+
+  private pollTips(): void {
+    const g = this.game, tips = this.firstTips;
+    if (!tips || !this.tipCard) return;
+    // Photo Mode or a hidden interface puts away a tip on screen.
+    if (tips.open && (this.zen || this.photo?.open)) this.tipCard.hide();
+    const built = (key: string) => g.buildings.list.some((b) => b.key === key && b.complete);
+    tips.poll({
+      islander: g.selectedIslander ?? -1,
+      group: g.selectedIslanders?.size ?? 0,
+      devotion: g.devotion?.label ?? 'Respectful',
+      dead: g.ancestors?.deadCount ?? 0,
+      graves: g.passings?.graves.list.length ?? 0,
+      pyre: built('pyre'),
+      altar: built('ancestoraltar'),
+      ancestorNight: g.ancestors?.state === 'night',
+      swimming: !!g.bathing?.list.some((s) => s.phase === 'swim'),
+    }, {
+      tutorial: this.tutorialOpen,
+      busy: this.zen || !!this.photo?.open || this.dialog.showing || !!this.dialog.banner?.pending || !this.dialog.canShow(),
+      popups: g.settings.popups ?? 'all',
+    }, performance.now() / 1000);
   }
 
   private settingsOpener: HTMLElement | null = null;
@@ -1581,6 +1630,7 @@ export class UI {
     if (this.timer <= 0) {
       this.timer = 0.25;
       this.renderGoals();
+      this.pollTips();
       if (g0.placing && g0.touchPlacementActive) {
         g0.refreshPlacement();
         const status = g0.placementFeedback;

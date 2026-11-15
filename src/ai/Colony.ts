@@ -88,6 +88,9 @@ const GENERAL_ROLES: Role[] = ['woodcutter', 'miner', 'gatherer'];
  * All islanders: needs (hunger, rest, happiness), a utility AI choosing what to do next,
  * automatic job assignment with player overrides, housing, births and growing up.
  */
+/** How much mourning someone close weighs on an islander's happiness at first (see Passings.bereave). */
+const MOURNING = 0.18;
+
 export class Colony {
   list: Islander[] = [];
   private nextId = 1;
@@ -1001,6 +1004,8 @@ export class Colony {
     if (this.bld.list.some((w) => w.key === 'well' && w.complete && (w.x - hx) ** 2 + (w.z - hz) ** 2 < r2)) target += COMFORTS.wellHappy;
     target += upgradeMood(this.bld.list, hx, hz);
     target += this.moodBoost + this.devotion.mood;
+    // Mourning someone close: heavier at first, easing as the days pass.
+    if (isl.grief) target -= MOURNING * Math.min(1, isl.grief.left / (TIME.dayLength * 1.5)) + 0.04;
     isl.happy += (Math.min(1, Math.max(0, target)) - isl.happy) * 0.08;
 
     // Sick or hurt: off to a Healing Centre (or home to rest) until cured.
@@ -3146,6 +3151,7 @@ export class Colony {
       isl.animT += dt;
       isl.age += dt;
       if (isl.injured > 0) isl.injured = Math.max(0, isl.injured - dt);
+      if (isl.grief && (isl.grief.left -= dt) <= 0) isl.grief = undefined;
       // In the god's hand, flying, swimming back or dazed: GodHand moves them, not the colony.
       if (isl.flung) { isl.anim = isl.flung.mode === 'dazed' || isl.flung.mode === 'dead' ? 'idle' : 'run'; continue; }
       if (isl.condition !== 'well' && this.ail(isl, dt)) continue;

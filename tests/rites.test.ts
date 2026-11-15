@@ -197,3 +197,20 @@ test('taken by a shark: mourned and remembered, but no body, no funeral and no g
   assert.equal(v.passings.graves.list.length, 0);
   assert.equal(v.passings.save().dead.length, 0, 'a body was kept');
 });
+
+test('the partner and household of the dead mourn them, longer when the gods took them', async () => {
+  const v = await pyreVillage(5);
+  const [a, partner, housemate, other] = v.people;
+  a.spouse = partner.id; partner.spouse = a.id;
+  a.home = 7; housemate.home = 7; other.home = 8;
+  v.passings.take(a, { kicker: 'Struck down', line: 'P0 was struck down.' });
+  assert.equal(partner.grief?.name, 'P0');
+  assert.equal(housemate.grief?.name, 'P0');
+  assert.equal(other.grief, undefined, 'a stranger mourns');
+  const violent = partner.grief.left;
+  const w = await pyreVillage(3);
+  const [b, p2] = w.people;
+  b.spouse = p2.id;
+  (w.passings as any).pass(b);
+  assert.ok(p2.grief.left < violent, 'a peaceful death is mourned as long as a violent one');
+});

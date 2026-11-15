@@ -160,3 +160,23 @@ test('the player may call the ancestors any night from the altar, once a night; 
   v.game.time.hour = 21;
   assert.equal(v.night.honourBlock(), '');
 });
+
+test('a mourner asks to see the one they lost; meeting them that night lays their grief to rest', () => {
+  const v = village(true, 14);
+  v.night.remember('Itzel', true);
+  v.night.remember('Cuauh', false);
+  v.night.remember('Tlaloc', false);
+  const mourner = v.game.colony.list[3];
+  mourner.grief = { name: 'Itzel', left: 9999 };
+  assert.ok(v.night.ask());
+  assert.equal(v.night.missed, 'Itzel');
+  assert.match(v.dialogs[0].body, /P3 is still mourning Itzel/);
+  v.dialogs[0].actions[0].run();
+  v.game.time.hour = 21;
+  v.night.update(1);
+  assert.equal(v.night.state, 'night');
+  assert.ok(v.night.ghosts.count >= 2);
+  v.night.update(1);
+  v.night.update(ANCESTORS.visitSecs + 1);
+  assert.equal(mourner.grief, undefined, 'still grieving after meeting Itzel');
+});

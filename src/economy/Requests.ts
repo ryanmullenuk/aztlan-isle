@@ -26,6 +26,8 @@ export interface RequestWorld {
   canBuild: (key: BuildingKey) => string;
   freeBeds: () => number;
   sandbox: () => boolean;
+  /** How much more often islanders ask than usual (a village that loves its god asks more). */
+  pace?: () => number;
 }
 
 /** Seconds of game time between new requests, how long one stays open, and how many at once. */
@@ -136,7 +138,7 @@ export class RequestBoard {
         this.onLapsed(r);
       }
     }
-    this.timer -= 2;
+    this.timer -= 2 * Math.max(0.2, this.w.pace?.() ?? 1);
     if (this.timer > 0 || this.list.length >= REQUESTS.max) return;
     this.timer = REQUESTS.gap[0] + this.rnd() * (REQUESTS.gap[1] - REQUESTS.gap[0]);
     this.ask(now);

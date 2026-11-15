@@ -1895,3 +1895,19 @@ body.cinematic #hud { opacity: 0.1; }
 /* Three lines at most inside the dark centre: with a benefit line, the message keeps to one line. */
 .notice-banner:has(.nb-benefit:not(:empty)) .nb-line { -webkit-line-clamp: 1; }
 .nb-benefit:empty { display: none; }
+
+/* First-time tips: a small card above the toolbar, once per feature (see FirstTips.ts). */
+.first-tip {
+  position: relative; pointer-events: auto; max-width: min(380px, calc(100vw - 32px)); box-sizing: border-box;
+  margin: 0; padding: 10px 14px; border-radius: 12px; background: var(--panel-solid);
+  border: 1px solid rgba(232, 184, 74, 0.6); box-shadow: var(--shadow); color: var(--text); font-size: 13px; line-height: 1.4;
+}
+.first-tip.hidden { display: none; }
+.first-tip.ft-in { animation: ft-in 0.35s ease-out; }
+.first-tip .ft-kicker { color: var(--gold); font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.first-tip .ft-title { font-weight: 700; margin: 2px 0; }
+.first-tip .ft-text { margin: 0 0 8px; }
+.first-tip .btn { float: right; margin-top: -2px; }
+.first-tip::after { content: ''; display: block; clear: both; }
+@keyframes ft-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .first-tip.ft-in { animation: none; } }

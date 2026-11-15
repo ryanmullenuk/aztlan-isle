@@ -541,6 +541,8 @@ export class Game {
       canBuild: (key) => this.buildings.constructionRequirement(key),
       freeBeds: () => this.buildings.freeBeds,
       sandbox: () => this.eco.godMode,
+      // A village that loves its god asks more often (up to two and a half times as often).
+      pace: () => 1 + this.devotion.love * 1.5,
     }, () => this.rng.next(), () => this.time.elapsed);
     this.requests.onAsked = (r, who) => {
       this.ui?.dialog.push({
@@ -773,6 +775,7 @@ export class Game {
     this.scene.add(this.fires.group);
     this.audio = new AudioEngine();
     if (this.world.waterfall) this.audio.waterfall = { x: this.world.waterfall.x, y: this.world.waterfall.bottomY, z: this.world.waterfall.z };
+    this.audio.watch(this);
     this.connectSystems();
 
     if (save) this.loadFrom(save);
@@ -1885,6 +1888,7 @@ export class Game {
     if (this.spinAt) return;
     const p = this.pickGround(x, y);
     this.hoverPoint = p;
+    this.hoverAt = performance.now();
     this.cursorActive = !!p;
     if (!p) {
       if (this.placing) { this.placementFeedback = null; this.buildings.showGhost(null); }
@@ -1990,7 +1994,9 @@ export class Game {
       case 'build': {
         // A spirit of the dead under the finger: who they were.
         const k = p && this.ancestors.ghosts.shown > 0.3 ? this.ancestors.ghosts.ghostAt(p.x, p.z) : -1;
-        if (k >= 0) { this.ui.toast(this.ancestors.story(k), 'info', { x: p!.x, z: p!.z }); return; }
+        // Tapping a spirit shows its name over it and who they were; tapping anything else hides it.
+        if (k >= 0) { this.ancestors.ghosts.select(k); this.ui.toast(this.ancestors.story(k), 'info', { x: p!.x, z: p!.z }); return; }
+        this.ancestors.ghosts.select(-1);
         return this.selectAt(x, y, p);
       }
       case 'harvest': {
@@ -2949,6 +2955,49 @@ export class Game {
     this.colony.scatter(cx, cz, SMITE_SCATTER + spread, (i) => doomed.includes(i));
   }
 
+  /** When the pointer last moved over the island (a mouse hovering, not a finger that tapped once). */
+  private hoverAt = -Infinity;
+  private fearTimer = 0;
+  private giftTimer = 240;
+
+  /**
+   * A village that fears its god shrinks from the god's hand: islanders near the pointer (or near
+   * someone the hand is holding) back away from it. More afraid, from further off.
+   */
+  private fearOfTheHand(dt: number): void {
+    const fear = this.devotion.fear;
+    if (fear < 0.25 || dt <= 0 || (this.fearTimer -= dt) > 0) return;
+    this.fearTimer = 0.5;
+    const held = this.hand.held;
+    const at = held ? { x: held.x, z: held.z } : this.cursorActive && performance.now() - this.hoverAt < 1200 ? this.cursorWorld : null;
+    if (!at) return;
+    this.colony.scatter(at.x, at.z, 1.4 + fear * 2.4, (i) => i === held || !!i.warrior || i.task?.kind === 'flee');
+  }
+
+  /**
+   * A village that loves its god brings it offerings now and then: fruit, grain or fish from the
+   * harvest, wood, or a pearl, left for the gods (more often the more they love you).
+   */
+  private offerings(dt: number): void {
+    const love = this.devotion.love;
+    if (love < 0.25 || dt <= 0 || this.eco.godMode || (this.giftTimer -= dt) > 0) return;
+    this.giftTimer = 420 - love * 220 + this.rng.next() * 120;
+    const givers = this.colony.list.filter((i) => !i.child && !i.npc && !i.hidden && !i.sleeping && !i.flung && i.happy > 0.6);
+    if (!givers.length) return;
+    const who = givers[Math.floor(this.rng.next() * givers.length)];
+    const gifts: { what: string; give: () => void }[] = [
+      { what: '12 fruit', give: () => this.eco.add('fruit', 12) },
+      { what: '12 grain', give: () => this.eco.add('grain', 12) },
+      { what: '10 fish', give: () => this.eco.add('fish', 10) },
+      { what: '10 wood', give: () => this.eco.add('wood', 10) },
+      { what: `${8 + Math.round(love * 10)} Belief`, give: () => this.eco.add('belief', 8 + Math.round(love * 10)) },
+      { what: 'a pearl', give: () => { this.eco.goods.pearls += 1; } },
+    ];
+    const g = gifts[Math.floor(this.rng.next() * gifts.length)];
+    g.give();
+    this.ui?.toast(`${who.name} leaves an offering for you: ${g.what}.`, 'milestone', { x: who.x, z: who.z });
+  }
+
   /** Islanders struck down and fallen, not yet mourned: each batch waits a moment on the ground. */
   private struck: { people: Islander[]; t: number }[] = [];
   private fallen(dt: number): void {
@@ -3709,6 +3758,8 @@ export class Game {
     // A night with the ancestors wins the village's love.
     if (this.ancestors.held > this.ancestorNightsSeen) { if (this.ancestorNightsSeen || this.ancestors.held === 1) this.devotion.shift(DEVOTION.ancestors); this.ancestorNightsSeen = this.ancestors.held; }
     this.devotion.update(dt);
+    this.fearOfTheHand(dt);
+    this.offerings(dt);
     this.colony.devotion = { pace: this.devotion.pace, mood: this.devotion.mood, belief: this.devotion.belief };
     if (this.post) this.post.mood = this.devotion.value;
     // The Sun Stone's favour: a steady trickle of Belief.

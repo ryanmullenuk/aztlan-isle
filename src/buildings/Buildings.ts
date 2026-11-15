@@ -142,6 +142,8 @@ export class Building {
   /** Its moving water (pools and fountains: see water.ts), and how many of its indices are pools (all that is drawn far away). */
   water?: THREE.Mesh;
   waterPools = 0;
+  /** Its fountains (model-local middle of their jets, and how many jets), for their sound. */
+  fountain?: { x: number; y: number; z: number; n: number };
   /** Its doors (open by day, shut at night: see Doors) and how far each stands open just now. */
   doors?: models.Door[];
   doorOpen?: number[];
@@ -515,6 +517,8 @@ function setWater(b: Building, water: BuildingWater | undefined): void {
     b.water.geometry.dispose();
     b.water = undefined;
   }
+  const jets = water?.jets ?? [], n = jets.length;
+  b.fountain = n ? { x: jets.reduce((s, j) => s + j.x, 0) / n, y: jets.reduce((s, j) => s + j.y, 0) / n, z: jets.reduce((s, j) => s + j.z, 0) / n, n } : undefined;
   const w = waterGeometry(water);
   if (!w || !b.finished) return;
   b.water = new THREE.Mesh(w.geo, waterMaterial());
@@ -557,6 +561,8 @@ function buildSeconds(b: Building): number {
   if (b.upgrading && hasUpgradePath(b.key)) return nextUpgrade(b)?.time ?? b.def.buildTime;
   return b.upgrading ? (b.key === 'boatworkshop' ? (BOAT_WORKSHOP.upgrades[b.tier-1]?.time ?? b.def.buildTime) : b.key === 'stonemason' ? (STONEMASON.upgrades[b.tier - 1]?.time ?? b.def.buildTime) : b.key === 'home' ? HOMES.upgradeTime[b.tier + 1] : TEMPLE.upgradeTime[b.tier + 1]) : b.def.buildTime;
 }
+
+const _fountainP = new THREE.Vector3();
 
 export class BuildingSystem {
   readonly group = new THREE.Group();
@@ -669,6 +675,19 @@ export class BuildingSystem {
 
   byId(id: number): Building | undefined {
     return this.list.find((b) => b.id === id);
+  }
+
+  /** Where fountains are playing now (world x, z and how many jets), filled into `out` (for their sound). */
+  fountains(out: { x: number; z: number; n: number }[] = []): { x: number; z: number; n: number }[] {
+    out.length = 0;
+    for (const b of this.list) {
+      const f = b.fountain;
+      if (!f || !b.water?.visible || !b.finished) continue;
+      _fountainP.set(f.x, f.y, f.z);
+      b.finished.localToWorld(_fountainP);
+      out.push({ x: _fountainP.x, z: _fountainP.z, n: f.n });
+    }
+    return out;
   }
 
   at(cellIndex: number): Building | undefined {

@@ -273,7 +273,12 @@ export class Ghosts {
       for (const m of g.meshes) m.morphTargetInfluences = inf;
       // Hovering a finger's width off the ground, rising and settling.
       g.root.position.y = g.y + 0.035 + Math.sin(time * 1.3 + g.phase) * 0.018;
-      if (g.label) (g.label.material as THREE.SpriteMaterial).opacity = f.value * 0.85;
+      // The name shows only over the spirit the player has tapped (it eases in and out).
+      if (g.label) {
+        const m = g.label.material as THREE.SpriteMaterial, want = this.list.indexOf(g) === this.selected ? f.value * 0.85 : 0;
+        m.opacity += (want - m.opacity) * Math.min(1, dt * 6);
+        g.label.visible = m.opacity > 0.01;
+      }
     }
     this.drift(time);
   }
@@ -295,7 +300,16 @@ export class Ghosts {
     col.needsUpdate = true;
   }
 
+  /** The spirit whose name is shown (tapped), or -1 for none. */
+  selected = -1;
+
+  /** Show one spirit's name (-1 hides them all). */
+  select(k: number): void {
+    this.selected = k >= 0 && k < this.list.length ? k : -1;
+  }
+
   private clear(): void {
+    this.selected = -1;
     for (const g of this.list) {
       this.group.remove(g.root);
       if (g.label) {

@@ -92,6 +92,8 @@ export class AncestorNight {
 
   /** Who each spirit out tonight is, by ghost index (as `ghosts.ghostAt` gives it). */
   private tonight: (Dead | null)[] = [];
+  /** The ancestor a mourner has asked to see (they will be among the spirits that night). */
+  missed: string | null = null;
 
   /** A line about the spirit at index `k` (from `ghosts.ghostAt`), for the player who taps them. */
   story(k: number): string {
@@ -163,15 +165,18 @@ export class AncestorNight {
     const people = g.colony.list.filter((p) => !p.child && !p.npc && !p.hidden && !p.sleeping);
     this.timer = ANCESTORS.gap[0] + this.rnd() * (ANCESTORS.gap[1] - ANCESTORS.gap[0]);
     if (!people.length) return false;
-    const who = people[Math.floor(this.rnd() * people.length)];
-    const last = this.dead[this.dead.length - 1]?.name ?? g.passings?.graves.list[g.passings.graves.list.length - 1]?.name;
+    // Someone in mourning asks first, for the one they lost; otherwise anyone, missing the most recent dead.
+    const grieving = people.filter((p) => p.grief && this.dead.some((d) => d.name === p.grief!.name));
+    const who = grieving.length ? grieving[Math.floor(this.rnd() * grieving.length)] : people[Math.floor(this.rnd() * people.length)];
+    const last = who.grief?.name ?? this.dead[this.dead.length - 1]?.name ?? g.passings?.graves.list[g.passings.graves.list.length - 1]?.name;
+    this.missed = who.grief?.name ?? null;
     this.state = 'asked';
     this.asker = who.id;
     this.until = g.time.elapsed + ANCESTORS.lasts;
     g.ui?.dialog.push({
       icon: 'ask', kicker: `${who.name} has a request`, important: true, art: 'lantern',
       title: 'May we visit the ancestors?',
-      body: `${who.name} misses those who have gone${last ? `, ${last} most of all` : ''}. With your blessing, the village will keep a night at the Ancestor Altar, and the spirits of the dead will come out to greet the living.`,
+      body: `${this.missed ? `${who.name} is still mourning ${this.missed}, and longs to see them once more` : `${who.name} misses those who have gone${last ? `, ${last} most of all` : ''}`}. With your blessing, the village will keep a night at the Ancestor Altar, and the spirits of the dead will come out to greet the living.`,
       benefit: `A night with the ancestors: +${ANCESTORS.belief} Belief and a comforted village`,
       actions: [
         { label: 'Grant it', primary: true, run: () => this.grant() },
@@ -237,6 +242,9 @@ export class AncestorNight {
     // The spirits stand in a shallow arc before the stair; the living a few steps further out.
     const n = Math.max(2, Math.min(ANCESTORS.ghosts, this.deadCount));
     const who: (Dead | null)[] = this.dead.slice(-n);
+    // The one a mourner asked to see is always among them.
+    const wanted = this.missed ? this.dead.find((d) => d.name === this.missed) : undefined;
+    if (wanted && !who.includes(wanted)) who[0] = wanted;
     // Those buried before the altar was known fill any places left, by the names on their graves.
     const graves = (g.passings?.graves.list ?? []).filter((gr) => !this.dead.some((d) => d.name === gr.name));
     for (let k = who.length, j = graves.length - 1; k < n; k++, j--) {
@@ -293,7 +301,14 @@ export class AncestorNight {
     a.crowd = null;
     this.held++;
     if (!came.length) return;
-    for (const i of came) i.happy = Math.min(1, i.happy + ANCESTORS.happy);
+    const seen = new Set(this.tonight.map((d) => d?.name).filter(Boolean));
+    let eased = 0;
+    for (const i of came) {
+      i.happy = Math.min(1, i.happy + ANCESTORS.happy);
+      // Those who met the one they mourn are comforted: their grief is laid to rest.
+      if (i.grief && seen.has(i.grief.name)) { i.grief = undefined; i.happy = Math.min(1, i.happy + ANCESTORS.happy * 0.5); eased++; }
+    }
+    if (eased) this.missed = null;
     g.colony.moodBoost += ANCESTORS.mood;
     const belief = this.called ? 0 : ANCESTORS.belief;
     if (belief) g.eco.add('belief', belief);

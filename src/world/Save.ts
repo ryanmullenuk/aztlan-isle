@@ -255,6 +255,7 @@ export function serialize(g: Game): SaveData {
       ...(i.greatTemplePrayer ? { greatTemplePrayer: i.greatTemplePrayer } : {}),
       ...(i.condition !== 'well' ? { condition: i.condition, conditionT: i.conditionT } : {}),
       ...(i.spouse !== undefined ? { spouse: i.spouse } : {}),
+      ...(i.grief ? { grief: { ...i.grief } } : {}),
       ...(i.skilled ? { skilled: true, teacher: i.teacher } : {}),
       ...(i.taught ? { taught: i.taught } : {}),
       ...(i.lifeLeft !== undefined ? { lifeLeft: i.lifeLeft } : {}),

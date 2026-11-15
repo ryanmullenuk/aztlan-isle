@@ -22,7 +22,13 @@ export class BloodClouds {
     return this.clouds.length;
   }
 
+  /** How many clouds have been spawned, and where the latest was (for the sound of the taking). */
+  spawned = 0;
+  lastAt = { x: 0, z: 0 };
+
   spawn(x: number, y: number, z: number): void {
+    this.spawned++;
+    this.lastAt = { x, z };
     const mat = new THREE.MeshBasicMaterial({ color: 0x8e0f12, transparent: true, opacity: 0, depthWrite: false });
     const puffs: THREE.Mesh[] = [], drift: THREE.Vector3[] = [];
     for (let k = 0; k < BLOOD.puffs; k++) {

@@ -23,6 +23,11 @@ export const PASSING = {
   praySecs: 35,
   /** Seconds the pyre burns: the fire takes, the body blackens, pales to ash and is gone, the fire sinks and dies. */
   burnSecs: 55,
+  /** Days the partner and household mourn: after a death the gods dealt, and after a peaceful one. */
+  mournViolent: 3,
+  mournPeaceful: 1.5,
+  /** How much a mourner's happiness is held down. */
+  mourning: 0.18,
   grief: 0.06,
   honour: 10,
   /** Seconds the two bearers may take to reach the body, and to carry it to the graveyard. */
@@ -242,6 +247,21 @@ export class Passings {
   }
 
   /**
+   * Those closest to the dead (their partner and their household) mourn them for days: longer, and
+   * harder, when the gods took them (struck down, thrown to the sharks) than when an elder slipped away.
+   */
+  private bereave(isl: Islander, violent: boolean): void {
+    const days = violent ? PASSING.mournViolent : PASSING.mournPeaceful;
+    for (const o of this.game.colony.list) {
+      if (o === isl || o.npc) continue;
+      const close = o.id === isl.spouse || o.spouse === isl.id || (isl.home >= 0 && o.home === isl.home);
+      if (!close) continue;
+      // Whoever they lost most recently is the one they grieve for.
+      o.grief = { name: isl.name, left: Math.max(o.grief?.left ?? 0, days * TIME.dayLength) };
+    }
+  }
+
+  /**
    * Lost without a body (taken by a shark): mourned and remembered among the ancestors, but there is
    * nothing to carry, bury or burn.
    */
@@ -249,6 +269,7 @@ export class Passings {
     const g = this.game, c = g.colony;
     this.remember(isl, words.kicker);
     const spouse = isl.spouse !== undefined ? c.byId(isl.spouse) : undefined;
+    this.bereave(isl, true);
     c.remove(isl);
     c.moodBoost -= PASSING.grief;
     if (spouse) spouse.happy = Math.max(0, spouse.happy - 0.3);
@@ -288,6 +309,7 @@ export class Passings {
   private layToRest(isl: Islander, words: { kicker: string; line: string } | null): void {
     const g = this.game, c = g.colony;
     const spouse = isl.spouse !== undefined ? c.byId(isl.spouse) : undefined;
+    this.bereave(isl, true);
     c.remove(isl);
     c.moodBoost -= PASSING.grief * 0.5;
     if (spouse) spouse.happy = Math.max(0, spouse.happy - 0.3);
@@ -325,6 +347,7 @@ export class Passings {
     const taught = isl.taught ?? 0;
     const spot = this.restingPlace();
     const x = isl.x, z = isl.z;
+    this.bereave(isl, !!words);
     c.remove(isl);
     c.moodBoost -= PASSING.grief;
     if (spouse) spouse.happy = Math.max(0, spouse.happy - 0.3);

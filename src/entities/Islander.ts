@@ -130,6 +130,8 @@ export interface Islander {
   cloth2: number;
   /** Married to (an islander's id), once wed at the temple. */
   spouse?: number;
+  /** Mourning someone close (their partner, or someone of their household): who, and game seconds left. Saved. */
+  grief?: { name: string; left: number };
   headdress: number;
   /** Scenery figures drawn like villagers but not part of the village (the Healing Centre's healer). */
   npc?: 'healer';

@@ -159,11 +159,14 @@ export class Graves {
   private bierMat!: THREE.MeshStandardMaterial;
   /** Where the pyre stands (null: none), and how the scorched ground it leaves is fading. */
   pyreAt: { x: number; y: number; z: number } | null = null;
+  /** How big the pyre's fire is just now, 0 (unlit or out) to 1 (roaring): for its sound. */
+  flame = 0;
   private ashLeft = 0;
 
   /** Raise the pyre at a place (its logs stacked ready), or take it away (null). */
   showPyre(at: { x: number; y: number; z: number; yaw?: number } | null): void {
     this.pyreAt = at ? { x: at.x, y: at.y, z: at.z } : null;
+    this.flame = 0;
     this.pyre.visible = !!at;
     if (this.fire) this.fire.visible = false;
     if (!at) return;
@@ -191,6 +194,7 @@ export class Graves {
     const ss = (a: number, b: number, x: number) => THREE.MathUtils.smoothstep(x, a, b);
     // The fire: up fast, roaring through the middle, sinking at the end.
     const flame = ss(0, 0.08, u) * (1 - ss(0.78, 1, u));
+    this.flame = flame;
     if (this.fire) {
       this.fire.visible = flame > 0.02;
       this.fire.position.set(at.x, at.y + 0.3 * (1 - ss(0.3, 0.9, u)) + 0.04, at.z);
@@ -228,6 +232,7 @@ export class Graves {
     this.bierMat.color.setScalar(1);
     (this.pyre.material as THREE.MeshStandardMaterial).color.setScalar(1);
     this.pyreAt = null;
+    this.flame = 0;
   }
 
   /** The ash bed left by a pyre fades away (about a game day). */
