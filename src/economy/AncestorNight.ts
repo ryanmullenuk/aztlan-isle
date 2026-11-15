@@ -21,7 +21,12 @@ export const ANCESTORS = {
   visitSecs: 150,
   mood: 0.1,
   belief: 25,
+  /** Each islander who comes to meet the spirits is this much happier. */
+  happy: 0.2,
 };
+
+/** The night an hour belongs to (the small hours count with the evening before). */
+export const nightOf = (day: number, hour: number): number => (hour < ANCESTORS.dawn ? day - 1 : day);
 
 /** Is it dark enough for the spirits to walk? */
 export const spiritHours = (hour: number): boolean => hour >= ANCESTORS.dusk || hour < ANCESTORS.dawn;
@@ -52,6 +57,10 @@ export class AncestorNight {
   held = 0;
   private timer: number = ANCESTORS.first[0];
   private asker = -1;
+  /** The player called this visit themselves (no wish asked it; the comfort is the reward, not Belief). */
+  private called = false;
+  /** The last night the spirits came (saved): once a night at most. */
+  lastNight = -99;
   private until = 0;
   private night: { t: number; altar: number; crowd: Gathering | null; cx: number; cz: number; wave: number } | null = null;
 
@@ -72,9 +81,9 @@ export class AncestorNight {
     return this.game.buildings.list.find((b) => b.key === 'ancestoraltar' && buildingOperational(b));
   }
 
-  save(): { state: AncestorState; dead: Dead[]; held: number; timer: number; asker: number; left: number } {
+  save(): { state: AncestorState; dead: Dead[]; held: number; timer: number; asker: number; left: number; lastNight: number; called: boolean } {
     // A night under way is saved as granted: the spirits come out again when the game is loaded.
-    return { state: this.state === 'night' ? 'granted' : this.state, dead: this.dead, held: this.held, timer: this.timer, asker: this.asker, left: Math.max(0, this.until - this.game.time.elapsed) };
+    return { state: this.state === 'night' ? 'granted' : this.state, dead: this.dead, held: this.held, timer: this.timer, asker: this.asker, left: Math.max(0, this.until - this.game.time.elapsed), lastNight: this.lastNight, called: this.called };
   }
 
   restore(d: unknown): void {
@@ -83,6 +92,8 @@ export class AncestorNight {
     if (Array.isArray(s.dead)) this.dead = s.dead.filter((x) => x && typeof x.name === 'string').map((x) => ({ name: x.name, f: !!x.f })).slice(-24);
     if (Number.isFinite(s.held)) this.held = s.held!;
     if (Number.isFinite(s.timer)) this.timer = s.timer!;
+    if (Number.isFinite(s.lastNight)) this.lastNight = s.lastNight!;
+    this.called = !!s.called;
     // An open wish isn't kept (its pop-up is gone): they will ask again before long.
     this.state = s.state === 'granted' ? 'granted' : 'quiet';
     if (s.state === 'asked') this.timer = ANCESTORS.first[0];
@@ -104,7 +115,7 @@ export class AncestorNight {
       return;
     }
     if (this.state === 'granted') {
-      if (spiritHours(g.time.hour)) this.begin(altar);
+      if (spiritHours(g.time.hour) && nightOf(g.time.day, g.time.hour) !== this.lastNight) this.begin(altar);
       return;
     }
     if (!mayAsk(true, this.deadCount, this.state)) return;
@@ -138,10 +149,40 @@ export class AncestorNight {
     return true;
   }
 
+  /** Why the player can't call the ancestors now ('' if they can). */
+  honourBlock(): string {
+    const g = this.game;
+    if (!this.altar()) return 'The Ancestor Altar must be finished first.';
+    if (!this.deadCount) return 'No one has died yet: there are no ancestors to visit.';
+    if (this.state === 'night') return 'The ancestors are here tonight.';
+    if (this.state === 'granted') return 'The ancestors will come at nightfall.';
+    if (spiritHours(g.time.hour) && nightOf(g.time.day, g.time.hour) === this.lastNight) return 'The ancestors have already come tonight.';
+    return '';
+  }
+
+  /**
+   * The player calls the ancestors (from the altar), any night: no wish is needed. They come at
+   * nightfall, or at once after dark. Returns what to tell the player.
+   */
+  honour(): string {
+    const why = this.honourBlock();
+    if (why) return why;
+    const g = this.game, wished = this.state === 'asked';
+    if (wished) g.ui?.dialog.forget((d) => d.title === 'May we visit the ancestors?');
+    this.called = !wished;
+    this.state = 'granted';
+    haptic('light');
+    // After dark they come at once.
+    const altar = this.altar();
+    if (altar && spiritHours(g.time.hour)) this.begin(altar);
+    return spiritHours(g.time.hour) ? 'The candles are lit: the ancestors are coming.' : 'Tonight the village will honour its ancestors: the spirits come at nightfall.';
+  }
+
   /** The player's blessing: the spirits come at nightfall (at once, if it is night already). */
   grant(): void {
     if (this.state !== 'asked') return;
     const g = this.game;
+    this.called = false;
     this.state = 'granted';
     g.ui?.dialog.forget((d) => d.title === 'May we visit the ancestors?');
     if (!spiritHours(g.time.hour)) g.ui?.toast('Granted. The ancestors will come to the altar at nightfall.', 'milestone');
@@ -187,6 +228,7 @@ export class AncestorNight {
       crowd.join(asker, s.x, s.z);
     }
     this.state = 'night';
+    this.lastNight = nightOf(g.time.day, g.time.hour);
     this.night = { t: 0, altar: altar.id, crowd, cx, cz, wave: 0 };
     const names = who.map((d) => d.name);
     const those = names.length > 2 ? `${names.slice(-3, -1).join(', ')} and ${names[names.length - 1]}` : names.join(' and ');
@@ -206,14 +248,16 @@ export class AncestorNight {
   private farewell(): void {
     const g = this.game, a = this.night;
     if (!a?.crowd) return;
-    const came = a.crowd.present;
+    const came = a.crowd.ids.map((id) => g.colony.byId(id)).filter((i): i is NonNullable<typeof i> => !!i && Math.hypot(i.x - a.cx, i.z - a.cz) < 6);
     a.crowd.release();
     a.crowd = null;
     this.held++;
-    if (!came) return;
+    if (!came.length) return;
+    for (const i of came) i.happy = Math.min(1, i.happy + ANCESTORS.happy);
     g.colony.moodBoost += ANCESTORS.mood;
-    g.eco.add('belief', ANCESTORS.belief);
-    g.ui?.toast(`The village has spoken with its ancestors and goes home comforted (+${ANCESTORS.belief} Belief).`, 'milestone');
+    const belief = this.called ? 0 : ANCESTORS.belief;
+    if (belief) g.eco.add('belief', belief);
+    g.ui?.toast(`The village has spoken with its ancestors and goes home comforted${belief ? ` (+${belief} Belief)` : ''}. ${came.length === 1 ? 'One islander is' : `${came.length} islanders are`} happier.`, 'milestone');
     haptic('medium');
   }
 

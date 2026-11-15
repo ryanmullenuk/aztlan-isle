@@ -28,6 +28,11 @@ export const PASSING = {
   /** Seconds the two bearers may take to reach the body, and to carry it to the graveyard. */
   fetchSecs: 240,
   carrySecs: 360,
+  /** Someone struck down: seconds before the bearers set out (once the others have fled), and by when they reach the body. */
+  bearersAfter: 10,
+  fetchBy: 60,
+  /** Mourners who must stand round the pyre before it is lit (fewer only if the village hasn't so many). */
+  pyreMourners: 5,
 };
 
 /** A free plot in a graveyard: its world centre and the way its headstone faces. */
@@ -50,7 +55,7 @@ export class Passings {
     const f = this.funeral;
     return f && (f.phase === 'gather' || f.phase === 'pray') ? f.spot : null;
   }
-  private funeral: { name: string; t: number; phase: 'wait' | 'fetch' | 'carry' | 'gather' | 'pray'; crowd: Gathering; spot: { x: number; z: number }; spouse?: number; procession?: Procession; /** Burned on the Funeral Pyre (true) or buried (false). */ pyre?: boolean } | null = null;
+  private funeral: { name: string; t: number; phase: 'wait' | 'fetch' | 'carry' | 'gather' | 'pray'; crowd: Gathering; spot: { x: number; z: number }; spouse?: number; /** Struck down: carried off at once, whatever the hour. */ prompt?: boolean; procession?: Procession; /** Burned on the Funeral Pyre (true) or buried (false). */ pyre?: boolean } | null = null;
 
   constructor(private game: Game) {}
 
@@ -73,7 +78,7 @@ export class Passings {
       // The pyre is free: the next of the dead is taken up.
       const next = this.waiting.shift()!;
       this.graves.takeBody(next.body);
-      this.startFuneral(next.name, next.x, next.z, next.yaw, next.spouse);
+      this.startFuneral(next.name, next.x, next.z, next.yaw, next.spouse, next.prompt);
     }
     if (dt > 0) this.graves.fadeAsh(dt, TIME.dayLength);
     if (g.eco.godMode || dt <= 0) return;
@@ -223,7 +228,7 @@ export class Passings {
   }
 
   /** The dead waiting for the pyre: each lies shrouded where they fell and is carried there in turn. */
-  private waiting: { name: string; x: number; z: number; yaw: number; spouse?: number; body: import('three').Object3D }[] = [];
+  private waiting: { name: string; x: number; z: number; yaw: number; spouse?: number; prompt?: boolean; body: import('three').Object3D }[] = [];
 
   /** Their funeral must wait for the one under way: the body lies where it fell (a few at most; beyond that they are burned quietly). */
   private layToRest(isl: Islander, words: { kicker: string; line: string } | null): void {
@@ -234,7 +239,7 @@ export class Passings {
     if (spouse) spouse.happy = Math.max(0, spouse.happy - 0.3);
     if (this.waiting.length < 6 && (this.pyreSite(isl.x, isl.z) || this.graveyardPlot() || this.restingPlace())) {
       const y = g.world.groundY(isl.x, isl.z);
-      this.waiting.push({ name: isl.name, x: isl.x, z: isl.z, yaw: isl.heading, spouse: spouse?.id, body: this.graves.layBody({ x: isl.x, y: y + 0.02, z: isl.z, yaw: isl.heading }) });
+      this.waiting.push({ name: isl.name, x: isl.x, z: isl.z, yaw: isl.heading, spouse: spouse?.id, prompt: true, body: this.graves.layBody({ x: isl.x, y: y + 0.02, z: isl.z, yaw: isl.heading }) });
     } else if (this.pyreSite(isl.x, isl.z)) this.keepAshes(isl.name);
     else this.quickGrave(isl.name);
     if (words) g.ui?.toast(words.line, 'warn');
@@ -285,7 +290,7 @@ export class Passings {
     });
     g.audio?.sfx('select');
     haptic('light');
-    this.startFuneral(isl.name, x, z, isl.heading, spouse?.id);
+    this.startFuneral(isl.name, x, z, isl.heading, spouse?.id, !!words);
   }
 
   /**
@@ -293,7 +298,7 @@ export class Passings {
    * its hearth and two bearers carry them there to be burned. Without one they are buried: carried
    * to the next graveyard plot, or laid in a grave at a quiet spot near the temple (or the fire).
    */
-  private startFuneral(name: string, x: number, z: number, heading: number, spouseId?: number): void {
+  private startFuneral(name: string, x: number, z: number, heading: number, spouseId?: number, prompt = false): void {
     const g = this.game, c = g.colony, y = g.world.groundY(x, z);
     const site = this.pyreSite(x, z);
     if (site) {
@@ -301,7 +306,7 @@ export class Passings {
       this.graves.showPyre({ x: site.x, y: py, z: site.z, yaw });
       this.graves.showBier({ x, y: y + 0.02, z, yaw: heading });
       this.funeral = {
-        name, t: 0, phase: 'wait', crowd: new Gathering(c, 'idle', site.x, site.z), spot: { x: site.x, z: site.z }, spouse: spouseId, pyre: true,
+        name, t: 0, phase: 'wait', crowd: new Gathering(c, 'idle', site.x, site.z), spot: { x: site.x, z: site.z }, spouse: spouseId, pyre: true, prompt,
         procession: { bearers: new Gathering(c, 'idle', x, z), body: { x, z, y }, plot: { x: site.x, z: site.z, y: py, yaw, venue: { x: site.x, z: site.z } }, day: g.time.day },
       };
       return;
@@ -311,7 +316,7 @@ export class Passings {
     if (plot) {
       this.graves.showBier({ x, y: y + 0.02, z, yaw: heading });
       this.funeral = {
-        name, t: 0, phase: 'wait', crowd: new Gathering(c, 'idle', plot.x, plot.z), spot: { x: plot.x, z: plot.z }, spouse: spouseId,
+        name, t: 0, phase: 'wait', crowd: new Gathering(c, 'idle', plot.x, plot.z), spot: { x: plot.x, z: plot.z }, spouse: spouseId, prompt,
         procession: { bearers: new Gathering(c, 'idle', x, z), body: { x, z, y }, plot, day: g.time.day },
       };
       return;
@@ -334,9 +339,11 @@ export class Passings {
     const ids = [...p.bearers.ids, ...(f.phase === 'carry' && p.follower !== undefined ? [p.follower] : [])]
       .map((id) => c.byId(id)).filter((i): i is NonNullable<typeof i> => !!i && !i.hidden);
     if (f.phase === 'fetch') {
+      // Short of hands (asleep, busy, or ran off): call others every few seconds.
+      if (p.bearers.size < 2 && Math.floor(f.t / 4) !== Math.floor((f.t - dt) / 4)) p.bearers.call(2 - p.bearers.size, this.litterEnds(p.body.x, p.body.z), this.notBearer);
       // Only those who reached the body lift it (no one is pulled across the island to it).
       const there = ids.filter((i) => Math.hypot(i.x - p.body.x, i.z - p.body.z) < 1.6 && i.task?.kind !== 'goto');
-      if (there.length >= 2 || (f.t > PASSING.fetchSecs && there.length)) {
+      if (there.length >= 2 || (f.t > (f.prompt ? PASSING.fetchBy : PASSING.fetchSecs) && there.length)) {
         ids.splice(0, ids.length, ...there);
         f.phase = 'carry';
         f.t = 0;
@@ -390,7 +397,7 @@ export class Passings {
   }
 
   /** Mid-morning: the village comes to stand round the grave (or along the graveyard path). */
-  private callMourners(at?: { x: number; z: number }[]): void {
+  private callMourners(at?: { x: number; z: number }[], again = false): void {
     const f = this.funeral!, c = this.game.colony, { x, z } = f.spot;
     const slots: { x: number; z: number }[] = at?.length ? at.slice() : [];
     for (let k = 0; k < 14 && !at?.length; k++) {
@@ -400,21 +407,36 @@ export class Passings {
       slots.push({ x: x + Math.cos(a) * ring, z: z + Math.sin(a) * ring });
     }
     const spouse = f.spouse !== undefined ? c.byId(f.spouse) : undefined;
-    if (spouse && !spouse.hidden && spouse.condition === 'well') { const s0 = slots.shift()!; f.crowd.join(spouse, s0.x, s0.z); }
-    f.crowd.call(PASSING.mourners, slots, (i) => !!i.warrior);
-    this.game.ui?.toast(f.pyre ? `The village gathers at the pyre for ${f.name}.` : `The village gathers to lay ${f.name} to rest.`, 'info', { x, z });
+    if (spouse && !again && !spouse.hidden && spouse.condition === 'well') { const s0 = slots.shift()!; f.crowd.join(spouse, s0.x, s0.z); }
+    f.crowd.call(PASSING.mourners - f.crowd.size, slots, (i) => !!i.warrior || i.task?.kind === 'flee');
+    if (again) return;
+    this.game.ui?.toast(f.pyre ? `The village gathers at the pyre for ${f.name}: it is lit once ${PASSING.pyreMourners} have come.` : `The village gathers to lay ${f.name} to rest.`, 'info', { x, z });
+  }
+
+  /** Where the two bearers stand to lift the litter. */
+  private litterEnds(x: number, z: number): { x: number; z: number }[] {
+    return [{ x: x - 0.75, z }, { x: x + 0.75, z }];
+  }
+
+  /** Not sent to carry the dead: warriors, and anyone still running from the bolt (once they have stopped, they may come back for the body). */
+  private notBearer = (i: Islander): boolean => !!i.warrior || (i.task?.kind === 'flee' && i.task.stage < 2);
+
+  /** Grown islanders well enough to come and mourn (asleep or not). */
+  private ableAdults(): number {
+    return this.game.colony.list.filter((i) => !i.child && !i.npc && i.condition === 'well').length;
   }
 
   private runFuneral(dt: number): void {
     const g = this.game, f = this.funeral!;
     f.t += dt;
     if (f.phase === 'wait') {
-      if (g.time.hour < PASSING.funeralHour || g.time.hour > 17) return;
+      // The struck-down are fetched as soon as the others have fled; elders at mid-morning.
+      if (f.prompt && f.procession ? f.t < PASSING.bearersAfter : g.time.hour < PASSING.funeralHour || g.time.hour > 17) return;
       f.t = 0;
       if (f.procession) {
         // Two bearers come for the body, one at each end of the litter.
         const p = f.procession, { x, z } = p.body;
-        p.bearers.call(2, [{ x: x - 0.75, z }, { x: x + 0.75, z }], (i) => !!i.warrior);
+        p.bearers.call(2, this.litterEnds(x, z), this.notBearer);
         f.phase = 'fetch';
         g.ui?.toast(`Two islanders go to carry ${f.name} to the ${f.pyre ? 'pyre' : 'graveyard'}.`, 'info', { x, z });
         return;
@@ -426,7 +448,13 @@ export class Passings {
     if (f.phase === 'fetch' || f.phase === 'carry') return this.procession(dt);
     f.crowd.update();
     if (f.phase === 'gather') {
-      if ((f.crowd.present >= Math.min(f.crowd.size, 4) && f.t > 10) || f.t > PASSING.gatherSecs) {
+      if (f.pyre) {
+        // The pyre is lit only once enough of the village stands round it (all of them, in a small village).
+        const need = Math.max(1, Math.min(PASSING.pyreMourners, this.ableAdults()));
+        if (f.crowd.size < need + 2 && Math.floor(f.t / 5) !== Math.floor((f.t - dt) / 5)) this.callMourners(undefined, true);
+        if (f.crowd.present < need && !(f.t > PASSING.gatherSecs * 6 && f.crowd.present)) return;
+      }
+      if (f.pyre || (f.crowd.present >= Math.min(f.crowd.size, 4) && f.t > 10) || f.t > PASSING.gatherSecs) {
         f.phase = 'pray'; this.game.cinematics?.play('funeral', { x: f.spot.x, z: f.spot.z, radius: 3 });
         f.t = 0;
         f.crowd.anim = 'pray';

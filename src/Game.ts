@@ -238,6 +238,9 @@ const SMALL_SHADOWS_TO = 70;
 const FOLLOW_DISTANCE = 13;
 
 /** Owns the renderer, scene and every system; runs the main loop and routes input to tools. */
+/** How far round a smiting the villagers run from it (metres). */
+const SMITE_SCATTER = 8;
+
 export class Game {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
@@ -2888,6 +2891,10 @@ export class Game {
       p.flung = { mode: 'dead', rx: 0, rz: 0, vx: 0, vy: 0, vz: 0, t: 0, wx: (p.id % 2 ? 1 : -1) * (0.8 + (p.id % 5) * 0.1), wz: 0 };
     }
     this.struck.push({ people: doomed, t: 0 });
+    // Those standing near run for their lives.
+    const cx = doomed.reduce((s, p) => s + p.x, 0) / doomed.length, cz = doomed.reduce((s, p) => s + p.z, 0) / doomed.length;
+    const spread = Math.max(...doomed.map((p) => Math.hypot(p.x - cx, p.z - cz)));
+    this.colony.scatter(cx, cz, SMITE_SCATTER + spread, (i) => doomed.includes(i));
   }
 
   /** Islanders struck down and fallen, not yet mourned: each batch waits a moment on the ground. */

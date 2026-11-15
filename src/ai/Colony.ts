@@ -2229,6 +2229,26 @@ export class Colony {
    * A predator is near: villagers within range drop what they're doing and run for shelter (their
    * home, else the nearest finished building away from the threat); warriors go to meet it.
    */
+  /**
+   * Something terrible has happened at (x, z) (a bolt from the sky): everyone within `r` runs,
+   * away from it, and stands a while catching their breath before going back to their lives.
+   * Returns how many ran.
+   */
+  scatter(x: number, z: number, r: number, spare: (isl: Islander) => boolean = () => false): number {
+    let n = 0;
+    for (const isl of this.list) {
+      if (isl.hidden || isl.sleeping || isl.npc || isl.flung || spare(isl)) continue;
+      const d = Math.hypot(isl.x - x, isl.z - z);
+      if (d > r) continue;
+      // Straight away from it, a good few strides past the edge of the danger.
+      const a = d > 0.05 ? Math.atan2(isl.z - z, isl.x - x) : this.rnd() * Math.PI * 2, go = r - d + 6 + this.rnd() * 4;
+      this.cancelTask(isl);
+      this.setTask(isl, 'flee', -1, isl.x + Math.cos(a) * go, isl.z + Math.sin(a) * go);
+      n++;
+    }
+    return n;
+  }
+
   alarm(x: number, z: number, r: number): Islander[] {
     const warriors: Islander[] = [];
     for (const isl of this.list) {

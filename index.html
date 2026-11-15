@@ -17,7 +17,9 @@
     <meta name="apple-mobile-web-app-title" content="Aztlan Isle" />
     <meta name="application-name" content="Aztlan Isle" />
     <link rel="manifest" href="./manifest.webmanifest" />
-    <link rel="preload" as="image" href="./redhead-intro.jpeg?v=2" />
+    <link rel="preload" as="image" href="./redhead-brain.webp" />
+    <link rel="preload" as="image" href="./redhead-word.webp" />
+    <link rel="preload" as="image" href="./redhead-games.webp" />
     <style>
       /* Inline so the studio splash covers the first paint, before the game bundle loads. */
       html.brand-open, html.brand-open body { margin: 0; background: #000; }
@@ -27,9 +29,41 @@
         display: grid; place-items: center; opacity: 1;
         transition: opacity 900ms ease; touch-action: none;
       }
-      .studio-logo { position: relative; overflow: hidden; width: min(72vw, 48vh, 460px); width: min(72vw, 48dvh, 460px); aspect-ratio: 800 / 780; }
-      /* Frame only the supplied logo; discard the screenshot's empty margins and ghost UI. */
-      #studio-splash img { position: absolute; display: block; width: 153.25%; max-width: none; height: auto; left: -27.5%; top: -117.9487%; }
+      /* Redhead Games: "brain freeze to boom". The two halves of the brain fly in and collide, a
+         shockwave rings out, then the name punches in and GAMES opens beneath it. */
+      .rh-logo { --rh-red: #ff1a1a; position: relative; width: min(480px, 80vw, 52vh); width: min(480px, 80vw, 52dvh); user-select: none; }
+      .rh-logo img { display: block; width: 100%; height: auto; pointer-events: none; }
+      .rh-brain-wrap { position: relative; width: 62%; margin: 0 auto; }
+      .rh-brain { position: relative; aspect-ratio: 597 / 630; }
+      .rh-half { position: absolute; inset: 0; }
+      .rh-half img { width: 100%; height: 100%; }
+      .rh-left { clip-path: inset(0 49.8% 0 0); }
+      .rh-right { clip-path: inset(0 0 0 50.2%); }
+      .rh-shock { position: absolute; left: 50%; top: 50%; width: 260%; aspect-ratio: 1; transform: translate(-50%, -50%); pointer-events: none; overflow: visible; z-index: -1; }
+      .rh-shock circle { fill: none; stroke: var(--rh-red); transform-origin: 50% 50%; transform-box: fill-box; opacity: 0; }
+      .rh-glow { position: absolute; left: 50%; top: 50%; width: 150%; aspect-ratio: 1; transform: translate(-50%, -50%); border-radius: 50%; background: radial-gradient(circle, rgba(255,30,30,.55) 0%, rgba(255,30,30,0) 65%); opacity: 0; pointer-events: none; z-index: -1; }
+      .rh-word { margin-top: 3.3%; }
+      .rh-games { width: 48.4%; margin: 1.7% auto 0; }
+      .rh-logo.rh-play .rh-left { animation: rh-in-left .55s cubic-bezier(.55,0,1,.45) both; }
+      .rh-logo.rh-play .rh-right { animation: rh-in-right .55s cubic-bezier(.55,0,1,.45) both; }
+      .rh-logo.rh-play .rh-brain { animation: rh-squash .45s .55s cubic-bezier(.3,1.6,.5,1) both; }
+      .rh-logo.rh-play .rh-brain-wrap { animation: rh-shake .35s .55s linear both; }
+      .rh-logo.rh-play .rh-glow { animation: rh-glow .8s .55s ease-out both; }
+      .rh-logo.rh-play .rh-ring1 { animation: rh-ring .9s .55s cubic-bezier(.1,.7,.3,1) forwards; }
+      .rh-logo.rh-play .rh-ring2 { animation: rh-ring 1s .68s cubic-bezier(.1,.7,.3,1) forwards; }
+      .rh-logo.rh-play .rh-word { animation: rh-punch .6s .8s cubic-bezier(.2,1.5,.4,1) both; }
+      .rh-logo.rh-play .rh-games { animation: rh-reveal .55s 1.15s cubic-bezier(.2,.8,.2,1) both; }
+      @keyframes rh-in-left { from { transform: translateX(-140%) rotate(-18deg); opacity: 0 } 30% { opacity: 1 } to { transform: none; opacity: 1 } }
+      @keyframes rh-in-right { from { transform: translateX(140%) rotate(18deg); opacity: 0 } 30% { opacity: 1 } to { transform: none; opacity: 1 } }
+      @keyframes rh-squash { 0% { transform: scale(1.12, .86) } 100% { transform: none } }
+      @keyframes rh-shake { 0%, 100% { transform: none } 15% { transform: translate(-6px, 3px) rotate(-1.5deg) } 30% { transform: translate(5px, -4px) rotate(1.2deg) } 45% { transform: translate(-4px, 2px) } 60% { transform: translate(3px, -2px) } 80% { transform: translate(-1px, 1px) } }
+      @keyframes rh-glow { 0% { opacity: 0; transform: translate(-50%, -50%) scale(.4) } 20% { opacity: 1 } 100% { opacity: 0; transform: translate(-50%, -50%) scale(1.2) } }
+      @keyframes rh-ring { 0% { opacity: 1; transform: scale(.15); stroke-width: 14 } 100% { opacity: 0; transform: scale(1); stroke-width: 1 } }
+      @keyframes rh-punch { 0% { opacity: 0; transform: scale(2.4); filter: blur(10px) } 60% { opacity: 1; filter: blur(0) } 100% { opacity: 1; transform: none } }
+      @keyframes rh-reveal { 0% { opacity: 0; clip-path: inset(0 50% 0 50%); transform: translateY(30%) } 100% { opacity: 1; clip-path: inset(0 0 0 0); transform: none } }
+      /* Hidden until the images are in and it plays, so nothing flashes. */
+      .rh-logo:not(.rh-play) .rh-half, .rh-logo:not(.rh-play) .rh-word, .rh-logo:not(.rh-play) .rh-games { opacity: 0; }
+      @media (prefers-reduced-motion: reduce) { .rh-logo * { animation: none !important; opacity: 1 !important; } }
       #studio-splash.leaving { opacity: 0; }
       @media (prefers-reduced-motion: reduce) { #studio-splash { transition: none; } }
     </style>
@@ -78,7 +112,18 @@
   </head>
   <body>
     <div id="studio-splash" role="img" aria-label="Redhead Games">
-      <div class="studio-logo"><img src="./redhead-intro.jpeg?v=2" alt="" fetchpriority="high" /></div>
+      <div class="rh-logo" aria-hidden="true">
+        <div class="rh-brain-wrap">
+          <div class="rh-glow"></div>
+          <svg class="rh-shock" viewBox="0 0 100 100"><circle class="rh-ring1" cx="50" cy="50" r="48"/><circle class="rh-ring2" cx="50" cy="50" r="48"/></svg>
+          <div class="rh-brain">
+            <div class="rh-half rh-left"><img src="./redhead-brain.webp" alt="" fetchpriority="high" /></div>
+            <div class="rh-half rh-right"><img src="./redhead-brain.webp" alt="" fetchpriority="high" /></div>
+          </div>
+        </div>
+        <img class="rh-word" src="./redhead-word.webp" alt="" fetchpriority="high" />
+        <img class="rh-games" src="./redhead-games.webp" alt="" fetchpriority="high" />
+      </div>
     </div>
     <canvas id="game"></canvas>
     <div id="hud"></div>
@@ -106,7 +151,8 @@
     <script>
       (function () {
         var splash = document.getElementById('studio-splash');
-        var logo = splash.querySelector('img');
+        var mark = splash.querySelector('.rh-logo');
+        var parts = Array.prototype.slice.call(splash.querySelectorAll('img'));
         var title = document.querySelector('.splash-art');
         var started = false;
         function ready(image) {
@@ -129,7 +175,11 @@
         }
         // Keep this independent of game boot so a loading error never traps the player.
         Promise.all([
-          ready(logo).then(function () { return new Promise(function (resolve) { setTimeout(resolve, 2000); }); }),
+          // Once its pictures are in, the logo plays (about 1.7 s) and holds a moment.
+          Promise.all(parts.map(ready)).then(function () {
+            mark.classList.add('rh-play');
+            return new Promise(function (resolve) { setTimeout(resolve, 2900); });
+          }),
           ready(title)
         ]).then(fade);
         setTimeout(fade, 8000);

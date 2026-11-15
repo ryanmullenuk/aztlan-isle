@@ -97,3 +97,65 @@ test('the pyre: ashes are kept in an urn in the next graveyard plot, or given to
   assert.equal(G.pyreAt, null);
   assert.equal(G.pyre.visible, false);
 });
+
+/** A pyre village at night: `n` grown islanders standing about, walking anywhere at once. */
+async function pyreVillage(n: number, hour = 23) {
+  const { Passings, PASSING } = await import('../src/economy/Passings');
+  const pyre = new Building(9001, 'pyre', 60, 60, 0, 1, stub);
+  pyre.complete = true;
+  const people: any[] = Array.from({ length: n }, (_, k) => ({ id: k + 1, name: `P${k}`, x: 30 + k, z: 30, y: 0, heading: 0, happy: 0.5, hunger: 1, rest: 1, condition: 'well', think: 0, anim: 'idle', home: -1 }));
+  const toasts: string[] = [];
+  const colony = {
+    list: people, moodBoost: 0,
+    byId: (id: number) => people.find((p) => p.id === id),
+    walkTo(i: any, x: number, z: number) { i.x = x; i.z = z; i.task = undefined; },
+    remove(i: any) { people.splice(people.indexOf(i), 1); },
+  };
+  const game = {
+    buildings: { list: [pyre] }, colony, time: { hour, day: 3 }, eco: { godMode: false, add() {} },
+    world: { groundY: () => 0, blockCircle() {} }, ui: { dialog: { push() {} }, toast: (t: string) => toasts.push(t) },
+  } as any;
+  return { passings: new Passings(game) as any, people, PASSING, toasts };
+}
+
+test('the struck-down are carried to the pyre at once, by night too, and it is lit only when five have come to mourn', async () => {
+  const v = await pyreVillage(8);
+  v.passings.take(v.people[0], { kicker: 'Struck down', line: 'P0 was struck down.' });
+  const f = () => v.passings.funeral;
+  assert.equal(f().prompt, true);
+  // A breath while the others flee, then two bearers come, well inside a minute.
+  v.passings.update(v.PASSING.bearersAfter - 1);
+  assert.equal(f().phase, 'wait');
+  v.passings.update(2);
+  assert.equal(f().phase, 'fetch', 'nobody came for the body at night');
+  // Four of the seven left are asleep.
+  for (const p of v.people.slice(3)) p.sleeping = true;
+  for (let t = 0; t < 10 && f().phase !== 'gather'; t++) v.passings.update(1);
+  assert.equal(f().phase, 'gather', 'the body never reached the pyre');
+  // Three stand at the pyre, and it waits for more.
+  for (let t = 0; t < 60; t++) v.passings.update(1);
+  assert.equal(f().phase, 'gather', 'lit with fewer than five mourners');
+  // They wake and come: five or more now stand round it, and the fire is lit.
+  for (const p of v.people) p.sleeping = false;
+  for (let t = 0; t < 12 && f().phase === 'gather'; t++) v.passings.update(1);
+  assert.equal(f().phase, 'pray');
+  assert.ok(f().crowd.present >= 5, `${f().crowd.present} mourners`);
+});
+
+test('a small village lights the pyre with everyone it has', async () => {
+  const v = await pyreVillage(4, 12);
+  v.passings.take(v.people[0], { kicker: 'Struck down', line: 'P0 was struck down.' });
+  for (let t = 0; t < 40 && v.passings.funeral?.phase !== 'pray'; t++) v.passings.update(1);
+  assert.equal(v.passings.funeral?.phase, 'pray', 'three mourners can never make five');
+});
+
+test('a smiting sends everyone near running away from it', async () => {
+  const { Colony } = await import('../src/ai/Colony');
+  const set: [number, number, number][] = [];
+  const near = { id: 1, x: 3, z: 0 }, far = { id: 2, x: 30, z: 0 }, asleep = { id: 3, x: 1, z: 1, sleeping: true }, victim = { id: 4, x: 0, z: 0 };
+  const self = { list: [near, far, asleep, victim], rnd: () => 0.5, cancelTask() {}, setTask: (i: any, kind: string, _t: number, x: number, z: number) => { assert.equal(kind, 'flee'); set.push([i.id, x, z]); } };
+  const ran = (Colony.prototype as any).scatter.call(self, 0, 0, 8, (i: any) => i === victim);
+  assert.equal(ran, 1);
+  assert.equal(set[0][0], 1);
+  assert.ok(set[0][1] > 3 + 6, 'ran toward the bolt, or not far enough');
+});

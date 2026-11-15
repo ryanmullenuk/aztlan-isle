@@ -2076,6 +2076,11 @@ export class UI {
       const why = g.fireworksBlock(b);
       actions += `<button class="btn small" data-a="fireworks" ${why ? 'disabled' : ''} title="${why}">${icon('fireworks')} Launch fireworks <span class="c">${icon('fireworks')}${FIREWORKS.perShow}</span></button>`;
     }
+    if (b.key === 'ancestoraltar' && b.complete) {
+      const why = g.ancestors.honourBlock();
+      actions += `<button class="btn small" data-a="ancestors" ${why ? 'disabled' : ''} title="${why || 'The spirits of the dead come to the altar tonight and greet the living: everyone who comes is happier'}">${ICONS.b_altar} Honour the ancestors tonight</button>`;
+      if (why) actions += `<p class="muted small">${why}</p>`;
+    }
     if (b.key === 'kennel' && b.complete) {
       const ok = g.dogs.canBreed(b);
       actions += `<button class="btn small" data-a="breed" ${ok.ok ? '' : 'disabled'} title="${ok.reason}">${ICONS.dog} Breed dog <span class="c">${DOGS.breedFood} food</span></button>`;
@@ -2229,6 +2234,7 @@ export class UI {
       }
       if (a === 'boat') g.buildBoat(b);
       if (a === 'fireworks') this.toast(g.launchFireworks(b));
+      if (a === 'ancestors') { this.toast(g.ancestors.honour()); this.renderInfo(true); }
       if (a === 'largeboat') {if(g.boats.order(b,true))this.toast('Work begins on a larger fishing boat.');}
       if (a === 'tradeboat') this.toast(g.trade.orderBoat(b));
       if (a.startsWith('visit')) this.toast(g.trade.accept(b, parseInt(a.slice(5), 10)));

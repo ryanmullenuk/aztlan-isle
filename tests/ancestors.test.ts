@@ -103,3 +103,32 @@ test('the dead are remembered across saves', () => {
   b.night.restore(JSON.parse(JSON.stringify(a.night.save())));
   assert.deepEqual(b.night.dead, [{ name: 'Itzel', f: true }]);
 });
+
+test('the player may call the ancestors any night from the altar, once a night; those who come are happier', () => {
+  const v = village(true, 14);
+  v.game.time.day = 4;
+  assert.match(v.night.honourBlock(), /no ancestors/);
+  v.night.remember('Itzel', true);
+  assert.equal(v.night.honourBlock(), '');
+  assert.match(v.night.honour(), /nightfall/);
+  assert.equal(v.night.state, 'granted');
+  v.game.time.hour = 21;
+  v.night.update(1);
+  assert.equal(v.night.state, 'night');
+  v.night.update(1);
+  const before = v.game.colony.list.map((p: any) => p.happy);
+  v.night.update(ANCESTORS.visitSecs + 1);
+  assert.ok(v.game.colony.list.every((p: any, k: number) => p.happy > before[k]), 'nobody is happier');
+  assert.equal(v.game.eco.belief, 0, 'Belief is for granting a wish, not for calling them yourself');
+  // Not twice the same night (after midnight is still that night)...
+  v.game.time.day = 5;
+  v.game.time.hour = 2;
+  assert.match(v.night.honourBlock(), /here tonight/);
+  v.game.time.hour = 6;
+  v.night.update(1);
+  v.game.time.hour = 3;
+  assert.match(v.night.honourBlock(), /already come tonight/);
+  // ...but again the next night.
+  v.game.time.hour = 21;
+  assert.equal(v.night.honourBlock(), '');
+});
