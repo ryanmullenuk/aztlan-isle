@@ -5,6 +5,7 @@ import { RNG } from '../../world/rng';
 import { bloomAt, flowerHead, marigoldHead } from '../../vegetation/flowerParts';
 import { CHINAMPA_BED_Y, FARM_PEN, chinampaBeds } from '../models';
 import type { Look, Looks } from './types';
+import { addPool } from '../water';
 
 /**
  * How the food buildings' upgrades show: farms, gardens, pens, the smokehouse and slaughterhouse,
@@ -663,7 +664,8 @@ const pigTroughsWallow: Look = (b, w, d) => {
       box(b, L, h, t, CUT.stone, x, h / 2, z + s * (D / 2 - t / 2));
       box(b, t, h, D - 2 * t, CUT.stone, x + s * (L / 2 - t / 2), h / 2, z);
     }
-    box(b, L - 2 * t, 0.012, D - 2 * t, fill, x, h * 0.72, z);
+    if (fill === PEN.water) addPool({ x, y: h * 0.72, z, w: L - 2 * t, d: D - 2 * t, depth: 0.35 });
+    else box(b, L - 2 * t, 0.012, D - 2 * t, fill, x, h * 0.72, z);
   };
   // Two long stone troughs along the front and right fences: water, and mash.
   trough(1.5, hd - 0.17, 1.0, 0.24, true, PEN.water);

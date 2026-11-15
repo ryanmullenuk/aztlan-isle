@@ -5,6 +5,7 @@ import type { Looks } from './types';
 import { FOOD_LOOKS } from './food';
 import { VILLAGE_LOOKS } from './village';
 import { SAFETY_LOOKS } from './safety';
+import { collectWater, type BuildingWater } from '../water';
 
 /**
  * How upgrades show on a building: each finished upgrade adds what it says (irrigation ditches, a
@@ -13,11 +14,14 @@ import { SAFETY_LOOKS } from './safety';
 export const LOOKS: Looks = { ...FOOD_LOOKS, ...VILLAGE_LOOKS, ...SAFETY_LOOKS };
 
 /** The looks of a building's first `n` upgrades, or null when it has none of its own. */
-export function upgradeLooks(key: BuildingKey, n: number, w: number, d: number, landY?: number): { geo: THREE.BufferGeometry; torches: THREE.Vector3[] } | null {
+export function upgradeLooks(key: BuildingKey, n: number, w: number, d: number, landY?: number): { geo: THREE.BufferGeometry; torches: THREE.Vector3[]; water: BuildingWater } | null {
   const looks = LOOKS[key];
   if (!looks?.length || n <= 0) return null;
   const b = new GeoBuilder(), torches: THREE.Vector3[] = [];
-  for (let k = 0; k < Math.min(n, looks.length); k++) looks[k](b, w, d, torches, landY);
+  // Pools and fountains the looks add are drawn as moving water (see water.ts).
+  const { water } = collectWater(() => {
+    for (let k = 0; k < Math.min(n, looks.length); k++) looks[k](b, w, d, torches, landY);
+  });
   if (!b.vertexCount) return null;
-  return { geo: b.build(), torches };
+  return { geo: b.build(), torches, water };
 }

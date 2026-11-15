@@ -37,6 +37,7 @@ import { Particles } from '../render/Particles';
 import { GeoBuilder } from '../render/GeoBuilder';
 import { FireLights, FireSpot } from './FireLights';
 import { BATCHED_LAYER, BuildingShadows, batchingWorks } from './BuildingShadows';
+import { WATER_UNIFORMS, leanWater, waterGeometry, waterMaterial, type BuildingWater } from './water';
 import { VillageSmoke, hearthStrength, type SmokeSpot } from './VillageSmoke';
 import { homeProps, type Cloth } from './HomeProps';
 import { Doors, Washing } from './Doors';
@@ -138,6 +139,9 @@ export class Building {
   /** Lamplight in its windows and doorways at night, and how deep into dusk it comes on (0..1). */
   glow?: THREE.Mesh;
   glowAt?: number;
+  /** Its moving water (pools and fountains: see water.ts), and how many of its indices are pools (all that is drawn far away). */
+  water?: THREE.Mesh;
+  waterPools = 0;
   /** Its doors (open by day, shut at night: see Doors) and how far each stands open just now. */
   doors?: models.Door[];
   doorOpen?: number[];
@@ -501,9 +505,31 @@ function setGlow(b: Building, windows: models.Glow[] | undefined, candles?: THRE
 /** A building's look with the things that ride on it: its washing as well as its lights and doors. */
 type Look = models.BuildingModel & { cloths?: Cloth[] };
 
+/**
+ * A building's moving water: one small mesh riding on its finished model (pools first, then the
+ * fountains, which are left out far away), drawn with the one shared water material.
+ */
+function setWater(b: Building, water: BuildingWater | undefined): void {
+  if (b.water) {
+    b.water.removeFromParent();
+    b.water.geometry.dispose();
+    b.water = undefined;
+  }
+  const w = waterGeometry(water);
+  if (!w || !b.finished) return;
+  b.water = new THREE.Mesh(w.geo, waterMaterial());
+  b.water.name = 'Building water';
+  b.waterPools = w.pools;
+  b.water.visible = false;
+  b.water.renderOrder = 1;
+  if (b.lodFar) w.geo.setDrawRange(0, w.pools);
+  b.finished.add(b.water);
+}
+
 /** A building's lit openings, its doors and its washing, from its (new) model. */
 function setOpenings(b: Building, model: Look): void {
   setGlow(b, model.windows, model.candles);
+  setWater(b, model.water);
   b.doors = model.doors?.length ? model.doors : undefined;
   b.doorOpen = undefined;
   b.cloths = model.cloths?.length ? model.cloths : undefined;
@@ -1300,6 +1326,10 @@ export class BuildingSystem {
         model.finished.dispose();
         model.finished = merged;
         model.torches.push(...extra.torches);
+        const more = (extra as { water?: BuildingWater }).water;
+        if (more && (more.pools.length || more.jets.length)) {
+          model.water = { pools: [...(model.water?.pools ?? []), ...more.pools], jets: [...(model.water?.jets ?? []), ...more.jets] };
+        }
       }
       extra.geo.dispose();
     }
@@ -1327,6 +1357,7 @@ export class BuildingSystem {
       for (const t of model.torches) { t.x += lx * t.y; t.z += lz * t.y; }
       model.windows = model.windows?.map((g) => ({ ...g, x: g.x + lx * g.y, z: g.z + lz * g.y }));
       for (const p of model.candles ?? []) { p.x += lx * p.y; p.z += lz * p.y; }
+      if (model.water) model.water = leanWater(model.water, lx, lz);
       model.doors = model.doors?.map((d) => ({ ...d, x: d.x + lx * d.y, z: d.z + lz * d.y }));
       model.cloths = model.cloths?.map((c) => ({ ...c, x: c.x + lx * c.y, z: c.z + lz * c.y }));
     }
@@ -1596,6 +1627,8 @@ export class BuildingSystem {
       if (far === b.lodFar) continue;
       b.lodFar = far;
       b.finished.geometry = far ? modelLo(b.finishedHi) : b.finishedHi;
+      // Far away a building's pools still shine, but its fountains are too fine to see.
+      b.water?.geometry.setDrawRange(0, far ? b.waterPools : Infinity);
       // Crops follow on the next farm update (they also change as they grow and ripen).
     }
   }
@@ -1906,7 +1939,13 @@ export class BuildingSystem {
     // Night lights: each building comes on at its own moment as dusk deepens, and goes dark at dawn.
     GLOW_UNIFORMS.uNight.value = night;
     GLOW_UNIFORMS.uTime.value = time;
-    for (const b of this.list) if (b.glow) b.glow.visible = b.complete && !b.ruined && b.fire <= 0 && night > (b.glowAt ?? 0.4);
+    WATER_UNIFORMS.uTime.value = time;
+    WATER_UNIFORMS.uDay.value = 0.25 + 0.75 * (1 - night);
+    for (const b of this.list) {
+      if (b.glow) b.glow.visible = b.complete && !b.ruined && b.fire <= 0 && night > (b.glowAt ?? 0.4);
+      // Water stands in a finished building (not one still going up, nor a ruin).
+      if (b.water) b.water.visible = b.complete && !b.ruined && b.finished.visible && b.finished.scale.y === 1;
+    }
     for (const b of this.list) {
       if (b.scaffoldSink <= 0) continue;
       b.scaffoldSink = Math.max(0, b.scaffoldSink - dt);

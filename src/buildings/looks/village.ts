@@ -1,9 +1,12 @@
 import * as THREE from 'three';
 import { GeoBuilder, M, P, lumpy } from '../../render/GeoBuilder';
 import { RNG } from '../../world/rng';
-import { marigoldHead } from '../../vegetation/flowerParts';
+import { flowerHead, flowerOnStem, marigoldHead } from '../../vegetation/flowerParts';
+import { fernGeometry, treeGeometry } from '../../vegetation/models';
+import { hangingVine } from '../../vegetation/detail';
 import { HALL, OBS, PALACE } from '../models';
 import type { Look, Looks } from './types';
+import { addJet, addPool } from '../water';
 
 /**
  * The village buildings' upgrades, each drawn as what it says: the campfire's stone ring, story
@@ -164,17 +167,33 @@ function pennants(b: GeoBuilder, from: THREE.Vector3, to: THREE.Vector3, sag: nu
   }
 }
 
-/** A flowering tree: a timber trunk, round clumps of leaves and blossom. */
+/** Draw plants into the look as they are, standing still (the island's plants sway; a building's do not). */
+function still(b: GeoBuilder, draw: (sub: GeoBuilder) => void): void {
+  const sub = new GeoBuilder();
+  draw(sub);
+  if (!sub.vertexCount) return;
+  const g = sub.build();
+  b.addBuilt(g);
+  g.dispose();
+}
+
+/**
+ * A flowering tree, as the island's own small round-headed trees (trunk forking into limbs, masses
+ * of leaf: see vegetation/models), about 1.6·s tall, starred all over with blossom of one colour.
+ */
 function floweringTree(b: GeoBuilder, x: number, y: number, z: number, s: number, seed: number, bloom: THREE.Color): void {
-  const rng = new RNG(seed);
-  b.add(P.cyl(0.045 * s, 0.075 * s, 0.75 * s, 6), { color: K.timberDark }, M.t(x, y + 0.375 * s, z));
-  const greens = [K.leaf, K.leafDark, K.leafLight];
-  const clumps: [number, number, number, number][] = [[0, 0.95, 0, 0.32], [0.2, 0.82, 0.12, 0.24], [-0.18, 0.85, -0.1, 0.25], [0.05, 1.12, -0.08, 0.22], [-0.1, 0.8, 0.18, 0.2]];
-  clumps.forEach(([cx, cy, cz, r], k) => b.add(lumpy(P.sphere(r * s, 1), 0.25, seed + k, 0.85), { color: greens[k % 3], leaf: 1 }, M.t(x + cx * s, y + cy * s, z + cz * s)));
-  for (let k = 0; k < 14; k++) {
-    const a = rng.range(0, Math.PI * 2), e = rng.range(0.15, 1.2);
-    b.add(new THREE.OctahedronGeometry(0.05 * s, 0), { color: k % 4 ? bloom : c(0xf2d04a), leaf: 1 }, M.t(x + Math.cos(a) * Math.cos(e) * 0.36 * s, y + (0.95 + Math.sin(e) * 0.3) * s, z + Math.sin(a) * Math.cos(e) * 0.36 * s));
-  }
+  const rng = new RNG(seed), k = s * 0.62;
+  const g = treeGeometry(2, false, seed);
+  b.addBuilt(g, M.t(x, y, z, 0, rng.range(0, 6.28), 0, k, k, k));
+  g.dispose();
+  const c0 = bloom.clone().multiplyScalar(0.85), c1 = bloom.clone().lerp(c(0xffffff), 0.25);
+  still(b, (sub) => {
+    for (let n = 0; n < 16; n++) {
+      const a = rng.range(0, Math.PI * 2), e = rng.range(-0.1, 1.2), r = 0.75 * k;
+      const at = new THREE.Vector3(x + Math.cos(a) * Math.cos(e) * r, y + (1.86 + Math.sin(e) * 0.62) * k, z + Math.sin(a) * Math.cos(e) * r);
+      flowerHead(sub, at, 0.06 * s, c0, c1, rng, 5, 0.7, 0);
+    }
+  });
 }
 
 /** A cut-stone block (centred on x, z, standing on y) with mortar courses and a parapet round its flat roof. */
@@ -377,18 +396,22 @@ const well: Look[] = [
     b.add(P.cyl(r, r + 0.01, 0.2, 16, true), { color: CUT.stone }, M.t(x, 0.1, z));
     b.add(P.cyl(r - 0.035, r - 0.035, 0.18, 16, true), { color: CUT.stoneDark }, M.t(x, 0.11, z, 0, 0, 0, -1, 1, 1));
     b.add(new THREE.RingGeometry(r - 0.035, r + 0.005, 16, 1), { color: CUT.stoneLight }, M.t(x, 0.2, z, -Math.PI / 2));
-    b.add(P.cyl(r - 0.03, r - 0.03, 0.01, 16), { color: K.water }, M.t(x, 0.17, z));
+    // The basin's floor, dark under the water.
+    b.add(P.cyl(r - 0.03, r - 0.03, 0.01, 16), { color: c(0x1d4a52) }, M.t(x, 0.06, z));
+    addPool({ x, y: 0.17, z, w: (r - 0.035) * 2, d: (r - 0.035) * 2, round: true, depth: 0.6 });
+    // The carved pedestal and the bowl (a lip of gold-red paint round it), brimming.
     b.add(P.cyl(0.035, 0.05, 0.3, 8), { color: CUT.stoneLight }, M.t(x, 0.32, z));
+    b.add(P.cyl(0.06, 0.035, 0.04, 8), { color: CUT.stone }, M.t(x, 0.44, z));
     b.add(P.cyl(0.1, 0.05, 0.05, 12, true), { color: CUT.stone }, M.t(x, 0.49, z));
-    b.add(new THREE.CircleGeometry(0.095, 12).rotateX(-Math.PI / 2), { color: K.water }, M.t(x, 0.505, z));
-    // The jet and the water falling from the bowl's lip into the basin.
-    b.add(P.cyl(0.012, 0.02, 0.16, 6), { color: K.waterLight }, M.t(x, 0.595, z));
-    b.add(P.sphere(0.03, 1), { color: K.waterLight }, M.t(x, 0.67, z, 0, 0, 0, 1, 0.7, 1));
-    b.add(P.cyl(0.1, 0.13, 0.31, 12, true), { color: (p) => K.waterLight.clone().lerp(K.water, Math.min(1, Math.max(0, (0.5 - p.y) / 0.32))) }, M.t(x, 0.335, z));
-    // The channel from the well's foot to the basin.
+    b.add(P.cyl(0.07, 0.07, 0.01, 12), { color: c(0x1d4a52) }, M.t(x, 0.478, z));
+    b.add(P.torus(0.1, 0.008, 4, 16), { color: K.red }, M.t(x, 0.515, z, Math.PI / 2, 0, 0));
+    addPool({ x, y: 0.506, z, w: 0.19, d: 0.19, round: true, depth: 0.3 });
+    // The jet bubbling up in the bowl, and the water spilling over its lip into the basin (moving: see water.ts).
+    addJet({ kind: 'bowl', x, y: 0.508, z, r: 0.1, h: 0.16, land: 0.17, t: 0.011 });
+    // The channel from the well's foot to the basin, water running along it.
     const dx = x, dz = z, len = Math.hypot(dx, dz) - 0.62 - r + 0.04, a = Math.atan2(dx, dz), mid = 0.62 + len / 2 - 0.02;
     b.add(P.box(0.1, 0.06, len), { color: CUT.stoneDark }, M.t(Math.sin(a) * mid, 0.145, Math.cos(a) * mid, 0, a, 0));
-    b.add(P.box(0.05, 0.01, len), { color: K.water }, M.t(Math.sin(a) * mid, 0.18, Math.cos(a) * mid, 0, a, 0));
+    addPool({ x: Math.sin(a) * mid, y: 0.182, z: Math.cos(a) * mid, w: 0.05, d: len, ry: a, depth: 0.1 });
     const rng = new RNG(911);
     for (let k = 0; k < 7; k++) {
       const t = (k / 7) * Math.PI * 1.2 + 0.2, px = x + Math.cos(t) * 0.27, pz = z - Math.sin(t) * 0.04 + Math.abs(Math.sin(t)) * 0.12;
@@ -475,18 +498,24 @@ const palace: Look[] = [
       b.add(P.box(1.32, 0.02, len - 0.08), { color: K.soil }, M.t(x, ROOF + 0.282, zc));
       const y = ROOF + 0.29;
       [-1.6, 0, 1.6].forEach((dz, k) => floweringTree(b, x + s * 0.1, y, zc + dz, 1.15, 900 + k + s * 10, [c(0xe86aa8), c(0x9a6ad8), c(0xd8322a)][k]));
-      for (let k = 0; k < 6; k++) {
-        const z = z0 + 0.4 + k * ((len - 0.8) / 5);
-        b.add(lumpy(P.sphere(0.16, 1), 0.25, 950 + k, 0.7), { color: k % 2 ? K.leafLight : K.leaf, leaf: 1 }, M.t(x - s * 0.45, y + 0.08, z));
-        b.add(new THREE.OctahedronGeometry(0.05, 0), { color: k % 2 ? c(0xd8322a) : c(0xf2d04a), leaf: 1 }, M.t(x - s * 0.45, y + 0.22, z));
+      // Ferns and flowers along the inner edge of the bed.
+      const rng = new RNG(950 + s);
+      for (let k = 0; k < 5; k++) {
+        const z = z0 + 0.4 + k * ((len - 0.8) / 4);
+        const g = fernGeometry(false, 960 + k + s * 7);
+        b.addBuilt(g, M.t(x - s * 0.45, y, z, 0, k * 1.3, 0, 0.45, 0.45, 0.45));
+        g.dispose();
       }
-      // Vines spilling over the outer wall.
-      for (let k = 0; k < 7; k++) {
-        const z = z0 + 0.3 + k * ((len - 0.6) / 6), h = 0.5 + ((k * 37) % 5) * 0.08;
-        b.add(P.box(0.03, h, 0.16), { color: k % 2 ? K.leaf : K.leafDark, leaf: 1 }, M.t(s * (PALACE.topW / 2 + 0.045), ROOF - h / 2 + 0.08, z));
-        b.add(new THREE.OctahedronGeometry(0.045, 0), { color: c(0xe86aa8), leaf: 1 }, M.t(s * (PALACE.topW / 2 + 0.065), ROOF - h * 0.6, z));
-      }
-      floweringTree(b, s * 6.3, 0.07, -5.95, 1.15, 980 + s, c(0xe86aa8));
+      still(b, (sub) => {
+        for (let k = 0; k < 12; k++) flowerOnStem(sub, x - s * 0.45 + rng.range(-0.15, 0.15), y, z0 + 0.3 + rng.range(0, len - 0.6), rng.range(0.12, 0.2), 0.05, (['red', 'yellow', 'pink', 'white'] as const)[k % 4], rng);
+        // Vines and bougainvillea spilling over the outer wall.
+        for (let k = 0; k < 7; k++) {
+          const z = z0 + 0.3 + k * ((len - 0.6) / 6);
+          hangingVine(sub, new THREE.Vector3(s * (PALACE.topW / 2 + 0.05), ROOF + 0.08, z), 0.45 + ((k * 37) % 5) * 0.09, rng, K.leafDark, K.leafLight);
+          flowerHead(sub, new THREE.Vector3(s * (PALACE.topW / 2 + 0.07), ROOF - 0.1 - (k % 3) * 0.12, z + 0.05), 0.05, c(0xd8378f), c(0xf59ac4), rng, 5, 0.6, 0);
+        }
+      });
+      floweringTree(b, s * 6.1, 0.07, -5.95, 1.15, 980 + s, c(0xe86aa8));
     }
   },
   // Treasury: a sandstone strongroom on the plaza's east flank, its door banded in gold, chests of

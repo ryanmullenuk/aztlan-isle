@@ -46,6 +46,8 @@ function enterFullscreen(): void {
 const splash = new SplashFx();
 
 async function boot(): Promise<void> {
+  // Let the studio logo play and fade on a quiet page first (see index.html).
+  await (window as unknown as { aztlanBrand?: Promise<void> }).aztlanBrand;
   // Start downloading the islander models now: they arrive while the island is being shaped
   // (the game picks up this same request), rather than only once it has been.
   void loadIslanderModels().catch(() => {});

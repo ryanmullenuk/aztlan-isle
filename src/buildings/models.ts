@@ -4,7 +4,10 @@ import { COLORS } from '../config';
 import { FX as UPGRADE_FX } from './Upgrades';
 import { GeoBuilder, M, P, doubleSide, lumpy, outward, ribbon, tube } from '../render/GeoBuilder';
 import { RNG } from '../world/rng';
-import { bloomAt, flowerOnStem, marigoldHead } from '../vegetation/flowerParts';
+import { bloomAt, flowerOnStem, marigoldHead, type PetalColour } from '../vegetation/flowerParts';
+import { fernGeometry, palmGeometry, treeGeometry } from '../vegetation/models';
+import { hangingVine, leafGeometry } from '../vegetation/detail';
+import { addJet, addPool, collectWater, hasWater, type BuildingWater } from './water';
 
 const c = (h: number) => new THREE.Color(h);
 const K = {
@@ -41,6 +44,15 @@ export interface BuildingModel {
   doors?: Door[];
   /** Candle flames (local centres), each lit with a small bright glow and halo at night. */
   candles?: THREE.Vector3[];
+  /** Moving water: pools that ripple and fountains that play (drawn apart from the model: see water.ts). */
+  water?: BuildingWater;
+}
+
+/** Make a model, keeping the water it records (pools, fountains) with it. */
+function watered(make: () => BuildingModel): BuildingModel {
+  const { result, water } = collectWater(make);
+  if (hasWater(water)) result.water = { pools: [...(result.water?.pools ?? []), ...water.pools], jets: [...(result.water?.jets ?? []), ...water.jets] };
+  return result;
 }
 
 /**
@@ -239,6 +251,9 @@ export function firepitModel(): BuildingModel {
 
 /** Well: a round stone well with a timber frame, rope and bucket under a little tiled roof. */
 export function wellModel(): BuildingModel {
+  return watered(wellBody);
+}
+function wellBody(): BuildingModel {
   const b = new GeoBuilder();
   // The paving's slab sits below the flagstones (level with them, the two flicker).
   b.add(P.box(1.9, 0.03, 1.9), { color: CUT.stoneDark }, M.t(0, 0.015, 0));
@@ -247,7 +262,8 @@ export function wellModel(): BuildingModel {
   const ring = (p: THREE.Vector3) => ((Math.floor(p.y * 8) + Math.floor(Math.atan2(p.z, p.x) * 3)) % 2 ? CUT.stone : CUT.stoneDark).clone();
   b.add(P.cyl(0.46, 0.5, 0.5, 16, true), { color: ring }, M.t(0, 0.25, 0));
   b.add(P.cyl(0.36, 0.36, 0.5, 16, true), { color: (p) => c(0x6e5a44).lerp(c(0x2a2219), 1 - Math.min(1, Math.max(0, (p.y - 0.05) / 0.5))) }, M.t(0, 0.25, 0, 0, 0, 0, -1, 1, 1));
-  b.add(P.cyl(0.36, 0.36, 0.01, 16), { color: c(0x1d4a5e) }, M.t(0, 0.1, 0));
+  b.add(P.cyl(0.36, 0.36, 0.01, 16), { color: c(0x10303e) }, M.t(0, 0.06, 0));
+  addPool({ x: 0, y: 0.1, z: 0, w: 0.72, d: 0.72, round: true, depth: 1 });
   b.add(P.cyl(0.505, 0.505, 0.06, 16, true), { color: K.red }, M.t(0, 0.36, 0));
   // The coping: a flat ring of light stone round the mouth of the well, lipped inside and out.
   b.add(new THREE.RingGeometry(0.34, 0.54, 20, 1).rotateX(-Math.PI / 2), { color: CUT.stoneLight }, M.t(0, 0.535, 0));
@@ -269,7 +285,8 @@ export function wellModel(): BuildingModel {
   b.add(P.uvSphere(0.1, 8, 6), { color: K.terracotta }, M.t(0.7, 0.08, 0.55));
   b.add(P.sphere(0.1, 0), { color: c(0x4f8038), leaf: 1 }, M.t(0.7, 0.2, 0.55));
   b.add(P.box(0.5, 0.14, 0.2), { color: CUT.stone }, M.t(-0.55, 0.07, 0.62));
-  b.add(P.box(0.44, 0.02, 0.14), { color: c(0x2f7fa0) }, M.t(-0.55, 0.125, 0.62));
+  b.add(P.box(0.44, 0.02, 0.14), { color: c(0x24505a) }, M.t(-0.55, 0.09, 0.62));
+  addPool({ x: -0.55, y: 0.122, z: 0.62, w: 0.44, d: 0.14, depth: 0.3 });
   return { finished: b.build(), torches: [], height: 1.7 };
 }
 
@@ -295,6 +312,9 @@ function dogHouse(b: GeoBuilder, x: number, z: number, ry: number, s: number, pa
  * rope-lashed rail fence with a gate. Door faces +z.
  */
 export function kennelModel(): BuildingModel {
+  return watered(() => kennelBody());
+}
+function kennelBody(): BuildingModel {
   const b = new GeoBuilder(), rng = new RNG(616);
   const blue = c(0x3f6f9a);
   b.add(qbox(1.9, 0.05, 1.9, 0.02, 1), { color: PEN.dust }, M.t(0, 0.025, 0));
@@ -321,7 +341,7 @@ export function kennelModel(): BuildingModel {
   dogHouse(b, -0.22, -0.56, -0.2, 0.92, true);
   // Bowls, a scraps basket, a jar and the leash rack.
   b.add(P.cyl(0.08, 0.065, 0.045, 10), { color: blue }, M.t(0.05, 0.075, 0.25));
-  b.add(P.cyl(0.066, 0.066, 0.01, 10), { color: c(0x2f7fa0) }, M.t(0.05, 0.095, 0.25));
+  addPool({ x: 0.05, y: 0.1, z: 0.25, w: 0.132, d: 0.132, round: true, depth: 0.2 });
   b.add(P.cyl(0.08, 0.065, 0.045, 10), { color: K.terracotta }, M.t(0.3, 0.075, 0.5));
   for (let k = 0; k < 5; k++) b.add(P.sphere(0.022, 0), { color: c(0x8a3a2a) }, M.t(0.3 + rng.range(-0.04, 0.04), 0.1, 0.5 + rng.range(-0.04, 0.04)));
   heapBasket(b, 0.68, 0.05, 0.05, 0.09, 0.1, [0xb07a4a, 0xe8dcc0], rng);
@@ -1347,6 +1367,9 @@ function ahuejote(b: GeoBuilder, rng: RNG, x: number, z: number, h: number): voi
  * willows (their roots bind the beds) stand at the back.
  */
 export function chinampaModel(w: number, d: number): BuildingModel {
+  return watered(() => chinampaBody(w, d));
+}
+function chinampaBody(w: number, d: number): BuildingModel {
   const b = new GeoBuilder();
   const rng = new RNG(311);
   const hw = w / 2, hd = d / 2, by = CHINAMPA_BED_Y, wy = 0.06;
@@ -1356,15 +1379,13 @@ export function chinampaModel(w: number, d: number): BuildingModel {
     b.add(P.box(w - 0.02, 0.09, 0.14), { color: bank }, M.t(0, 0.045, s * (hd - 0.07)));
     b.add(P.box(0.14, 0.09, d - 0.3), { color: bank }, M.t(s * (hw - 0.07), 0.045, 0));
   }
-  // Water: deep teal in the middle, greener and shallower toward the banks, with ripples.
-  const water = new THREE.PlaneGeometry(w - 0.2, d - 0.2, 20, 20).rotateX(-Math.PI / 2);
-  b.add(water, { color: (p) => {
-    const edge = Math.min(hw - 0.1 - Math.abs(p.x), hd - 0.1 - Math.abs(p.z));
-    return c(0x226f78).lerp(c(0x5d9a82), Math.max(0, 1 - edge / 0.4) * 0.75).multiplyScalar(0.94 + 0.06 * Math.sin(p.x * 9 + p.z * 6));
-  } }, M.t(0, wy, 0));
+  // The muddy floor of the pool, and its water (moving: see water.ts), greener toward the banks.
+  b.add(new THREE.PlaneGeometry(w - 0.2, d - 0.2, 4, 4).rotateX(-Math.PI / 2), { color: (p) => c(0x2a3a2c).lerp(c(0x4a4a30), Math.sin(p.x * 5 + p.z * 3) * 0.3 + 0.3) }, M.t(0, wy - 0.035, 0));
+  addPool({ x: 0, y: wy, z: 0, w: w - 0.22, d: d - 0.22, depth: 0.55 });
   for (let k = 0; k < 9; k++) {
-    const [x, z] = [rng.range(-hw + 0.3, hw - 0.3), rng.next() < 0.5 ? rng.range(CHB.z1 + 0.05, CHB.walkZ - 0.2) : rng.range(-hd + 0.25, CHB.z0 - 0.05)];
-    b.add(P.torus(rng.range(0.05, 0.12), 0.004, 3, 16), { color: c(0x8fc3b4) }, M.t(x, wy + 0.004, z, Math.PI / 2, 0, 0));
+    // (Drawn as the water's own ripples now; the draws keep the lilies where they were.)
+    rng.range(-hw + 0.3, hw - 0.3); if (rng.next() < 0.5) rng.range(0, 1); else rng.range(0, 1);
+    rng.range(0.05, 0.12);
   }
   // Lily pads (a notch cut from each) and a few pink flowers, in the open water.
   for (let k = 0; k < 16; k++) {
@@ -1570,6 +1591,9 @@ function carcass(b: GeoBuilder, x: number, y: number, z: number, s: number, ry: 
  * slatted rack along the back, a meat trough and a log store. Torch post at the front corner.
  */
 export function butcherModel(w: number, d: number): BuildingModel {
+  return watered(() => butcherBody(w, d));
+}
+function butcherBody(w: number, d: number): BuildingModel {
   const b = new GeoBuilder(), rng = new RNG(808);
   const hx = -w / 4 - 0.1, hd = d - 0.3;
   b.add(qbox(w - 0.1, 0.05, d - 0.1, 0.02, 1), { color: PEN.dust }, M.t(0, 0.025, 0));
@@ -1790,7 +1814,8 @@ function trough(b: GeoBuilder, x: number, z: number, len: number, wid: number, h
     b.add(P.box(t, h, len), { color: col }, M.t(x + s * (wid / 2 - t / 2), h / 2, z));
     b.add(P.box(wid, h, t), { color: col }, M.t(x, h / 2, z + s * (len / 2 - t / 2)));
   }
-  b.add(P.box(wid - t * 2, 0.012, len - t * 2), { color: fill }, M.t(x, h * 0.72, z));
+  if (fill === PEN.water) addPool({ x, y: h * 0.72, z, w: wid - t * 2, d: len - t * 2, depth: 0.35 });
+  else b.add(P.box(wid - t * 2, 0.012, len - t * 2), { color: fill }, M.t(x, h * 0.72, z));
 }
 
 /**
@@ -1801,6 +1826,9 @@ function trough(b: GeoBuilder, x: number, z: number, len: number, wid: number, h
  * along the fence.
  */
 export function pigpenModel(w: number, d: number): BuildingModel {
+  return watered(() => pigpenBody(w, d));
+}
+function pigpenBody(w: number, d: number): BuildingModel {
   const b = new GeoBuilder();
   const rng = new RNG(31);
   const hw = w / 2 - 0.1, hd = d / 2 - 0.1, g0 = -0.1, g1 = 0.75, FH = 0.42;
@@ -1874,6 +1902,9 @@ export function pigpenModel(w: number, d: number): BuildingModel {
  * right (cleated ramp, nest boxes with eggs on its side), a roosting frame, grain feeders and a water dish.
  */
 export function chickenpenModel(w: number, d: number): BuildingModel {
+  return watered(() => chickenpenBody(w, d));
+}
+function chickenpenBody(w: number, d: number): BuildingModel {
   const b = new GeoBuilder();
   const rng = new RNG(47);
   const hw = w / 2 - 0.1, hd = d / 2 - 0.1, gate = 0.42, FH = 0.4;
@@ -1970,7 +2001,7 @@ export function chickenpenModel(w: number, d: number): BuildingModel {
   for (const s of [-1, 1]) b.add(P.box(0.02, 0.06, 0.8), { color: K.timber }, M.t(tx + s * 0.07, 0.12, tz));
   b.add(P.box(0.11, 0.012, 0.76), { color: PEN.grain }, M.t(tx, 0.115, tz));
   b.add(P.cyl(0.16, 0.12, 0.06, 10), { color: K.terracotta }, M.t(-hw + 0.45, 0.03, 1.55));
-  b.add(P.cyl(0.14, 0.14, 0.01, 10), { color: PEN.water }, M.t(-hw + 0.45, 0.058, 1.55));
+  addPool({ x: -hw + 0.45, y: 0.064, z: 1.55, w: 0.27, d: 0.27, round: true, depth: 0.2 });
   // Scattered grain round the feeders.
   for (let k = 0; k < 10; k++) b.add(P.box(0.02, 0.01, 0.02), { color: PEN.grain }, M.t(rng.range(-0.6, 1.4), 0.025, rng.range(0, 1.3), 0, rng.range(0, 3), 0));
   return { finished: b.build(), torches: [], height: 1.2 };
@@ -3597,23 +3628,87 @@ const PAL = {
   redDeep: c(0x8e2a22),
   turquoise: c(0x227f80),
   gold: c(0xc8a451),
-  water: c(0x2f8a92),
   plume: c(0x1f8a5a),
   plumeLight: c(0x3fb36e),
 };
 
+export function palaceModel(): BuildingModel {
+  return watered(palaceBody);
+}
+
+/** A tree from the island's own woods (see vegetation/models), standing still in a building. */
+function gardenTree(b: GeoBuilder, variant: number, x: number, y: number, z: number, s: number, seed: number, ry = 0): void {
+  const g = treeGeometry(variant, false, seed);
+  b.addBuilt(g, M.t(x, y, z, 0, ry, 0, s, s, s));
+  g.dispose();
+}
+
+/** A palm from the island's own beaches, standing still in a building. */
+function gardenPalm(b: GeoBuilder, variant: number, x: number, y: number, z: number, s: number, seed: number, ry = 0): void {
+  const g = palmGeometry(variant, false, seed);
+  b.addBuilt(g, M.t(x, y, z, 0, ry, 0, s, s, s));
+  g.dispose();
+}
+
+/** A fern from the island's forest floor, standing still in a building. */
+function gardenFern(b: GeoBuilder, x: number, y: number, z: number, s: number, seed: number): void {
+  const g = fernGeometry(false, seed);
+  b.addBuilt(g, M.t(x, y, z, 0, seed, 0, s, s, s));
+  g.dispose();
+}
+
+/** A big painted clay pot (round belly, a cream band with red marks, a rolled lip, soil), its top at y + 0.33·s (returned). */
+function palacePot(b: GeoBuilder, x: number, y: number, z: number, s: number): number {
+  const prof = [[0.001, 0], [0.11, 0], [0.15, 0.05], [0.17, 0.15], [0.15, 0.25], [0.12, 0.29], [0.145, 0.31], [0.145, 0.33], [0.125, 0.33]];
+  const pot = new THREE.LatheGeometry(prof.map(([r, h]) => new THREE.Vector2(r * s, h * s)), 10);
+  b.add(pot, { color: (p, n) => {
+    const h = (p.y - y) / s;
+    if (h > 0.14 && h < 0.2) return (Math.floor(((Math.atan2(p.z - z, p.x - x) + Math.PI) / (Math.PI * 2)) * 10) % 2 ? PAL.plaster : PAL.red).clone();
+    return c(0xb05a38).multiplyScalar(n.y < -0.3 ? 0.8 : 1);
+  } }, M.t(x, y, z));
+  b.add(P.cyl(0.125 * s, 0.125 * s, 0.01, 10), { color: c(0x4a3624) }, M.t(x, y + 0.31 * s, z));
+  return y + 0.315 * s;
+}
+
+/** A clump of papyrus: slim stems, each crowned with a starburst of thread-fine leaves. */
+function papyrus(b: GeoBuilder, x: number, y: number, z: number, h: number, rng: RNG): void {
+  const q = new THREE.Quaternion(), zz = new THREE.Vector3(0, 0, 1), d = new THREE.Vector3();
+  for (let k = 0; k < 5; k++) {
+    const a = rng.range(0, Math.PI * 2), lean = rng.range(0.08, 0.26), hh = h * rng.range(0.7, 1);
+    const top = new THREE.Vector3(x + Math.cos(a) * lean * hh, y + hh, z + Math.sin(a) * lean * hh);
+    const mid = new THREE.Vector3(x + Math.cos(a) * lean * hh * 0.35, y + hh * 0.5, z + Math.sin(a) * lean * hh * 0.35);
+    b.add(tube([new THREE.Vector3(x, y, z), mid, top], () => 0.006, 3, 3), { color: c(0x5f8f3a) });
+    for (let j = 0; j < 11; j++) {
+      const t = (j / 11) * Math.PI * 2 + rng.range(-0.2, 0.2);
+      d.set(Math.cos(t), rng.range(0.15, 0.7), Math.sin(t)).normalize();
+      q.setFromUnitVectors(zz, d);
+      b.add(leafGeometry(0.13 * h, 0.01, 0.2), { color: c(0x6fa83c).lerp(c(0xa9c45a), rng.next() * 0.6), leaf: 1 }, new THREE.Matrix4().compose(top, q, new THREE.Vector3(1, 1, 1)));
+    }
+  }
+}
+
+/** A lily pad (a notch cut from it) floating at y, and now and then a flower on it. */
+function lilyPad(b: GeoBuilder, x: number, y: number, z: number, r: number, rng: RNG, flower: false | PetalColour): void {
+  // (Not a leaf: it rides the building's hand-made wander with the water it floats on.)
+  b.add(new THREE.CircleGeometry(r, 9, 0.35, 5.9).rotateX(-Math.PI / 2), { color: vary(rng, c(0x4f8f3e), 0.14) }, M.t(x, y, z, 0, rng.range(0, 6.28), 0));
+  if (flower) bloomAt(b, new THREE.Vector3(x + r * 0.2, y + 0.015, z), r * 0.55, flower, rng, 8, 0.28, 0);
+}
+
 /**
  * Tlatoani's Palace: the ruler's house, a raised palace round an open courtyard, twice the Great
- * Hall's size (14 × 14). A two-tiered sandstone platform (sloping talud under upright tablero
- * panels picked out in red) carries it, climbed by a grand central stair between balustrades
- * that end in feathered-serpent heads. Across the front runs a portico of red-and-cream columns
- * under a frieze of golden stepped frets, with a taller entrance pavilion bearing a sun disc; side
- * ranges of rooms enclose a garden courtyard with a pool and fountain; the throne hall at the back
- * rises a second storey to a crest with a great golden sun and quetzal-feather fans. Stepped
- * merlons line every roof. In the plaza before it lie two lily pools, braziers and banners.
- * Built in four phases (platform, stair and plaza, halls, roofs and gardens), like the Great Temple.
+ * Hall's size (14 × 14). A stepped sandstone platform (a plinth, then two tiers of sloping talud
+ * under upright tablero panels picked out in red with jade-and-gold discs) carries it, climbed by a
+ * grand central stair between feathered-serpent balustrades, their scaled bodies running down to
+ * great open-jawed heads. Across the front runs a portico of round red-and-cream columns under a
+ * frieze of golden stepped frets, with a taller entrance pavilion; side ranges of rooms enclose a
+ * garden courtyard round a stone-rimmed lily pond, a gold-bowled fountain playing in its middle and
+ * serpent spouts at its corners, with flowering trees, palms in painted pots and flower beds, vines
+ * and bougainvillea spilling over the walls. The throne hall at the back rises a second storey to a
+ * stepped roof comb with a great golden sun and quetzal-feather fans. Stepped merlons line every
+ * roof. In the plaza before it lie two lily ponds with papyrus, reeds and little fountains, braziers
+ * and banners. Built in four phases (platform, stair and plaza, halls, roofs and gardens).
  */
-export function palaceModel(): BuildingModel {
+function palaceBody(): BuildingModel {
   const b = new GeoBuilder();
   const rng = new RNG(1414);
   const torches: THREE.Vector3[] = [];
@@ -3623,20 +3718,24 @@ export function palaceModel(): BuildingModel {
   const H = PALACE.h, CZ = PALACE.cz, TW = PALACE.topW, TD = PALACE.topD;
   const top = { x0: -TW / 2, x1: TW / 2, z0: CZ - TD / 2, z1: CZ + TD / 2 };
 
-  // ---- Phase 1: the paved plaza and the two-tiered platform ----
+  // ---- Phase 1: the paved plaza and the stepped platform ----
   b.add(P.box(13.9, 0.012, 13.9), { color: c(0x9c917f) }, M.t(0, 0.056, 0));
   const pave = (i: number, j: number) => c(0xcfc5b3).lerp(c(0xa39683), ((i * 7 + j * 13) % 5) / 6 + rng.range(0, 0.15));
   const pools = PALACE.pools;
   slabs(b, -6.95, -6.95, 20, 20, 13.9 / 20, 0.064, 0.028, pave, (x, z) =>
     (Math.abs(x) < 6.0 && z > CZ - 5.35 && z < CZ + 5.35) || (Math.abs(x) < 2.0 && z < PALACE.stairFoot + 0.2) ||
     pools.some((p) => Math.abs(x - p.x) < p.w / 2 + 0.25 && Math.abs(z - p.z) < p.d / 2 + 0.25));
-  // Lower tier: talud and tablero; upper tier set back on it.
-  const tier = (w: number, d: number, y: number, tal: number, tab: number, inset: number) => {
+  // A low plinth the whole platform stands on, its edge picked out with a dark course.
+  b.add(P.box(12.0, 0.08, 10.7), { color: masonry }, M.t(0, 0.09, CZ));
+  b.add(P.box(12.04, 0.025, 10.74), { color: S.sandDark.clone().multiplyScalar(0.85) }, M.t(0, 0.1, CZ));
+  // Two tiers: talud and tablero, the upper set back on the lower.
+  const tier = (w: number, d: number, y: number, tal: number, tab: number, inset: number, discs: boolean) => {
     b.add(frustumBox(w, d, w - inset * 2, d - inset * 2, tal), { color: masonry }, M.t(0, y + tal / 2, CZ));
     const tw = w - inset * 2, td = d - inset * 2, ty = y + tal;
     b.add(P.box(tw, tab, td), { color: S.sand }, M.t(0, ty + tab / 2, CZ));
     b.add(P.box(tw + 0.08, 0.05, td + 0.08), { color: S.sandDark }, M.t(0, ty + tab + 0.025, CZ));
-    // Recessed red panels framed in cream along each tablero (kept clear of the stair).
+    // Recessed red panels framed in cream along each tablero (kept clear of the stair), a jade disc
+    // ringed in gold in the middle of each on the upper tier.
     for (let side = 0; side < 4; side++) {
       const ry = (side * Math.PI) / 2, along = side % 2 ? td : tw, out = side % 2 ? tw / 2 : td / 2;
       const n = Math.max(2, Math.round(along / 1.25));
@@ -3646,12 +3745,16 @@ export function palaceModel(): BuildingModel {
         const m = M.t(Math.sin(ry) * (out + 0.01), ty + tab / 2, CZ + Math.cos(ry) * (out + 0.01), 0, ry, 0).multiply(M.t(u, 0, 0));
         b.add(P.box(along / n - 0.2, tab * 0.62, 0.02), { color: S.plaster }, m);
         b.add(P.box(along / n - 0.34, tab * 0.38, 0.02), { color: S.red }, m.clone().multiply(M.t(0, 0, 0.012)));
+        if (discs) {
+          b.add(P.cyl(0.065, 0.065, 0.02, 10), { color: S.gold }, m.clone().multiply(M.t(0, 0, 0.03, Math.PI / 2, 0, 0)));
+          b.add(P.cyl(0.04, 0.04, 0.02, 8), { color: S.turquoise }, m.clone().multiply(M.t(0, 0, 0.036, Math.PI / 2, 0, 0)));
+        }
       }
     }
     return ty + tab + 0.05;
   };
-  const y1 = tier(11.7, 10.4, 0.07, 0.28, 0.3, 0.16);
-  tier(11.0, 9.7, y1, 0.18, 0.26, 0.1);
+  const y1 = tier(11.7, 10.4, 0.07, 0.28, 0.3, 0.16, false);
+  tier(11.0, 9.7, y1, 0.18, 0.26, 0.1, true);
   // The floor of the palace: cream plaster over the whole top, just proud of the coping (level with
   // it, the two flicker against each other).
   b.add(P.box(TW, 0.03, TD), { color: S.plaster }, M.t(0, H - 0.007, CZ));
@@ -3665,25 +3768,37 @@ export function palaceModel(): BuildingModel {
     b.add(P.box(half * 2, h - 0.025, run + 0.01), { color: S.red }, M.t(0, (h - 0.025) / 2, z));
     b.add(P.box(half * 2 + 0.02, 0.025, run + 0.02), { color: S.plaster }, M.t(0, h - 0.0045, z));
   }
-  // Balustrades (alfardas): sloping stone cheeks with a turquoise stripe, a serpent head at the foot.
+  // Balustrades (alfardas): the serpent's body as a sloping stone cheek, a turquoise back with gold
+  // and green feather scales down it, and the great head at the foot.
   const cheek = new THREE.ExtrudeGeometry(new THREE.Shape([
     new THREE.Vector2(front - 0.3, 0), new THREE.Vector2(foot + 0.05, 0), new THREE.Vector2(foot + 0.05, 0.2), new THREE.Vector2(front - 0.3, H + 0.22),
   ]), { depth: 0.36, bevelEnabled: false });
   const slope = Math.atan2(H + 0.02, foot - front + 0.35), slopeLen = Math.hypot(H + 0.02, foot - front + 0.35);
+  const z0s = front - 0.3, z1s = foot + 0.05;
   for (const sx of [-1, 1]) {
     const x = sx * (half + 0.18);
     b.add(cheek, { color: S.sandDark }, M.t(x + 0.18, 0, 0, 0, -Math.PI / 2, 0));
-    b.add(P.box(0.12, 0.02, slopeLen), { color: S.turquoise }, M.t(x, (H + 0.42) / 2 + 0.01, (front - 0.3 + foot + 0.05) / 2, slope, 0, 0));
-    // Feathered-serpent head: snout forward, jaws open on a red tongue, gold eyes, a turquoise crest.
-    const hz = foot + 0.2, hy = 0.2;
-    b.add(P.rbox(0.42, 0.3, 0.5, 0.06), { color: S.sand }, M.t(x, hy + 0.15, hz));
-    b.add(P.rbox(0.36, 0.1, 0.3, 0.03), { color: S.sandDark }, M.t(x, hy + 0.02, hz + 0.2));
-    b.add(P.box(0.08, 0.025, 0.18), { color: S.red }, M.t(x, hy + 0.08, hz + 0.32));
-    for (const ex of [-1, 1]) {
-      b.add(P.box(0.08, 0.07, 0.03), { color: S.gold }, M.t(x + ex * 0.13, hy + 0.24, hz + 0.25));
-      b.add(P.box(0.04, 0.12, 0.04), { color: S.plaster }, M.t(x + ex * 0.1, hy + 0.06, hz + 0.33));
+    b.add(P.box(0.12, 0.02, slopeLen), { color: S.turquoise }, M.t(x, (H + 0.42) / 2 + 0.01, (z0s + z1s) / 2, slope, 0, 0));
+    for (let k = 0; k < 8; k++) {
+      const t = (k + 0.6) / 8.6, z = z0s + (z1s - z0s) * t, y = H + 0.22 + (0.2 - H - 0.22) * t;
+      b.add(P.box(0.2, 0.035, 0.13), { color: k % 2 ? S.gold : S.plumeLight }, M.t(x, y + 0.03, z, slope, 0, 0));
+      b.add(P.box(0.24, 0.02, 0.05), { color: S.redDeep }, M.t(x, y - 0.04, z, slope, 0, 0));
     }
-    for (let k = 0; k < 5; k++) b.add(P.box(0.06, 0.16, 0.06), { color: k % 2 ? S.turquoise : S.plume }, M.t(x - 0.16 + k * 0.08, hy + 0.36, hz - 0.12, -0.5, 0, 0));
+    // Feathered-serpent head: snout forward, jaws open on a red tongue with white fangs, gold eyes
+    // under heavy brows, and a crest of quetzal feathers.
+    const hz = foot + 0.2, hy = 0.2, s = 1.2;
+    const at = (dx: number, dy: number, dz: number, rx = 0) => M.t(x + dx * s, hy + dy * s, hz + dz * s, rx, 0, 0);
+    b.add(P.rbox(0.42 * s, 0.3 * s, 0.5 * s, 0.06), { color: S.sand }, at(0, 0.15, 0));
+    b.add(P.rbox(0.36 * s, 0.1 * s, 0.32 * s, 0.03), { color: S.sandDark }, at(0, 0.02, 0.2));
+    b.add(P.box(0.24 * s, 0.07 * s, 0.2 * s), { color: S.redDeep }, at(0, 0.075, 0.22));
+    b.add(P.box(0.08 * s, 0.025 * s, 0.18 * s), { color: S.red }, at(0, 0.08, 0.33));
+    for (const ex of [-1, 1]) {
+      b.add(P.box(0.1 * s, 0.05 * s, 0.1 * s), { color: S.sandDark }, at(ex * 0.13, 0.31, 0.14));
+      b.add(P.box(0.08 * s, 0.07 * s, 0.03 * s), { color: S.gold }, at(ex * 0.13, 0.24, 0.25));
+      b.add(P.cone(0.025 * s, 0.1 * s, 4), { color: S.plaster }, at(ex * 0.1, 0.05, 0.33, Math.PI));
+      b.add(P.cyl(0.05 * s, 0.05 * s, 0.03 * s, 8), { color: S.turquoise }, at(ex * 0.22, 0.17, 0.05, 0).multiply(M.t(0, 0, 0, 0, 0, Math.PI / 2)));
+    }
+    for (let k = 0; k < 7; k++) b.add(P.box(0.06 * s, 0.22 * s, 0.03 * s), { color: k % 2 ? S.turquoise : S.plume }, at(-0.18 + k * 0.06, 0.4, -0.14 - Math.abs(k - 3) * 0.012, -0.55).multiply(M.t(0, 0, 0, 0, 0, (k - 3) * 0.12)));
   }
   // Braziers: at the stair head and on stone pedestals at its foot.
   const brazier = (x: number, y: number, z: number, s = 1) => {
@@ -3698,7 +3813,7 @@ export function palaceModel(): BuildingModel {
     brazier(sx * (half + 0.18), H, front - 0.15, 0.85);
     brazier(sx * 2.45, 0.07, foot + 0.15);
   }
-  /** A stone kerb round a pool (w × d inside), capped in a second colour. */
+  /** A stone kerb round a pond (w × d inside), capped in a second colour. */
   const rim = (x: number, y: number, z: number, w: number, d: number, h: number, col: THREE.Color, cap: THREE.Color) => {
     const t = 0.14;
     for (const s of [-1, 1]) {
@@ -3707,17 +3822,45 @@ export function palaceModel(): BuildingModel {
       b.add(P.box(w + 2 * t + 0.04, 0.035, t + 0.04), { color: cap }, M.t(x, y + h + 0.017, z + s * (d / 2 + t / 2)));
       b.add(P.box(t + 0.04, 0.035, d), { color: cap }, M.t(x + s * (w / 2 + t / 2), y + h + 0.017, z));
     }
-  };
-  // Lily pools either side of the approach: stone rims, still water, pads and pink blooms.
-  for (const p of pools) {
-    b.add(P.box(p.w, 0.11, p.d), { color: S.sandDark }, M.t(p.x, 0.055, p.z));
-    b.add(P.box(p.w, 0.02, p.d), { color: S.water }, M.t(p.x, 0.12, p.z));
-    rim(p.x, 0, p.z, p.w, p.d, 0.18, S.sandDark, S.plaster);
-    for (let k = 0; k < 9; k++) {
-      const px = p.x + rng.range(-p.w / 2 + 0.15, p.w / 2 - 0.15), pz = p.z + rng.range(-p.d / 2 + 0.15, p.d / 2 - 0.15);
-      b.add(P.cyl(0.11, 0.11, 0.008, 8), { color: c(0x3f8a34), leaf: 1 }, M.t(px, 0.135, pz));
-      if (k % 3 === 0) bloomAt(b, new THREE.Vector3(px + 0.04, 0.15, pz), 0.04, 'pink', rng, 8, 0.25, 0.1);
+    // Carved corner blocks, a gold disc on each.
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      const cx = x + sx * (w / 2 + t / 2), cz = z + sz * (d / 2 + t / 2);
+      b.add(P.box(t + 0.08, 0.07, t + 0.08), { color: cap }, M.t(cx, y + h + 0.07, cz));
+      b.add(P.cyl(0.045, 0.045, 0.02, 8), { color: S.gold }, M.t(cx, y + h + 0.11, cz));
     }
+  };
+  /**
+   * A lily pond: a dark floor, a stone kerb, its water (moving: see water.ts) with pads and flowers
+   * floating on it, papyrus at its back corners and reeds along one side. Leaves room round its
+   * middle (`clear`) for a fountain. Returns the water's height.
+   */
+  const pond = (x: number, z: number, w: number, d: number, y: number, h: number, kerb: THREE.Color, cap: THREE.Color, clear: number, pads: number, reeds: number) => {
+    b.add(P.box(w, 0.05, d), { color: c(0x22403c) }, M.t(x, y + 0.065, z));
+    rim(x, y, z, w, d, h, kerb, cap);
+    const wy = y + h - 0.045;
+    addPool({ x, y: wy, z, w, d, depth: 0.7 });
+    const colours: PetalColour[] = ['pink', 'white', 'pink', 'magenta'];
+    let placed = 0;
+    for (let tries = 0; tries < pads * 6 && placed < pads; tries++) {
+      const px = x + rng.range(-w / 2 + 0.12, w / 2 - 0.12), pz = z + rng.range(-d / 2 + 0.12, d / 2 - 0.12);
+      if (Math.hypot(px - x, pz - z) < clear) continue;
+      lilyPad(b, px, wy + 0.004 + (placed % 6) * 0.0045, pz, rng.range(0.07, 0.12), rng, placed % 3 === 0 && colours[placed % 4]);
+      placed++;
+    }
+    for (const sx of [-1, 1]) papyrus(b, x + sx * (w / 2 - 0.18), wy - 0.03, z - d / 2 + 0.18, 0.62, rng);
+    for (let k = 0; k < reeds; k++) {
+      const u = rng.range(-w / 2 + 0.35, w / 2 - 0.35), rz = z - d / 2 + 0.07;
+      for (let r = 0; r < 4; r++) b.add(P.cone(0.011, rng.range(0.22, 0.36), 3), { color: c(0x6f8f3a).lerp(c(0xb8a85a), rng.next() * 0.5), leaf: 1 }, M.t(x + u + rng.range(-0.04, 0.04), wy + 0.1, rz + rng.range(0, 0.05), rng.range(-0.15, 0.15), 0, rng.range(-0.15, 0.15)));
+    }
+    return wy;
+  };
+  // Lily ponds either side of the approach, each with a little fountain playing from a carved drum.
+  for (const p of pools) {
+    const wy = pond(p.x, p.z, p.w, p.d, 0.0, 0.2, S.sandDark, S.plaster, 0.42, 10, 3);
+    b.add(P.cyl(0.08, 0.12, 0.26, 8), { color: S.sand }, M.t(p.x, 0.06 + 0.13, p.z));
+    b.add(P.cyl(0.1, 0.1, 0.04, 8), { color: S.gold }, M.t(p.x, 0.25, p.z));
+    b.add(P.cyl(0.06, 0.08, 0.06, 8), { color: S.turquoise }, M.t(p.x, 0.3, p.z));
+    addJet({ kind: 'jet', x: p.x, y: 0.33, z: p.z, h: 0.42, r: 0.36, land: wy, strands: 6, t: 0.009 });
   }
   // Banner poles at the plaza's front corners.
   for (const sx of [-1, 1]) {
@@ -3756,15 +3899,19 @@ export function palaceModel(): BuildingModel {
     // Red dado round the foot.
     b.add(P.box(axis === 'x' ? to - from : T + 0.02, 0.16, axis === 'x' ? T + 0.02 : to - from), { color: S.redDeep }, axis === 'x' ? M.t((from + to) / 2, y + 0.08, at) : M.t(at, y + 0.08, (from + to) / 2));
   };
+  /** A round column: a square foot, a red shaft banded in gold, a cream upper shaft, a flared capital and abacus; its top at y + 0.3 + 0.86·h. */
   const column = (x: number, z: number, h: number, y = F) => {
-    b.add(P.box(0.4, 0.12, 0.4), { color: S.sandDark }, M.t(x, y + 0.06, z));
-    b.add(P.box(0.3, h * 0.42, 0.3), { color: S.red }, M.t(x, y + 0.12 + h * 0.21, z));
-    b.add(P.box(0.29, h * 0.5, 0.29), { color: S.plaster }, M.t(x, y + 0.12 + h * 0.42 + h * 0.25, z));
-    b.add(P.box(0.32, 0.04, 0.32), { color: S.gold }, M.t(x, y + 0.12 + h * 0.42, z));
-    b.add(P.box(0.42, 0.1, 0.42), { color: S.sand }, M.t(x, y + 0.12 + h * 0.92 + 0.05, z));
+    b.add(P.box(0.4, 0.1, 0.4), { color: S.sandDark }, M.t(x, y + 0.05, z));
+    b.add(P.cyl(0.19, 0.21, 0.06, 8), { color: S.sand }, M.t(x, y + 0.13, z));
+    b.add(P.cyl(0.15, 0.16, h * 0.4, 8), { color: S.red }, M.t(x, y + 0.16 + h * 0.2, z));
+    b.add(P.cyl(0.165, 0.165, 0.04, 8), { color: S.gold }, M.t(x, y + 0.16 + h * 0.4, z));
+    b.add(P.cyl(0.14, 0.15, h * 0.46, 8), { color: S.plaster }, M.t(x, y + 0.16 + h * 0.63, z));
+    b.add(P.cyl(0.155, 0.155, 0.03, 8), { color: S.redDeep }, M.t(x, y + 0.16 + h * 0.8, z));
+    b.add(P.cyl(0.21, 0.145, 0.08, 8), { color: S.sand }, M.t(x, y + 0.2 + h * 0.86, z));
+    b.add(P.box(0.44, 0.06, 0.44), { color: S.sand }, M.t(x, y + 0.27 + h * 0.86, z));
   };
   const C = PALACE.court;
-  // Front range: a portico of ten columns before a wall with three doorways into the courtyard.
+  // Front range: a portico of columns before a wall with three doorways into the courtyard.
   const porticoZ = top.z1 - 0.3, colH = WH - 0.12;
   wall('x', C.z1, top.x0 + 0.1, top.x1 - 0.1, WH, [-2.9, [0, 1.2, 1.12], 2.9], 0.6, 0.9);
   for (let k = 0; k < 10; k++) {
@@ -3775,13 +3922,22 @@ export function palaceModel(): BuildingModel {
   for (const x of [-0.75, 0.75]) column(x, porticoZ, colH);
   // Gold-and-red sun banners hung between the front columns.
   for (const x of [-3.06, -1.53, 1.53, 3.06]) sunBanner(b, M.t(x, F + 0.9, C.z1 + 0.1), 0.34, 0.66);
-  // Side ranges of rooms: outer and courtyard walls, doorways onto the court and windows out.
+  // Side ranges of rooms: outer and courtyard walls, doorways onto the court and windows out, each
+  // window with a flower box spilling bougainvillea.
   for (const sx of [-1, 1]) {
     wall('z', sx * (top.x1 - 0.12), C.z0 - 0.05, C.z1, WH, [], 0, 0);
     wall('z', sx * C.x1, C.z0, C.z1, WH, [C.z0 + 1.2, C.z1 - 1.4], 0.55, 0.85);
     for (const z of [C.z0 + 0.4, C.z1 - 2.2]) {
       b.add(P.box(0.03, 0.22, 0.4), { color: K.door }, M.t(sx * (top.x1 - 0.12 + 0.08 * 1), F + 0.95, z));
       b.add(P.box(0.06, 0.04, 0.5), { color: S.sand }, M.t(sx * (top.x1 - 0.12 + 0.09), F + 0.82, z));
+      const bx = sx * (top.x1 + 0.03);
+      b.add(P.box(0.1, 0.09, 0.46), { color: S.red }, M.t(bx, F + 0.75, z));
+      b.add(P.box(0.11, 0.02, 0.47), { color: S.gold }, M.t(bx, F + 0.79, z));
+      for (let k = 0; k < 5; k++) {
+        const fz = z - 0.18 + k * 0.09;
+        bloomAt(b, new THREE.Vector3(bx + sx * rng.range(0.0, 0.04), F + 0.82, fz), 0.04, k % 2 ? 'magenta' : 'pink', rng, 5, 0.5, 0);
+        if (k % 2 === 0) hangingVine(b, new THREE.Vector3(bx + sx * 0.05, F + 0.76, fz), rng.range(0.25, 0.45), rng, c(0x4c702f), c(0x5f9a3a));
+      }
     }
     wall('x', C.z0 - 0.05, sx > 0 ? C.x1 : top.x0 + 0.1, sx > 0 ? top.x1 - 0.1 : -C.x1, WH, [], 0, 0);
   }
@@ -3789,8 +3945,9 @@ export function palaceModel(): BuildingModel {
   const HB = PALACE.hall;
   wall('x', top.z0 + 0.12, top.x0 + 0.1, top.x1 - 0.1, HB.h, [], 0, 0);
   for (const sx of [-1, 1]) wall('z', sx * (top.x1 - 0.12), top.z0 + 0.12, C.z0 - 0.05, HB.h, [], 0, 0);
-  for (const x of [-4.4, -2.65, -0.9, 0.9, 2.65, 4.4]) column(x, C.z0 - 0.2, HB.h - 0.12);
-  // Dais and throne: stepped platform, a woven seat under a jaguar-skin throw, a tall gold back.
+  for (const x of [-4.4, -2.65, -0.9, 0.9, 2.65, 4.4]) column(x, C.z0 - 0.2, (HB.h - 0.3) / 0.86);
+  // Dais and throne: stepped platform, a woven seat under a jaguar-skin throw, a tall gold back
+  // between two fans of quetzal feathers.
   const tz = top.z0 + 0.75;
   b.add(P.box(2.4, 0.12, 1.2), { color: S.sandDark }, M.t(0, F + 0.06, tz + 0.2));
   b.add(P.box(1.6, 0.12, 0.9), { color: S.sand }, M.t(0, F + 0.18, tz + 0.1));
@@ -3800,16 +3957,35 @@ export function palaceModel(): BuildingModel {
   b.add(P.box(0.86, 1.05, 0.08), { color: S.gold }, M.t(0, F + 0.8, tz - 0.17));
   b.add(P.box(0.62, 0.8, 0.09), { color: S.red }, M.t(0, F + 0.82, tz - 0.17));
   b.add(P.cyl(0.18, 0.18, 0.02, 14), { color: S.gold }, M.t(0, F + 0.95, tz - 0.11, Math.PI / 2, 0, 0));
+  for (const sx of [-1, 1]) plumes(b, sx * 0.62, F + 0.3, tz - 0.12, 1.1);
   // Wall hangings behind the throne.
   for (const x of [-1.6, 1.6]) sunBanner(b, M.t(x, F + 1.1, top.z0 + 0.21), 0.42, 0.9);
-  // Courtyard: chequered floor, a pool with a fountain, planted corners.
+  // Courtyard: a chequered floor round a stone-rimmed lily pond, its fountain playing from a gold
+  // bowl on a carved pedestal and four serpent heads spouting into it from the corners.
   slabs(b, C.x0, C.z0 + 0.12, 10, 7, 0.7, F, 0.02, (i, j) => ((i + j) % 2 ? S.plasterShade.clone() : c(0xe2bd86)), (x, z) => Math.abs(x) < 1.35 && Math.abs(z - PALACE.pool.z) < 0.95);
   const PO = PALACE.pool;
-  b.add(P.box(PO.w, 0.02, PO.d), { color: S.water }, M.t(0, F + 0.07, PO.z));
-  rim(0, F, PO.z, PO.w, PO.d, 0.15, S.sand, S.turquoise);
-  b.add(P.cyl(0.18, 0.24, 0.3, 8), { color: S.sand }, M.t(0, F + 0.25, PO.z));
-  b.add(P.cyl(0.3, 0.14, 0.1, 10), { color: S.gold }, M.t(0, F + 0.44, PO.z));
-  b.add(P.cyl(0.26, 0.26, 0.012, 10), { color: S.water }, M.t(0, F + 0.49, PO.z));
+  const cwy = pond(0, PO.z, PO.w, PO.d, F, 0.22, S.sandDark, S.plaster, 0.62, 7, 0);
+  b.add(P.cyl(0.34, 0.36, 0.12, 12), { color: S.sandDark }, M.t(0, F + 0.06, PO.z));
+  b.add(P.cyl(0.26, 0.28, 0.12, 12), { color: S.sand }, M.t(0, F + 0.18, PO.z));
+  b.add(P.cyl(0.09, 0.12, 0.34, 8), { color: S.plaster }, M.t(0, F + 0.41, PO.z));
+  b.add(P.cyl(0.13, 0.13, 0.04, 8), { color: S.gold }, M.t(0, F + 0.4, PO.z));
+  const bowlY = F + 0.67;
+  b.add(P.cyl(0.38, 0.15, 0.12, 14, true), { color: S.gold }, M.t(0, bowlY - 0.06, PO.z));
+  b.add(P.cyl(0.15, 0.15, 0.01, 12), { color: S.gold }, M.t(0, bowlY - 0.115, PO.z));
+  b.add(P.cyl(0.25, 0.25, 0.01, 12), { color: c(0x1d4a52) }, M.t(0, bowlY - 0.05, PO.z));
+  b.add(P.torus(0.38, 0.014, 4, 18), { color: S.turquoise }, M.t(0, bowlY, PO.z, Math.PI / 2, 0, 0));
+  addPool({ x: 0, y: bowlY - 0.008, z: PO.z, w: 0.72, d: 0.72, round: true, depth: 0.4 });
+  addJet({ kind: 'bowl', x: 0, y: bowlY, z: PO.z, r: 0.38, h: 0.5, land: cwy, t: 0.013 });
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    const cx = sx * (PO.w / 2 + 0.07), cz = PO.z + sz * (PO.d / 2 + 0.07), ry = Math.atan2(-sx * PO.w, -sz * PO.d);
+    const hy = F + 0.22 + 0.135;
+    b.add(P.rbox(0.13, 0.11, 0.17, 0.03), { color: S.sand }, M.t(cx, hy + 0.05, cz, 0, ry, 0));
+    b.add(P.box(0.06, 0.03, 0.08), { color: S.redDeep }, M.t(cx, hy + 0.02, cz, 0, ry, 0).multiply(M.t(0, 0, 0.07)));
+    for (const ex of [-1, 1]) b.add(P.box(0.03, 0.03, 0.02), { color: S.gold }, M.t(cx, hy + 0.08, cz, 0, ry, 0).multiply(M.t(ex * 0.045, 0, 0.08)));
+    b.add(P.box(0.15, 0.03, 0.06), { color: S.plumeLight }, M.t(cx, hy + 0.12, cz, 0, ry, 0).multiply(M.t(0, 0, -0.05, -0.4, 0, 0)));
+    addJet({ kind: 'spout', x: cx + Math.sin(ry) * 0.1, y: hy + 0.02, z: cz + Math.cos(ry) * 0.1, ry, r: 0.32, h: 0.06, land: cwy, t: 0.008 });
+  }
+  for (const sx of [-1, 1]) papyrus(b, sx * (PO.w / 2 - 0.15), cwy - 0.03, PO.z + 0.05, 0.5, rng);
   phases.push(b.indexCount);
 
   // ---- Phase 4: roofs, frieze, merlons, crest, plumes and gardens ----
@@ -3859,14 +4035,14 @@ export function palaceModel(): BuildingModel {
       b.add(P.box(0.46, 0.05, 0.06), { color: S.sand }, M.t(x, F + 1.3, top.z0 + 0.02));
     }
   }
-  /** Stepped merlons (almenas) along a roof edge, from (x0, z0) to (x1, z1). */
+  /** Stepped merlons (almenas) along a roof edge, from (x0, z0) to (x1, z1), each tipped in gold. */
   const merlons = (x0: number, z0: number, x1: number, z1: number, y: number) => {
     const len = Math.hypot(x1 - x0, z1 - z0), n = Math.max(2, Math.round(len / 0.48)), ry = Math.atan2(x1 - x0, z1 - z0) - Math.PI / 2;
     for (let k = 0; k <= n; k++) {
       const x = x0 + ((x1 - x0) * k) / n, z = z0 + ((z1 - z0) * k) / n;
       b.add(P.box(0.24, 0.12, 0.1), { color: S.plaster }, M.t(x, y + 0.06, z, 0, ry, 0));
       b.add(P.box(0.15, 0.11, 0.1), { color: S.plaster }, M.t(x, y + 0.175, z, 0, ry, 0));
-      b.add(P.box(0.07, 0.07, 0.11), { color: S.red }, M.t(x, y + 0.265, z, 0, ry, 0));
+      b.add(P.box(0.07, 0.07, 0.11), { color: k % 2 ? S.red : S.gold }, M.t(x, y + 0.265, z, 0, ry, 0));
     }
   };
   const ry0 = roofY + roofT;
@@ -3878,12 +4054,6 @@ export function palaceModel(): BuildingModel {
   const hy0 = hallY + roofT;
   merlons(top.x0 + 0.1, C.z0 - 0.1, top.x1 - 0.1, C.z0 - 0.1, hy0);
   merlons(top.x0 + 0.1, top.z0 + 0.1, top.x1 - 0.1, top.z0 + 0.1, hy0);
-  // Entrance pavilion over the portico's centre: a raised block with a sun disc and its own merlons.
-  const pv = { x: 1.45, z0: C.z1 - 0.1, z1: top.z1 - 0.05, y: ry0 };
-  b.add(P.box(pv.x * 2, 0.6, pv.z1 - pv.z0), { color: plasterWall }, M.t(0, pv.y + 0.3, (pv.z0 + pv.z1) / 2));
-  frieze(-pv.x, pv.x, pv.y + 0.3, pv.z1 + 0.005, 1, 0.3);
-  slab(-pv.x - 0.08, pv.x + 0.08, pv.z0 - 0.05, pv.z1 + 0.05, pv.y + 0.6, 0.12);
-  merlons(-pv.x, pv.z1, pv.x, pv.z1, pv.y + 0.72);
   const sun = (x: number, y: number, z: number, r: number) => {
     b.add(P.cyl(r, r, 0.04, 18), { color: S.gold }, M.t(x, y, z, Math.PI / 2, 0, 0));
     b.add(P.cyl(r * 0.62, r * 0.62, 0.05, 16), { color: S.turquoise }, M.t(x, y, z + 0.01, Math.PI / 2, 0, 0));
@@ -3893,7 +4063,15 @@ export function palaceModel(): BuildingModel {
       b.add(P.cone(r * 0.16, r * 0.42, 4), { color: S.gold }, M.t(x + Math.cos(a) * r * 1.18, y + Math.sin(a) * r * 1.18, z, 0, 0, a - Math.PI / 2));
     }
   };
-  // Throne hall's upper storey and roof crest with the great sun and feather fans.
+  // Entrance pavilion over the portico's centre: a raised block with a frieze, a small sun over the
+  // way in and its own merlons.
+  const pv = { x: 1.45, z0: C.z1 - 0.1, z1: top.z1 - 0.05, y: ry0 };
+  b.add(P.box(pv.x * 2, 0.6, pv.z1 - pv.z0), { color: plasterWall }, M.t(0, pv.y + 0.3, (pv.z0 + pv.z1) / 2));
+  frieze(-pv.x, pv.x, pv.y + 0.3, pv.z1 + 0.005, 1, 0.3);
+  slab(-pv.x - 0.08, pv.x + 0.08, pv.z0 - 0.05, pv.z1 + 0.05, pv.y + 0.6, 0.12);
+  merlons(-pv.x, pv.z1, pv.x, pv.z1, pv.y + 0.72);
+  sun(0, pv.y + 1.08, pv.z1 - 0.1, 0.17);
+  // Throne hall's upper storey and its stepped roof comb, crowned with the great sun and feather fans.
   const up = PALACE.upper;
   b.add(P.box(up.w, up.h, up.d), { color: plasterWall }, M.t(0, hy0 + up.h / 2, up.z));
   frieze(-up.w / 2, up.w / 2, hy0 + up.h - 0.18, up.z + up.d / 2 + 0.005, 1, 0.24);
@@ -3904,12 +4082,20 @@ export function palaceModel(): BuildingModel {
   slab(-up.w / 2 - 0.1, up.w / 2 + 0.1, up.z - up.d / 2 - 0.1, up.z + up.d / 2 + 0.1, hy0 + up.h, 0.14);
   const crestY = hy0 + up.h + 0.14;
   merlons(-up.w / 2, up.z + up.d / 2, up.w / 2, up.z + up.d / 2, crestY);
-  b.add(P.box(2.0, 0.9, 0.14), { color: S.red }, M.t(0, crestY + 0.45, up.z - 0.2));
-  b.add(P.box(2.1, 0.06, 0.18), { color: S.gold }, M.t(0, crestY + 0.93, up.z - 0.2));
-  sun(0, crestY + 0.52, up.z - 0.11, 0.3);
-  b.add(P.cyl(0.3, 0.3, 0.04, 18), { color: S.gold }, M.t(0, crestY + 0.52, up.z - 0.29, Math.PI / 2, 0, 0));
-  b.add(P.cyl(0.18, 0.18, 0.05, 14), { color: S.turquoise }, M.t(0, crestY + 0.52, up.z - 0.3, Math.PI / 2, 0, 0));
-  for (const sx of [-1, 1]) plumes(b, sx * 1.05, crestY + 0.96, up.z - 0.2, 1.0);
+  // The comb: three stepped red courses, each capped in gold, the lowest pierced with dark slots.
+  const combZ = up.z - 0.2;
+  [[2.5, 0.36], [1.95, 0.34], [1.35, 0.32]].reduce((y, [w, h], k) => {
+    b.add(P.box(w, h, 0.16 - k * 0.02), { color: k === 1 ? S.redDeep : S.red }, M.t(0, y + h / 2, combZ));
+    b.add(P.box(w + 0.08, 0.05, 0.2 - k * 0.02), { color: S.gold }, M.t(0, y + h + 0.025, combZ));
+    if (k === 0) for (const x of [-1.0, -0.7, 0.7, 1.0]) b.add(P.box(0.1, 0.2, 0.17), { color: K.door }, M.t(x, y + h / 2, combZ));
+    return y + h + 0.05;
+  }, crestY);
+  sun(0, crestY + 0.62, combZ + 0.11, 0.36);
+  b.add(P.cyl(0.36, 0.36, 0.04, 18), { color: S.gold }, M.t(0, crestY + 0.62, combZ - 0.1, Math.PI / 2, 0, 0));
+  b.add(P.cyl(0.22, 0.22, 0.05, 14), { color: S.turquoise }, M.t(0, crestY + 0.62, combZ - 0.11, Math.PI / 2, 0, 0));
+  const combTop = crestY + 0.36 + 0.34 + 0.32 + 0.14;
+  plumes(b, 0, combTop, combZ, 1.1);
+  for (const sx of [-1, 1]) plumes(b, sx * 1.42, crestY, combZ, 0.9);
   // Quetzal-feather standards at the four corners of the roof.
   for (const sx of [-1, 1]) for (const [z, y] of [[top.z1 - 0.3, ry0], [top.z0 + 0.3, hy0]] as const) {
     const x = sx * (top.x1 - 0.3);
@@ -3923,26 +4109,52 @@ export function palaceModel(): BuildingModel {
     brazier(sx * 2.3, ry0, top.z1 - 0.55, 0.7);
     brazier(sx * 3.6, hy0, C.z0 - 0.5, 0.7);
   }
-  // Courtyard garden: planters in the corners and potted palms along the walls.
-  const planter = (x: number, z: number, w: number, d: number, y: number, seed: number) => {
+  // Gardens. A raised bed of dark soil in a red-banded kerb, planted from the island's own plants.
+  const bed = (x: number, z: number, w: number, d: number, y: number) => {
     b.add(P.box(w, 0.22, d), { color: S.sand }, M.t(x, y + 0.11, z));
     b.add(P.box(w + 0.03, 0.05, d + 0.03), { color: S.red }, M.t(x, y + 0.245, z));
     b.add(P.box(w - 0.08, 0.02, d - 0.08), { color: c(0x4a3624) }, M.t(x, y + 0.266, z));
-    const long = Math.max(w, d), along = w >= d, n = Math.max(1, Math.round(long / 0.42));
-    for (let k = 0; k < n; k++) {
-      const u = -long / 2 + (long / n) * (k + 0.5);
-      const px = along ? x + u : x + rng.range(-0.04, 0.04), pz = along ? z + rng.range(-0.06, 0.06) : z + u;
-      if (k % 2) broadLeaf(b, px, y + 0.27, pz, 1.35 + rng.range(-0.2, 0.25), seed + k);
-      else fern(b, px, y + 0.27, pz, 1.25 + rng.range(-0.15, 0.25), seed + k);
-    }
-    blooms(b, x, y + 0.26, z, Math.round(long * 9), w / 2 - 0.08, d / 2 - 0.08, seed + 50);
+    return y + 0.276;
   };
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) planter(sx * (C.x1 - 0.55), sz > 0 ? C.z1 - 0.45 : C.z0 + 0.45, 0.8, 0.6, F, 600 + sx * 3 + sz);
+  const flowers = (x: number, y: number, z: number, n: number, sx: number, sz: number, colours: PetalColour[]) => {
+    for (let k = 0; k < n; k++) flowerOnStem(b, x + rng.range(-sx, sx), y, z + rng.range(-sz, sz), rng.range(0.1, 0.2), rng.range(0.04, 0.055), colours[k % colours.length], rng);
+  };
+  // Courtyard: flowering trees in the back corners, palms in the front ones, flower beds by the pond.
   for (const sx of [-1, 1]) {
-    planter(sx * 1.9, PO.z, 0.5, 1.2, F, 640 + sx);
-    // Long planters along the platform's flanks and beside the stair foot.
-    planter(sx * 6.28, CZ - 1.5, 0.5, 3.6, 0.07, 660 + sx);
-    planter(sx * 6.28, CZ + 2.8, 0.5, 1.6, 0.07, 670 + sx);
+    const bx = sx * (C.x1 - 0.55);
+    let y = bed(bx, C.z0 + 0.45, 0.8, 0.6, F);
+    gardenTree(b, 7, bx, y, C.z0 + 0.45, 0.52, 3 + sx, sx);
+    flowers(bx, y, C.z0 + 0.45, 6, 0.32, 0.22, ['pink', 'white', 'magenta']);
+    y = bed(bx, C.z1 - 0.45, 0.8, 0.6, F);
+    gardenPalm(b, 2, bx - sx * 0.12, y, C.z1 - 0.45, 0.34, 11 + sx, sx > 0 ? Math.PI : 0);
+    gardenFern(b, bx + sx * 0.2, y, C.z1 - 0.38, 0.55, 21 + sx);
+    flowers(bx, y, C.z1 - 0.45, 5, 0.32, 0.22, ['red', 'orange', 'yellow']);
+    y = bed(sx * 1.9, PO.z, 0.5, 1.2, F);
+    for (let k = 0; k < 5; k++) marigoldHead(b, new THREE.Vector3(sx * 1.9 + rng.range(-0.15, 0.15), y + 0.05, PO.z - 0.45 + k * 0.22), 0.05, rng, k % 2 === 1, 0);
+    flowers(sx * 1.9, y, PO.z, 6, 0.17, 0.5, ['red', 'white', 'purple']);
+    gardenFern(b, sx * 1.9, y, PO.z - 0.5, 0.45, 31 + sx);
+    gardenFern(b, sx * 1.9, y, PO.z + 0.5, 0.45, 33 + sx);
+    // Palms in painted pots flanking the way to the throne, and ferns in pots by the side doors.
+    gardenPalm(b, 0, sx * 1.75, palacePot(b, sx * 1.75, F + 0.02, C.z0 + 0.35, 1.3), C.z0 + 0.35, 0.3, 41 + sx, sx);
+    gardenFern(b, sx * 3.15, palacePot(b, sx * 3.15, F + 0.02, PO.z, 1.1), PO.z, 0.5, 45 + sx);
+    // Vines over the courtyard walls, and bougainvillea down the outer flanks.
+    for (let k = 0; k < 4; k++) {
+      const z = C.z0 + 0.5 + k * 1.35 + (k > 1 ? 0.2 : 0);
+      hangingVine(b, new THREE.Vector3(sx * (C.x1 - 0.1), roofY + 0.1, z), rng.range(0.45, 0.85), rng, c(0x4c702f), c(0x5f9a3a));
+      bloomAt(b, new THREE.Vector3(sx * (C.x1 - 0.12), roofY - 0.1, z + 0.08), 0.045, 'magenta', rng, 5, 0.6, 0);
+    }
+    for (let k = 0; k < 5; k++) {
+      const z = top.z0 + 0.6 + k * 1.9;
+      hangingVine(b, new THREE.Vector3(sx * (top.x1 + 0.07), (z < C.z0 ? hallY : roofY) + 0.12, z), rng.range(0.5, 0.95), rng, c(0x4c702f), c(0x5f9a3a));
+      bloomAt(b, new THREE.Vector3(sx * (top.x1 + 0.09), (z < C.z0 ? hallY : roofY) - 0.12, z), 0.05, 'pink', rng, 5, 0.6, 0);
+    }
+    // Long beds along the platform's flanks, with palms and flowers.
+    for (const [z, len] of [[CZ - 1.5, 3.6], [CZ + 2.8, 1.6]] as const) {
+      const yy = bed(sx * 6.28, z, 0.5, len, 0.07);
+      if (len > 2) gardenPalm(b, 1, sx * 6.28, yy, z - len / 2 + 0.4, 0.3, 51 + sx, sx > 0 ? Math.PI : 0);
+      flowers(sx * 6.28, yy, z, Math.round(len * 3.5), 0.17, len / 2 - 0.1, ['red', 'orange', 'yellow', 'pink']);
+      for (const f of len > 2 ? [0.1, 0.45] : [-0.3, 0.3]) gardenFern(b, sx * 6.28, yy, z + f * len, 0.5, 61 + Math.round(z * 7 + f * 10) + sx);
+    }
   }
   phases.push(b.indexCount);
   const finished = b.build();

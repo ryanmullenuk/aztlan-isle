@@ -1,11 +1,18 @@
 import type { World } from '../world/World';
 import type { Islander } from './Islander';
 import { SEA_SURFACE } from '../water/Water';
+import { freshWater } from '../ai/Bathing';
 
 /** What the hand has done to an islander: held, flying, swimming for shore, or picking themselves up. */
 export interface Flung {
   /** ('dead': struck down by the god, fallen where they stood until the village comes for the body.) */
-  mode: 'held' | 'air' | 'swim' | 'dazed' | 'dead';
+  mode: 'held' | 'air' | 'swim' | 'dazed' | 'dead' | 'bathe';
+  /** Bathing (see Bathing): swimming a stroke, or treading water. */
+  stroke?: boolean;
+  /** Bathing, wading in or out on foot where it is too shallow to swim. */
+  wade?: boolean;
+  /** The surface of the water being swum in (the sea's when not set). */
+  surface?: number;
   /** How the body hangs or tumbles: pitch and roll in its own frame (drawn by the rig). */
   rx: number;
   rz: number;
@@ -71,7 +78,7 @@ export class GodHand {
 
   /** Take hold of an islander; the hand starts over the point (x, z). */
   grab(isl: Islander, x: number, z: number): void {
-    if (this.held || isl.flung) return;
+    if (this.held || (isl.flung && isl.flung.mode !== 'bathe')) return;
     this.hooks.release(isl);
     isl.flung = { mode: 'held', rx: 0, rz: 0, vx: 0, vy: 0, vz: 0, t: 0, wx: 0, wz: 0 };
     isl.sleeping = false;
@@ -145,17 +152,22 @@ export class GodHand {
         isl.x = clamp(isl.x, -lim, lim); isl.z = clamp(isl.z, -lim, lim);
         const gy = this.ground(isl.x, isl.z);
         const cell = w.cellIndexAt(isl.x, isl.z), sea = gy < SEA_SURFACE - 0.25 && cell >= 0 && w.isSea(cell);
-        if (sea && isl.y <= SEA_SURFACE - 0.1) {
+        // Or a lake, a river pool or the pool under the waterfall, deep enough to swim in.
+        const fresh = sea ? null : freshWater(w, isl.x, isl.z), lake = !!fresh && fresh.depth > 0.3;
+        const top = lake ? fresh!.y : SEA_SURFACE;
+        if ((sea || lake) && isl.y <= top - 0.1) {
           this.hooks.splash?.(isl.x, isl.z, sp > 5);
           f.mode = 'swim'; f.t = 0; f.rx = 0; f.rz = 0; f.shore = this.nearestShore(isl.x, isl.z);
-        } else if (!sea && isl.y <= gy && f.vy <= 0) {
+          f.surface = lake ? top : undefined;
+        } else if (!sea && !lake && isl.y <= gy && f.vy <= 0) {
           isl.y = gy;
           f.mode = 'dazed'; f.t = 0; f.rz = 0;
         }
         continue;
       }
       if (f.mode === 'swim') {
-        isl.y = SEA_SURFACE - 0.16 + Math.sin(f.t * 3.1) * 0.02;
+        const top = f.surface ?? SEA_SURFACE;
+        isl.y = top - 0.16 + Math.sin(f.t * 3.1) * 0.02;
         // (Head just clear, body along the surface: the rig plays a crawl.)
         f.rx = 0; f.rz = Math.sin(f.t * 2.4) * 0.12;
         const s = f.shore ?? (f.shore = this.nearestShore(isl.x, isl.z));
@@ -164,14 +176,15 @@ export class GodHand {
           isl.heading = Math.atan2(dx, dz);
           isl.x += (dx / d) * HAND.swimSpeed * dt; isl.z += (dz / d) * HAND.swimSpeed * dt;
         }
-        for (const sh of this.hooks.sharks()) if (Math.hypot(sh.x - isl.x, sh.z - isl.z) < HAND.sharkReach) { this.take(isl, 'shark'); break; }
+        // (No sharks or jellyfish in fresh water.)
+        if (f.surface === undefined) for (const sh of this.hooks.sharks()) if (Math.hypot(sh.x - isl.x, sh.z - isl.z) < HAND.sharkReach) { this.take(isl, 'shark'); break; }
         if (!isl.flung) continue;
-        for (const j of this.hooks.jellies()) if (Math.hypot(j.x - isl.x, j.z - isl.z) < (j.r ?? 0) * 0.6 + HAND.jellyReach) { this.take(isl, 'jellyfish'); break; }
+        if (f.surface === undefined) for (const j of this.hooks.jellies()) if (Math.hypot(j.x - isl.x, j.z - isl.z) < (j.r ?? 0) * 0.6 + HAND.jellyReach) { this.take(isl, 'jellyfish'); break; }
         if (!isl.flung) continue;
         const gy = this.ground(isl.x, isl.z);
         // Feet on the bottom in the shallows: wade on (rising out of the water) until on dry sand, then collapse.
-        if (gy > SEA_SURFACE - 0.3) isl.y = Math.max(gy, SEA_SURFACE - 0.3);
-        if (gy > SEA_SURFACE + 0.01) {
+        if (gy > top - 0.3) isl.y = Math.max(gy, top - 0.3);
+        if (gy > top + 0.01) {
           isl.y = gy;
           f.mode = 'dazed'; f.t = HAND.dazed * 0.45; f.shore = s ?? { x: isl.x, z: isl.z };
         }
@@ -181,7 +194,7 @@ export class GodHand {
       const lie = Math.min(1, f.t / 0.25), rise = Math.max(0, (f.t - (HAND.dazed - 0.5)) / 0.5);
       f.rx = (Math.PI / 2) * lie * (1 - Math.min(1, rise));
       f.rz = 0;
-      isl.y = Math.max(this.ground(isl.x, isl.z), SEA_SURFACE - 0.22);
+      isl.y = Math.max(this.ground(isl.x, isl.z), (f.surface ?? SEA_SURFACE) - 0.22);
       if (f.t >= HAND.dazed) {
         const swam = !!f.shore;
         isl.flung = undefined;

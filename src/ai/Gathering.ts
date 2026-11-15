@@ -61,7 +61,7 @@ export class Gathering {
     const taken = new Set(this.members.map((m) => m.id));
     const free = slots.filter((s) => !this.members.some((m) => m.x === s.x && m.z === s.z));
     const cand = this.colony.list
-      .filter((i) => !taken.has(i.id) && !i.child && !i.npc && !i.hidden && !i.sleeping && i.condition === 'well' && i.hunger > 0.3 && i.rest > 0.25 && !busy(i))
+      .filter((i) => !taken.has(i.id) && !i.child && !i.npc && !i.hidden && !i.sleeping && !i.flung && i.condition === 'well' && i.hunger > 0.3 && i.rest > 0.25 && !busy(i))
       .map((i) => ({ i, d: (i.x - this.cx) ** 2 + (i.z - this.cz) ** 2 }))
       .sort((a, b) => a.d - b.d);
     let sent = 0;

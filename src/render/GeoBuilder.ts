@@ -111,6 +111,34 @@ export class GeoBuilder {
     return this;
   }
 
+  /**
+   * Add a geometry another builder made (a tree, a palm, a flower), keeping its own colours and leaf
+   * flags. `rigid` drops its sway (for buildings, whose plants stand still).
+   */
+  addBuilt(src: THREE.BufferGeometry, matrix?: THREE.Matrix4, rigid = true): this {
+    const P = src.getAttribute('position'), N = src.getAttribute('normal'), C = src.getAttribute('color');
+    const V = src.getAttribute('aVeg'), A = src.getAttribute('aMat');
+    const base = this.pos.length / 3;
+    if (matrix) _m3.getNormalMatrix(matrix);
+    for (let i = 0; i < P.count; i++) {
+      _p.set(P.getX(i), P.getY(i), P.getZ(i));
+      _n.set(N ? N.getX(i) : 0, N ? N.getY(i) : 1, N ? N.getZ(i) : 0);
+      if (matrix) {
+        _p.applyMatrix4(matrix);
+        _n.applyMatrix3(_m3).normalize();
+      }
+      this.pos.push(_p.x, _p.y, _p.z);
+      this.nor.push(_n.x, _n.y, _n.z);
+      this.col.push(C ? C.getX(i) : 1, C ? C.getY(i) : 1, C ? C.getZ(i) : 1);
+      this.veg.push(rigid || !V ? 0 : V.getX(i), V ? V.getY(i) : 0);
+      this.mat.push(A ? A.getX(i) : 0);
+    }
+    const I = src.index;
+    const n = I ? I.count : P.count;
+    for (let i = 0; i < n; i++) this.idx.push(base + (I ? I.getX(i) : i));
+    return this;
+  }
+
   get vertexCount(): number {
     return this.pos.length / 3;
   }

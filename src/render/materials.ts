@@ -222,17 +222,12 @@ export function stylisedMaterial(): THREE.MeshStandardMaterial {
  * Fine detail fades out with camera distance and screen-space texel size to avoid moiré.
  * All tuning is in perceptual (≈sRGB) terms and converted to a linear multiplier at the end.
  */
-function patchBuilding(mat: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial {
-  const prev = mat.onBeforeCompile;
-  mat.onBeforeCompile = (shader, r) => {
-    prev.call(mat, shader, r);
-    shader.vertexShader = shader.vertexShader
-      .replace(
-        '#include <common>',
-        `#include <common>
-        varying vec3 vBldW;
-        varying vec3 vBldN;
-        varying float vBldBase;
+/**
+ * The hand-made wander of building walls (see patchBuilding): noise functions, and the shift of
+ * `transformed` (model-local, the building's own matrix in modelMatrix). Shared with anything
+ * drawn on a building apart from its model (its pools and fountains) so the two move as one.
+ */
+export const HANDMADE_NOISE_GLSL = /* glsl */ `
         float bvHash(vec3 p) {
           p = fract(p * 0.1031);
           p += dot(p, p.zyx + 31.32);
@@ -245,17 +240,8 @@ function patchBuilding(mat: THREE.MeshStandardMaterial): THREE.MeshStandardMater
             mix(mix(bvHash(i), bvHash(i + vec3(1, 0, 0)), u.x), mix(bvHash(i + vec3(0, 1, 0)), bvHash(i + vec3(1, 1, 0)), u.x), u.y),
             mix(mix(bvHash(i + vec3(0, 0, 1)), bvHash(i + vec3(1, 0, 1)), u.x), mix(bvHash(i + vec3(0, 1, 1)), bvHash(i + vec3(1, 1, 1)), u.x), u.y),
             u.z);
-        }`
-      )
-      .replace(
-        '#include <project_vertex>',
-        `#ifndef USE_INSTANCING
-        // Hand-built, not machined: walls lean a little this way and that, rooflines and parapets
-        // sag and hump, and long faces wander. A smooth field over the model's own coordinates (so
-        // touching parts move together and nothing cracks open), seeded by where the building
-        // stands, growing with height so the footings stay planted. Plants and anything that sways
-        // in the wind are left alone (so leaves stay on their stems).
-        if (aVeg.x == 0.0 && aVeg.y < 0.5) {
+        }`;
+export const HANDMADE_LEAN_GLSL = /* glsl */ `{
           vec3 bs = vec3(modelMatrix[3].x, 0.0, modelMatrix[3].z) * 0.37;
           float hgt = max(transformed.y, 0.0);
           float up = smoothstep(0.02, 0.45, hgt);
@@ -266,6 +252,31 @@ function patchBuilding(mat: THREE.MeshStandardMaterial): THREE.MeshStandardMater
           vec3 chip = vec3(bvNoise(lp * 6.1 + 1.7), bvNoise(lp * 6.1 + 12.9), bvNoise(lp * 6.1 - 7.3)) - 0.5;
           transformed.xz += lean * 0.07 * min(hgt, 3.0) + wav * 0.055 * up + chip.xz * 0.022 * up;
           transformed.y += (bvNoise(lp * 1.4 + 21.0) - 0.5) * 0.07 * up + chip.y * 0.016 * up;
+}`;
+
+function patchBuilding(mat: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial {
+  const prev = mat.onBeforeCompile;
+  mat.onBeforeCompile = (shader, r) => {
+    prev.call(mat, shader, r);
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        varying vec3 vBldW;
+        varying vec3 vBldN;
+        varying float vBldBase;
+        ${HANDMADE_NOISE_GLSL}`
+      )
+      .replace(
+        '#include <project_vertex>',
+        `#ifndef USE_INSTANCING
+        // Hand-built, not machined: walls lean a little this way and that, rooflines and parapets
+        // sag and hump, and long faces wander. A smooth field over the model's own coordinates (so
+        // touching parts move together and nothing cracks open), seeded by where the building
+        // stands, growing with height so the footings stay planted. Plants and anything that sways
+        // in the wind are left alone (so leaves stay on their stems).
+        if (aVeg.x == 0.0 && aVeg.y < 0.5) {
+          ${HANDMADE_LEAN_GLSL}
         }
         #endif
         #include <project_vertex>

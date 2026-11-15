@@ -95,6 +95,8 @@ import { SeasonGoals } from './economy/SeasonGoals';
 import { Raids } from './economy/Raids';
 import { Passings } from './economy/Passings';
 import { Devotion, DEVOTION } from './economy/Devotion';
+import { Bathing, BATHE, freshWater } from './ai/Bathing';
+import { BloodClouds } from './render/BloodCloud';
 import { AncestorNight } from './economy/AncestorNight';
 import { LanternNight } from './economy/LanternNight';
 import { MONKEY_BASE } from './entities/Monkeys';
@@ -295,6 +297,10 @@ export class Game {
   /** Lantern Night, once a year after the harvest. */
   lanternNight!: LanternNight;
   ancestors!: AncestorNight;
+  /** Islanders swimming for pleasure in the lakes and pools. */
+  bathing!: Bathing;
+  /** Red clouds in the water where sharks have taken someone. */
+  readonly blood = new BloodClouds();
   /** Fear or love: how the islanders see their god. */
   readonly devotion = new Devotion();
   private ancestorNightsSeen = 0;
@@ -599,6 +605,24 @@ export class Game {
     this.lanternNight = new LanternNight(this);
     this.scene.add(this.lanternNight.lanterns.points);
     this.ancestors = new AncestorNight(this);
+    this.scene.add(this.blood.group);
+    let swimNews = -Infinity;
+    this.bathing = new Bathing({
+      world: this.world,
+      people: () => this.colony.list,
+      walkTo: (isl, x, z) => this.colony.walkTo(isl, x, z),
+      fair: () => this.time.hour >= BATHE.hours[0] && this.time.hour < BATHE.hours[1] && this.time.seasonIndex !== 3 && this.powers.state === 'clear',
+      swam: (isl) => {
+        // Refreshed: happier, and the village is a little brighter for it.
+        isl.happy = Math.min(1, isl.happy + BATHE.happy);
+        this.colony.moodBoost += BATHE.mood;
+        isl.think = 0;
+        if (this.time.elapsed - swimNews > 240) {
+          swimNews = this.time.elapsed;
+          this.ui?.toast(`${isl.name} climbs out of the water after a swim, happier for it.`, 'info', { x: isl.x, z: isl.z });
+        }
+      },
+    }, () => this.rng.next());
     this.scene.add(this.ancestors.ghosts.group);
     const seaAngle = Math.atan2(this.world.seaDir.z, this.world.seaDir.x);
     this.lighting.eveningAzimuth = seaAngle + Math.PI;
@@ -694,9 +718,13 @@ export class Game {
         this.marine.splash(isl.x, isl.z, 14, 2.2, 0.4);
         if (this.selectedIslander === isl.id) this.select(null);
         this.devotion.shift(DEVOTION.drowned);
-        this.passings.take(isl, by === 'shark'
-          ? { kicker: 'Taken by a shark', line: `${isl.name} was thrown into the sea and taken by a shark before reaching the shore.` }
-          : { kicker: 'Stung by jellyfish', line: `${isl.name} was thrown into the sea among the jellyfish, and was stung and drowned before reaching the shore.` });
+        // A shark leaves nothing but a red cloud in the water: no body, no funeral.
+        if (by === 'shark') {
+          this.blood.spawn(isl.x, SEA_SURFACE, isl.z);
+          this.passings.lost(isl, { kicker: 'Taken by a shark', line: `${isl.name} was thrown into the sea and taken by a shark before reaching the shore.` });
+          return;
+        }
+        this.passings.take(isl, { kicker: 'Stung by jellyfish', line: `${isl.name} was thrown into the sea among the jellyfish, and was stung and drowned before reaching the shore.` });
       },
       freed: (isl, swam) => {
         // Shaken, not hurt: a knock to their happiness, and the village has seen what you can do.
@@ -2865,7 +2893,7 @@ export class Game {
   private grabbable(sx: number, sy: number): Islander | null {
     if (this.photoMode || this.placing || this.moving || this.awaitingFire || this.introFollow || this.explorer?.active || this.wildlifeView?.active || this.hand.held) return null;
     const isl = this.colony.pick(this.rig.camera, sx, sy, this.canvas.getBoundingClientRect());
-    return isl && !isl.hidden && !isl.flung && !isl.npc ? isl : null;
+    return isl && !isl.hidden && (!isl.flung || isl.flung.mode === 'bathe') && !isl.npc ? isl : null;
   }
 
   private grabStart(sx: number, sy: number): void {
@@ -2897,7 +2925,7 @@ export class Game {
    * first is mourned with a funeral; the rest are laid straight into graves, with one word for all.
    */
   smiteAll(people: Islander[]): void {
-    const doomed = people.filter((p) => !p.flung && !p.hidden && !p.npc && this.colony.list.includes(p));
+    const doomed = people.filter((p) => (!p.flung || p.flung.mode === 'bathe') && !p.hidden && !p.npc && this.colony.list.includes(p));
     if (!doomed.length) return;
     const camera = this.rig.camera;
     doomed.forEach((p, k) => {
@@ -2934,7 +2962,8 @@ export class Game {
         const u = Math.min(1, s.t / 0.55), fall = u * u * (3 - 2 * u), settle = s.t > 0.55 ? Math.exp(-(s.t - 0.55) * 7) * Math.sin((s.t - 0.55) * 22) * 0.06 : 0;
         f.rx = Math.sign(f.wx) * (Math.PI / 2) * fall * (1 + settle);
         f.rz = (f.wx - Math.sign(f.wx)) * 0.5 * fall;
-        p.y = this.world.groundY(p.x, p.z) + 0.03 * fall;
+        // (A swimmer struck down floats at the surface.)
+        p.y = Math.max(this.world.groundY(p.x, p.z) + 0.03 * fall, (freshWater(this.world, p.x, p.z)?.y ?? -Infinity) - 0.05);
       }
     }
     while (this.struck.length && this.struck[0].t >= 2.2) {
@@ -3583,6 +3612,7 @@ export class Game {
     this.fireworks.update(realDt, this.rig.camera, this.renderer.domElement.height, ls.night);
     this.lanternNight.lanterns.update(realDt, this.renderer.domElement.height, ls.night);
     this.ancestors.ghosts.update(realDt, t);
+    this.blood.update(realDt);
 
     const ws = this.water.shared;
     ws.uSunDir.value.copy(ls.sunDir);
@@ -3675,6 +3705,7 @@ export class Game {
     this.passings.update(dt);
     this.lanternNight.update(dt);
     this.ancestors.update(dt);
+    this.bathing.update(dt);
     // A night with the ancestors wins the village's love.
     if (this.ancestors.held > this.ancestorNightsSeen) { if (this.ancestorNightsSeen || this.ancestors.held === 1) this.devotion.shift(DEVOTION.ancestors); this.ancestorNightsSeen = this.ancestors.held; }
     this.devotion.update(dt);

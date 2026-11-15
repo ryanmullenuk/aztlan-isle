@@ -27,7 +27,7 @@
         /* The whole screen from the first paint: not the app height the game measures later. */
         position: fixed; inset: 0; z-index: 10000; background: #000;
         display: grid; place-items: center; opacity: 1;
-        transition: opacity 900ms ease; touch-action: none;
+        transition: opacity 700ms ease; touch-action: none; will-change: opacity;
       }
       /* Redhead Games: "brain freeze to boom". The two halves of the brain fly in and collide, a
          shockwave rings out, then the name punches in and GAMES opens beneath it. */
@@ -42,7 +42,9 @@
       .rh-shock { position: absolute; left: 50%; top: 50%; width: 260%; aspect-ratio: 1; transform: translate(-50%, -50%); pointer-events: none; overflow: visible; z-index: -1; }
       .rh-shock circle { fill: none; stroke: var(--rh-red); transform-origin: 50% 50%; transform-box: fill-box; opacity: 0; }
       .rh-glow { position: absolute; left: 50%; top: 50%; width: 150%; aspect-ratio: 1; transform: translate(-50%, -50%); border-radius: 50%; background: radial-gradient(circle, rgba(255,30,30,.55) 0%, rgba(255,30,30,0) 65%); opacity: 0; pointer-events: none; z-index: -1; }
-      .rh-word { margin-top: 3.3%; will-change: transform, opacity; }
+      .rh-word { margin-top: 3.3%; }
+      /* Each moving part on its own GPU layer, so the animation runs smoothly even while the phone is busy. */
+      .rh-half, .rh-brain, .rh-brain-wrap, .rh-glow, .rh-word, .rh-games, .rh-shock { will-change: transform, opacity; }
       .rh-games { width: 48.4%; margin: 1.7% auto 0; }
       .rh-logo.rh-play .rh-left { animation: rh-in-left .55s cubic-bezier(.55,0,1,.45) both; }
       .rh-logo.rh-play .rh-right { animation: rh-in-right .55s cubic-bezier(.55,0,1,.45) both; }
@@ -55,7 +57,7 @@
       .rh-logo.rh-play .rh-games { animation: rh-reveal .55s 1.3s cubic-bezier(.2,.8,.2,1) both; }
       @keyframes rh-in-left { from { transform: translateX(-140%) rotate(-18deg); opacity: 0 } 30% { opacity: 1 } to { transform: none; opacity: 1 } }
       @keyframes rh-in-right { from { transform: translateX(140%) rotate(18deg); opacity: 0 } 30% { opacity: 1 } to { transform: none; opacity: 1 } }
-      @keyframes rh-squash { 0% { transform: scale(1.12, .86) } 100% { transform: none } }
+      @keyframes rh-squash { 0% { transform: scale(1.05, .94) } 100% { transform: none } }
       @keyframes rh-shake { 0%, 100% { transform: none } 15% { transform: translate(-6px, 3px) rotate(-1.5deg) } 30% { transform: translate(5px, -4px) rotate(1.2deg) } 45% { transform: translate(-4px, 2px) } 60% { transform: translate(3px, -2px) } 80% { transform: translate(-1px, 1px) } }
       @keyframes rh-glow { 0% { opacity: 0; transform: translate(-50%, -50%) scale(.4) } 20% { opacity: 1 } 100% { opacity: 0; transform: translate(-50%, -50%) scale(1.2) } }
       @keyframes rh-ring { 0% { opacity: 1; transform: scale(.15); stroke-width: 14 } 100% { opacity: 0; transform: scale(1); stroke-width: 1 } }
@@ -163,16 +165,22 @@
           });
           return loaded.then(function () { return image.decode ? image.decode().catch(function () {}) : null; });
         }
+        // The game waits for this before its heavy start-up (shaping the island, compiling shaders),
+        // so nothing holds up the logo or its fade; it resolves once the logo has faded away.
+        var brandDone;
+        window.aztlanBrand = new Promise(function (resolve) { brandDone = resolve; });
         function remove() {
+          if (!splash.isConnected) return;
           splash.remove();
           document.documentElement.classList.remove('brand-open');
+          brandDone();
         }
         function fade() {
           if (started) return;
           started = true;
           splash.classList.add('leaving');
           splash.addEventListener('transitionend', remove, { once: true });
-          setTimeout(remove, 1000);
+          setTimeout(remove, 800);
         }
         // Keep this independent of game boot so a loading error never traps the player.
         Promise.all([
@@ -182,7 +190,8 @@
             return new Promise(function (resolve) { requestAnimationFrame(function () { requestAnimationFrame(resolve); }); });
           }).then(function () {
             mark.classList.add('rh-play');
-            return new Promise(function (resolve) { setTimeout(resolve, 2900); });
+            // It plays for about 1.9 s, then holds a moment.
+            return new Promise(function (resolve) { setTimeout(resolve, 2400); });
           }),
           ready(title)
         ]).then(fade);

@@ -241,6 +241,26 @@ export class Passings {
     else this.pass(isl, words);
   }
 
+  /**
+   * Lost without a body (taken by a shark): mourned and remembered among the ancestors, but there is
+   * nothing to carry, bury or burn.
+   */
+  lost(isl: Islander, words: { kicker: string; line: string }): void {
+    const g = this.game, c = g.colony;
+    this.remember(isl, words.kicker);
+    const spouse = isl.spouse !== undefined ? c.byId(isl.spouse) : undefined;
+    c.remove(isl);
+    c.moodBoost -= PASSING.grief;
+    if (spouse) spouse.happy = Math.max(0, spouse.happy - 0.3);
+    g.ui?.dialog.push({
+      icon: 'warn', kicker: words.kicker, important: true, art: 'death',
+      title: `Farewell, ${isl.name}`,
+      body: `${words.line} There is nothing left to bury.${spouse ? ` ${spouse.name} mourns them.` : ''}`,
+      actions: [{ label: 'OK' }],
+    });
+    g.audio?.sfx('select');
+  }
+
   /** The dead join the ancestors, with when and how they died. */
   private remember(isl: Islander, kicker?: string): void {
     const t = this.game.time;

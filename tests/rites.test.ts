@@ -183,3 +183,17 @@ test('the dead not yet burned are kept in the save: on the pyre, on the way, or 
   x.passings.restore({ graves: [] });
   assert.equal(x.passings.save().dead.length, 0);
 });
+
+test('taken by a shark: mourned and remembered, but no body, no funeral and no grave', async () => {
+  const v = await pyreVillage(6);
+  const remembered: string[] = [];
+  (v.passings as any).game.ancestors = { remember: (name: string) => remembered.push(name) };
+  const victim = v.people[0];
+  v.passings.lost(victim, { kicker: 'Taken by a shark', line: 'P0 was taken by a shark.' });
+  assert.ok(!v.people.includes(victim), 'still in the village');
+  assert.deepEqual(remembered, ['P0']);
+  for (let t = 0; t < 60; t++) v.passings.update(1);
+  assert.equal(v.passings.funeral, null, 'a funeral was held');
+  assert.equal(v.passings.graves.list.length, 0);
+  assert.equal(v.passings.save().dead.length, 0, 'a body was kept');
+});
